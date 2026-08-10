@@ -1,0 +1,3507 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>콕! — 솔로 파티 운영 앱</title>
+<style>
+  :root{
+    --bg:#0b0918;
+    --surface:rgba(255,255,255,.055);
+    --surface-2:rgba(255,255,255,.09);
+    --line:rgba(255,255,255,.11);
+    --text:#f4f1ff;
+    --muted:#a49fc0;
+    --pink:#ff4d8d;
+    --violet:#8b5cf6;
+    --gold:#ffd166;
+    --mint:#34d399;
+    --blue:#60a5fa;
+    --radius:18px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased;
+    font-family:"Pretendard","Pretendard Variable",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(900px 520px at 12% -8%, rgba(255,77,141,.22), transparent 60%),
+      radial-gradient(760px 480px at 92% 4%, rgba(139,92,246,.24), transparent 62%),
+      radial-gradient(700px 600px at 50% 105%, rgba(52,211,153,.10), transparent 60%);
+  }
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  input,select,textarea{font-family:inherit}
+
+  .protobar{
+    position:relative;z-index:5;display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+    padding:7px 12px;font-size:11.5px;
+    background:rgba(255,209,102,.10);border-bottom:1px solid rgba(255,209,102,.22);color:#ffd88a;
+  }
+  .protobar b{font-weight:700}
+  .protobar select{background:rgba(0,0,0,.35);color:#ffe6b0;border:1px solid rgba(255,209,102,.3);border-radius:8px;padding:4px 7px;font-size:11.5px;max-width:170px}
+  .protobar .pb-btn{background:rgba(255,209,102,.16);border:1px solid rgba(255,209,102,.3);color:#ffd88a;border-radius:8px;padding:4px 9px;font-size:11.5px;font-weight:600}
+  .protobar .pb-btn:hover{background:rgba(255,209,102,.26)}
+
+  .shell{position:relative;z-index:1;max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;transition:max-width .2s ease}
+  .shell.wide{max-width:min(1440px, 100%)}
+  .screen{flex:1;display:flex;flex-direction:column;padding:0 18px 110px}
+  .screen.no-nav{padding-bottom:32px}
+
+  h1,h2,h3{margin:0;letter-spacing:-.02em}
+  .eyebrow{font-size:11px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase;font-weight:700}
+  .muted{color:var(--muted)}
+  .tiny{font-size:11.5px}
+
+  .entry{flex:1;display:flex;flex-direction:column;justify-content:center;gap:24px;padding:40px 0}
+  .logo{font-size:60px;line-height:1;text-align:center;filter:drop-shadow(0 8px 26px rgba(255,77,141,.55));animation:bob 2.8s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-9px) rotate(6deg)}}
+  .entry h1{font-size:32px;text-align:center;line-height:1.22;font-weight:800}
+  .entry h1 em{font-style:normal;background:linear-gradient(100deg,var(--pink),var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .entry p{text-align:center;color:var(--muted);font-size:14px;line-height:1.65;margin:0}
+
+  .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:16px;border-radius:15px;font-size:15.5px;font-weight:700;transition:transform .12s ease,filter .15s ease,background .15s ease}
+  .btn:active{transform:scale(.975)}
+  .btn-primary{background:linear-gradient(100deg,var(--pink),var(--violet));color:#fff;box-shadow:0 12px 30px -12px rgba(255,77,141,.85)}
+  .btn-primary:hover{filter:brightness(1.08)}
+  .btn-ghost{background:var(--surface);border:1px solid var(--line);color:var(--text)}
+  .btn-ghost:hover{background:var(--surface-2)}
+  .btn-gold{background:linear-gradient(100deg,var(--gold),#fb923c);color:#3b2600}
+  .btn-sm{padding:9px 13px;border-radius:11px;font-size:13px;width:auto}
+  .btn:disabled{opacity:.42;cursor:not-allowed}
+  .btn-row{display:flex;gap:9px}
+  .btn-row .btn{width:auto;flex:1}
+
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 0 14px}
+  .topbar .who{display:flex;align-items:center;gap:10px;min-width:0}
+  .topbar .who .nm{font-weight:800;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .avatar{width:40px;height:40px;border-radius:13px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#fff}
+  .avatar.lg{width:66px;height:66px;border-radius:20px;font-size:26px}
+  .avatar.sm{width:32px;height:32px;border-radius:10px;font-size:13px}
+  .av-M{background:linear-gradient(140deg,#4f7cff,#8b5cf6)}
+  .av-F{background:linear-gradient(140deg,#ff4d8d,#ff8a5c)}
+
+  .strip{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:14px}
+  .strip .cell{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:11px 13px}
+  .strip .cell .k{font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.06em;margin-bottom:3px}
+  .strip .cell .v{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}
+  .strip .cell.hot .v{color:var(--pink)}
+  .strip .cell.time .v{color:var(--gold)}
+  .strip .cell.done{background:linear-gradient(100deg,rgba(255,77,141,.18),rgba(139,92,246,.18));border-color:rgba(255,77,141,.35)}
+
+  .sect{margin-bottom:20px}
+  .sect-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:11px;gap:10px}
+  .sect-head h2{font-size:16.5px;font-weight:800}
+
+  .segmented{display:flex;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:14px}
+  .segmented button{flex:1;padding:8px 4px;border-radius:9px;font-size:12.5px;font-weight:700;color:var(--muted)}
+  .segmented button.on{background:var(--surface-2);color:var(--text)}
+
+  .cards{display:flex;flex-direction:column;gap:10px}
+  .card{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:13px;transition:border-color .15s ease,background .15s ease}
+  .card:hover{background:var(--surface-2)}
+  .card.poked{border-color:rgba(255,77,141,.5);background:linear-gradient(100deg,rgba(255,77,141,.13),rgba(139,92,246,.08))}
+  .card .info{flex:1;min-width:0}
+  .card .info .l1{display:flex;align-items:center;gap:7px;margin-bottom:5px;flex-wrap:wrap}
+  .card .info .nm{font-weight:800;font-size:15.5px}
+
+  .charms{display:flex;flex-wrap:wrap;gap:4px}
+  .charm-line{
+    font-size:12px;color:#cfc9e8;line-height:1.45;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .charm-line.muted{color:var(--muted)}
+  .charm-input{position:relative;flex:1;min-width:0}
+  .charm-input .input{padding-right:52px}
+  .charm-cnt{
+    position:absolute;right:12px;top:50%;transform:translateY(-50%);
+    font-size:11px;font-weight:700;color:#6f6a8c;font-variant-numeric:tabular-nums;pointer-events:none;
+  }
+  .charm-cnt.near{color:var(--gold)}
+  .charm{font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:7px;background:rgba(255,255,255,.07);color:#cfc9e8;border:1px solid rgba(255,255,255,.07)}
+
+  .tag{font-size:10.5px;font-weight:800;padding:2.5px 7px;border-radius:7px}
+  .tag-NT{background:rgba(139,92,246,.2);color:#c4b5fd}
+  .tag-NF{background:rgba(52,211,153,.18);color:#6ee7b7}
+  .tag-SJ{background:rgba(96,165,250,.18);color:#93c5fd}
+  .tag-SP{background:rgba(251,191,36,.18);color:#fcd34d}
+
+  .poke-btn{flex:0 0 auto;min-width:46px;height:46px;padding:0 10px;border-radius:14px;background:var(--surface-2);border:1px solid var(--line);font-size:18px;display:flex;align-items:center;justify-content:center;gap:3px;transition:transform .12s ease}
+  .poke-btn:hover{background:rgba(255,77,141,.2)}
+  .poke-btn:active{transform:scale(.88)}
+  .poke-btn.on{background:linear-gradient(140deg,var(--pink),var(--violet));border-color:transparent;box-shadow:0 8px 20px -10px rgba(255,77,141,.9)}
+  .poke-btn .n{font-size:13px;font-weight:800}
+  .poke-btn.pop{animation:pop .45s ease}
+  @keyframes pop{0%{transform:scale(1)}35%{transform:scale(1.28) rotate(-10deg)}70%{transform:scale(.95)}100%{transform:scale(1)}}
+  .poke-btn:disabled{opacity:.3}
+
+  .stepper{display:flex;align-items:center;gap:12px;justify-content:center;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px}
+  .stepper button{width:42px;height:42px;border-radius:12px;background:var(--surface-2);font-size:20px;font-weight:800}
+  .stepper button:disabled{opacity:.3}
+  .stepper .n{font-size:22px;font-weight:800;min-width:52px;text-align:center;font-variant-numeric:tabular-nums}
+
+  .alert{display:flex;align-items:center;gap:12px;padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+  .alert .bell{width:44px;height:44px;border-radius:14px;flex:0 0 auto;background:linear-gradient(140deg,rgba(255,77,141,.28),rgba(139,92,246,.28));display:flex;align-items:center;justify-content:center;font-size:20px}
+  .alert.mutual{border-color:rgba(255,209,102,.5);background:linear-gradient(100deg,rgba(255,209,102,.14),rgba(255,77,141,.1))}
+  .alert.seat{border-color:rgba(52,211,153,.4);background:linear-gradient(100deg,rgba(52,211,153,.13),rgba(96,165,250,.1))}
+  .alert.seat .bell{background:linear-gradient(140deg,rgba(52,211,153,.3),rgba(96,165,250,.3))}
+
+  .empty{text-align:center;padding:44px 20px;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:var(--radius)}
+  .empty .ico{font-size:38px;margin-bottom:12px;opacity:.75}
+  .empty p{margin:0;font-size:13.5px;line-height:1.6}
+
+  .field{margin-bottom:15px}
+  .field label{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:7px}
+  .field label .req{color:var(--pink)}
+  .input{width:100%;padding:14px;border-radius:13px;font-size:15px;background:var(--surface);border:1px solid var(--line);color:var(--text);outline:none;transition:border-color .15s ease}
+  .input:focus{border-color:rgba(255,77,141,.6)}
+  .input::placeholder{color:#6f6a8c}
+  .input.sm{padding:11px 12px;font-size:14px}
+  select.input{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%23a49fc0' stroke-width='2' fill='none' stroke-linecap='round'/></svg>");background-repeat:no-repeat;background-position:right 14px center}
+  select.input option{background:#171233;color:#f4f1ff}
+  .input-at{display:flex;align-items:center;gap:2px;padding:0 14px;background:var(--surface);border:1px solid var(--line);border-radius:13px;transition:border-color .15s ease}
+  .input-at:focus-within{border-color:rgba(255,77,141,.6)}
+  .input-at span{color:var(--muted);font-size:15px;font-weight:700;flex:0 0 auto}
+  .input-at input{flex:1;min-width:0;padding:14px 0;font-size:15px;background:none;border:none;color:var(--text);outline:none}
+  .input-at input::placeholder{color:#6f6a8c}
+  .charm-row{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+  .charm-row .num{width:26px;height:26px;flex:0 0 auto;border-radius:9px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--muted)}
+  .choice{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .choice button{padding:14px;border-radius:13px;font-size:15px;font-weight:700;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+  .choice button.on{color:#fff;border-color:transparent}
+  .choice button.on[data-g="M"]{background:linear-gradient(140deg,#4f7cff,#8b5cf6)}
+  .choice button.on[data-g="F"]{background:linear-gradient(140deg,#ff4d8d,#ff8a5c)}
+  .axis{margin-bottom:11px}
+  .axis-q{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px}
+  .axis-opts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .axis-opts button{display:flex;align-items:center;gap:8px;padding:11px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);color:var(--muted);text-align:left}
+  .axis-opts button b{font-size:15px;font-weight:800;flex:0 0 auto}
+  .axis-opts button span{font-size:11.5px;font-weight:600;line-height:1.35}
+  .axis-opts button.on{background:linear-gradient(140deg,var(--violet),var(--pink));color:#fff;border-color:transparent}
+  .mbti-out{margin-top:12px;text-align:center;font-size:12.5px;color:var(--muted);font-weight:600}
+  .mbti-out b{display:inline-block;margin-left:6px;font-size:17px;font-weight:800;letter-spacing:.12em;color:var(--text)}
+  .err{color:#ff8fa8;font-size:12.5px;margin:-6px 0 12px}
+  .input.bad,.input-at.bad{border-color:#ff6b8a;background:rgba(255,77,141,.08)}
+  .field-err{display:flex;align-items:center;gap:5px;color:#ff8fa8;font-size:12px;font-weight:600;line-height:1.5;margin-top:7px;animation:shakeIn .3s ease}
+  .field-err::before{content:"⚠️";font-size:11px}
+  @keyframes shakeIn{0%{opacity:0;transform:translateX(-5px)}40%{transform:translateX(4px)}70%{transform:translateX(-2px)}100%{opacity:1;transform:translateX(0)}}
+
+  .nav{position:fixed;bottom:0;left:0;right:0;z-index:20;max-width:480px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);background:rgba(14,11,30,.9);backdrop-filter:blur(18px);border-top:1px solid var(--line);padding:9px 8px calc(9px + env(safe-area-inset-bottom))}
+  .nav button{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px;color:var(--muted);font-size:10.5px;font-weight:700;position:relative}
+  .nav button .ic{font-size:20px;line-height:1}
+  .nav button.on{color:var(--text)}
+  .nav .badge{position:absolute;top:2px;right:calc(50% - 20px);min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--pink);color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center}
+
+  .sheet-bg{position:fixed;inset:0;z-index:40;background:rgba(6,4,16,.72);backdrop-filter:blur(5px);display:flex;align-items:flex-end;justify-content:center;animation:fade .18s ease}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .sheet{width:100%;max-width:480px;background:#171233;border:1px solid var(--line);border-bottom:none;border-radius:24px 24px 0 0;padding:22px 20px calc(24px + env(safe-area-inset-bottom));animation:up .26s cubic-bezier(.2,.9,.3,1);max-height:88vh;overflow-y:auto}
+  @keyframes up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  .sheet .grab{width:38px;height:4px;border-radius:3px;background:var(--line);margin:0 auto 18px}
+
+  .host-row.tappable{cursor:pointer;transition:background .15s ease}
+  .host-row.tappable:hover{background:var(--surface-2)}
+  .kv{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:4px 14px}
+  .kv .r{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;font-size:12.5px;color:var(--muted)}
+  .kv .r + .r{border-top:1px solid rgba(255,255,255,.06)}
+  .kv .r b{color:var(--text);font-weight:700;text-align:right;word-break:break-all}
+  .use{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+  .use-top{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--muted)}
+  .use-top b{color:var(--text);font-weight:700;font-variant-numeric:tabular-nums}
+  .use-top em{font-style:normal;font-weight:800;font-size:15px}
+  .meter{height:8px;border-radius:5px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:8px}
+  .meter i{display:block;height:100%;border-radius:5px;transition:width .25s ease}
+  .poke-badge{flex:0 0 auto;font-size:12.5px;font-weight:800;padding:5px 9px;border-radius:9px;background:var(--surface-2);font-variant-numeric:tabular-nums}
+  .btn-danger{background:linear-gradient(100deg,#ff4d6d,#c026d3);color:#fff;box-shadow:0 12px 30px -12px rgba(255,77,109,.85)}
+
+  .code-input{text-align:center;letter-spacing:.34em;font-size:23px;font-weight:800;text-transform:uppercase;padding:17px 14px}
+  .code-input::placeholder{letter-spacing:.34em;color:#4a4568}
+  .proto-list{background:rgba(255,209,102,.07);border:1px solid rgba(255,209,102,.2);border-radius:14px;padding:10px 12px}
+  .proto-list summary{font-size:11.5px;font-weight:700;color:#ffd88a;cursor:pointer;list-style:none}
+  .proto-list summary::-webkit-details-marker{display:none}
+  .proto-list .ev-card{margin-top:10px;margin-bottom:0}
+
+  .pk-box{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:13px 14px}
+  .pk-top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+  .pk-top span{font-size:12.5px;font-weight:700;color:var(--muted)}
+  .pk-top b{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
+  .pk-top b em{font-style:normal;font-size:13px;color:var(--muted);margin-left:2px}
+  .pk-row{display:flex;align-items:center;gap:11px}
+  .pk-btn{width:38px;height:38px;flex:0 0 auto;border-radius:11px;background:var(--surface-2);border:1px solid var(--line);font-size:19px;font-weight:800}
+  .pk-btn:hover:not(:disabled){background:rgba(255,77,141,.2)}
+  .pk-btn:disabled{opacity:.28}
+  .pk-dots{flex:1;display:flex;gap:5px;align-items:center}
+  .pk-dots .dot{flex:1;height:9px;border-radius:5px;background:rgba(255,255,255,.1);border:none;padding:0;transition:background .15s ease}
+  .pk-dots .dot:hover{background:rgba(255,255,255,.24)}
+  .pk-dots .dot.on{background:linear-gradient(90deg,var(--pink),var(--violet))}
+  .pk-est{margin-top:11px;font-size:11.5px;line-height:1.65;color:var(--muted)}
+  .pk-est b{color:var(--text);font-weight:700}
+  .locked-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;background:rgba(255,255,255,.03);border:1px dashed var(--line);border-radius:13px;font-size:13px}
+  .locked-row span{color:var(--muted);font-size:12px}
+  .locked-row b{font-weight:700}
+
+  .steps{display:flex;gap:6px;margin-bottom:18px}
+  .step{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 4px;border-radius:12px;background:var(--surface);border:1px solid var(--line);cursor:pointer}
+  .step i{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.1);color:var(--muted);display:flex;align-items:center;justify-content:center;font-style:normal;font-size:11px;font-weight:800}
+  .step span{font-size:10.5px;font-weight:700;color:var(--muted)}
+  .step.on{border-color:rgba(255,77,141,.5);background:linear-gradient(160deg,rgba(255,77,141,.16),rgba(139,92,246,.1))}
+  .step.on i{background:linear-gradient(140deg,var(--pink),var(--violet));color:#fff}
+  .step.on span{color:var(--text)}
+  .step.done i{background:rgba(52,211,153,.25);color:#6ee7b7}
+  .step.done span{color:#8ee7c0}
+
+  /* ── 데모 뷰: 참가자 화면 나란히 보기 ── */
+  .demo-wrap{max-width:none;padding:0 14px 28px}
+  .demo-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:12px}
+  .demo-bar .lbl{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.04em}
+  .demo-bar select{background:rgba(0,0,0,.3);color:var(--text);border:1px solid var(--line);border-radius:9px;padding:6px 8px;font-size:12px}
+  .demo-step{padding:7px 11px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);font-size:12px;font-weight:700;white-space:nowrap}
+  .demo-step.on{background:linear-gradient(100deg,var(--pink),var(--violet));border-color:transparent;color:#fff}
+  .demo-step:hover:not(:disabled){background:rgba(255,255,255,.14)}
+  .demo-step:disabled{opacity:.35;cursor:not-allowed}
+  .phones{display:flex;gap:14px;overflow-x:auto;padding-bottom:10px;align-items:flex-start}
+  .phone{
+    position:relative;flex:0 0 auto;width:330px;height:660px;
+    border-radius:26px;border:1px solid rgba(255,255,255,.16);background:#0c0a1a;
+    overflow:hidden;display:flex;flex-direction:column;
+    box-shadow:0 24px 60px -24px rgba(0,0,0,.85);
+  }
+  .phone-top{display:flex;align-items:center;gap:7px;padding:9px 11px;background:rgba(255,255,255,.05);border-bottom:1px solid var(--line);flex:0 0 auto}
+  .phone-top select{flex:1;min-width:0;background:rgba(0,0,0,.35);color:var(--text);border:1px solid var(--line);border-radius:9px;padding:6px 8px;font-size:12px;font-weight:700}
+  .phone-top .who-tag{font-size:10.5px;font-weight:800;padding:3px 7px;border-radius:7px;white-space:nowrap}
+  .phone-body{flex:1;min-height:0;overflow-y:auto;position:relative}
+  .phone-body::-webkit-scrollbar{width:0}
+  .phone .screen{padding:0 14px 8px}
+  .phone .nav{position:sticky;bottom:0;left:auto;right:auto;max-width:none;margin:0;padding:8px 6px}
+  .phone .sheet-bg,.phone .dlg-bg{position:absolute;inset:0;z-index:30}
+  .phone .sheet{max-height:78%;border-radius:20px 20px 0 0;padding:18px 16px 20px}
+  .phone .dlg{max-width:88%;padding:20px 16px 16px}
+  .phone .empty{padding:28px 16px}
+  .phone-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px;text-align:center;padding:20px}
+
+  .seat-ack .dlg{border-color:rgba(52,211,153,.4);background:linear-gradient(170deg,#132a26,#171233 55%)}
+  .table-no{
+    width:88px;height:88px;margin:12px auto 4px;border-radius:26px;
+    background:linear-gradient(140deg,var(--mint),var(--blue));
+    display:flex;align-items:center;justify-content:center;
+    font-size:42px;font-weight:800;color:#06251c;
+    box-shadow:0 16px 40px -14px rgba(52,211,153,.7);
+    animation:pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+  .ack-mates{margin-top:14px;background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:14px;padding:6px 12px;max-height:180px;overflow-y:auto}
+  .ack-mate{display:flex;align-items:center;gap:9px;padding:7px 0}
+  .ack-mate + .ack-mate{border-top:1px solid rgba(255,255,255,.06)}
+
+  .dlg-bg{position:fixed;inset:0;z-index:50;background:rgba(6,4,16,.78);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;animation:fade .16s ease}
+  .dlg{width:100%;max-width:340px;background:#171233;border:1px solid var(--line);border-radius:22px;padding:24px 20px 20px;box-shadow:0 30px 70px -20px rgba(0,0,0,.9);animation:dlgIn .22s cubic-bezier(.2,.9,.3,1)}
+  @keyframes dlgIn{from{opacity:0;transform:scale(.92) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
+  .dlg-facts{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-top:16px}
+  .dlg-facts .row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--muted)}
+  .dlg-facts .row + .row{margin-top:9px;padding-top:9px;border-top:1px solid rgba(255,255,255,.06)}
+  .dlg-facts .row b{color:var(--text);font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .dlg-facts .row .arrow{color:var(--muted);margin:0 2px}
+  .dlg-facts .row em{font-style:normal;color:var(--pink);font-weight:800}
+
+  .toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:60;background:rgba(23,18,51,.97);border:1px solid var(--line);padding:12px 18px;border-radius:13px;font-size:13.5px;font-weight:600;box-shadow:0 16px 40px -14px rgba(0,0,0,.8);max-width:88vw;text-align:center;animation:toastIn .25s ease}
+  @keyframes toastIn{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+
+  .host-row{display:flex;align-items:center;gap:11px;padding:11px 13px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+  .host-row .info{flex:1;min-width:0}
+  .host-row .nm{font-weight:700;font-size:14.5px}
+  .host-row .sub{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .kill{padding:6px 10px;border-radius:9px;background:rgba(255,77,141,.14);color:#ff8fa8;font-size:12px;font-weight:700}
+
+  .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:16px}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 10px;text-align:center}
+  .stat .v{font-size:21px;font-weight:800;font-variant-numeric:tabular-nums}
+  .stat .k{font-size:10.5px;color:var(--muted);font-weight:700;margin-top:2px}
+
+  .chips{display:flex;flex-wrap:wrap;gap:7px}
+  .chip{padding:9px 13px;border-radius:11px;background:var(--surface);border:1px solid var(--line);font-size:13px;font-weight:700}
+  .chip:hover{background:var(--surface-2)}
+  .chip.on{background:linear-gradient(100deg,var(--pink),var(--violet));border-color:transparent;color:#fff}
+  .chip.danger{background:rgba(255,77,141,.13);color:#ff8fa8;border-color:rgba(255,77,141,.25)}
+
+  .match{display:flex;align-items:center;gap:10px;padding:14px;border-radius:var(--radius);background:linear-gradient(100deg,rgba(255,209,102,.16),rgba(255,77,141,.14));border:1px solid rgba(255,209,102,.4)}
+  .match .side{display:flex;align-items:center;gap:9px;flex:1;min-width:0}
+  .match .side .nm{font-weight:800;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .match .heart{font-size:20px;animation:beat 1.3s ease-in-out infinite}
+  @keyframes beat{0%,100%{transform:scale(1)}45%{transform:scale(1.22)}}
+
+  .rank{display:flex;align-items:center;gap:11px;padding:10px 13px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+  .rank .no{width:24px;font-weight:800;font-size:14px;color:var(--muted);text-align:center}
+  .rank .no.top{color:var(--gold)}
+  .rank .bar{flex:1;height:7px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden}
+  .rank .bar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--pink),var(--violet))}
+  .rank .ct{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;width:26px;text-align:right}
+
+  .locked{text-align:center;padding:32px 22px;border-radius:var(--radius);background:linear-gradient(160deg,rgba(139,92,246,.14),rgba(255,77,141,.09));border:1px solid var(--line)}
+  .locked .big{font-size:42px;margin-bottom:10px}
+  .locked .cd{font-size:36px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--gold);margin:6px 0}
+
+  .divider{height:1px;background:var(--line);margin:18px 0}
+  .note{font-size:12px;line-height:1.65;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:12px 14px}
+  .note.warn{border-color:rgba(255,209,102,.4);color:#ffd88a}
+  .note.bad{border-color:rgba(255,77,141,.35);color:#ffb0c6}
+  .note.ok{border-color:rgba(52,211,153,.35);color:#8ee7c0}
+
+  /* 회차 */
+  .ev-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:10px}
+  .ev-card.on{border-color:rgba(255,77,141,.5);background:linear-gradient(100deg,rgba(255,77,141,.11),rgba(139,92,246,.08))}
+  .ev-card .t{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}
+  .ev-card .t h3{font-size:16px;font-weight:800}
+  .ev-card .meta{font-size:11.5px;color:var(--muted);line-height:1.7}
+
+  .phase{font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:8px;white-space:nowrap}
+  .ph-prep{background:rgba(255,255,255,.09);color:var(--muted)}
+  .ph-reg{background:rgba(96,165,250,.2);color:#93c5fd}
+  .ph-prevote{background:rgba(255,209,102,.2);color:#ffd88a}
+  .ph-party{background:rgba(255,77,141,.2);color:#ff9ebd}
+  .ph-done{background:rgba(52,211,153,.2);color:#6ee7b7}
+
+  .pinpad{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:16px}
+  .pinpad button{padding:17px 0;border-radius:14px;background:var(--surface);border:1px solid var(--line);font-size:19px;font-weight:800}
+  .pinpad button:hover{background:var(--surface-2)}
+  .pindots{display:flex;gap:12px;justify-content:center;margin:22px 0 6px}
+  .pindots i{width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.13);transition:background .15s ease,transform .15s ease}
+  .pindots i.f{background:linear-gradient(140deg,var(--pink),var(--violet));transform:scale(1.15)}
+
+  /* 자리 */
+  .tbl{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:13px;margin-bottom:10px}
+  .tbl-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .tbl-head .t{display:flex;align-items:center;gap:8px;font-weight:800;font-size:15.5px}
+  .tbl-head .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+  .tbl-head .mix{font-size:11px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right;line-height:1.5}
+  .tbl-head .mix b{color:var(--blue)}
+  .tbl-head .mix i{color:var(--pink);font-style:normal}
+  .tbl-head .mix .bad{color:#ff8fa8}
+  .seat{display:flex;align-items:center;gap:9px;padding:7px 0}
+  .seat + .seat{border-top:1px solid rgba(255,255,255,.055)}
+  .seat .nm{font-weight:700;font-size:13.5px}
+  .seat .sub{font-size:11px;color:var(--muted)}
+  .seat .flag{font-size:11px;font-weight:800;white-space:nowrap}
+  .mini-sel{background:rgba(0,0,0,.3);color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:11px;flex:0 0 auto}
+
+  .phase-banner{display:flex;align-items:center;gap:11px;padding:11px 13px;margin-bottom:12px;border-radius:14px;
+    background:linear-gradient(100deg,rgba(139,92,246,.18),rgba(255,77,141,.12));border:1px solid rgba(139,92,246,.4)}
+  .phase-banner.warn{background:linear-gradient(100deg,rgba(255,209,102,.16),rgba(251,146,60,.1));border-color:rgba(255,209,102,.4)}
+  .phase-banner .ic{width:36px;height:36px;flex:0 0 auto;border-radius:12px;background:rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;font-size:18px}
+  .alert.warn-alert{border-color:rgba(255,209,102,.4);background:linear-gradient(100deg,rgba(255,209,102,.1),rgba(251,146,60,.06))}
+  .seat-banner{display:flex;align-items:center;gap:11px;padding:11px 13px;margin-bottom:14px;background:linear-gradient(100deg,rgba(52,211,153,.14),rgba(96,165,250,.12));border:1px solid rgba(52,211,153,.3);border-radius:14px}
+  .seat-banner .no{width:38px;height:38px;border-radius:12px;flex:0 0 auto;background:linear-gradient(140deg,var(--mint),var(--blue));display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#06251c}
+
+  .crown{display:flex;align-items:center;gap:12px;padding:14px;border-radius:var(--radius);background:linear-gradient(100deg,rgba(255,209,102,.18),rgba(251,146,60,.12));border:1px solid rgba(255,209,102,.45);margin-bottom:9px}
+  .crown .ic{font-size:26px;flex:0 0 auto}
+</style>
+</head>
+<body>
+
+<div class="protobar">
+  <b>🧪 프로토타입</b>
+  <select id="ev-switch" onchange="protoSwitchEvent(this.value)"></select>
+  <select id="switcher" onchange="switchUser(this.value)"></select>
+  <button class="pb-btn" id="add-participant" onclick="newParticipant()">+ 참가자</button>
+  <button class="pb-btn" onclick="openDemo()">👀 데모 뷰</button>
+  <button class="pb-btn" onclick="protoHost()">운영자</button>
+  <button class="pb-btn" onclick="seedDemo()">데모 회차</button>
+  <button class="pb-btn" onclick="resetAll()">초기화</button>
+</div>
+
+<div class="shell"><div id="root"></div></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════
+   데이터 모델 — 회차(event) 단위로 완전히 분리
+   프로토타입이라 메모리에만 저장됩니다 (새로고침 시 초기화)
+   ══════════════════════════════════════════════════════════ */
+const MBTI = ["INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP",
+              "ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP"];
+
+// MBTI를 16개 중 고르게 하는 대신 4문항으로 물어본다 (모르는 사람도 답할 수 있게)
+const MBTI_AXES = [
+  { q:"사람들과 있을 때 에너지가",  opts:[["E","충전돼요"],["I","소모돼요"]] },
+  { q:"관심이 더 가는 쪽은",        opts:[["N","가능성·아이디어"],["S","현실·경험"]] },
+  { q:"결정할 때 더 기대는 건",     opts:[["T","논리·근거"],["F","마음·관계"]] },
+  { q:"일정은",                     opts:[["J","미리 계획하는 편"],["P","그때그때 정하는 편"]] },
+];
+
+const PHASES = {
+  prep:    { label:"준비 중",   cls:"ph-prep" },
+  reg:     { label:"등록 중",   cls:"ph-reg" },
+  prevote: { label:"사전 투표", cls:"ph-prevote" },
+  party:   { label:"파티 진행", cls:"ph-party" },
+  done:    { label:"발표 완료", cls:"ph-done" },
+};
+const PHASE_ORDER = ["prep","reg","prevote","party","done"];
+
+// 단계를 넘길 때 무엇이 바뀌는지 운영자에게 명확히 알린다
+// 수동 진행이 예약과 얼마나 어긋나는지 한 줄로 알려준다
+function schedDiffLine(ev, to){
+  const key = SCHED_OF[to];
+  if(!key || !ev[key]) return null;
+  const gap = ev[key] - Date.now();
+  const what = { reg:"등록 시작", party:"사전 투표 마감", done:"발표" }[to];
+  if(gap > 60000)  return ["예약과 차이", `예약된 ${what}은 ${fmtDT(ev[key])} — <b style="color:var(--gold)">${fmtGap(gap)} 일찍</b> 진행됩니다. 남은 예약은 해제돼요.`];
+  if(gap < -60000) return ["예약과 차이", `예약된 ${what}(${fmtDT(ev[key])})이 <b style="color:var(--gold)">${fmtGap(gap)} 지났어요.</b>`];
+  return ["예약", `예약 시각(${fmtDT(ev[key])})과 거의 같습니다.`];
+}
+
+function phaseAction(ev, to){
+  const A = {
+    reg: {
+      btn: "참가자 등록 시작",
+      title: "참가자 등록을 시작할까요?",
+      lines: [
+        ["참가자", `입장 코드 ${ev.code}로 들어와 등록할 수 있게 됩니다`],
+        ["콕 찌르기", "아직 잠겨 있어요"],
+      ],
+    },
+    prevote: {
+      btn: "사전 투표 시작",
+      title: "사전 투표를 시작할까요?",
+      lines: [
+        ["참가자", `1인당 ${ev.maxPre}회씩 콕을 찌를 수 있게 됩니다`],
+        ["등록", "계속 열려 있어요 — 늦게 온 사람도 참가할 수 있습니다"],
+        ["마감", `${fmtDT(ev.voteCloseAt)}이 지나면 자동으로 파티 진행으로 넘어갑니다`],
+      ],
+    },
+    party: {
+      btn: "파티 진행 시작",
+      title: "사전 투표를 마감하고 파티를 시작할까요?",
+      lines: [
+        ["사전 투표", "지금 순위로 마감됩니다"],
+        ["콕 예산", `파티용으로 1인당 ${ev.maxParty}회가 새로 지급됩니다`],
+        ["기존 콕", "사전 투표에서 찌른 건 그대로 남습니다"],
+      ],
+    },
+    done: {
+      btn: "결과 발표",
+      title: "결과를 발표할까요?",
+      danger: true,
+      lines: [
+        ["참가자", "서로 찌른 상대를 바로 확인하게 됩니다"],
+        ["콕 찌르기", "즉시 마감됩니다"],
+        ["되돌리기", "발표를 취소해도 이미 본 사람에게는 소용이 없어요"],
+      ],
+    },
+  };
+  const a = A[to];
+  if(!a) return null;
+  const lines = a.lines.slice();
+  const d = schedDiffLine(ev, to);
+  if(d) lines.push(d);
+  // 사전 투표를 시작하는데 마감이 이미 지났으면 곧바로 끝나버린다
+  if(to === "prevote" && ev.voteCloseAt && ev.voteCloseAt <= Date.now())
+    lines.push(["⚠️ 주의", `사전 투표 마감(${fmtDT(ev.voteCloseAt)})이 이미 지나 <b style="color:#ff8fa8">시작하자마자 마감됩니다.</b> 설정에서 마감을 늦춰주세요.`]);
+  return { ...a, lines };
+}
+
+const DB = {
+  masterPin: "0000",   // 전체 관리자 공통 PIN
+  // 새 회차를 만들 때 물려받는 기본값 — 운영자가 '기본 설정'에서 바꿉니다
+  // 테이블 수는 여기에 없습니다 — 자리 배정할 때마다 그 자리에서 고릅니다
+  defaults: {
+    maxPre: 3,           // 사전 투표 콕 횟수 (1~5)
+    maxParty: 3,         // 파티 중 콕 횟수 (1~10)
+    regOpenAfterH: 1,    // 회차 생성 후 N시간 뒤 등록 시작
+    voteWindowH: 24,     // 등록 시작 후 N시간 뒤 사전 투표 마감
+  },
+  events: [],
+  seq: 1,
+};
+
+const S = {
+  screen: "entry",   // entry | register | main | hostPin | hostEvents | hostConsole
+  tab: "people",
+  hostTab: "dash",
+  evId: null,        // 참가자가 선택한 회차
+  meId: null,
+  hostEvId: null,    // 운영자가 보고 있는 회차
+  auth: null,        // null | "master" | eventId
+  pinBuf: "",
+  pinTarget: null,   // "master" | eventId  (어디에 로그인 시도 중인지)
+  pinErr: "",
+  onlyOpposite: true,
+  sheet: null,
+  confirm: null,     // 콕 확인 다이얼로그 대상
+  hostSheet: null,   // 운영자가 열어본 참가자 상세
+  hostConfirm: null, // 운영자 확인 다이얼로그 {type, id}
+  // 데모 뷰: 여러 참가자 화면을 동시에 띄우기 위한 독립 상태
+  wizard: null,      // 회차 생성 위저드
+  regFromDemo: false, // 데모 화면에서 등록으로 넘어왔는지
+  regStep: 1,        // 참가자 등록 단계
+  entryCode: "",     // 입장 코드 입력값
+  entryErr: "",      // 입장 실패 사유
+  demoEvId: null,
+  paneCount: 2,
+  panes: [0,1,2].map(() => ({ evId:null, meId:null, tab:"people", sheet:null, confirm:null, onlyOpposite:true })),
+  draft: emptyDraft(),
+};
+
+function emptyDraft(){
+  return { nick:"", name:"", age:"", phone:"", insta:"", gender:"", axes:["","","",""], charms:["","",""] };
+}
+
+/* ── 유틸 ─────────────────────────────────────── */
+const $   = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pad = (n) => String(n).padStart(2,"0");
+
+const EV     = (id) => DB.events.find(e => e.id === id) || null;
+const curEv  = () => EV(S.evId);
+const hostEv = () => EV(S.hostEvId);
+const P      = (ev, id) => ev ? ev.players.find(p => p.id === id) || null : null;
+const me     = () => P(curEv(), S.meId);
+
+function dn(p){ return (p && (p.nick || p.name)) || "?"; }
+function nickKey(v){ return String(v||"").trim().toLowerCase().replace(/\s+/g,""); }
+function mbtiGroup(m){ if(!m) return "SJ"; if(m[1]==="N") return m[2]==="T"?"NT":"NF"; return m[3]==="J"?"SJ":"SP"; }
+function isIntrovert(p){ return p.mbti && p.mbti[0] === "I"; }
+
+function fmtDur(ms){
+  if(ms <= 0) return "00:00";
+  const t = Math.floor(ms/1000), h = Math.floor(t/3600), m = Math.floor(t%3600/60), s = t%60;
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+const DOW = ["일","월","화","수","목","금","토"];
+function fmtDT(ms){
+  if(!ms) return "미설정";
+  const d = new Date(ms);
+  return `${d.getMonth()+1}/${d.getDate()}(${DOW[d.getDay()]}) ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function toLocalInput(ms){
+  if(!ms) return "";
+  const d = new Date(ms - new Date(ms).getTimezoneOffset()*60000);
+  return d.toISOString().slice(0,16);
+}
+function fromLocalInput(v){ const t = v ? new Date(v).getTime() : NaN; return isNaN(t) ? null : t; }
+
+function normInsta(v){
+  let s = String(v||"").trim();
+  if(!s) return "";
+  s = s.replace(/^https?:\/\//i,"").replace(/^(www\.)?instagram\.com\//i,"");
+  return s.split(/[/?#]/)[0].replace(/^@+/,"").trim();
+}
+
+function toast(msg){
+  document.querySelectorAll(".toast").forEach(t => t.remove());
+  const el = document.createElement("div");
+  el.className = "toast"; el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+}
+
+/* 테스트에서 결과를 재현할 수 있도록 교체 가능한 난수 */
+let RND = Math.random;
+function seedRng(seed){
+  let s = seed >>> 0 || 1;
+  RND = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+/* ══════════════════════════════════════════════════════════
+   회차
+   ══════════════════════════════════════════════════════════ */
+// 헷갈리는 글자(0/O/1/I)는 뺀 6자리 입장 코드
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function genCode(){
+  for(let tries = 0; tries < 50; tries++){
+    let c = "";
+    for(let i = 0; i < 6; i++) c += CODE_CHARS[Math.floor(RND() * CODE_CHARS.length)];
+    if(!DB.events.some(e => e.code === c)) return c;
+  }
+  return "P" + Date.now().toString(36).slice(-5).toUpperCase();
+}
+function findByCode(code){
+  const c = String(code||"").trim().toUpperCase().replace(/[^A-Z0-9]/g,"");
+  return c ? DB.events.find(e => e.code === c) || null : null;
+}
+
+function newEvent(name, pin, opts){
+  const now = Date.now();
+  const D = DB.defaults;
+  const o = opts || {};
+  const regOpenAt = o.regOpenAt !== undefined ? o.regOpenAt : now + D.regOpenAfterH * 3600000;
+  const ev = {
+    id: "e" + (DB.seq++),
+    code: (o.code && !DB.events.some(e => e.code === o.code)) ? o.code : genCode(),
+    name: name || `${DB.events.length + 1}회차 솔로 파티`,
+    pin: pin || String(1000 + Math.floor(RND()*9000)),
+    phase: "prep",
+    regOpenAt,                                            // 등록 시작
+    voteCloseAt: o.voteCloseAt !== undefined ? o.voteCloseAt : regOpenAt + D.voteWindowH * 3600000,
+    revealAt:    null,                                    // 발표 시각
+    revealed: false,
+    fired: {},        // 각 단계가 실제로 진행된 시각
+    maxPre: o.maxPre !== undefined ? o.maxPre : D.maxPre,
+    maxParty: o.maxParty !== undefined ? o.maxParty : D.maxParty,
+    tables: 4,        // 자리 탭에서 고르는 값 (라운드마다 바꿀 수 있음)
+    players: [],
+    pokes: [],        // {from,to,at,phase:'pre'|'party'}
+    seating: [],      // {round, seats:{}, status:'draft'|'published', at, metrics}
+    pseq: 1,
+  };
+  DB.events.push(ev);
+  return ev;
+}
+
+/* 예약 시각은 '그 전환에 대한 1회용 알람'이다.
+   전환이 한 번 일어나면(수동이든 자동이든) fired 에 기록되고 알람은 다시 울리지 않는다.
+   예약 시각 자체는 지우지 않고 남겨 두어 '예약 20:00 · 19:30 진행' 이력으로 보여준다. */
+const SCHED_OF = { reg:"regOpenAt", party:"voteCloseAt", done:"revealAt" };
+
+function phaseOf(ev){
+  if(!ev) return "prep";
+  ev.fired = ev.fired || {};
+  // 단계를 직접 지정한 경우에도 이미 지나온 전환은 '진행됨'으로 채워 둔다
+  const idx = PHASE_ORDER.indexOf(ev.phase);
+  for(let i = 1; i <= idx; i++){
+    const k = PHASE_ORDER[i];
+    if(ev.fired[k]) continue;
+    const sk = SCHED_OF[k];
+    ev.fired[k] = (sk && ev[sk] && ev[sk] <= Date.now()) ? ev[sk] : Date.now();
+  }
+  if(ev.phase === "prep"    && ev.regOpenAt   && !ev.fired.reg   && Date.now() >= ev.regOpenAt)   setPhase(ev, "reg");
+  if(ev.phase === "prevote" && ev.voteCloseAt && !ev.fired.party && Date.now() >= ev.voteCloseAt) setPhase(ev, "party");
+  if(ev.phase === "party"   && ev.revealAt    && !ev.fired.done  && Date.now() >= ev.revealAt)    setPhase(ev, "done");
+  return ev.phase;
+}
+
+// 이미 지나온 전환의 시각만 잠근다 — 아직 오지 않은 일정은 진행 중에도 조정할 수 있다
+function schedLocked(ev, key){
+  const f = ev.fired || {};
+  if(key === "regOpenAt")   return !!f.reg;
+  if(key === "voteCloseAt") return !!f.party;
+  if(key === "revealAt")    return !!f.done;
+  return false;
+}
+function fmtGap(ms){
+  const m = Math.round(Math.abs(ms) / 60000);
+  if(m < 1) return "1분 이내";
+  if(m < 60) return `${m}분`;
+  const h = Math.floor(m/60), r = m % 60;
+  return r ? `${h}시간 ${r}분` : `${h}시간`;
+}
+function isRevealed(ev){ return !!ev && (ev.revealed || phaseOf(ev) === "done"); }
+function canRegister(ev){
+  if(!ev) return { ok:false, why:"회차를 선택해주세요." };
+  const ph = phaseOf(ev);
+  if(ph === "prep")  return { ok:false, why:`${fmtDT(ev.regOpenAt)}부터 등록이 열립니다.` };
+  if(ph === "done")  return { ok:false, why:"이 회차는 종료되었어요." };
+  if(ev.regOpenAt && Date.now() < ev.regOpenAt)
+    return { ok:false, why:`등록은 ${fmtDT(ev.regOpenAt)}부터 시작됩니다.` };
+  return { ok:true };
+}
+
+/* ══════════════════════════════════════════════════════════
+   콕 찌르기 — 같은 사람에게 중복 가능, 0회도 가능
+   ══════════════════════════════════════════════════════════ */
+function pokePhase(ev){ return phaseOf(ev) === "prevote" ? "pre" : "party"; }
+function pokeBudget(ev){ return phaseOf(ev) === "prevote" ? ev.maxPre : ev.maxParty; }
+function canPoke(ev){ const ph = phaseOf(ev); return ph === "prevote" || ph === "party"; }
+
+function pokeCount(ev, a, b, phase){
+  return ev.pokes.filter(p => p.from === a && p.to === b && (!phase || p.phase === phase)).length;
+}
+function sentCount(ev, id, phase){
+  return ev.pokes.filter(p => p.from === id && (!phase || p.phase === phase)).length;
+}
+function gotPokes(ev, id, phase){
+  return ev.pokes.filter(p => p.to === id && (!phase || p.phase === phase));
+}
+function leftPokes(ev, id){
+  return Math.max(0, pokeBudget(ev) - sentCount(ev, id, pokePhase(ev)));
+}
+function isMutual(ev, a, b){ return pokeCount(ev,a,b) > 0 && pokeCount(ev,b,a) > 0; }
+function mutualPairs(ev){
+  const out = [], seen = new Set();
+  for(const pk of ev.pokes){
+    const k = pk.from < pk.to ? pk.from+"|"+pk.to : pk.to+"|"+pk.from;
+    if(seen.has(k)) continue;
+    if(isMutual(ev, pk.from, pk.to)){
+      seen.add(k);
+      const [x,y] = k.split("|");
+      const a = P(ev,x), b = P(ev,y);
+      if(a && b) out.push([a,b]);
+    }
+  }
+  return out;
+}
+
+/* 참가자 화면 컨텍스트
+   일반 화면은 pane = -1 (전역 S), 데모 뷰는 pane = 0,1,2 (S.panes[i]).
+   덕분에 여러 참가자 화면을 동시에 띄워도 서로 간섭하지 않습니다. */
+function paneState(pane){
+  return (pane === undefined || pane === null || pane < 0) ? S : (S.panes[pane] || S);
+}
+function vctx(pane){
+  const pn = (pane === undefined || pane === null) ? -1 : pane;
+  const st = paneState(pn);
+  const ev = EV(st.evId);
+  return { pane: pn, st, ev, m: P(ev, st.meId) };
+}
+function goTab(t, pane){ paneState(pane).tab = t; render(); }
+function setSheet(id, pane){ paneState(pane).sheet = id || null; render(); }
+function setOpp(v, pane){ paneState(pane).onlyOpposite = !!v; render(); }
+
+function pokeGuard(c, targetId){
+  const t = P(c.ev, targetId);
+  if(!c.ev || !c.m || !t || t.id === c.m.id) return null;
+  if(!canPoke(c.ev)){ toast("지금은 콕을 찌를 수 있는 시간이 아니에요"); return null; }
+  if(t.gender === c.m.gender){ toast("이성에게만 찌를 수 있어요"); return null; }
+  if(leftPokes(c.ev, c.m.id) <= 0){ toast(`이번 라운드 콕을 모두 썼어요 (최대 ${pokeBudget(c.ev)}회)`); return null; }
+  return t;
+}
+
+// 실수로 눌리는 걸 막기 위해 바로 반영하지 않고 확인을 받는다
+function askPoke(targetId, ev2, pane){
+  if(ev2) ev2.stopPropagation();
+  const c = vctx(pane);
+  if(!pokeGuard(c, targetId)) return;
+  c.st.confirm = targetId;
+  render();
+}
+function cancelConfirm(pane){ paneState(pane).confirm = null; render(); }
+function confirmPoke(pane){
+  const st = paneState(pane);
+  const id = st.confirm;
+  st.confirm = null;
+  if(id) addPoke(id, null, pane);
+}
+
+function addPoke(targetId, ev2, pane){
+  if(ev2) ev2.stopPropagation();
+  const c = vctx(pane);
+  const t = pokeGuard(c, targetId);
+  if(!t) return;
+
+  c.ev.pokes.push({ from:c.m.id, to:targetId, at:Date.now(), phase:pokePhase(c.ev) });
+  render();
+  const btn = document.querySelector(`[data-poke="${c.pane}:${targetId}"]`);
+  if(btn) btn.classList.add("pop");
+  const n = pokeCount(c.ev, c.m.id, targetId, pokePhase(c.ev));
+  toast(`${dn(t)}님에게 콕! ${n > 1 ? `(누적 ${n}회) ` : ""}— 남은 횟수 ${leftPokes(c.ev, c.m.id)}회`);
+}
+function removePoke(targetId, ev2, pane){
+  if(ev2) ev2.stopPropagation();
+  const c = vctx(pane);
+  if(!c.ev || !c.m || !canPoke(c.ev)) return;
+  const ph = pokePhase(c.ev);
+  for(let i = c.ev.pokes.length - 1; i >= 0; i--){
+    const p = c.ev.pokes[i];
+    if(p.from === c.m.id && p.to === targetId && p.phase === ph){ c.ev.pokes.splice(i,1); break; }
+  }
+  render();
+  toast(`콕을 하나 취소했어요 — 남은 횟수 ${leftPokes(c.ev, c.m.id)}회`);
+}
+
+/* 사전투표 남/녀 1위 — 운영자에게 실시간 노출 */
+function preTop(ev, gender){
+  const list = ev.players
+    .filter(p => p.gender === gender)
+    .map(p => ({ p, n: gotPokes(ev, p.id, "pre").length }))
+    .sort((a,b) => b.n - a.n || dn(a.p).localeCompare(dn(b.p)));
+  if(!list.length || list[0].n === 0) return null;
+  const top = list[0].n;
+  return { n: top, players: list.filter(x => x.n === top).map(x => x.p) };
+}
+
+/* ══════════════════════════════════════════════════════════
+   자리 배정
+   하드 제약: 테이블별 남/여 정원 (성비 최우선)
+   소프트 비용: 10살 이상 차이 회피 > 이전 라운드 재회 회피 > I/E 혼합, 콕 반영은 보너스
+   ══════════════════════════════════════════════════════════ */
+// 나이차 벌점(AGE)이 항상 가장 크다 → 재회 회피가 나이 제약을 절대 밀어내지 못한다.
+const W = { AGE: 30, REP: 8, IE: 4, POKE_MUTUAL: 12, POKE_ONE: 4 };
+
+function spread(n, T){
+  const base = Math.floor(n/T), rest = n % T;
+  return Array.from({length:T}, (_,i) => base + (i < rest ? 1 : 0));
+}
+// 총원을 고르게 나눈 뒤 각 테이블 정원 안에서 전체 성비대로 남/여를 쪼갠다
+function tableCaps(T, M, Wc){
+  const N = M + Wc, total = spread(N, T);
+  if(N === 0) return { total, capM: total.map(()=>0), capW: total.map(()=>0) };
+  const exact = total.map(c => c * M / N);
+  const capM  = exact.map(Math.floor);
+  let rest = M - capM.reduce((a,b)=>a+b,0);
+  const order = exact.map((e,i) => ({ i, frac: e - Math.floor(e), c: total[i] }))
+                     .sort((a,b) => b.frac - a.frac || b.c - a.c || a.i - b.i);
+  for(const o of order){ if(rest <= 0) break; if(capM[o.i] < total[o.i]){ capM[o.i]++; rest--; } }
+  for(let i = 0; rest > 0 && i < T; i++){ while(rest > 0 && capM[i] < total[i]){ capM[i]++; rest--; } }
+  return { total, capM, capW: total.map((c,i) => c - capM[i]) };
+}
+
+// 이전에 발행된 라운드에서 같이 앉았던 쌍
+function pastTogether(ev, upToRound){
+  const set = new Set();
+  for(const s of ev.seating){
+    if(s.round >= upToRound || s.status !== "published") continue;
+    const byTable = {};
+    for(const [pid,t] of Object.entries(s.seats)) (byTable[t] = byTable[t] || []).push(pid);
+    for(const list of Object.values(byTable))
+      for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++)
+        set.add(list[i] < list[j] ? list[i]+"|"+list[j] : list[j]+"|"+list[i]);
+  }
+  return set;
+}
+
+// 라운드가 진행될수록 "새로운 사람을 만나는 것"의 가중치를 올린다.
+// 이성 재회는 소개팅 목적상 더 크게, 동성 재회는 가볍게 벌점을 준다.
+function repWeights(round){
+  const base = W.REP * (1 + 0.5 * Math.max(0, round - 1));
+  const cap = W.AGE * 0.75;                       // 나이 제약을 넘어서지 않도록 상한
+  return { x: Math.min(base * 1.6, cap), s: base * 0.35 };   // x: 이성, s: 동성
+}
+function pairCost(ev, a, b, ctx){
+  let c = 0;
+  if(Math.abs(a.age - b.age) >= 10) c += W.AGE;
+  const k = a.id < b.id ? a.id+"|"+b.id : b.id+"|"+a.id;
+  const cross = a.gender !== b.gender;
+  const mutual = cross && isMutual(ev, a.id, b.id);
+  // 서로 찌른 쌍은 라운드가 바뀌어도 계속 붙여준다 (재회 벌점 면제)
+  // 마지막 자리는 '새로운 사람'보다 '마음이 맞은 사람'을 붙이는 게 목적이라 재회 벌점을 아예 뺀다
+  if(ctx.past.has(k) && !mutual && !ctx.final) c += cross ? ctx.rep.x : ctx.rep.s;
+  if(cross){
+    if(mutual) c -= ctx.final ? W.POKE_MUTUAL * 2.5 : W.POKE_MUTUAL;
+    else if(pokeCount(ev,a.id,b.id) > 0 || pokeCount(ev,b.id,a.id) > 0) c -= ctx.final ? W.POKE_ONE * 2 : W.POKE_ONE;
+  }
+  return c;
+}
+function tableCost(ev, members, ctx){
+  let c = 0;
+  for(let i=0;i<members.length;i++)
+    for(let j=i+1;j<members.length;j++) c += pairCost(ev, members[i], members[j], ctx);
+  const I = members.filter(isIntrovert).length;
+  c += W.IE * Math.abs(I - (members.length - I));   // I/E가 한쪽으로 쏠릴수록 벌점
+  return c;
+}
+function totalCost(ev, tables, ctx){
+  return tables.reduce((s,t) => s + tableCost(ev, t, ctx), 0);
+}
+
+function buildSeating(ev, round, final, tableCount, iterations){
+  const T = tableCount || ev.tables;
+  const men   = ev.players.filter(p => p.gender === "M");
+  const women = ev.players.filter(p => p.gender === "F");
+  if(!ev.players.length) return null;
+
+  const { capM, capW } = tableCaps(T, men.length, women.length);
+  const past = pastTogether(ev, round);
+  const ctx = { past, rep: repWeights(round), final: !!final };
+
+  // 초기 배치: 나이순으로 이어서 채운다 → 나이차 제약을 처음부터 크게 만족
+  const byAge = (a,b) => a.age - b.age || a.id.localeCompare(b.id);
+  const tables = Array.from({length:T}, () => []);
+  const deal = (list, cap) => {
+    const sorted = list.slice().sort(byAge);
+    let k = 0;
+    for(let t=0;t<T;t++) for(let c=0;c<cap[t];c++) if(k < sorted.length) tables[t].push(sorted[k++]);
+  };
+  deal(men, capM);
+  deal(women, capW);
+
+  // 지역 탐색: 같은 성별끼리만 교환 → 성비(하드 제약)는 절대 깨지지 않는다
+  const flat = [];
+  tables.forEach((list,t) => list.forEach(p => flat.push({ p, t })));
+  let cost = totalCost(ev, tables, ctx);
+  const iters = iterations || Math.max(3000, ev.players.length * 400);
+
+  for(let it=0; it<iters; it++){
+    const i = Math.floor(RND()*flat.length), j = Math.floor(RND()*flat.length);
+    const A = flat[i], B = flat[j];
+    if(!A || !B || A.t === B.t || A.p.gender !== B.p.gender) continue;
+
+    const ta = tables[A.t], tb = tables[B.t];
+    const ia = ta.indexOf(A.p), ib = tb.indexOf(B.p);
+    const before = tableCost(ev, ta, ctx) + tableCost(ev, tb, ctx);
+    ta[ia] = B.p; tb[ib] = A.p;
+    const after = tableCost(ev, ta, ctx) + tableCost(ev, tb, ctx);
+
+    if(after <= before){                       // 개선되거나 같으면 수락 (평평한 지형 탈출)
+      const tmp = A.t; A.t = B.t; B.t = tmp;
+      cost += after - before;
+    } else {
+      ta[ia] = A.p; tb[ib] = B.p;              // 되돌리기
+    }
+  }
+
+  const seats = {};
+  tables.forEach((list,t) => list.forEach(p => seats[p.id] = t));
+  return { round, final: !!final, tables: T, seats, status:"draft", at:Date.now(), metrics: seatMetrics(ev, seats, past, T) };
+}
+
+function seatMetrics(ev, seats, past, tables){
+  const T = tables || ev.tables;
+  const groups = Array.from({length:T}, () => []);
+  for(const p of ev.players){ const t = seats[p.id]; if(t !== undefined && groups[t]) groups[t].push(p); }
+
+  let ageBad = 0, repeat = 0, repeatX = 0, crossPairs = 0, pokeMet = 0, pokeTotal = 0, ieOff = 0;
+  const sizes = [], gdiff = [];
+  for(const g of groups){
+    const m = g.filter(p => p.gender === "M").length;
+    sizes.push(g.length); gdiff.push(Math.abs(m - (g.length - m)));
+    const I = g.filter(isIntrovert).length;
+    ieOff += Math.abs(I - (g.length - I));
+    for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++){
+      const a = g[i], b = g[j];
+      const cross = a.gender !== b.gender;
+      if(cross) crossPairs++;
+      if(Math.abs(a.age - b.age) >= 10) ageBad++;
+      const k = a.id < b.id ? a.id+"|"+b.id : b.id+"|"+a.id;
+      if(past && past.has(k)){ repeat++; if(cross) repeatX++; }
+    }
+  }
+  for(const pk of ev.pokes){
+    pokeTotal++;
+    if(seats[pk.from] !== undefined && seats[pk.from] === seats[pk.to]) pokeMet++;
+  }
+  const pairs = mutualPairs(ev);
+  const pairMet = pairs.filter(([a,b]) => seats[a.id] !== undefined && seats[a.id] === seats[b.id]).length;
+
+  return {
+    sizes, maxGenderDiff: sizes.length ? Math.max(...gdiff) : 0,
+    ageBad, repeat, repeatX, crossPairs,
+    freshRate: crossPairs ? Math.round((crossPairs - repeatX) / crossPairs * 100) : 100,
+    ieOff,
+    pokeMet, pokeTotal, pokeRate: pokeTotal ? Math.round(pokeMet/pokeTotal*100) : 0,
+    pairMet, pairTotal: pairs.length,
+  };
+}
+
+function roundLabel(s){ return s ? (s.final ? "🏁 마지막 자리" : `${s.round}라운드`) : ""; }
+function seatingOf(ev, round){ return ev.seating.find(s => s.round === round) || null; }
+function publishedSeating(ev){
+  const pub = ev.seating.filter(s => s.status === "published");
+  return pub.length ? pub[pub.length-1] : null;
+}
+function currentDraft(ev){
+  const d = ev.seating.filter(s => s.status === "draft");
+  return d.length ? d[d.length-1] : null;
+}
+function nextRound(ev){
+  return ev.seating.length ? Math.max(...ev.seating.map(s => s.round)) + 1 : 1;
+}
+
+// 자리 배정이 끝났는지 — '마지막 자리'가 발행되면 더 이상 바꾸지 않는다
+function isSeatClosed(ev){ return !!ev && ev.seating.some(s => s.status === "published" && s.final); }
+function reopenSeating(){
+  const ev = hostEv();
+  if(!ev) return;
+  ev.seating.forEach(s => { s.final = false; });
+  render();
+  toast("자리 배정을 다시 열었어요");
+}
+// 마지막 자리까지 끝난 뒤 지각 참가자가 생겼을 때 — 열고 바로 배정까지
+function reopenAndSeat(){
+  const ev = hostEv();
+  if(!ev) return;
+  ev.seating.forEach(s => { s.final = false; });
+  makeSeating(false);
+}
+
+function makeSeating(final){
+  const ev = hostEv();
+  if(!ev) return;
+  if(!ev.players.length){ toast("참가자가 없어요"); return; }
+  if(phaseOf(ev) === "done"){ toast("발표가 끝나 자리를 더 바꾸지 않아요"); return; }
+  if(isSeatClosed(ev)){ toast("마지막 자리까지 끝났어요. 다시 열려면 '배정 다시 열기'를 눌러주세요"); return; }
+
+  const draft = currentDraft(ev);
+  const round = draft ? draft.round : nextRound(ev);
+  const isFinal = final === undefined ? (draft ? !!draft.final : false) : !!final;
+
+  const res = buildSeating(ev, round, isFinal, ev.tables);
+  if(!res) return;
+  if(draft) Object.assign(draft, res);
+  else ev.seating.push(res);
+  render();
+  toast(isFinal
+    ? `🏁 마지막 자리(${round}라운드) 초안 생성 — 검토 후 알림을 보내세요`
+    : `${round}라운드 자리 초안 생성 — 검토 후 알림을 보내세요`);
+}
+function reshuffleDraft(){ makeSeating(); }
+// 테이블 수는 자리 배정 시점에 고른다. 초안이 있으면 즉시 다시 배정.
+function setTables(n){
+  const ev = hostEv();
+  if(!ev || isSeatClosed(ev)) return;
+  ev.tables = n;
+  const d = currentDraft(ev);
+  if(d) makeSeating(d.final);
+  else render();
+}
+// 초안 상태에서 일반 ↔ 마지막 전환
+function toggleFinalDraft(){
+  const ev = hostEv(), d = currentDraft(ev);
+  if(!ev || !d) return;
+  makeSeating(!d.final);
+}
+
+function moveSeat(pid, t){
+  const ev = hostEv(), d = currentDraft(ev);
+  if(!ev || !d) return;
+  d.seats[pid] = Number(t);
+  d.metrics = seatMetrics(ev, d.seats, pastTogether(ev, d.round), d.tables);
+  render();
+}
+/* 자리가 새로 발행되면 참가자에게 전체 화면으로 알리고 '이동했어요' 확인을 받는다 */
+function needSeatAck(ev, playerId){
+  if(!ev || isRevealed(ev)) return null;   // 파티가 끝났는데 '자리로 이동하세요'는 맞지 않는다
+  const pub = publishedSeating(ev);
+  if(!pub || !playerId) return null;
+  if(pub.seats[playerId] === undefined) return null;
+  if(pub.acks && pub.acks[playerId]) return null;
+  return pub;
+}
+function ackSeat(pane){
+  const c = vctx(pane);
+  const pub = publishedSeating(c.ev);
+  if(!pub || !c.m) return;
+  pub.acks = pub.acks || {};
+  pub.acks[c.m.id] = Date.now();
+  render();
+  toast("자리 이동을 확인했어요 👍");
+}
+// 성비가 얼마나 치우쳤는지 — 등록 단계에서 미리 알아야 대응할 수 있다
+function genderBalance(ev){
+  const M = ev.players.filter(p => p.gender === "M").length;
+  const W = ev.players.length - M;
+  if(!ev.players.length) return null;
+  if(!M || !W) return { M, W, level:"bad", msg:`${M ? "남성" : "여성"}만 ${M||W}명이에요. 이성이 없으면 콕도 자리 배정도 되지 않아요.` };
+  const hi = Math.max(M,W), lo = Math.min(M,W);
+  const ratio = hi / lo;
+  if(ratio >= 2)   return { M, W, level:"bad",  msg:`성비가 ${M}:${W}로 크게 치우쳤어요. 자리를 나누면 테이블마다 한쪽이 몰립니다.` };
+  if(ratio >= 1.5) return { M, W, level:"warn", msg:`성비가 ${M}:${W}예요. 한쪽이 조금 많습니다.` };
+  return { M, W, level:"ok", msg:`성비 ${M}:${W} — 균형이 좋아요.` };
+}
+// 이번 라운드에 아직 한 번도 안 찌른 사람 (독려 대상)
+function notPokedYet(ev){
+  const ph = pokePhase(ev);
+  return ev.players.filter(p => sentCount(ev, p.id, ph) === 0);
+}
+// 발행/초안 자리에 포함되지 않은 참가자 (자리 배정 뒤에 들어온 지각 참가자 등)
+function unseatedPlayers(ev, seating){
+  if(!seating) return [];
+  return ev.players.filter(p => seating.seats[p.id] === undefined);
+}
+
+/* 운영자가 단계를 옮기면 참가자 화면이 말없이 바뀌던 문제.
+   fired 기록을 참가자용 안내 문구로 바꿔 알림 탭과 배너에 보여준다. */
+function phaseNotices(ev){
+  if(!ev) return [];
+  const f = ev.fired || {}, ph = phaseOf(ev), out = [];
+  if(f.prevote) out.push({ ic:"🗳️", t:"사전 투표가 시작됐어요",
+                           s:`1인당 ${ev.maxPre}회씩 콕을 찌를 수 있어요`, at:f.prevote });
+  if(f.party)   out.push({ ic:"🎉", t:"사전 투표가 마감됐어요",
+                           s:`파티 라운드 콕 ${ev.maxParty}회를 새로 받았어요`, at:f.party });
+  if(f.done && ph === "done")
+    out.push({ ic:"🎊", t:"결과가 발표됐어요", s:"서로 찌른 상대를 확인해보세요", at:f.done });
+  if(f.done && ph !== "done")
+    out.push({ ic:"↩︎", t:"운영자가 발표를 되돌렸어요",
+               s:"결과가 잠시 감춰졌어요. 곧 다시 발표될 수 있어요", at:f.done, warn:true });
+  return out.sort((a,b) => b.at - a.at);
+}
+function latestNotice(ev){
+  const n = phaseNotices(ev)[0];
+  return n && Date.now() - n.at < 3*60000 ? n : null;   // 최근 3분 안의 변화만 배너로
+}
+
+function ackStats(ev){
+  const pub = publishedSeating(ev);
+  if(!pub) return null;
+  const seated = ev.players.filter(p => pub.seats[p.id] !== undefined);
+  const done = seated.filter(p => pub.acks && pub.acks[p.id]);
+  return { pub, total: seated.length, done: done.length,
+           pending: seated.filter(p => !(pub.acks && pub.acks[p.id])) };
+}
+
+function publishSeating(){
+  const ev = hostEv(), d = currentDraft(ev);
+  if(!ev || !d) return;
+  d.status = "published";
+  d.at = Date.now();
+  d.acks = {};
+  render();
+  toast(d.final
+    ? `🏁 마지막 자리를 참가자 전원에게 알렸어요`
+    : `${d.round}라운드 자리를 참가자 전원에게 알렸어요 📣`);
+}
+function discardDraft(){
+  const ev = hostEv();
+  if(!ev) return;
+  ev.seating = ev.seating.filter(s => s.status !== "draft");
+  render();
+  toast("초안을 삭제했어요");
+}
+
+/* ══════════════════════════════════════════════════════════
+   운영자 인증
+   ══════════════════════════════════════════════════════════ */
+function openHostPin(target){
+  S.pinTarget = target; S.pinBuf = ""; S.pinErr = "";
+  S.screen = "hostPin"; S.sheet = null;
+  render();
+}
+function pinPush(d){
+  if(S.pinBuf.length >= 4) return;
+  S.pinBuf += d; S.pinErr = "";
+  if(S.pinBuf.length === 4) setTimeout(pinSubmit, 120);
+  render();
+}
+function pinBack(){ S.pinBuf = S.pinBuf.slice(0,-1); S.pinErr = ""; render(); }
+function pinSubmit(){
+  const t = S.pinTarget;
+  if(t === "master"){
+    if(S.pinBuf === DB.masterPin){ S.auth = "master"; S.screen = "hostEvents"; S.pinBuf = ""; render(); toast("전체 관리자로 로그인했어요"); return; }
+  } else {
+    const ev = EV(t);
+    if(ev){
+      // 회차 PIN을 먼저 본다 — 두 PIN이 같더라도 회차 담당자가 전체 권한을 얻으면 안 된다
+      let granted = null;
+      if(S.pinBuf === ev.pin) granted = ev.id;
+      else if(S.pinBuf === DB.masterPin) granted = "master";
+      if(granted){
+        S.auth = granted;
+        S.hostEvId = ev.id; S.screen = "hostConsole"; S.hostTab = "dash"; S.pinBuf = "";
+        render(); toast(`${ev.name} 콘솔에 입장했어요`); return;
+      }
+    }
+  }
+  S.pinErr = "PIN이 맞지 않아요."; S.pinBuf = ""; render();
+}
+function hostLogout(){
+  S.auth = null; S.hostEvId = null; S.pinBuf = ""; S.pinTarget = null;
+  S.screen = "entry"; render(); toast("로그아웃했어요");
+}
+function canManage(evId){ return S.auth === "master" || S.auth === evId; }
+function openConsole(evId){
+  if(canManage(evId)){ S.hostEvId = evId; S.screen = "hostConsole"; S.hostTab = "dash"; render(); }
+  else openHostPin(evId);
+}
+
+/* ══════════════════════════════════════════════════════════
+   화면 전환 / 등록
+   ══════════════════════════════════════════════════════════ */
+function go(screen){ S.screen = screen; S.sheet = null; S.confirm = null; S.hostSheet = null; S.hostConfirm = null; render(); }
+function goHostTab(t){ S.hostTab = t; S.hostSheet = null; S.hostConfirm = null; render(); }
+
+function enterByCode(){
+  const raw = String(S.entryCode || "").trim();
+  if(!raw){ S.entryErr = "입장 코드를 입력해주세요."; render(); return; }
+  const ev = findByCode(raw);
+  if(!ev){
+    S.entryErr = `'${raw.toUpperCase()}' 코드를 찾을 수 없어요. 운영자에게 다시 확인해주세요.`;
+    render(); return;
+  }
+  const c = canRegister(ev);
+  if(!c.ok){ S.entryErr = `${ev.name} — ${c.why}`; render(); return; }   // 왜 못 들어가는지 남겨둔다
+  S.entryErr = ""; S.entryCode = "";
+  pickEvent(ev.id);
+}
+function onEntryCode(v){
+  S.entryCode = String(v||"").toUpperCase();
+  if(S.entryErr){ S.entryErr = ""; const el = $("#entry-err"); if(el) el.textContent = ""; }
+}
+function pickEvent(id){
+  S.evId = id; S.meId = null;
+  const ev = EV(id);
+  const c = canRegister(ev);
+  if(!c.ok){ S.entryErr = `${ev ? ev.name + " — " : ""}${c.why}`; render(); return; }
+  S.entryErr = "";
+  S.draft = emptyDraft();
+  S.regStep = 1;
+  go("register");
+}
+
+// 단계별로 폼이 나뉘므로 '화면에 있는 칸만' 읽어 draft에 보존한다
+function syncDraft(){
+  const g = (id) => { const el = $("#"+id); return el ? el.value : null; };
+  const set = (k, id) => { const v = g(id); if(v !== null) S.draft[k] = v; };
+  set("nick","f-nick"); set("name","f-name"); set("age","f-age");
+  set("phone","f-phone"); set("insta","f-insta");
+  [0,1,2].forEach(i => { const v = g("f-charm"+i); if(v !== null) S.draft.charms[i] = v; });
+}
+function draftMbti(){
+  const a = S.draft.axes;
+  return a.every(Boolean) ? a.join("") : "";
+}
+function charmCount(i){
+  const el = $("#f-charm"+i), out = $("#charm-cnt"+i);
+  if(!el || !out) return;
+  S.draft.charms[i] = el.value;
+  out.textContent = `${el.value.length}/30`;
+  out.classList.toggle("near", el.value.length >= 25);
+}
+function pickAxis(i, letter){
+  syncDraft();
+  S.draft.axes[i] = letter;
+  document.querySelectorAll(`[data-axis="${i}"]`).forEach(b =>
+    b.classList.toggle("on", b.dataset.letter === letter));
+  const out = $("#mbti-out");
+  if(out) out.textContent = draftMbti() || "· · · ·";
+}
+function pickGender(g){
+  syncDraft(); S.draft.gender = g;
+  document.querySelectorAll(".choice button").forEach(b => b.classList.toggle("on", b.dataset.g === g));
+}
+function pickMbti(m){   // 테스트·프로그램 호출용 (화면에서는 4문항 토글을 씁니다)
+  syncDraft();
+  S.draft.axes = String(m).toUpperCase().split("");
+  render();
+}
+function showFieldError(msg, fieldId, select){
+  document.querySelectorAll(".input.bad, .input-at.bad").forEach(e => e.classList.remove("bad"));
+  document.querySelectorAll(".field-err").forEach(e => e.remove());
+  if($("#f-err")) $("#f-err").textContent = fieldId ? "" : msg;
+  const el = fieldId && $("#"+fieldId);
+  if(!el){ if($("#f-err")) $("#f-err").scrollIntoView({behavior:"smooth",block:"center"}); return; }
+  const box = el.closest(".input-at") || el;
+  box.classList.add("bad");
+  const tip = document.createElement("div");
+  tip.className = "field-err"; tip.textContent = msg;
+  (box.closest(".charm-row") || box).parentNode.appendChild(tip);
+  box.scrollIntoView({behavior:"smooth",block:"center"});
+  el.focus();
+  if(select && el.select) el.select();
+}
+
+// 단계별 검증 — 통과하면 "" 를 돌려준다
+function regValidate(step){
+  const d = S.draft;
+  if(step === 1){
+    if(!d.nick.trim()) return ["닉네임을 입력해주세요.", "f-nick"];
+    if(!d.name.trim()) return ["이름(실명)을 입력해주세요.", "f-name"];
+    const age = parseInt(d.age, 10);
+    if(!(age >= 18 && age <= 99)) return ["나이는 18~99 사이로 입력해주세요.", "f-age"];
+    if(!d.gender) return ["성별을 선택해주세요.", ""];
+  }
+  if(step === 2){
+    const digits = d.phone.replace(/\D/g,"");
+    if(digits.length < 10 || digits.length > 11) return ["전화번호를 정확히 입력해주세요.", "f-phone"];
+    const insta = normInsta(d.insta);
+    if(insta && !/^[A-Za-z0-9._]{1,30}$/.test(insta))
+      return ["인스타 아이디는 영문·숫자·마침표·밑줄만 쓸 수 있어요.", "f-insta"];
+  }
+  if(step === 3){
+    if(!draftMbti()) return ["네 가지 질문에 모두 답해주세요.", ""];
+    const empty = d.charms.findIndex(c => !c.trim());
+    if(empty >= 0) return [`매력 ${empty+1}번을 채워주세요. 세 가지 모두 필요해요.`, "f-charm"+empty];
+  }
+  return null;
+}
+function regStep(n){
+  syncDraft();
+  if(n > S.regStep){
+    const e = regValidate(S.regStep);
+    if(e){ showFieldError(e[0], e[1]); return; }
+  }
+  S.regStep = Math.max(1, Math.min(3, n));
+  render();
+}
+
+function submitRegister(){
+  const ev = curEv();
+  if(!ev) return;
+  const gate = canRegister(ev);
+  if(!gate.ok){ showFieldError(gate.why, ""); return; }
+
+  syncDraft();
+  const d = S.draft;
+  for(const st of [1,2,3]){
+    const e = regValidate(st);
+    if(e){ S.regStep = st; render(); showFieldError(e[0], e[1]); return; }
+  }
+  const nick = d.nick.trim(), name = d.name.trim();
+  const age = parseInt(d.age, 10);
+  const phone = d.phone.trim(), insta = normInsta(d.insta);
+  const charms = d.charms.map(c => c.trim());
+  const digits = phone.replace(/\D/g,"");
+
+  // 같은 번호면 이 회차의 기존 참가자로 재접속
+  const dup = ev.players.find(p => p.phone.replace(/\D/g,"") === digits);
+  if(dup){
+    if(S.regFromDemo){
+      S.regFromDemo = false;
+      let slot = S.panes.findIndex((x, i) => i < S.paneCount && !x.meId);
+      if(slot < 0) slot = 0;
+      S.panes[slot].evId = ev.id; S.panes[slot].meId = dup.id;
+      S.demoEvId = ev.id; S.screen = "demo"; render();
+      toast(`${dn(dup)}님을 ${slot+1}번 화면에 띄웠어요`);
+      return;
+    }
+    S.meId = dup.id; go("main"); toast(`${dn(dup)}님, 다시 오셨네요 👋`); return;
+  }
+
+  // 닉네임은 회차 안에서 유일해야 한다
+  const taken = ev.players.find(p => nickKey(p.nick) === nickKey(nick));
+  if(taken){
+    S.regStep = 1;                 // 닉네임 칸이 있는 단계로 돌려보내야 고칠 수 있다
+    render();
+    showFieldError(`'${nick}'은(는) 이 회차에서 이미 사용 중이에요. 다른 닉네임을 골라주세요.`, "f-nick", true);
+    return;
+  }
+
+  const p = { id:"p"+(ev.pseq++), nick, name, age, gender:d.gender, phone, insta, mbti:draftMbti(), charms };
+  ev.players.push(p);
+  S.meId = p.id;
+  S.draft = emptyDraft();
+  S.regStep = 1;
+  S.tab = "people";
+
+  if(S.regFromDemo){
+    S.regFromDemo = false;
+    S.demoEvId = ev.id;
+    S.panes.forEach(st => { if(!st.evId) st.evId = ev.id; });
+    // 비어 있는 화면이 있으면 거기에, 없으면 첫 번째 화면에 띄운다
+    let slot = S.panes.findIndex((x, i) => i < S.paneCount && !x.meId);
+    if(slot < 0) slot = 0;
+    S.panes[slot].evId = ev.id;
+    S.panes[slot].meId = p.id;
+    S.panes[slot].sheet = null;
+    S.panes[slot].confirm = null;
+    S.screen = "demo";
+    render();
+    toast(`${nick}님 등록 완료 — ${slot+1}번 화면에 띄웠어요 🎉`);
+    return;
+  }
+
+  go("main");
+  toast(`${nick}님 입장 완료! 🎉`);
+}
+
+/* ══════════════════════════════════════════════════════════
+   운영자 설정 조작
+   ══════════════════════════════════════════════════════════ */
+function evSet(key, val){ const ev = hostEv(); if(!ev) return; ev[key] = val; render(); }
+const clampPoke = (k, key) => Math.max(1, Math.min(key === "maxPre" ? 5 : 10, k));
+function warnLowerBudget(ev, phase, k){
+  const over = ev.players.filter(p => sentCount(ev, p.id, phase) > k);
+  if(over.length) toast(`이미 ${k}회를 넘게 쓴 참가자 ${over.length}명이 있어요. 그분들은 더 찌를 수 없습니다`);
+}
+function evPre(k){
+  const ev = hostEv(); const v = clampPoke(k, "maxPre");
+  if(ev && v < ev.maxPre) warnLowerBudget(ev, "pre", v);
+  evSet("maxPre", v);
+}
+function evParty(k){
+  const ev = hostEv(); const v = clampPoke(k, "maxParty");
+  if(ev && v < ev.maxParty) warnLowerBudget(ev, "party", v);
+  evSet("maxParty", v);
+}
+function defPre(k){ DB.defaults.maxPre = clampPoke(k, "maxPre"); render(); }
+function defParty(k){ DB.defaults.maxParty = clampPoke(k, "maxParty"); render(); }
+function wizPre(k){ wizSync(); S.wizard.maxPre = clampPoke(k, "maxPre"); render(); }
+function wizParty(k){ wizSync(); S.wizard.maxParty = clampPoke(k, "maxParty"); render(); }
+function evSetNum(key, val){ evSet(key, Number(val)); }
+function evSetTime(key, val){
+  const ev = hostEv(); if(!ev) return;
+  phaseOf(ev);
+  if(schedLocked(ev, key)){ toast("이미 지나온 단계의 시각은 바꿀 수 없어요"); render(); return; }
+
+  const next = fromLocalInput(val);
+  const f = ev.fired || {};
+  // 순서가 뒤집히면 시작하자마자 끝나버리므로 막는다 (위저드에는 있던 검증이 설정 탭엔 없었다)
+  if(key === "voteCloseAt" && next && ev.regOpenAt && next <= ev.regOpenAt){
+    toast("사전 투표 마감은 등록 시작보다 뒤여야 해요"); render(); return;
+  }
+  if(key === "revealAt" && next && !f.party && ev.voteCloseAt && next <= ev.voteCloseAt){
+    toast("발표는 사전 투표 마감보다 뒤여야 해요"); render(); return;
+  }
+  if(key === "regOpenAt" && next && ev.voteCloseAt && next >= ev.voteCloseAt){
+    toast("등록 시작은 사전 투표 마감보다 앞이어야 해요"); render(); return;
+  }
+  ev[key] = next;
+  render();
+  toast("일정을 바꿨어요");
+}
+function evSetText(key, val){
+  const ev = hostEv(); if(!ev) return;
+  const v = String(val).trim();
+  if(key === "pin"){
+    if(!/^\d{4}$/.test(v)){ toast("PIN은 숫자 4자리여야 해요"); render(); return; }
+    if(v === DB.masterPin){ toast(`공통 운영자 PIN(${DB.masterPin})과 같게 둘 수 없어요`); render(); return; }
+  }
+  ev[key] = v || ev[key];
+  render();
+}
+/* 단계 변경은 항상 이 함수를 거친다.
+   실제로 진행된 시각을 fired 에 남기고, 예약 시각은 건드리지 않는다.
+   (예전에는 지나간 시각을 몰래 지우거나 30분씩 밀어서 운영자가 안내한 시각이 바뀌었다) */
+function setPhase(ev, ph){
+  ev.fired = ev.fired || {};
+  ev.phase = ph;
+  if(ph !== "prep" && !ev.fired[ph]) ev.fired[ph] = Date.now();
+  ev.revealed = (ph === "done");
+}
+
+// 단계 전환은 되돌리기 어려운 동작이라 항상 확인을 받는다
+function askAdvancePhase(){
+  const ev = hostEv(); if(!ev) return;
+  const i = PHASE_ORDER.indexOf(phaseOf(ev));
+  if(i >= PHASE_ORDER.length - 1) return;
+  S.hostConfirm = { type:"phase", to: PHASE_ORDER[i+1] };
+  render();
+}
+function askUnreveal(){
+  const ev = hostEv(); if(!ev || phaseOf(ev) !== "done") return;
+  S.hostConfirm = { type:"unreveal" };
+  render();
+}
+function advancePhase(){
+  const ev = hostEv(); if(!ev) return;
+  const i = PHASE_ORDER.indexOf(phaseOf(ev));
+  if(i >= PHASE_ORDER.length - 1) return;
+  const next = PHASE_ORDER[i+1];
+  setPhase(ev, next);
+  render();
+  toast(`${PHASES[next].label} 단계로 넘어갔어요`);
+}
+function unrevealPhaseOn(ev){ if(ev) setPhase(ev, "party"); }
+function unrevealPhase(){
+  const ev = hostEv(); if(!ev) return;
+  setPhase(ev, "party");
+  render();
+  toast("발표를 취소했어요 — 참가자 화면에서 결과가 다시 숨겨집니다");
+}
+function openPlayerSheet(id, e){ if(e) e.stopPropagation(); S.hostSheet = id; render(); }
+function closePlayerSheet(){ S.hostSheet = null; render(); }
+
+function askRemovePlayer(id, e){
+  if(e) e.stopPropagation();
+  S.hostConfirm = { type:"delPlayer", id };
+  render();
+}
+function cancelHostConfirm(){ S.hostConfirm = null; render(); }
+function confirmHostAction(){
+  const c = S.hostConfirm;
+  S.hostConfirm = null;
+  if(!c) { render(); return; }
+  if(c.type === "phase"){ advancePhase(); return; }
+  if(c.type === "delEvent"){
+    const ev = EV(c.id), nm = ev ? ev.name : "";
+    deleteEvent(c.id);
+    toast(`${nm} 회차를 삭제했어요`);
+    return;
+  }
+  if(c.type === "unreveal"){ unrevealPhase(); return; }
+  if(c.type === "delPlayer"){
+    const ev = hostEv(), p = P(ev, c.id);
+    const nm = p ? dn(p) : "";
+    S.hostSheet = null;
+    removePlayer(c.id);
+    toast(`${nm}님을 삭제했어요`);
+  } else render();
+}
+
+function removePlayer(id){
+  const ev = hostEv(); if(!ev) return;
+  const gone = P(ev, id);
+  ev.players = ev.players.filter(p => p.id !== id);
+  ev.pokes = ev.pokes.filter(p => p.from !== id && p.to !== id);
+  ev.seating.forEach(s => { delete s.seats[id]; s.metrics = seatMetrics(ev, s.seats, pastTogether(ev, s.round), s.tables); });
+  S.panes.forEach(st => { if(st.meId === id){ st.meId = null; st.sheet = null; st.confirm = null; } });
+  if(S.meId === id){
+    // 참가자 화면이 이유 없이 입장 화면으로 튕기던 문제 — 무슨 일이 있었는지 남긴다
+    S.meId = null;
+    S.entryErr = `${ev.name} — 운영자가 ${gone ? dn(gone) + "님의 " : ""}참가를 취소했어요. 문의는 파티 운영자에게 해주세요.`;
+    if(S.screen === "main") S.screen = "entry";
+  }
+  render();
+}
+function askDeleteEvent(id){ S.hostConfirm = { type:"delEvent", id }; render(); }
+function deleteEvent(id){
+  const gone = EV(id);
+  const wasMine = S.evId === id;
+  DB.events = DB.events.filter(e => e.id !== id);
+  if(S.hostEvId === id) S.hostEvId = null;
+  if(S.demoEvId === id) S.demoEvId = null;
+  S.panes.forEach(st => { if(st.evId === id){ st.evId = null; st.meId = null; st.sheet = null; st.confirm = null; } });
+  if(wasMine){
+    S.evId = null; S.meId = null;
+    S.entryErr = `${gone ? gone.name + " — " : ""}운영자가 이 회차를 종료하고 삭제했어요.`;
+  }
+  // 참가자였다면 운영자 화면이 아니라 입장 화면으로 보낸다
+  S.screen = S.auth ? "hostEvents" : "entry";
+  render();
+}
+/* ── 회차 생성 위저드 (기본정보 → 일정 → 규칙 → 확인) ── */
+function openWizard(){
+  const now = Date.now(), D = DB.defaults;
+  const reg = now + D.regOpenAfterH * 3600000;
+  const startNow = D.regOpenAfterH === 0;      // 기본이 '바로'면 위저드도 즉시 시작으로 연다
+  let pin = String(1000 + Math.floor(RND()*9000));
+  while(pin === DB.masterPin) pin = String(1000 + Math.floor(RND()*9000));
+  S.wizard = {
+    step: 1,
+    name: `${DB.events.length + 1}회차 솔로 파티`,
+    pin,
+    code: genCode(),
+    regNow: startNow,
+    regKeep: startNow ? now + 3600000 : reg,   // '시각 지정'으로 되돌릴 때 쓸 값
+    regOpenAt: startNow ? now : reg,
+    voteCloseAt: reg + D.voteWindowH * 3600000,
+    maxPre: D.maxPre,
+    maxParty: D.maxParty,
+    err: "",
+  };
+  S.screen = "wizard";
+  render();
+}
+function wizSync(){
+  const w = S.wizard; if(!w) return;
+  const g = (id) => { const el = $("#"+id); return el ? el.value : null; };
+  const nm = g("w-name"); if(nm !== null) w.name = nm;
+  const pin = g("w-pin"); if(pin !== null) w.pin = pin;
+  const cd = g("w-code"); if(cd !== null) w.code = cd.toUpperCase().replace(/[^A-Z0-9]/g,"");
+  const r = g("w-reg"); if(r !== null && !w.regNow){ const t = fromLocalInput(r); if(t) w.regOpenAt = t; }
+  const v = g("w-vote"); if(v !== null){ const t = fromLocalInput(v); if(t) w.voteCloseAt = t; }
+}
+function wizSet(k, v){ if(!S.wizard) return; wizSync(); S.wizard[k] = v; S.wizard.err = ""; render(); }
+function wizRegNow(on){
+  if(!S.wizard) return;
+  wizSync();
+  const w = S.wizard;
+  if(on){
+    if(!w.regNow) w.regKeep = w.regOpenAt;          // 되돌릴 때 쓰려고 보관
+    w.regNow = true;
+    w.regOpenAt = Date.now();
+    if(w.voteCloseAt <= w.regOpenAt) w.voteCloseAt = w.regOpenAt + DB.defaults.voteWindowH * 3600000;
+  } else {
+    w.regNow = false;
+    // '지금 바로'로 덮어쓴 과거 시각이 남아 예약한 줄 알고 만들던 문제
+    w.regOpenAt = (w.regKeep && w.regKeep > Date.now()) ? w.regKeep : Date.now() + 3600000;
+    if(w.voteCloseAt <= w.regOpenAt) w.voteCloseAt = w.regOpenAt + DB.defaults.voteWindowH * 3600000;
+  }
+  w.err = "";
+  render();
+}
+function wizStep(n){
+  if(!S.wizard) return;
+  wizSync();
+  const w = S.wizard;
+  if(n > w.step){
+    const e = wizValidate(w.step);
+    if(e){ w.err = e; render(); return; }
+  }
+  w.err = "";
+  w.step = Math.max(1, Math.min(4, n));
+  render();
+}
+function wizValidate(step){
+  const w = S.wizard;
+  if(!w) return "";
+  if(step === 1){
+    if(!w.name.trim()) return "회차 이름을 입력해주세요.";
+    if(!/^\d{4}$/.test(w.pin)) return "운영자 PIN은 숫자 4자리여야 해요.";
+    if(w.pin === DB.masterPin) return `공통 운영자 PIN(${DB.masterPin})과 다른 번호를 써주세요.`;
+    if(!/^[A-Z0-9]{4,8}$/.test(w.code)) return "입장 코드는 영문 대문자·숫자 4~8자예요.";
+    const dup = DB.events.find(e => e.code === w.code);
+    if(dup) return `입장 코드 ${w.code}는 '${dup.name}'에서 쓰고 있어요.`;
+  }
+  if(step === 2){
+    if(!w.regOpenAt) return "등록 시작 시각을 정해주세요.";
+    if(!w.voteCloseAt) return "사전 투표 마감 시각을 정해주세요.";
+    if(w.voteCloseAt <= w.regOpenAt) return "사전 투표 마감은 등록 시작보다 뒤여야 해요.";
+  }
+  return "";
+}
+function wizCreate(){
+  if(!S.wizard) return;          // 더블클릭으로 두 번 들어오면 두 번째는 무시
+  wizSync();
+  const w = S.wizard;
+  for(const st of [1,2,3]){
+    const e = wizValidate(st);
+    if(e){ w.err = e; w.step = st; render(); return; }
+  }
+  const ev = newEvent(w.name.trim(), w.pin, {
+    code: w.code,
+    regOpenAt: w.regNow ? Date.now() : w.regOpenAt,
+    voteCloseAt: w.voteCloseAt,
+    maxPre: w.maxPre,
+    maxParty: w.maxParty,
+  });
+  // 예약이든 즉시든 phaseOf()가 시각을 보고 알아서 등록을 엽니다
+  phaseOf(ev);
+  S.wizard = null;
+  S.hostEvId = ev.id;
+  S.screen = "hostConsole";
+  S.hostTab = "dash";
+  render();
+  toast(w.regNow
+    ? `${ev.name} 생성 — 지금부터 등록 가능 · 입장 코드 ${ev.code}`
+    : `${ev.name} 생성 — ${fmtDT(ev.regOpenAt)}부터 등록 · 입장 코드 ${ev.code}`);
+}
+function wizCancel(){ S.wizard = null; go("hostEvents"); }
+
+function addNewEvent(){ openWizard(); }
+
+/* ── 회차 기본 설정 (새 회차가 물려받는 값) ── */
+function defSet(key, val){ DB.defaults[key] = Number(val); render(); }
+function defSetPin(val){
+  const v = String(val).trim();
+  if(!/^\d{4}$/.test(v)){ toast("공통 PIN은 숫자 4자리여야 해요"); render(); return; }
+  const clash = DB.events.find(e => e.pin === v);
+  if(clash){ toast(`'${clash.name}'의 회차 PIN과 같아요. 다른 번호를 써주세요`); render(); return; }
+  DB.masterPin = v;
+  render();
+  toast("공통 PIN을 변경했어요");
+}
+function resetDefaults(){
+  DB.defaults = { maxPre:3, maxParty:3, regOpenAfterH:1, voteWindowH:24 };
+  render();
+  toast("콕·일정 기본값을 되돌렸어요");
+}
+
+/* ══════════════════════════════════════════════════════════
+   프로토타입 도구
+   ══════════════════════════════════════════════════════════ */
+function protoSwitchEvent(id){
+  if(!id) return;
+  S.evId = id; S.meId = null;
+  const ev = EV(id);
+  if(ev && ev.players.length){ S.meId = ev.players[0].id; S.screen = "main"; S.tab = "people"; }
+  else S.screen = "entry";
+  render();
+}
+function switchUser(v){
+  if(!v) return;
+  S.meId = v; S.screen = "main"; S.tab = "people"; render();
+}
+
+// 데모 화면에서는 데모 회차가, 그 외에는 지금 보고 있는 회차가 대상
+function protoTargetEv(){
+  if(S.screen === "demo") return EV(S.demoEvId) || curEv();
+  return curEv() || EV(S.demoEvId) || DB.events.find(e => canRegister(e).ok) || DB.events[0] || null;
+}
+function newParticipant(){
+  const ev = protoTargetEv();
+  if(!ev){ toast("먼저 회차를 만들어주세요"); return; }
+  const c = canRegister(ev);
+  if(!c.ok){ toast(c.why); return; }     // 화면은 그대로 두고 이유만 알린다
+  S.regFromDemo = (S.screen === "demo");
+  S.evId = ev.id;
+  S.meId = null;
+  S.draft = emptyDraft();
+  S.regStep = 1;
+  go("register");
+}
+// 등록 화면에서 빠져나갈 때 — 데모에서 왔으면 데모로 돌아간다
+function regExit(){
+  if(S.regFromDemo){ S.regFromDemo = false; S.screen = "demo"; S.sheet = null; S.confirm = null; render(); return; }
+  go("entry");
+}
+function protoHost(){
+  if(S.auth) { S.screen = S.hostEvId ? "hostConsole" : "hostEvents"; render(); }
+  else openHostPin("master");
+}
+function resetAll(){
+  DB.events = []; DB.seq = 1;
+  Object.assign(S, { screen:"entry", tab:"people", hostTab:"dash", evId:null, meId:null,
+    hostEvId:null, auth:null, pinBuf:"", pinTarget:null, pinErr:"", sheet:null, confirm:null, hostSheet:null, hostConfirm:null, demoEvId:null, regFromDemo:false, regStep:1, entryCode:"", entryErr:"", draft:emptyDraft() });
+  S.panes.forEach(st => Object.assign(st, { evId:null, meId:null, tab:"people", sheet:null, confirm:null, onlyOpposite:true }));
+  render(); toast("전체 초기화 완료");
+}
+
+function seedDemo(){
+  seedRng(20260809);
+  const now = Date.now();
+  const ev = newEvent("8월 솔로 파티 (데모)", "1234");
+  ev.regOpenAt = now - 3*24*60*60000;
+  ev.voteCloseAt = now + 45*60000;
+  setPhase(ev, "prevote");
+  ev.tables = 4; ev.maxPre = 3; ev.maxParty = 5;
+
+  const demo = [
+    ["김도윤","클라이밍하는곰",29,"M","INTJ",["주말 클라이밍","요리 잘함","고민 잘 들어줌"],"doyun_climb"],
+    ["박서준","맛집헌터",31,"M","ENFP",["맛집 300곳","분위기 메이커","드럼 침"],"seojun.eats"],
+    ["이준호","기타치는고양이",27,"M","ISFP",["기타 연주","사진 잘 찍음","길냥이 친화력"],""],
+    ["최민석","달리는사람",38,"M","ESTJ",["마라톤 완주 3회","계획의 신","맥주 양조"],"minseok_run"],
+    ["정우진","집사우진",28,"M","INFP",["고양이 2마리","글 씀","목소리 좋음"],"woojin_cat"],
+    ["한지호","코딩하는너구리",33,"M","ENTP",["개발자","보드게임 마스터","아무 말 대잔치"],""],
+    ["오세영","산타는남자",26,"M","ESFP",["백패킹","캠핑 요리","춤 좀 춤"],"seyoung_hike"],
+    ["강태현","조용한독서가",41,"M","ISTJ",["책 100권/년","위스키 취향","정리정돈"],"taehyun.b"],
+    ["이서연","전시회러버",27,"F","ENFJ",["전시 큐레이션","그림 그림","공감 능력"],"seoyeon.art"],
+    ["김하은","도자기굽는중",29,"F","INFJ",["도예 배우는 중","차 우리기","깊은 대화"],"haeun_clay"],
+    ["박지우","춤추는지우",25,"F","ESFP",["댄스 10년","텐션 담당","노래방 에이스"],"jiwoo_dance"],
+    ["윤채원","커피세잔",31,"F","ISTJ",["홈카페","베이킹","계획형 여행"],""],
+    ["송예린","논쟁의여왕",28,"F","ENTP",["마케터","토론 좋아함","밈 수집"],"yerin.mkt"],
+    ["장민지","베이킹민지",36,"F","ISFJ",["빵 굽기","꽃꽂이","잘 챙겨줌"],"minji_bake"],
+    ["한소희","러닝크루",26,"F","ENFP",["러닝 크루장","여행 100번","사진 잘 받음"],"sohee_run"],
+    ["문가영","영화광",30,"F","INTP",["영화 500편","시나리오 씀","고양이 집사"],"gayoung.film"],
+  ];
+  ev.players = demo.map((d,i) => ({
+    id:"p"+(i+1), name:d[0], nick:d[1], age:d[2], gender:d[3], mbti:d[4], charms:d[5],
+    phone:`010-${1000 + (i*137)%9000}-${2000 + (i*311)%8000}`, insta:d[6],
+  }));
+  ev.pseq = demo.length + 1;
+
+  // 사전투표 콕 (0~3회, 같은 사람 중복 포함)
+  for(const p of ev.players){
+    const targets = ev.players.filter(q => q.gender !== p.gender);
+    const n = Math.floor(RND() * (ev.maxPre + 1));   // 0회도 가능
+    for(let k=0;k<n;k++){
+      const t = targets[Math.floor(RND()*targets.length)];
+      ev.pokes.push({ from:p.id, to:t.id, at: now - Math.floor(RND()*3*60*60000), phase:"pre" });
+    }
+  }
+
+  S.evId = ev.id; S.meId = ev.players[0].id;
+  syncDemoPanes(ev.id);
+  S.screen = "main"; S.tab = "people";
+  render();
+  toast(`데모 회차 생성 — 참가자 16명 · 운영자 PIN ${ev.pin}`);
+}
+
+/* ══════════════════════════════════════════════════════════
+   렌더링
+   ══════════════════════════════════════════════════════════ */
+function avatar(p, cls){ return `<div class="avatar ${cls||""} av-${p.gender}">${esc(dn(p)[0])}</div>`; }
+function mbtiTag(m){ return `<span class="tag tag-${mbtiGroup(m)}">${esc(m)}</span>`; }
+// 상세·본인 화면: 전문 그대로 (여러 줄 허용)
+function charmChips(p){ return `<div class="charms">${(p.charms||[]).filter(Boolean).map(c => `<span class="charm">${esc(c)}</span>`).join("")}</div>`; }
+// 목록 카드: 한 줄 고정 + 말줄임 → 문장형이든 짧은 태그든 카드 높이가 일정해진다
+function charmLine(p){
+  const list = (p.charms||[]).filter(Boolean);
+  if(!list.length) return `<div class="charm-line muted">소개가 없어요</div>`;
+  return `<div class="charm-line" title="${esc(list.join(" · "))}">${esc(list.join(" · "))}</div>`;
+}
+function phaseBadge(ev){ const ph = PHASES[phaseOf(ev)]; return `<span class="phase ${ph.cls}">${ph.label}</span>`; }
+
+function render(){
+  const r = $("#root");
+  document.querySelector(".shell").classList.toggle("wide", S.screen === "demo");
+  const V = {
+    entry: viewEntry, register: viewRegister,
+    main: () => viewMain(vctx(-1)),
+    demo: viewDemo,
+    hostPin: viewHostPin, hostEvents: viewHostEvents, hostDefaults: viewHostDefaults,
+    wizard: viewWizard, hostConsole: viewHostConsole,
+  };
+  if(S.screen === "main" && !me()) S.screen = "entry";
+  if(S.screen === "demo" && !EV(S.demoEvId)) S.screen = "entry";
+  if(S.screen === "hostConsole" && !hostEv()) S.screen = S.auth ? "hostEvents" : "entry";
+  if(["hostEvents","hostDefaults","wizard"].includes(S.screen) && S.auth !== "master") S.screen = S.auth ? "hostConsole" : "entry";
+  r.innerHTML = (V[S.screen] || viewEntry)();
+  if(S.screen === "main"){
+    const c = vctx(-1);
+    r.innerHTML += S.sheet ? viewSheet(c) : "";
+    r.innerHTML += S.confirm ? viewConfirm(c) : "";
+    r.innerHTML += viewSeatAck(c);
+  }
+  r.innerHTML += (S.hostSheet && S.screen === "hostConsole") ? viewPlayerSheet(S.hostSheet) : "";
+  r.innerHTML += S.hostConfirm ? viewHostConfirm(S.hostConfirm) : "";
+  renderProtoBar();
+}
+
+function renderProtoBar(){
+  const evSel = $("#ev-switch");
+  evSel.innerHTML = DB.events.length
+    ? DB.events.map(e => `<option value="${e.id}" ${e.id===S.evId?"selected":""}>${esc(e.name)}</option>`).join("")
+    : `<option value="">회차 없음</option>`;
+
+  // 데모 화면에서는 폰마다 참가자 선택기가 따로 있으므로 이 스위처는 숨긴다
+  const inDemo = S.screen === "demo";
+  const ev = inDemo ? EV(S.demoEvId) : (curEv() || protoTargetEv());
+  const sel = $("#switcher");
+  sel.style.display = inDemo ? "none" : "";
+  sel.innerHTML = ev && ev.players.length
+    ? ev.players.map(p => `<option value="${p.id}" ${p.id===S.meId?"selected":""}>${esc(dn(p))} (${p.gender==="M"?"남":"여"}·${p.age})</option>`).join("")
+    : `<option value="">참가자 없음</option>`;
+  if(S.meId) sel.value = S.meId;
+
+  const addBtn = $("#add-participant");
+  const target = protoTargetEv();
+  addBtn.disabled = !target;
+  addBtn.title = target ? `${target.name}에 참가자 추가` : "회차가 없습니다";
+}
+
+/* ── 입장 ─────────────────────────────────────── */
+function viewEntry(){
+  const open = DB.events.filter(e => ["reg","prevote","party"].includes(phaseOf(e)));
+  return `
+  <div class="screen no-nav">
+    <div class="entry">
+      <div class="logo">👉</div>
+      <div>
+        <h1>오늘 마음에 든 사람,<br><em>콕! 찔러보세요</em></h1>
+        <p style="margin-top:14px">누가 찔렀는지는 <b>끝까지 비밀</b>이에요.<br>발표 때 <b>서로 찌른 상대</b>만 서로에게 공개됩니다.</p>
+      </div>
+
+      <div>
+        <div class="field" style="margin-bottom:9px">
+          <label>파티 입장 코드</label>
+          <input class="input code-input" id="entry-code" value="${esc(S.entryCode)}" maxlength="8"
+                 placeholder="ABC123" autocapitalize="characters" autocorrect="off" spellcheck="false"
+                 oninput="onEntryCode(this.value)" onkeydown="if(event.key==='Enter')enterByCode()">
+          <div class="field-err" id="entry-err" style="${S.entryErr?"":"display:none"}">${esc(S.entryErr||"")}</div>
+        </div>
+        <button class="btn btn-primary" onclick="enterByCode()">입장하기</button>
+        <div class="tiny muted" style="text-align:center;margin-top:9px;line-height:1.6">
+          운영자에게 받은 <b>입장 코드</b>를 넣어주세요.
+        </div>
+      </div>
+
+      <div>
+        <button class="btn btn-ghost" style="margin-bottom:9px" onclick="openHostPin('master')">🔐 운영자로 입장</button>
+        ${DB.events.some(e => e.players.length) ? `<button class="btn btn-ghost" onclick="openDemo()">👀 데모 뷰 — 참가자 화면 나란히 보기</button>` : ""}
+      </div>
+
+      ${DB.events.length ? `
+        <details class="proto-list">
+          <summary>🧪 코드 없이 회차 고르기 (프로토타입 전용)</summary>
+          ${(open.length ? open : DB.events).map(e => {
+            const c = canRegister(e);
+            return `
+            <div class="ev-card ${e.id===S.evId?"on":""}" onclick="pickEvent('${e.id}')">
+              <div class="t"><h3>${esc(e.name)}</h3>${phaseBadge(e)}</div>
+              <div class="meta">
+                코드 <b style="letter-spacing:.12em">${esc(e.code||"-")}</b> · 참가자 ${e.players.length}명<br>
+                ${c.ok ? `<span style="color:var(--mint)">지금 등록할 수 있어요</span>` : `<span style="color:var(--muted)">${esc(c.why)}</span>`}
+              </div>
+            </div>`;
+          }).join("")}
+        </details>` : `
+        <div class="note">아직 열린 회차가 없어요. 운영자가 회차를 만들면 코드로 참가할 수 있습니다.</div>`}
+    </div>
+  </div>`;
+}
+
+/* ── 운영자 PIN ───────────────────────────────── */
+function viewHostPin(){
+  const isMaster = S.pinTarget === "master";
+  const ev = isMaster ? null : EV(S.pinTarget);
+  return `
+  <div class="screen no-nav">
+    <div class="topbar"><button class="btn-sm btn-ghost" onclick="go('entry')">← 뒤로</button></div>
+    <div style="text-align:center;padding:22px 0 6px">
+      <div style="font-size:44px;margin-bottom:12px">🔐</div>
+      <h1 style="font-size:23px">${isMaster ? "운영자 PIN" : esc(ev ? ev.name : "회차") + " PIN"}</h1>
+      <p class="tiny muted" style="margin-top:9px;line-height:1.6">
+        ${isMaster
+          ? "공통 PIN을 넣으면 모든 회차를 관리할 수 있어요.<br>회차 담당자는 회차 목록에서 각자 PIN으로 들어갑니다."
+          : "이 회차의 PIN 또는 공통 PIN을 입력하세요."}
+      </p>
+    </div>
+
+    <div class="pindots">${[0,1,2,3].map(i => `<i class="${i < S.pinBuf.length ? "f":""}"></i>`).join("")}</div>
+    <div style="text-align:center;min-height:20px;color:#ff8fa8;font-size:12.5px;font-weight:600">${esc(S.pinErr)}</div>
+
+    <div class="pinpad">
+      ${[1,2,3,4,5,6,7,8,9].map(n => `<button onclick="pinPush('${n}')">${n}</button>`).join("")}
+      <button onclick="pinBack()" style="font-size:15px">←</button>
+      <button onclick="pinPush('0')">0</button>
+      <button onclick="pinSubmit()" style="font-size:14px;color:var(--muted)">확인</button>
+    </div>
+
+    <div class="note" style="margin-top:18px">
+      🧪 프로토타입 기본값 — 공통 PIN <b>${esc(DB.masterPin)}</b>${ev ? ` · 이 회차 PIN <b>${esc(ev.pin)}</b>` : ""}
+    </div>
+  </div>`;
+}
+
+/* ── 운영자: 회차 목록 ────────────────────────── */
+function viewHostEvents(){
+  return `
+  <div class="screen no-nav">
+    <div class="topbar">
+      <div class="who">
+        <div class="avatar" style="background:linear-gradient(140deg,var(--gold),var(--pink))">🎛</div>
+        <div><div class="nm">회차 관리</div><div class="tiny muted">전체 관리자</div></div>
+      </div>
+      <button class="btn-sm btn-ghost" onclick="hostLogout()">로그아웃</button>
+    </div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>회차 ${DB.events.length}개</h2><span class="tiny muted">회차끼리 데이터는 완전히 분리돼요</span></div>
+      ${DB.events.length === 0 ? `<div class="empty"><div class="ico">📅</div><p>아직 회차가 없어요.<br>아래에서 새 회차를 만들어보세요.</p></div>` : ""}
+      ${DB.events.map(e => {
+        const pairs = mutualPairs(e).length;
+        return `
+        <div class="ev-card" onclick="openConsole('${e.id}')">
+          <div class="t"><h3>${esc(e.name)}</h3>${phaseBadge(e)}</div>
+          <div class="meta">
+            참가자 <b>${e.players.length}명</b> · 콕 ${e.pokes.length}회 · 매칭 ${pairs}쌍<br>
+            자리 ${e.seating.filter(s=>s.status==="published").length}라운드 발행${isSeatClosed(e)?" (종료)":""} · PIN ${esc(e.pin)}
+          </div>
+        </div>`;
+      }).join("")}
+      <button class="btn btn-primary" style="margin-bottom:9px" onclick="addNewEvent()">+ 새 회차 만들기</button>
+      <button class="btn btn-ghost" onclick="go('hostDefaults')">⚙️ 회차 기본 설정</button>
+    </div>
+
+    <div class="note">
+      새 회차는 <b>기본 설정</b>의 값을 물려받습니다 —
+      사전 콕 ${DB.defaults.maxPre}회 · 파티 콕 ${DB.defaults.maxParty}회.
+      만든 뒤 각 회차에서 따로 바꿀 수 있어요.
+    </div>
+  </div>`;
+}
+
+/* ── 운영자: 회차 생성 위저드 ─────────────────── */
+function viewWizard(){
+  const w = S.wizard;
+  if(!w) return viewHostEvents();
+  const STEPS = ["기본정보","일정","규칙","확인"];
+
+  const body = () => {
+    if(w.step === 1) return `
+      <div class="field">
+        <label>회차 이름 <span class="req">*</span></label>
+        <input class="input" id="w-name" value="${esc(w.name)}" maxlength="24" placeholder="예) 8월 솔로 파티">
+      </div>
+      <div class="field">
+        <label>운영자 PIN <span class="req">*</span> <span class="muted" style="font-weight:600">— 이 회차 콘솔에 들어갈 때</span></label>
+        <input class="input" id="w-pin" value="${esc(w.pin)}" maxlength="4" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label>참가자 입장 코드 <span class="req">*</span> <span class="muted" style="font-weight:600">— 참가자가 입력해 들어옵니다</span></label>
+        <input class="input" id="w-code" value="${esc(w.code)}" maxlength="8" style="letter-spacing:.18em;font-weight:800;text-transform:uppercase">
+        <div class="tiny muted" style="margin-top:6px">헷갈리는 O·0·I·1은 빼고 만들었어요. 직접 바꿔도 됩니다.</div>
+      </div>`;
+
+    if(w.step === 2) return `
+      <div class="field">
+        <label>등록 시작 <span class="req">*</span></label>
+        <div class="choice" style="margin-bottom:9px">
+          <button class="${w.regNow?"on":""}" data-g="F" onclick="wizRegNow(true)">지금 바로</button>
+          <button class="${!w.regNow?"on":""}" data-g="M" onclick="wizRegNow(false)">시각 지정</button>
+        </div>
+        ${w.regNow
+          ? `<div class="note ok">만들자마자 <b>등록 중</b>으로 시작합니다. 참가자가 코드만 있으면 바로 들어올 수 있어요.</div>`
+          : `<input class="input" id="w-reg" type="datetime-local" value="${toLocalInput(w.regOpenAt)}">
+             <div class="tiny muted" style="margin-top:6px">그 전까지는 <b>준비 중</b>이고, 시각이 되면 <b>자동으로</b> 등록이 열립니다.</div>`}
+      </div>
+      <div class="field">
+        <label>사전 투표 마감 <span class="req">*</span></label>
+        <input class="input" id="w-vote" type="datetime-local" value="${toLocalInput(w.voteCloseAt)}">
+        <div class="tiny muted" style="margin-top:6px">이 시각이 지나면 자동으로 <b>파티 진행</b> 단계로 넘어갑니다.</div>
+      </div>`;
+
+    if(w.step === 3) return `
+      <div class="sect">
+        <div class="tiny muted" style="margin-bottom:9px">16명 파티 기준 예시로 보여드려요</div>
+        ${pokeStepper({ title:"사전 투표", k:w.maxPre, min:1, max:5, setter:"wizPre", M:8, W:8 })}
+        <div style="height:10px"></div>
+        ${pokeStepper({ title:"파티 중", k:w.maxParty, min:1, max:10, setter:"wizParty", M:8, W:8, second:true })}
+      </div>
+      <div class="note">테이블 수와 자리 바꾸는 횟수는 파티 중 <b>자리 탭</b>에서 그때그때 정합니다.</div>`;
+
+    return `
+      <div class="kv" style="margin-bottom:14px">
+        <div class="r"><span>회차 이름</span><b>${esc(w.name)}</b></div>
+        <div class="r"><span>운영자 PIN</span><b>${esc(w.pin)}</b></div>
+        <div class="r"><span>입장 코드</span><b style="letter-spacing:.14em">${esc(w.code)}</b></div>
+        <div class="r"><span>등록 시작</span><b>${w.regNow ? "지금 바로" : fmtDT(w.regOpenAt)}</b></div>
+        <div class="r"><span>사전 투표 마감</span><b>${fmtDT(w.voteCloseAt)}</b></div>
+        <div class="r"><span>콕 횟수</span><b>사전 ${w.maxPre}회 · 파티 ${w.maxParty}회</b></div>
+      </div>
+      <div class="note ${w.regNow?"ok":"warn"}">
+        ${w.regNow
+          ? `만들면 <b>바로 등록이 시작</b>됩니다. 참가자에게 입장 코드 <b>${esc(w.code)}</b>를 알려주세요.`
+          : `만들면 <b>준비 중</b> 상태로 생기고, <b>${fmtDT(w.regOpenAt)}</b>이 되면 자동으로 등록이 열립니다.`}
+      </div>`;
+  };
+
+  return `
+  <div class="screen no-nav">
+    <div class="topbar">
+      <div class="who">
+        <div class="avatar" style="background:linear-gradient(140deg,var(--gold),var(--pink))">＋</div>
+        <div><div class="nm">새 회차 만들기</div><div class="tiny muted">${w.step}/4 · ${STEPS[w.step-1]}</div></div>
+      </div>
+      <button class="btn-sm btn-ghost" onclick="wizCancel()">취소</button>
+    </div>
+
+    <div class="steps">
+      ${STEPS.map((t,i) => `
+        <div class="step ${w.step===i+1?"on":""} ${w.step>i+1?"done":""}" onclick="wizStep(${i+1})">
+          <i>${w.step>i+1?"✓":i+1}</i><span>${t}</span>
+        </div>`).join("")}
+    </div>
+
+    ${body()}
+    ${w.err ? `<div class="field-err" style="margin-top:10px">${esc(w.err)}</div>` : ""}
+
+    <div class="btn-row" style="margin-top:18px">
+      ${w.step > 1 ? `<button class="btn btn-ghost" onclick="wizStep(${w.step-1})">← 이전</button>` : ""}
+      ${w.step < 4
+        ? `<button class="btn btn-primary" onclick="wizStep(${w.step+1})">다음 →</button>`
+        : `<button class="btn btn-primary" onclick="wizCreate()">${w.regNow ? "만들고 등록 시작 🎉" : "회차 만들기 🎉"}</button>`}
+    </div>
+  </div>`;
+}
+
+/* ── 운영자: 회차 기본 설정 ───────────────────── */
+function viewHostDefaults(){
+  const D = DB.defaults;
+  return `
+  <div class="screen no-nav">
+    <div class="topbar">
+      <div class="who">
+        <div class="avatar" style="background:linear-gradient(140deg,var(--blue),var(--violet))">⚙️</div>
+        <div><div class="nm">회차 기본 설정</div><div class="tiny muted">새로 만드는 회차에 적용</div></div>
+      </div>
+      <button class="btn-sm btn-ghost" onclick="go('hostEvents')">← 회차 목록</button>
+    </div>
+
+    <div class="note" style="margin-bottom:16px">
+      여기서 정한 값은 <b>앞으로 만들 회차</b>에만 적용됩니다.
+      이미 만든 회차는 각 회차 <b>설정</b> 탭에서 바꾸세요.
+    </div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>콕 찌르기 횟수</h2><span class="tiny muted">16명 파티 기준 예시</span></div>
+      ${pokeStepper({ title:"사전 투표", k:D.maxPre, min:1, max:5, setter:"defPre", M:8, W:8 })}
+      <div style="height:10px"></div>
+      ${pokeStepper({ title:"파티 중", k:D.maxParty, min:1, max:10, setter:"defParty", M:8, W:8, second:true })}
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>기본 일정</h2><span class="tiny muted">회차 생성 시각 기준</span></div>
+      <div class="tiny muted" style="margin-bottom:7px">등록 시작 — 회차를 만들고 나서</div>
+      <div class="chips" style="margin-bottom:12px">
+        ${[0,1,3,6,12,24].map(n => `<button class="chip ${D.regOpenAfterH===n?"on":""}" onclick="defSet('regOpenAfterH',${n})">${n===0?"바로":n+"시간 뒤"}</button>`).join("")}
+      </div>
+      <div class="tiny muted" style="margin-bottom:7px">사전 투표 마감 — 등록 시작 후</div>
+      <div class="chips">
+        ${[6,12,24,48,72].map(n => `<button class="chip ${D.voteWindowH===n?"on":""}" onclick="defSet('voteWindowH',${n})">${n}시간</button>`).join("")}
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>공통 운영자 PIN</h2><span class="tiny muted">모든 회차 접근</span></div>
+      <div class="field">
+        <input class="input sm" value="${esc(DB.masterPin)}" maxlength="4" inputmode="numeric" onchange="defSetPin(this.value)">
+      </div>
+      <div class="note">회차별 PIN과 <b>겹치지 않게</b> 정해주세요. 같으면 회차 담당자가 전체 권한을 갖게 됩니다.</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>되돌리기</h2></div>
+      <div class="chips"><button class="chip danger" onclick="resetDefaults()">콕·일정 기본값 되돌리기</button></div>
+      <div class="tiny muted" style="margin-top:8px">공통 PIN과 이미 만든 회차는 그대로 둡니다.</div>
+    </div>
+
+    <div class="note">
+      미리보기 — 지금 회차를 만들면
+      사전 콕 <b>${D.maxPre}회</b> · 파티 콕 <b>${D.maxParty}회</b>,
+      등록 시작 <b>${D.regOpenAfterH===0?"즉시":D.regOpenAfterH+"시간 뒤"}</b>,
+      사전 투표는 그로부터 <b>${D.voteWindowH}시간</b> 동안입니다.<br>
+      <b>테이블 수는 자리 배정할 때</b> 그 자리에서 고릅니다.
+    </div>
+  </div>`;
+}
+
+/* ── 운영자: 회차 콘솔 ────────────────────────── */
+function viewHostConsole(){
+  const ev = hostEv();
+  const tabs = { dash:hostDash, players:hostPlayers, settings:hostSettings, seats:hostSeats };
+  return `
+  <div class="screen no-nav">
+    <div class="topbar">
+      <div class="who">
+        <div class="avatar" style="background:linear-gradient(140deg,var(--gold),var(--pink))">🎛</div>
+        <div style="min-width:0">
+          <div class="nm">${esc(ev.name)}</div>
+          <div class="tiny muted">${PHASES[phaseOf(ev)].label} · 참가자 ${ev.players.length}명</div>
+        </div>
+      </div>
+      <button class="btn-sm btn-ghost" onclick="${S.auth==='master' ? "go('hostEvents')" : "hostLogout()"}">${S.auth==='master' ? "회차 목록" : "로그아웃"}</button>
+    </div>
+
+    <div class="segmented">
+      <button class="${S.hostTab==="dash"?"on":""}" onclick="goHostTab('dash')">현황</button>
+      <button class="${S.hostTab==="players"?"on":""}" onclick="goHostTab('players')">참가자</button>
+      <button class="${S.hostTab==="seats"?"on":""}" onclick="goHostTab('seats')">자리</button>
+      <button class="${S.hostTab==="settings"?"on":""}" onclick="goHostTab('settings')">설정</button>
+    </div>
+    ${(tabs[S.hostTab] || hostDash)(ev)}
+  </div>`;
+}
+
+function hostDash(ev){
+  const ph = phaseOf(ev);
+  const i = PHASE_ORDER.indexOf(ph);
+  const pairs = mutualPairs(ev);
+  const topM = preTop(ev, "M"), topF = preTop(ev, "F");
+  const ranking = ev.players.map(p => ({ p, n: gotPokes(ev, p.id).length }))
+    .sort((a,b) => b.n - a.n || dn(a.p).localeCompare(dn(b.p))).slice(0,8);
+  const max = Math.max(1, ...ranking.map(r => r.n));
+
+  return `
+    <div class="note bad" style="margin-bottom:14px">
+      🔐 <b>운영자 전용</b> — 참가자에게 보이거나 스크린에 띄우지 마세요.
+    </div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>진행 단계</h2>${phaseBadge(ev)}</div>
+      ${ev.players.length ? `<button class="btn btn-ghost" style="margin-bottom:9px" onclick="openDemo()">👀 참가자에게 지금 어떻게 보이는지 보기</button>` : ""}
+      ${i >= PHASE_ORDER.length - 1 ? `
+        <div class="note ok" style="margin-bottom:10px">🎊 발표까지 끝났습니다.</div>
+        <button class="btn btn-ghost" onclick="askUnreveal()">↩︎ 발표 취소</button>
+        <div class="tiny muted" style="margin-top:7px;line-height:1.6">
+          실수로 발표했을 때만 쓰세요. <b>이미 결과를 본 참가자에게는 되돌릴 수 없습니다.</b>
+        </div>` : `
+        <button class="btn btn-primary" onclick="askAdvancePhase()">
+          ${phaseAction(ev, PHASE_ORDER[i+1]).btn} →
+        </button>
+        <div class="tiny muted" style="margin-top:7px">누르면 무엇이 바뀌는지 확인한 뒤 진행됩니다.</div>`}
+      ${(() => {
+        const f = ev.fired || {};
+        const rows = [["reg","등록 시작"],["prevote","사전 투표"],["party","파티 진행"],["done","발표"]]
+          .filter(([k]) => f[k])
+          .map(([k,l]) => {
+            const sched = SCHED_OF[k] ? ev[SCHED_OF[k]] : null;
+            const gap = sched ? f[k] - sched : null;
+            return `<div class="r"><span>${l}</span><b>${fmtDT(f[k])}${
+              gap !== null && Math.abs(gap) > 60000 ? ` <span style="color:var(--muted);font-weight:600">(예약 ${fmtDT(sched)})</span>` : ""
+            }</b></div>`;
+          }).join("");
+        return rows ? `<div class="kv" style="margin-top:11px">${rows}</div>` : "";
+      })()}
+      ${ph === "prevote" ? `
+        <div class="locked" style="margin-top:12px;padding:18px">
+          <div class="tiny muted">사전 투표 마감까지</div>
+          <div class="cd" data-countdown="${ev.voteCloseAt||0}">${ev.voteCloseAt ? fmtDur(ev.voteCloseAt - Date.now()) : "--:--"}</div>
+          <div class="tiny muted">${fmtDT(ev.voteCloseAt)} 마감 · 지나면 자동으로 파티 단계로 넘어갑니다</div>
+        </div>` : ""}
+    </div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>👑 사전 투표 1위</h2><span class="tiny muted">실시간 · 운영자만</span></div>
+      ${!topM && !topF ? `<div class="note">아직 사전 투표 콕이 없어요.</div>` : `
+        ${!topM ? `<div class="note" style="margin-bottom:9px">남성 중에는 아직 받은 콕이 없어요.</div>` : ""}
+        ${!topF ? `<div class="note" style="margin-bottom:9px">여성 중에는 아직 받은 콕이 없어요.</div>` : ""}
+        ${topM ? `<div class="crown">
+          <div class="ic">👑</div>
+          <div style="flex:1;min-width:0">
+            <div class="tiny" style="color:var(--gold);font-weight:800;margin-bottom:3px">남성 1위</div>
+            <div style="font-weight:800;font-size:15px">${topM.players.map(p=>esc(dn(p))).join(", ")}</div>
+            <div class="tiny muted">${topM.players.map(p=>esc(p.name)).join(", ")} · 받은 콕 ${topM.n}회${topM.players.length>1?" (공동)":""}</div>
+          </div>
+        </div>` : ""}
+        ${topF ? `<div class="crown">
+          <div class="ic">👑</div>
+          <div style="flex:1;min-width:0">
+            <div class="tiny" style="color:var(--gold);font-weight:800;margin-bottom:3px">여성 1위</div>
+            <div style="font-weight:800;font-size:15px">${topF.players.map(p=>esc(dn(p))).join(", ")}</div>
+            <div class="tiny muted">${topF.players.map(p=>esc(p.name)).join(", ")} · 받은 콕 ${topF.n}회${topF.players.length>1?" (공동)":""}</div>
+          </div>
+        </div>` : ""}`}
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat"><div class="v">${ev.pokes.length}</div><div class="k">총 콕</div></div>
+      <div class="stat"><div class="v" style="color:var(--gold)">${pairs.length}</div><div class="k">상호 매칭</div></div>
+      <div class="stat"><div class="v" style="color:var(--mint)">${ev.players.filter(p => sentCount(ev,p.id) > 0).length}/${ev.players.length}</div><div class="k">참여</div></div>
+    </div>
+
+    ${(() => {
+      const g = genderBalance(ev);
+      if(!g || g.level === "ok") return "";
+      return `<div class="note ${g.level==="bad"?"bad":"warn"}" style="margin-bottom:14px">⚖️ ${g.msg}</div>`;
+    })()}
+
+    ${canPoke(ev) ? (() => {
+      const yet = notPokedYet(ev);
+      if(!yet.length) return `<div class="note ok" style="margin-bottom:14px">✅ 전원이 콕을 한 번 이상 찔렀어요.</div>`;
+      return `
+      <div class="sect">
+        <div class="sect-head">
+          <h2>🙋 아직 안 찌른 사람 ${yet.length}명</h2>
+          <span class="tiny muted">${ph==="prevote"?"사전 투표":"파티"} 라운드</span>
+        </div>
+        <div class="note warn" style="margin-bottom:9px">
+          마감 전에 한 번씩 눌러보라고 알려주면 매칭이 크게 늘어요. <b>0회도 괜찮지만</b> 몰라서 못 한 경우가 많습니다.
+        </div>
+        <div class="cards">
+          ${yet.map(p => `
+            <div class="host-row tappable" onclick="openPlayerSheet('${p.id}')">
+              ${avatar(p,"sm")}
+              <div class="info">
+                <div class="nm">${esc(dn(p))} <span class="muted" style="font-weight:600">${p.gender==="M"?"남":"여"}·${p.age}</span></div>
+                <div class="sub">${esc(p.name)} · ${esc(p.phone)}</div>
+              </div>
+              <span class="tiny muted">상세 ›</span>
+            </div>`).join("")}
+        </div>
+      </div>`;
+    })() : ""}
+
+    <div class="sect">
+      <div class="sect-head"><h2>💘 상호 매칭 ${pairs.length}쌍</h2></div>
+      ${pairs.length === 0 ? `<div class="empty"><div class="ico">💔</div><p>아직 서로 찌른 쌍이 없어요.</p></div>` : `
+        <div class="cards">${pairs.map(([a,b]) => `
+          <div class="match">
+            <div class="side">${avatar(a,"sm")}<div><div class="nm">${esc(dn(a))}</div><div class="tiny muted">${a.age} · ${esc(a.mbti)}</div></div></div>
+            <span class="heart">💘</span>
+            <div class="side" style="justify-content:flex-end;text-align:right">
+              <div><div class="nm">${esc(dn(b))}</div><div class="tiny muted">${b.age} · ${esc(b.mbti)}</div></div>${avatar(b,"sm")}
+            </div>
+          </div>`).join("")}</div>`}
+    </div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>🔥 받은 콕 순위</h2><span class="tiny muted">전체 라운드 합계</span></div>
+      ${ev.players.length === 0 ? `<div class="note">참가자가 없어요.</div>` : `
+        <div class="cards">${ranking.map((r,idx) => `
+          <div class="rank">
+            <div class="no ${idx<3?"top":""}">${idx+1}</div>
+            ${avatar(r.p,"sm")}
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:14px;margin-bottom:5px">${esc(dn(r.p))} <span class="tiny muted">${esc(r.p.name)} · ${esc(r.p.mbti)}</span></div>
+              <div class="bar"><i style="width:${Math.round(r.n/max*100)}%"></i></div>
+            </div>
+            <div class="ct">${r.n}</div>
+          </div>`).join("")}</div>`}
+    </div>`;
+}
+
+function hostPlayers(ev){
+  const men = ev.players.filter(p => p.gender === "M");
+  const women = ev.players.filter(p => p.gender === "F");
+  const row = (p) => `
+    <div class="host-row tappable" onclick="openPlayerSheet('${p.id}')">
+      ${avatar(p)}
+      <div class="info">
+        <div class="nm">${esc(dn(p))} <span class="muted" style="font-weight:600">${p.age}</span> ${mbtiTag(p.mbti)}</div>
+        <div class="sub">실명 ${esc(p.name)} · ${esc(p.phone)}${p.insta?` · @${esc(p.insta)}`:" · 인스타 없음"}</div>
+        <div class="sub">사전 ${sentCount(ev,p.id,"pre")}↑ ${gotPokes(ev,p.id,"pre").length}↓ · 파티 ${sentCount(ev,p.id,"party")}↑ ${gotPokes(ev,p.id,"party").length}↓</div>
+        <div style="margin-top:5px">${charmChips(p)}</div>
+      </div>
+      <span class="tiny muted" style="flex:0 0 auto;font-weight:700">상세 ›</span>
+    </div>`;
+  return `
+    <div class="stat-grid">
+      <div class="stat"><div class="v">${ev.players.length}</div><div class="k">전체</div></div>
+      <div class="stat"><div class="v" style="color:var(--blue)">${men.length}</div><div class="k">남성</div></div>
+      <div class="stat"><div class="v" style="color:var(--pink)">${women.length}</div><div class="k">여성</div></div>
+    </div>
+    ${(() => {
+      const g = genderBalance(ev);
+      if(!g || g.level === "ok") return "";
+      return `<div class="note ${g.level==="bad"?"bad":"warn"}" style="margin-bottom:14px">⚖️ ${g.msg}</div>`;
+    })()}
+    ${ev.players.length === 0 ? `<div class="empty"><div class="ico">📋</div><p>아직 등록된 참가자가 없어요.</p></div>` : `
+      <div class="sect"><div class="sect-head"><h2>남성 ${men.length}명</h2></div><div class="cards">${men.map(row).join("") || '<div class="note">없음</div>'}</div></div>
+      <div class="sect"><div class="sect-head"><h2>여성 ${women.length}명</h2></div><div class="cards">${women.map(row).join("") || '<div class="note">없음</div>'}</div></div>`}
+    <div class="note">
+      참가자를 누르면 <b>등록 정보 · 콕 사용 현황 · 누구를 찔렀는지</b>를 볼 수 있어요.<br>
+      실명 · 전화번호 · 인스타는 <b>운영자만</b> 볼 수 있고, 참가자끼리는 닉네임만 보입니다.
+    </div>`;
+}
+
+// 일정 한 줄 — 잠겼으면 예약/실제 진행 시각을 함께 보여주고, 아니면 수정 가능
+function schedRow(ev, key, label, firedKey, hint){
+  const f = ev.fired || {};
+  const locked = schedLocked(ev, key);
+  const at = ev[key];
+  if(locked){
+    const done = f[firedKey];
+    const gap = at && done ? done - at : null;
+    return `
+    <div class="locked-row" style="margin-bottom:8px;align-items:flex-start">
+      <span>🔒 ${label}</span>
+      <div style="text-align:right">
+        <b>${at ? fmtDT(at) : "예약 없음"}</b>
+        ${done ? `<div class="tiny muted" style="margin-top:3px">
+          실제 ${fmtDT(done)}${gap !== null && Math.abs(gap) > 60000 ? ` · ${gap < 0 ? fmtGap(gap)+" 일찍" : fmtGap(gap)+" 늦게"}` : ""}
+        </div>` : ""}
+      </div>
+    </div>`;
+  }
+  return `
+    <div class="field">
+      <label>${label} <span class="muted" style="font-weight:600">— ${hint}</span></label>
+      <input class="input sm" type="datetime-local" value="${toLocalInput(at)}" onchange="evSetTime('${key}', this.value)">
+    </div>`;
+}
+
+function hostSettings(ev){
+  const men = ev.players.filter(p => p.gender === "M").length;
+  const women = ev.players.length - men;
+  phaseOf(ev);
+  const f = ev.fired || {};
+  return `
+    <div class="sect">
+      <div class="sect-head"><h2>회차 정보</h2></div>
+      <div class="field">
+        <label>회차 이름</label>
+        <input class="input sm" value="${esc(ev.name)}" onchange="evSetText('name', this.value)">
+      </div>
+      <div class="field">
+        <label>회차 운영자 PIN <span class="muted" style="font-weight:600">— 숫자 4자리</span></label>
+        <input class="input sm" value="${esc(ev.pin)}" maxlength="4" inputmode="numeric" onchange="evSetText('pin', this.value)">
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>일정</h2><span class="tiny muted">지나온 단계만 잠깁니다</span></div>
+      <div class="note" style="margin-bottom:11px">
+        예약은 <b>그 단계에 대한 1회용 알람</b>이에요. 운영자가 먼저 수동으로 진행하면 그 알람은 해제되고,
+        <b>아직 오지 않은 일정은 진행 중에도 바꿀 수 있습니다.</b>
+      </div>
+      ${schedRow(ev, "regOpenAt",   "등록 시작",      "reg",   "이 시각이 되면 자동으로 열립니다")}
+      ${schedRow(ev, "voteCloseAt", "사전 투표 마감", "party", "지나면 자동으로 파티 단계로")}
+      ${schedRow(ev, "revealAt",    "발표 시각",      "done",  "비우면 수동으로만 발표")}
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>콕 찌르기 횟수</h2><span class="tiny muted">같은 사람 중복 가능 · 0회도 가능</span></div>
+      ${pokeStepper({ title:"사전 투표", k:ev.maxPre, min:1, max:5, setter:"evPre", M:men, W:women })}
+      <div style="height:10px"></div>
+      ${pokeStepper({ title:"파티 중", k:ev.maxParty, min:1, max:10, setter:"evParty", M:men, W:women, second:true })}
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>자리</h2></div>
+      <div class="note">
+        <b>테이블 수와 자리 바꾸는 횟수는 여기서 정하지 않습니다.</b><br>
+        <b>자리 탭</b>에서 배정할 때마다 테이블 수를 고르고, 필요한 만큼 반복한 뒤
+        <b>🏁 마지막 자리 배정</b>으로 마무리하세요. 라운드마다 테이블 수를 다르게 해도 됩니다.
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sect">
+      <div class="sect-head"><h2>회차 관리</h2></div>
+      <div class="chips"><button class="chip danger" onclick="askDeleteEvent('${ev.id}')">이 회차 삭제</button></div>
+    </div>
+
+    <div class="note">프로토타입이라 새로고침하면 모든 회차 데이터가 초기화됩니다.</div>`;
+}
+
+// 각자 이성 k명을 고른다고 보면 상호 매칭 기대 쌍수는 k² (시뮬레이션으로 확인)
+function pokeEstimate(M, W, k){
+  if(!M || !W) return null;
+  const pairs = M * W;
+  const exp = Math.min(pairs, k * k);
+  const pct = exp / pairs * 100;
+  let label, color;
+  if(pct < 3)        { label = "매칭이 드물게 나올 수 있어요"; color = "var(--blue)"; }
+  else if(pct <= 15) { label = "적당해요";                     color = "var(--mint)"; }
+  else               { label = "매칭이 흔해져 특별함이 줄어요"; color = "var(--gold)"; }
+  return { pairs, exp, pct: Math.round(pct), label, color, total: (M + W) * k };
+}
+
+// 칩 나열 대신 스테퍼 + 점 트랙 + '이 숫자가 뭘 뜻하는지' 미리보기
+function pokeStepper(o){
+  const est = pokeEstimate(o.M, o.W, o.k);
+  const dots = Array.from({length:o.max}, (_,i) => {
+    const n = i + 1;
+    return `<button class="dot ${n<=o.k?"on":""}" onclick="${o.setter}(${n})" title="${n}회"></button>`;
+  }).join("");
+  return `
+  <div class="pk-box">
+    <div class="pk-top">
+      <span>${o.title}</span>
+      <b>${o.k}<em>회</em></b>
+    </div>
+    <div class="pk-row">
+      <button class="pk-btn" ${o.k<=o.min?"disabled":""} onclick="${o.setter}(${o.k-1})">−</button>
+      <div class="pk-dots">${dots}</div>
+      <button class="pk-btn" ${o.k>=o.max?"disabled":""} onclick="${o.setter}(${o.k+1})">+</button>
+    </div>
+    ${est ? `
+      <div class="pk-est">
+        참가자 ${o.M+o.W}명(남 ${o.M}·여 ${o.W}) → 최대 <b>${est.total}번</b>의 콕<br>
+        이성 조합 ${est.pairs}쌍 중 <b>약 ${est.exp}쌍</b>이 서로 찌를 것으로 예상
+        <span style="color:${est.color};font-weight:800"> · ${est.label}</span>
+        ${o.second ? `<br><span style="opacity:.75">사전 투표에서 이미 찌른 상대와 겹치는 경우가 많아 <b>실제 새 매칭은 이보다 적습니다.</b></span>` : ""}
+      </div>` : `
+      <div class="pk-est">참가자가 등록되면 예상 매칭 수를 함께 보여드려요.</div>`}
+  </div>`;
+}
+
+const PRE_OPTS   = [1,2,3,4,5];              // 초기 사전 투표 콕 횟수
+const PARTY_OPTS = [1,2,3,4,5,6,7,8,9,10];   // 이후 파티 중 콕 횟수
+
+const TBL_COLORS = ["#ff4d8d","#8b5cf6","#34d399","#60a5fa","#ffd166","#f472b6","#22d3ee","#fb923c","#a3e635","#e879f9"];
+
+function hostSeats(ev){
+  const draft = currentDraft(ev);
+  const pub = publishedSeating(ev);
+  const done = ev.seating.filter(s => s.status === "published").length;
+  const closed = isSeatClosed(ev);
+  const revealedEv = phaseOf(ev) === "done";
+  const view0 = draft || pub;
+  const ack = ackStats(ev);
+  // 화면에 그릴 테이블 수는 그 배정이 실제로 쓴 값 (라운드마다 다를 수 있음)
+  const T = view0 ? (view0.tables || ev.tables) : ev.tables;
+  const pick = ev.tables;   // 다음 배정에 쓸 선택값
+  const men = ev.players.filter(p => p.gender === "M").length;
+  const women = ev.players.length - men;
+
+  const view = draft || pub;
+  const past = view ? pastTogether(ev, view.round) : new Set();
+  const mt = view ? (view.metrics || seatMetrics(ev, view.seats, past)) : null;
+
+  const seatRow = (p, editable, seats) => {
+    const t = seats[p.id];
+    const mates = ev.players.filter(q => q.id !== p.id && seats[q.id] === t);
+    const ageBad = mates.some(q => Math.abs(q.age - p.age) >= 10);
+    const rep = mates.some(q => past.has(p.id < q.id ? p.id+"|"+q.id : q.id+"|"+p.id));
+    const link = mates.filter(q => pokeCount(ev,p.id,q.id) > 0 || pokeCount(ev,q.id,p.id) > 0).length;
+    return `
+    <div class="seat">
+      ${avatar(p,"sm")}
+      <div style="flex:1;min-width:0">
+        <div class="nm">${esc(dn(p))} <span class="sub">${p.age} · ${esc(p.mbti)}</span></div>
+      </div>
+      ${link ? `<span class="flag" style="color:var(--gold)">👉${link}</span>` : ""}
+      ${ageBad ? `<span class="flag" style="color:#ff8fa8">나이차</span>` : ""}
+      ${rep ? `<span class="flag" style="color:var(--muted)">재회</span>` : ""}
+      ${editable ? `<select class="mini-sel" onchange="moveSeat('${p.id}', this.value)">
+        ${Array.from({length:T},(_,x) => `<option value="${x}" ${t===x?"selected":""}>${x+1}번</option>`).join("")}
+      </select>` : `<span class="flag muted">${t+1}번</span>`}
+    </div>`;
+  };
+
+  const tablesHtml = (seats, editable) => Array.from({length:T},(_,t) => {
+    const list = ev.players.filter(p => seats[p.id] === t);
+    const m = list.filter(p => p.gender === "M").length;
+    const w = list.length - m;
+    const I = list.filter(isIntrovert).length;
+    let bad = 0;
+    for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++) if(Math.abs(list[i].age-list[j].age) >= 10) bad++;
+    return `
+    <div class="tbl">
+      <div class="tbl-head">
+        <div class="t"><span class="dot" style="background:${TBL_COLORS[t%TBL_COLORS.length]}"></span>${t+1}번 테이블</div>
+        <div class="mix">
+          ${list.length}명 · <b>남 ${m}</b>/<i>여 ${w}</i><br>
+          I ${I}·E ${list.length-I}${bad ? ` · <span class="bad">나이차 ${bad}쌍</span>` : ""}
+        </div>
+      </div>
+      ${list.length === 0 ? `<div class="tiny muted" style="padding:6px 0">빈 테이블</div>` : list.map(p => seatRow(p, editable, seats)).join("")}
+    </div>`;
+  }).join("");
+
+  return `
+    <div class="sect">
+      <div class="sect-head">
+        <h2>자리 배정</h2>
+        <span class="tiny muted">${done}라운드 발행${closed ? " · 종료" : ""}</span>
+      </div>
+      <div class="note" style="margin-bottom:12px">
+        <b>성비를 최우선</b>으로 맞춘 뒤, 10살 이상 차이나는 사람과 같은 테이블이 되지 않도록,
+        I·E가 섞이도록, 이전 라운드와 다른 사람을 만나도록, 콕으로 이어진 사람은 같이 앉도록 조정합니다.
+      </div>
+      ${revealedEv ? `<div class="note ok" style="margin-bottom:12px">
+        🎊 발표가 끝나 자리를 더 바꾸지 않습니다. 지금 배정해도 <b>참가자에게 알림이 가지 않아요.</b>
+      </div>` : ""}
+      ${closed || revealedEv ? "" : `
+        <div class="tiny muted" style="margin-bottom:7px">
+          이번 배정에 쓸 <b>테이블 수</b>${draft ? " — 바꾸면 초안이 다시 만들어집니다" : ""}
+        </div>
+        <div class="chips" style="margin-bottom:8px">
+          ${[2,3,4,5,6,7,8,10,12].map(n => `<button class="chip ${pick===n?"on":""}" onclick="setTables(${n})">${n}개</button>`).join("")}
+        </div>
+        <div class="tiny muted" style="margin-bottom:12px">
+          참가자 ${ev.players.length}명 → 테이블당 약 ${(ev.players.length/pick).toFixed(1)}명
+          ${ev.players.length < pick * 2 ? ` · <span style="color:#ffd88a">⚠️ 테이블이 너무 많아요</span>` : ""}
+          ${ev.players.length >= pick * 2 && ev.players.length / pick > 8 ? ` · <span style="color:#ffd88a">⚠️ 한 테이블이 너무 커서 새로 만날 사람이 줄어요</span>` : ""}
+        </div>`}
+
+      ${revealedEv ? "" :
+      closed ? `
+        <div class="note ok" style="margin-bottom:10px">
+          🏁 <b>마지막 자리까지 발행 완료</b> — 더 이상 자리를 바꾸지 않습니다.
+        </div>
+        <button class="btn btn-ghost" onclick="reopenSeating()">배정 다시 열기</button>` :
+      !draft ? `
+        <button class="btn btn-primary" style="margin-bottom:9px" ${ev.players.length?"":"disabled"} onclick="makeSeating(false)">
+          🪑 ${nextRound(ev)}라운드 자리 배정하기
+        </button>
+        <button class="btn btn-gold" ${ev.players.length?"":"disabled"} onclick="makeSeating(true)">🏁 마지막 자리 배정하기</button>
+        ${ev.players.length ? "" : `<div class="tiny muted" style="margin-top:9px">참가자가 등록되면 배정할 수 있어요.</div>`}
+        <div class="tiny muted" style="margin-top:9px;line-height:1.6">
+          횟수 제한은 없어요 — 필요할 때마다 배정하세요.<br>
+          <b>마지막 자리</b>는 새로운 사람보다 <b>서로 콕을 주고받은 사람</b>을 같은 테이블에 모읍니다.
+        </div>` : `
+        <div class="note ${draft.final ? "ok" : "warn"}" style="margin-bottom:10px">
+          ${draft.final ? "🏁" : "📝"} <b>${draft.final ? "마지막 자리" : draft.round + "라운드"} 초안</b>
+          — 아직 참가자에게 보이지 않습니다. 아래에서 직접 옮긴 뒤 알림을 보내세요.
+        </div>
+        <div class="btn-row" style="margin-bottom:9px">
+          <button class="btn btn-ghost" onclick="reshuffleDraft()">🔀 다시 배정</button>
+          <button class="btn btn-ghost" onclick="discardDraft()">초안 삭제</button>
+        </div>
+        <button class="btn btn-ghost" style="margin-bottom:9px" onclick="toggleFinalDraft()">
+          ${draft.final ? "↩︎ 일반 라운드로 되돌리기" : "🏁 이번을 마지막 자리로"}
+        </button>
+        <button class="btn btn-gold" onclick="publishSeating()">
+          📣 ${draft.final ? "마지막 자리 알림 보내기" : "참가자에게 자리 알림 보내기"}
+        </button>`}
+    </div>
+
+    ${(() => {
+      if(!view) return "";
+      const left = unseatedPlayers(ev, view);
+      if(!left.length) return "";
+      return `
+      <div class="note bad" style="margin-bottom:${closed && !draft ? "9" : "12"}px">
+        🚨 <b>자리가 없는 참가자 ${left.length}명</b> — ${left.map(p => esc(dn(p))+`(${p.gender==="M"?"남":"여"})`).join(", ")}<br>
+        ${draft
+          ? `<b>🔀 다시 배정</b>을 누르면 이 인원까지 포함해 다시 짭니다.`
+          : closed
+            ? `마지막 자리까지 끝난 뒤에 등록한 분들이에요. 아래에서 배정을 재개할 수 있습니다.`
+            : `자리를 발행한 뒤에 등록한 분들이에요. <b>${nextRound(ev)}라운드 자리 배정</b>을 하면 함께 배치됩니다.`}
+      </div>
+      ${closed && !draft ? `<button class="btn btn-primary" style="margin-bottom:12px" onclick="reopenAndSeat()">🔓 자리를 다시 열고 ${nextRound(ev)}라운드 배정하기</button>` : ""}`;
+    })()}
+
+    ${!view ? `<div class="empty"><div class="ico">🪑</div><p>아직 배정된 자리가 없어요.</p></div>` : `
+      <div class="stat-grid">
+        <div class="stat"><div class="v" style="color:${mt.maxGenderDiff<=1?"var(--mint)":"#ff8fa8"}">${mt.maxGenderDiff}</div><div class="k">남녀 편차</div></div>
+        <div class="stat"><div class="v" style="color:${mt.ageBad===0?"var(--mint)":"var(--gold)"}">${mt.ageBad}</div><div class="k">나이차 쌍</div></div>
+        ${view.final
+          ? `<div class="stat"><div class="v" style="color:var(--muted);font-size:17px">해당 없음</div><div class="k">새 이성 만남</div></div>`
+          : `<div class="stat"><div class="v" style="color:${mt.freshRate>=70?"var(--mint)":"var(--gold)"}">${mt.freshRate}<span style="font-size:13px">%</span></div><div class="k">새 이성 만남</div></div>`}
+      </div>
+      <div class="stat-grid">
+        <div class="stat"><div class="v">${mt.pokeRate}<span style="font-size:13px">%</span></div><div class="k">콕 반영률</div></div>
+        <div class="stat"><div class="v" style="color:var(--pink)">${mt.pairMet}<span style="font-size:12px;color:var(--muted)">/${mt.pairTotal}</span></div><div class="k">매칭 동석</div></div>
+        <div class="stat"><div class="v" style="color:${mt.ieOff<=2?"var(--mint)":"var(--gold)"}">${mt.ieOff}</div><div class="k">I·E 쏠림</div></div>
+      </div>
+      <div class="tiny muted" style="margin-bottom:9px">
+        ${draft ? `${roundLabel(draft)} 초안 · 테이블 ${T}개` : `${roundLabel(pub)} · 테이블 ${T}개 (발행됨 · ${fmtDT(pub.at)})`}
+      </div>
+      ${!draft && ack ? `
+        <div class="note ${ack.done === ack.total ? "ok" : "warn"}" style="margin-bottom:10px">
+          🚶 <b>이동 확인 ${ack.done}/${ack.total}명</b>
+          ${ack.pending.length
+            ? `<br>아직 확인 안 한 사람: ${ack.pending.map(p => esc(dn(p)) + `(${p.id in (pub.seats||{}) ? pub.seats[p.id]+1 : "-"}번)`).join(", ")}`
+            : `<br>전원이 자리로 이동했어요.`}
+        </div>` : ""}
+      ${view.final ? `<div class="note ok" style="margin-bottom:10px">
+        🏁 마지막 자리는 <b>새로운 사람보다 마음이 맞은 사람</b>을 우선합니다 —
+        재회 회피를 끄고 상호 매칭을 최대한 같은 테이블에 모읍니다.
+        <b>성비와 나이차 기준은 그대로</b> 지켜집니다.
+      </div>` : ""}
+      ${tablesHtml(view.seats, !!draft)}`}
+
+    ${ev.seating.filter(s=>s.status==="published").length ? `
+      <div class="sect">
+        <div class="sect-head"><h2>발행 이력</h2></div>
+        <div class="cards">
+          ${ev.seating.filter(s=>s.status==="published").map(s => `
+            <div class="host-row">
+              <div class="info">
+                <div class="nm">${roundLabel(s)}</div>
+                <div class="sub">${fmtDT(s.at)} 발행 · 테이블 ${s.tables||ev.tables}개 · 이동확인 ${Object.keys(s.acks||{}).length}/${ev.players.filter(p=>s.seats[p.id]!==undefined).length}명</div>
+                <div class="sub">나이차 ${s.metrics?s.metrics.ageBad:0}쌍 · 이성재회 ${s.metrics?s.metrics.repeatX:0}쌍</div>
+              </div>
+            </div>`).join("")}
+        </div>
+      </div>` : ""}`;
+}
+
+/* ── 참가자 ───────────────────────────────────── */
+function viewMain(c){
+  const ev = c.ev, m = c.m, pn = c.pane, st = c.st;
+  const ph = phaseOf(ev);
+  const revealed = isRevealed(ev);
+  const pub = publishedSeating(ev);
+  const myTable = pub ? pub.seats[m.id] : undefined;
+
+  let body = "";
+  if(st.tab === "people")      body = tabPeople(c, revealed);
+  else if(st.tab === "alerts") body = tabAlerts(c, revealed);
+  else                         body = tabMe(c, revealed);
+
+  const newCount = gotPokes(ev, m.id).length;
+
+  return `
+  <div class="screen">
+    <div class="topbar">
+      <div class="who">
+        ${avatar(m)}
+        <div style="min-width:0">
+          <div class="nm">${esc(dn(m))}</div>
+          <div class="tiny muted">${esc(ev.name)} · ${PHASES[ph].label}</div>
+        </div>
+      </div>
+      ${pn < 0 ? `<button class="btn-sm btn-ghost" onclick="go('entry')">나가기</button>` : ""}
+    </div>
+
+    <div class="strip">
+      ${canPoke(ev) ? `
+        <div class="cell hot">
+          <div class="k">${ph==="prevote"?"사전투표 콕":"남은 콕"}</div>
+          <div class="v">${leftPokes(ev,m.id)} <span style="font-size:13px;color:var(--muted)">/ ${pokeBudget(ev)}</span></div>
+        </div>` : `
+        <div class="cell">
+          <div class="k">콕 찌르기</div>
+          <div class="v" style="font-size:15px;color:var(--muted)">${ph==="done"?"마감했어요":"곧 시작해요"}</div>
+        </div>`}
+      ${revealed ? `
+        <div class="cell done"><div class="k">결과</div><div class="v" style="font-size:17px">🎊 발표 완료</div></div>`
+        : ph === "prevote" && ev.voteCloseAt ? `
+        <div class="cell time">
+          <div class="k">투표 마감까지</div>
+          <div class="v" data-countdown="${ev.voteCloseAt}">${fmtDur(ev.voteCloseAt-Date.now())}</div>
+        </div>`
+        : ph === "party" && ev.revealAt ? `
+        <div class="cell time">
+          <div class="k">발표까지</div>
+          <div class="v" data-countdown="${ev.revealAt}">${fmtDur(ev.revealAt-Date.now())}</div>
+        </div>`
+        : ph === "party" ? `
+        <div class="cell"><div class="k">발표</div><div class="v" style="font-size:15px;color:var(--muted)">곧 발표해요</div></div>`
+        : `
+        <div class="cell"><div class="k">함께하는 사람</div><div class="v">${ev.players.length}<span style="font-size:13px;color:var(--muted)">명</span></div></div>`}
+    </div>
+
+    ${(() => {
+      const n = latestNotice(ev);
+      if(!n) return "";
+      return `
+      <div class="phase-banner ${n.warn?"warn":""}" onclick="goTab('alerts', ${pn})">
+        <div class="ic">${n.ic}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:800;font-size:14.5px">${n.t}</div>
+          <div class="tiny muted">${n.s}</div>
+        </div>
+      </div>`;
+    })()}
+
+    ${myTable !== undefined ? `
+      <div class="seat-banner" onclick="goTab('me', ${pn})">
+        <div class="no">${myTable+1}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:800;font-size:14.5px">${roundLabel(pub)} · ${myTable+1}번 테이블</div>
+          <div class="tiny muted">같은 테이블 ${ev.players.filter(p=>p.id!==m.id && pub.seats[p.id]===myTable).length}명 · 눌러서 확인</div>
+        </div>
+        <span style="font-size:17px">🪑</span>
+      </div>` : ""}
+
+    ${body}
+  </div>
+
+  <nav class="nav">
+    <button class="${st.tab==="people"?"on":""}" onclick="goTab('people', ${pn})"><span class="ic">👥</span>참가자</button>
+    <button class="${st.tab==="alerts"?"on":""}" onclick="goTab('alerts', ${pn})"><span class="ic">🔔</span>알림${newCount?`<span class="badge">${newCount}</span>`:""}</button>
+    <button class="${st.tab==="me"?"on":""}" onclick="goTab('me', ${pn})"><span class="ic">🙋</span>내 정보</button>
+  </nav>`;
+}
+
+function tabPeople(c, revealed){
+  const ev = c.ev, m = c.m, pn = c.pane, st = c.st;
+  const list = ev.players.filter(p => p.id !== m.id && (!st.onlyOpposite || p.gender !== m.gender));
+  const allowed = canPoke(ev);
+  return `
+    <div class="segmented">
+      <button class="${st.onlyOpposite?"on":""}" onclick="setOpp(true, ${pn})">이성만</button>
+      <button class="${!st.onlyOpposite?"on":""}" onclick="setOpp(false, ${pn})">전체 보기</button>
+    </div>
+    ${!allowed ? `<div class="note" style="margin-bottom:12px">
+      ${phaseOf(ev)==="done" ? "발표가 끝나 콕 찌르기는 마감되었어요." : "아직 콕 찌르기가 시작되지 않았어요. 운영자가 시작하면 알려드릴게요."}
+    </div>` : ""}
+    <div class="sect-head"><h2>참가자 ${list.length}명</h2><span class="tiny muted">카드를 누르면 프로필</span></div>
+    ${list.length === 0 ? `<div class="empty"><div class="ico">🫥</div><p>아직 등록된 상대가 없어요.</p></div>` : `
+      <div class="cards">
+        ${list.map(p => {
+          const n = allowed ? pokeCount(ev, m.id, p.id, pokePhase(ev)) : 0;
+          const same = p.gender === m.gender;
+          return `
+          <div class="card ${n?"poked":""}" onclick="setSheet('${p.id}', ${pn})">
+            ${avatar(p)}
+            <div class="info">
+              <div class="l1"><span class="nm">${esc(dn(p))}</span><span class="tiny muted">${p.age}</span>${mbtiTag(p.mbti)}</div>
+              ${charmLine(p)}
+            </div>
+            <button class="poke-btn ${n?"on":""}" data-poke="${pn}:${p.id}" ${same||!allowed?"disabled":""} onclick="askPoke('${p.id}', event, ${pn})">
+              👉${n ? `<span class="n">${n}</span>` : ""}
+            </button>
+          </div>`;
+        }).join("")}
+      </div>`}`;
+}
+
+function tabAlerts(c, revealed){
+  const ev = c.ev, m = c.m, pn = c.pane;
+  const pub = ev.seating.filter(s => s.status === "published");
+  const seatNotices = pub.slice().reverse().map(s => `
+    <div class="alert seat">
+      <div class="bell">🪑</div>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:14.5px">${s.final ? "🏁 마지막 자리가 정해졌어요" : s.round + "라운드 자리가 정해졌어요"}</div>
+        <div class="tiny muted">${fmtDT(s.at)} · ${s.seats[m.id] !== undefined
+          ? (revealed ? `${s.seats[m.id]+1}번 테이블이었어요` : `${s.seats[m.id]+1}번 테이블로 이동해주세요`)
+          : "배정 없음"}</div>
+      </div>
+    </div>`).join("");
+
+  const got = gotPokes(ev, m.id).slice().sort((a,b) => a.at - b.at);
+  const notices = phaseNotices(ev);
+  const noticeHtml = notices.length ? `
+    <div class="sect">
+      <div class="sect-head"><h2>📢 진행 안내</h2></div>
+      <div class="cards">
+        ${notices.map(n => `
+          <div class="alert${n.warn?" warn-alert":""}">
+            <div class="bell">${n.ic}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:14.5px">${n.t}</div>
+              <div class="tiny muted">${fmtDT(n.at)} · ${n.s}</div>
+            </div>
+          </div>`).join("")}
+      </div>
+    </div>` : "";
+
+  if(!revealed){
+    return `
+      ${noticeHtml}
+      ${pub.length ? `<div class="sect"><div class="sect-head"><h2>🪑 자리 안내</h2></div><div class="cards">${seatNotices}</div></div>` : ""}
+      <div class="sect">
+        <div class="sect-head"><h2>🔔 받은 콕</h2></div>
+        ${got.length === 0 ? `<div class="empty"><div class="ico">🔕</div><p>아직 받은 콕이 없어요.<br>먼저 마음에 드는 사람을 찔러보는 건 어때요?</p></div>` : `
+          <div class="locked" style="margin-bottom:10px">
+            <div class="big">💌</div>
+            <div style="font-size:17px;font-weight:800">누군가 당신을 <span style="color:var(--pink)">${got.length}번</span> 찔렀어요</div>
+            <div class="tiny muted" style="margin-top:8px">발표 때 <b>서로 찌른 상대만</b> 공개돼요</div>
+          </div>
+          <div class="cards">
+            ${got.map(g => `
+              <div class="alert">
+                <div class="bell">❓</div>
+                <div style="flex:1">
+                  <div style="font-weight:700;font-size:14.5px">누군가 콕! 찔렀어요</div>
+                  <div class="tiny muted">${fmtDT(g.at)} · ${g.phase==="pre"?"사전 투표":"파티 중"} · 익명</div>
+                </div>
+              </div>`).join("")}
+          </div>`}
+      </div>`;
+  }
+
+  const mutuals = ev.players.filter(p => p.id !== m.id && isMutual(ev, m.id, p.id));
+  const anonCount = got.filter(g => !mutuals.some(p => p.id === g.from)).length;
+  const pubLast = publishedSeating(ev);
+
+  return `
+    <div class="sect">
+      <div class="sect-head"><h2>💘 서로 찔렀어요</h2></div>
+      ${mutuals.length === 0 ? `
+        <div class="note">${got.length === 0
+          ? `이번엔 서로 닿지 않았네요.<br>오늘 같은 테이블에서 나눈 이야기가 더 오래 남을 수도 있어요.`
+          : `이번엔 서로 찌른 상대가 없었어요.<br>그래도 <b>${got.length}번</b>의 콕을 받았답니다 — 누구인지는 끝까지 비밀이에요 😉`}</div>` : `
+        <div class="cards">
+          ${mutuals.map(p => {
+            const a = pubLast ? pubLast.seats[m.id] : undefined;
+            const b = pubLast ? pubLast.seats[p.id] : undefined;
+            const hint = (a !== undefined && a === b) ? `같은 ${a+1}번 테이블이에요 — 옆자리에서 인사해보세요` : `파티장에서 직접 인사하고 연락처를 나눠보세요`;
+            return `
+            <div class="alert mutual" onclick="setSheet('${p.id}', ${pn})">
+              ${avatar(p)}
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:800;font-size:15px">${esc(dn(p))} · ${p.age} ${mbtiTag(p.mbti)}</div>
+                <div class="tiny" style="color:var(--gold)">${hint}</div>
+              </div>
+              <span style="font-size:20px">💘</span>
+            </div>`;
+          }).join("")}
+        </div>`}
+    </div>
+    ${anonCount ? `
+      <div class="sect">
+        <div class="sect-head"><h2>🔒 익명으로 남은 콕 ${anonCount}회</h2></div>
+        <div class="note">한쪽만 찌른 경우에는 상대가 누구인지 <b>공개되지 않아요</b>. 서로 찔렀을 때만 알 수 있습니다.</div>
+      </div>` : ""}
+    ${pub.length ? `<div class="sect"><div class="sect-head"><h2>🪑 자리 안내</h2></div><div class="cards">${seatNotices}</div></div>` : ""}
+    ${noticeHtml}`;
+}
+
+function tabMe(c, revealed){
+  const ev = c.ev, m = c.m, pn = c.pane;
+  const ph = pokePhase(ev);
+  const sentTargets = [...new Set(ev.pokes.filter(p => p.from === m.id).map(p => p.to))];
+  const pub = publishedSeating(ev);
+  const myT = pub ? pub.seats[m.id] : undefined;
+  const mates = myT !== undefined ? ev.players.filter(p => p.id !== m.id && pub.seats[p.id] === myT) : [];
+
+  return `
+    <div class="sect" style="text-align:center;padding:8px 0 18px">
+      <div style="display:flex;justify-content:center;margin-bottom:12px">${avatar(m,"lg")}</div>
+      <div style="font-size:21px;font-weight:800">${esc(dn(m))}</div>
+      <div class="tiny muted" style="margin-top:5px">${m.gender==="M"?"남성":"여성"} · ${m.age}세 · 실명 ${esc(m.name)}</div>
+      <div class="tiny muted" style="margin-top:3px">${esc(m.phone)}${m.insta?` · @${esc(m.insta)}`:""}</div>
+      <div style="margin-top:10px">${mbtiTag(m.mbti)}</div>
+      <div style="display:flex;justify-content:center;margin-top:10px">${charmChips(m)}</div>
+    </div>
+
+    ${myT !== undefined ? `
+      <div class="sect">
+        <div class="sect-head"><h2>🪑 내 자리 · ${myT+1}번 테이블</h2><span class="tiny muted">${roundLabel(pub)} · ${mates.length}명과 함께</span></div>
+        ${mates.length === 0 ? `<div class="note">아직 같은 테이블에 다른 참가자가 없어요.</div>` : `
+          <div class="cards">
+            ${mates.map(p => `
+              <div class="card" onclick="setSheet('${p.id}', ${pn})">
+                ${avatar(p)}
+                <div class="info">
+                  <div class="l1"><span class="nm">${esc(dn(p))}</span><span class="tiny muted">${p.age}</span>${mbtiTag(p.mbti)}</div>
+                  ${charmLine(p)}
+                </div>
+                ${pokeCount(ev,m.id,p.id)?`<span style="font-size:17px">👉</span>`:""}
+              </div>`).join("")}
+          </div>`}
+      </div>` : ""}
+
+    <div class="sect">
+      <div class="sect-head">
+        <h2>내가 찌른 사람</h2>
+        <span class="tiny muted">${canPoke(ev) ? "카드에서 조절할 수 있어요" : "마감"}</span>
+      </div>
+      ${sentTargets.length === 0 ? `
+        <div class="empty"><div class="ico">👉</div><p>아직 아무도 찌르지 않았어요.<br>찌르지 않아도 괜찮아요 — 선택이에요.</p></div>` : `
+        <div class="cards">
+          ${sentTargets.map(id => {
+            const p = P(ev,id); if(!p) return "";
+            const total = pokeCount(ev, m.id, id);
+            const mutual = revealed && isMutual(ev, m.id, id);
+            return `
+            <div class="card ${mutual?"poked":""}" onclick="setSheet('${p.id}', ${pn})">
+              ${avatar(p)}
+              <div class="info">
+                <div class="l1"><span class="nm">${esc(dn(p))}</span><span class="tiny muted">${p.age}</span>${mbtiTag(p.mbti)}</div>
+                <div class="tiny muted">${mutual?'<span style="color:var(--gold)">💘 서로 찔렀어요!</span> · ':""}총 ${total}회 찌름</div>
+              </div>
+              <div class="poke-btn on">👉<span class="n">${total}</span></div>
+            </div>`;
+          }).join("")}
+        </div>`}
+    </div>
+
+    <div class="note">
+      실명 · 전화번호 · 인스타는 <b>나와 운영자만</b> 볼 수 있어요.
+      서로 찌른 상대에게도 공개되지 않으니, 매칭된 사람과는 파티장에서 직접 인사해주세요.
+    </div>`;
+}
+
+function viewSheet(c){
+  const ev = c.ev, m = c.m, pn = c.pane, id = c.st.sheet;
+  const p = P(ev, id);
+  if(!p || !m) return "";
+  const same = p.gender === m.gender;
+  const allowed = canPoke(ev) && !same;
+  const ph = pokePhase(ev);
+  const n = pokeCount(ev, m.id, p.id, ph);
+  const revealed = isRevealed(ev);
+  const mutual = revealed && isMutual(ev, m.id, p.id);
+
+  return `
+  <div class="sheet-bg" onclick="setSheet(null, ${pn})">
+    <div class="sheet" onclick="event.stopPropagation()">
+      <div class="grab"></div>
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+        ${avatar(p,"lg")}
+        <div style="min-width:0">
+          <div style="font-size:21px;font-weight:800">${esc(dn(p))}</div>
+          <div class="tiny muted" style="margin:4px 0 7px">${p.gender==="M"?"남성":"여성"} · ${p.age}세</div>
+          ${mbtiTag(p.mbti)}
+        </div>
+      </div>
+
+      <div class="sect-head"><h2 style="font-size:13px">이 사람의 매력</h2></div>
+      <div class="cards" style="gap:7px;margin-bottom:16px">
+        ${(p.charms||[]).filter(Boolean).map((c,i) => `
+          <div class="host-row" style="padding:10px 13px">
+            <div class="charm-num" style="width:22px;font-weight:800;color:var(--muted);font-size:12px">${i+1}</div>
+            <div class="info"><div class="nm" style="font-size:14px">${esc(c)}</div></div>
+          </div>`).join("") || `<div class="note">등록된 매력이 없어요.</div>`}
+      </div>
+
+      ${mutual ? `<div class="note" style="margin-bottom:14px;border-color:rgba(255,209,102,.4);color:var(--gold)">
+        💘 <b>서로 찔렀어요!</b><br>파티장에서 직접 인사해보세요.
+      </div>` : ""}
+
+      ${same ? `<div class="note">동성 참가자에게는 찌르기를 보낼 수 없어요.</div>` :
+        !canPoke(ev) ? `<div class="note">${phaseOf(ev)==="done"
+          ? "발표가 끝나 콕 찌르기는 마감되었어요."
+          : "아직 콕 찌르기가 시작되지 않았어요. 운영자가 시작하면 알려드릴게요."}</div>` : `
+        <div class="tiny muted" style="text-align:center;margin-bottom:8px">
+          ${ph==="pre"?"사전 투표":"파티"} 라운드 · 남은 횟수 ${leftPokes(ev,m.id)}회 (같은 사람에게 여러 번도 가능)
+        </div>
+        <div class="stepper" style="margin-bottom:10px">
+          <button onclick="removePoke('${p.id}', event, ${pn})" ${n<=0?"disabled":""}>−</button>
+          <div class="n">👉 ${n}</div>
+          <button onclick="askPoke('${p.id}', event, ${pn})" ${leftPokes(ev,m.id)<=0?"disabled":""}>+</button>
+        </div>
+        <button class="btn btn-ghost" onclick="setSheet(null, ${pn})">닫기</button>`}
+    </div>
+  </div>`;
+}
+
+/* ── 운영자: 참가자 상세 ──────────────────────── */
+function viewPlayerSheet(id){
+  const ev = hostEv(), p = P(ev, id);
+  if(!p) return "";
+
+  const tally = (dir) => {
+    const map = {};
+    for(const x of ev.pokes){
+      if(dir === "sent" && x.from !== p.id) continue;
+      if(dir === "got"  && x.to   !== p.id) continue;
+      const other = dir === "sent" ? x.to : x.from;
+      map[other] = map[other] || { pre:0, party:0 };
+      map[other][x.phase]++;
+    }
+    return Object.entries(map)
+      .map(([oid, c]) => ({ o: P(ev, oid), ...c, total: c.pre + c.party }))
+      .filter(x => x.o)
+      .sort((a,b) => b.total - a.total || dn(a.o).localeCompare(dn(b.o)));
+  };
+  const sent = tally("sent"), got = tally("got");
+
+  const meter = (used, max, label, color) => `
+    <div class="use">
+      <div class="use-top">
+        <span>${label}</span>
+        <b><em style="color:${color}">${used}</em> / ${max}회 사용</b>
+      </div>
+      <div class="meter"><i style="width:${max ? Math.min(100, used/max*100) : 0}%;background:${color}"></i></div>
+      <div class="tiny muted" style="margin-top:5px">남은 횟수 ${Math.max(0, max - used)}회</div>
+    </div>`;
+
+  const pokeRow = (x, dir) => {
+    const mutual = isMutual(ev, p.id, x.o.id);
+    return `
+    <div class="host-row" style="padding:9px 12px">
+      ${avatar(x.o, "sm")}
+      <div class="info">
+        <div class="nm" style="font-size:13.5px">${esc(dn(x.o))} <span class="sub">${esc(x.o.name)} · ${x.o.age}</span></div>
+        <div class="sub">${x.pre ? `사전 ${x.pre}회` : ""}${x.pre && x.party ? " · " : ""}${x.party ? `파티 ${x.party}회` : ""}</div>
+      </div>
+      ${mutual ? `<span class="tiny" style="color:var(--gold);font-weight:800;flex:0 0 auto">💘 상호</span>` : ""}
+      <span class="poke-badge">${dir === "sent" ? "👉" : "👈"} ${x.total}</span>
+    </div>`;
+  };
+
+  const seatHist = ev.seating.filter(s => s.status === "published");
+
+  return `
+  <div class="sheet-bg" onclick="closePlayerSheet()">
+    <div class="sheet" onclick="event.stopPropagation()">
+      <div class="grab"></div>
+
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+        ${avatar(p, "lg")}
+        <div style="min-width:0">
+          <div style="font-size:21px;font-weight:800">${esc(dn(p))}</div>
+          <div class="tiny muted" style="margin:4px 0 7px">${esc(p.name)} · ${p.gender==="M"?"남성":"여성"} · ${p.age}세</div>
+          ${mbtiTag(p.mbti)}
+        </div>
+      </div>
+
+      <div class="sect-head"><h2 style="font-size:13px">등록 정보</h2></div>
+      <div class="kv">
+        <div class="r"><span>닉네임</span><b>${esc(p.nick || "-")}</b></div>
+        <div class="r"><span>실명</span><b>${esc(p.name)}</b></div>
+        <div class="r"><span>나이 · 성별</span><b>${p.age}세 · ${p.gender==="M"?"남성":"여성"}</b></div>
+        <div class="r"><span>MBTI</span><b>${esc(p.mbti)}</b></div>
+        <div class="r"><span>전화번호</span><b>${esc(p.phone)}</b></div>
+        <div class="r"><span>인스타</span><b>${p.insta ? "@"+esc(p.insta) : "미입력"}</b></div>
+      </div>
+      <div style="margin:10px 0 18px">
+        <div class="tiny muted" style="margin-bottom:6px">매력 3가지</div>
+        ${charmChips(p)}
+      </div>
+
+      <div class="sect-head"><h2 style="font-size:13px">콕 사용 현황</h2></div>
+      <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:18px">
+        ${meter(sentCount(ev,p.id,"pre"), ev.maxPre, "사전 투표", "var(--gold)")}
+        ${meter(sentCount(ev,p.id,"party"), ev.maxParty, "파티 중", "var(--pink)")}
+      </div>
+
+      <div class="stat-grid" style="margin-bottom:18px">
+        <div class="stat"><div class="v">${sent.reduce((a,x)=>a+x.total,0)}</div><div class="k">보낸 콕</div></div>
+        <div class="stat"><div class="v" style="color:var(--mint)">${got.reduce((a,x)=>a+x.total,0)}</div><div class="k">받은 콕</div></div>
+        <div class="stat"><div class="v" style="color:var(--gold)">${sent.filter(x=>isMutual(ev,p.id,x.o.id)).length}</div><div class="k">상호 매칭</div></div>
+      </div>
+
+      <div class="sect-head"><h2 style="font-size:13px">👉 이 사람이 찌른 사람 ${sent.length}명</h2></div>
+      <div class="cards" style="gap:7px;margin-bottom:18px">
+        ${sent.length ? sent.map(x => pokeRow(x,"sent")).join("") : `<div class="note">아직 아무도 찌르지 않았어요. (0회도 허용됩니다)</div>`}
+      </div>
+
+      <div class="sect-head"><h2 style="font-size:13px">👈 이 사람을 찌른 사람 ${got.length}명</h2></div>
+      <div class="cards" style="gap:7px;margin-bottom:18px">
+        ${got.length ? got.map(x => pokeRow(x,"got")).join("") : `<div class="note">아직 받은 콕이 없어요.</div>`}
+      </div>
+
+      ${seatHist.length ? `
+        <div class="sect-head"><h2 style="font-size:13px">🪑 자리 이력</h2></div>
+        <div class="kv" style="margin-bottom:18px">
+          ${seatHist.map(s => `<div class="r"><span>${roundLabel(s)}</span><b>${s.seats[p.id] !== undefined ? (s.seats[p.id]+1)+"번 테이블" : "미배정"}</b></div>`).join("")}
+        </div>` : ""}
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="closePlayerSheet()">닫기</button>
+        <button class="btn btn-ghost" style="color:#ff8fa8" onclick="askRemovePlayer('${p.id}', event)">참가자 삭제</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── 운영자 확인 다이얼로그 ───────────────────── */
+function viewHostConfirm(c){
+  const ev = hostEv();
+  if(!ev) return "";
+
+  if(c.type === "phase" || c.type === "unreveal"){
+    const isBack = c.type === "unreveal";
+    const a = isBack
+      ? { title:"발표를 취소할까요?", btn:"발표 취소", danger:true, lines:[
+          ["참가자 화면", "결과가 다시 숨겨집니다"],
+          ["콕 찌르기", "파티 진행 단계로 돌아가 다시 열립니다"],
+          ["이미 본 사람", "되돌릴 수 없어요"],
+        ] }
+      : phaseAction(ev, c.to);
+    if(!a) return "";
+    return `
+    <div class="dlg-bg" onclick="cancelHostConfirm()">
+      <div class="dlg" onclick="event.stopPropagation()">
+        <div style="text-align:center">
+          <div style="font-size:32px;margin-bottom:8px">${isBack ? "↩︎" : c.to === "done" ? "🎊" : "▶︎"}</div>
+          <div class="tiny muted">${esc(ev.name)}</div>
+          <div style="font-size:17px;font-weight:800;margin-top:6px;${a.danger?"color:#ff8fa8":""}">${a.title}</div>
+          ${!isBack ? `<div class="tiny muted" style="margin-top:7px">
+            ${PHASES[phaseOf(ev)].label} <span style="opacity:.6">→</span> <b style="color:var(--text)">${PHASES[c.to].label}</b>
+          </div>` : ""}
+        </div>
+        <div class="dlg-facts">
+          ${a.lines.map(([k,v]) => `<div class="row" style="align-items:flex-start"><span style="flex:0 0 76px">${k}</span><b style="text-align:right;white-space:normal;font-weight:600;font-size:12px;line-height:1.5">${v}</b></div>`).join("")}
+        </div>
+        <div class="btn-row" style="margin-top:14px">
+          <button class="btn btn-ghost" onclick="cancelHostConfirm()">취소</button>
+          <button class="btn ${a.danger?"btn-danger":"btn-primary"}" onclick="confirmHostAction()">${a.btn}</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  if(c.type === "delEvent"){
+    const t = EV(c.id);
+    if(!t) return "";
+    const rounds = t.seating.filter(x => x.status === "published").length;
+    return `
+    <div class="dlg-bg" onclick="cancelHostConfirm()">
+      <div class="dlg" onclick="event.stopPropagation()">
+        <div style="text-align:center">
+          <div style="font-size:32px;margin-bottom:8px">🗑️</div>
+          <div style="font-size:18px;font-weight:800">${esc(t.name)}</div>
+          <div class="tiny muted" style="margin-top:5px">입장 코드 ${esc(t.code||"-")}</div>
+          <div style="font-size:16px;font-weight:700;margin-top:12px;color:#ff8fa8">이 회차를 통째로 삭제할까요?</div>
+        </div>
+        <div class="dlg-facts">
+          <div class="row"><span>참가자</span><b>${t.players.length}명 <span class="arrow">→</span> <em>삭제</em></b></div>
+          <div class="row"><span>콕 기록</span><b>${t.pokes.length}회 <span class="arrow">→</span> <em>삭제</em></b></div>
+          <div class="row"><span>발행한 자리</span><b>${rounds}라운드 <span class="arrow">→</span> <em>삭제</em></b></div>
+        </div>
+        <div class="tiny muted" style="text-align:center;margin:12px 0 14px;line-height:1.6">
+          참가자 명단과 연락처, 콕 기록이 <b>모두 사라지고 되돌릴 수 없어요.</b><br>
+          파티가 끝났다면 삭제 대신 <b>발표 완료</b> 상태로 두는 것도 방법이에요.
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" onclick="cancelHostConfirm()">취소</button>
+          <button class="btn btn-danger" onclick="confirmHostAction()">삭제하기</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  if(c.type !== "delPlayer") return "";
+  const p = P(ev, c.id);
+  if(!p) return "";
+  const sent = ev.pokes.filter(x => x.from === c.id).length;
+  const got  = ev.pokes.filter(x => x.to === c.id).length;
+  const seated = ev.seating.filter(s => s.seats[c.id] !== undefined).length;
+
+  return `
+  <div class="dlg-bg" onclick="cancelHostConfirm()">
+    <div class="dlg" onclick="event.stopPropagation()">
+      <div style="text-align:center">
+        <div style="display:flex;justify-content:center;margin-bottom:12px">${avatar(p,"lg")}</div>
+        <div style="font-size:19px;font-weight:800">${esc(dn(p))}</div>
+        <div class="tiny muted" style="margin-top:4px">${esc(p.name)} · ${p.age}세 · ${esc(p.phone)}</div>
+        <div style="font-size:16px;font-weight:700;margin-top:14px;color:#ff8fa8">이 참가자를 삭제할까요?</div>
+      </div>
+
+      <div class="dlg-facts">
+        <div class="row"><span>보낸 콕</span><b>${sent}회 <span class="arrow">→</span> <em>삭제</em></b></div>
+        <div class="row"><span>받은 콕</span><b>${got}회 <span class="arrow">→</span> <em>삭제</em></b></div>
+        <div class="row"><span>배정된 자리</span><b>${seated}개 라운드 <span class="arrow">→</span> <em>해제</em></b></div>
+      </div>
+
+      <div class="tiny muted" style="text-align:center;margin:12px 0 14px;line-height:1.6">
+        이 참가자가 주고받은 콕 기록이 <b>모두 사라지고 되돌릴 수 없어요.</b><br>
+        이미 발행한 자리에서도 빠집니다.
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="cancelHostConfirm()">취소</button>
+        <button class="btn btn-danger" onclick="confirmHostAction()">삭제하기</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── 자리 이동 안내 (참가자 전체 화면) ────────── */
+function viewSeatAck(c){
+  const pub = needSeatAck(c.ev, c.m ? c.m.id : null);
+  if(!pub) return "";
+  const t = pub.seats[c.m.id];
+  const mates = c.ev.players.filter(p => p.id !== c.m.id && pub.seats[p.id] === t);
+  const men = mates.filter(p => p.gender === "M").length;
+
+  return `
+  <div class="dlg-bg seat-ack">
+    <div class="dlg" onclick="event.stopPropagation()">
+      <div style="text-align:center">
+        <div style="font-size:34px;margin-bottom:6px">🪑</div>
+        <div class="tiny" style="color:var(--mint);font-weight:800;letter-spacing:.06em">
+          ${pub.final ? "마지막 자리예요" : pub.round + "라운드 자리가 정해졌어요"}
+        </div>
+        <div class="table-no">${t+1}</div>
+        <div style="font-size:17px;font-weight:800;margin-top:2px">${t+1}번 테이블로 이동해주세요</div>
+        <div class="tiny muted" style="margin-top:7px">
+          같은 테이블 ${mates.length}명 · 남 ${men} / 여 ${mates.length-men}
+        </div>
+      </div>
+
+      ${mates.length ? `
+        <div class="ack-mates">
+          ${mates.map(p => `
+            <div class="ack-mate">
+              ${avatar(p,"sm")}
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:700;font-size:13px">${esc(dn(p))} <span class="tiny muted">${p.age}</span></div>
+              </div>
+              ${mbtiTag(p.mbti)}
+            </div>`).join("")}
+        </div>` : ""}
+
+      <button class="btn btn-primary" style="margin-top:14px" onclick="ackSeat(${c.pane})">자리로 이동했어요</button>
+      <div class="tiny muted" style="text-align:center;margin-top:9px">운영자가 이동 현황을 보고 있어요</div>
+    </div>
+  </div>`;
+}
+
+/* ── 콕 확인 다이얼로그 ───────────────────────── */
+function viewConfirm(c){
+  const ev = c.ev, m = c.m, pn = c.pane, id = c.st.confirm;
+  const p = P(ev, id);
+  if(!p || !m) return "";
+  const ph = pokePhase(ev);
+  const now = pokeCount(ev, m.id, p.id, ph);
+  const left = leftPokes(ev, m.id);
+
+  return `
+  <div class="dlg-bg" onclick="cancelConfirm(${pn})">
+    <div class="dlg" onclick="event.stopPropagation()">
+      <div style="text-align:center">
+        <div style="display:flex;justify-content:center;margin-bottom:12px">${avatar(p,"lg")}</div>
+        <div style="font-size:19px;font-weight:800">${esc(dn(p))}</div>
+        <div class="tiny muted" style="margin-top:4px">${p.age}세 · ${esc(p.mbti)}</div>
+        <div style="font-size:16px;font-weight:700;margin-top:14px">
+          ${now > 0 ? "한 번 더 콕 찌를까요?" : "이 사람을 콕 찌를까요?"}
+        </div>
+      </div>
+
+      <div class="dlg-facts">
+        <div class="row">
+          <span>이 사람에게 보낸 콕</span>
+          <b>${now}회 <span class="arrow">→</span> <em>${now+1}회</em></b>
+        </div>
+        <div class="row">
+          <span>${ph==="pre"?"사전 투표":"파티"} 남은 횟수</span>
+          <b>${left}회 <span class="arrow">→</span> <em>${left-1}회</em></b>
+        </div>
+      </div>
+
+      <div class="tiny muted" style="text-align:center;margin:12px 0 14px;line-height:1.6">
+        상대에게는 <b>누가 찔렀는지 보이지 않아요.</b><br>
+        발표 전까지는 프로필에서 <b>되돌릴</b> 수 있어요.
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="cancelConfirm(${pn})">취소</button>
+        <button class="btn btn-primary" onclick="confirmPoke(${pn})">👉 콕 찌르기</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════
+   데모 뷰 — 참가자 화면 여러 개를 나란히 놓고 시연
+   ══════════════════════════════════════════════════════════ */
+function openDemo(){
+  const ev = EV(S.demoEvId) || EV(S.evId) || DB.events.find(e => e.players.length) || DB.events[0];
+  if(!ev){ toast("먼저 데모 회차를 만들어주세요"); return; }
+  syncDemoPanes(ev.id);
+  S.screen = "demo";
+  render();
+}
+function syncDemoPanes(evId){
+  S.demoEvId = evId;
+  const ev = EV(evId);
+  const men = ev ? ev.players.filter(p => p.gender === "M") : [];
+  const women = ev ? ev.players.filter(p => p.gender === "F") : [];
+  const pick = [men[0], women[0], women[1] || men[1]];
+  S.panes.forEach((st, i) => {
+    st.evId = evId;
+    const stillHere = st.meId && ev && ev.players.some(p => p.id === st.meId);
+    if(!stillHere) st.meId = pick[i] ? pick[i].id : (ev && ev.players[i] ? ev.players[i].id : null);
+    st.sheet = null; st.confirm = null;
+  });
+}
+function demoPickEvent(id){ syncDemoPanes(id); render(); }
+function demoSetPane(i, pid){ S.panes[i].meId = pid || null; S.panes[i].sheet = null; S.panes[i].confirm = null; render(); }
+function demoSetCount(n){ S.paneCount = n; render(); }
+
+function demoPhase(ph){
+  const ev = EV(S.demoEvId); if(!ev) return;
+  setPhase(ev, ph);
+  render();
+  toast(`단계 → ${PHASES[ph].label}`);
+}
+function demoSeat(final){
+  const ev = EV(S.demoEvId); if(!ev) return;
+  if(!ev.players.length){ toast("참가자가 없어요"); return; }
+  const keep = S.hostEvId;
+  S.hostEvId = ev.id;
+  if(isSeatClosed(ev)) ev.seating.forEach(x => { x.final = false; });
+  ev.seating = ev.seating.filter(x => x.status !== "draft");
+  makeSeating(!!final);
+  publishSeating();
+  S.hostEvId = keep;
+  render();
+  toast(final ? "🏁 마지막 자리를 배정하고 알렸어요" : "자리를 배정하고 참가자에게 알렸어요");
+}
+
+function viewDemo(){
+  const ev = EV(S.demoEvId);
+  const ph = ev ? phaseOf(ev) : "prep";
+  const n = Math.min(S.paneCount, S.panes.length);
+
+  const phoneHtml = (i) => {
+    const c = vctx(i);
+    if(!c.ev || !c.m){
+      return `
+      <div class="phone">
+        <div class="phone-top">
+          <select onchange="demoSetPane(${i}, this.value)">
+            <option value="">참가자 선택</option>
+            ${(c.ev ? c.ev.players : []).map(p => `<option value="${p.id}">${esc(dn(p))}</option>`).join("")}
+          </select>
+        </div>
+        <div class="phone-empty">참가자를 선택하면<br>그 사람 화면이 그대로 보여요</div>
+      </div>`;
+    }
+    return `
+    <div class="phone">
+      <div class="phone-top">
+        <span class="who-tag ${c.m.gender==="M"?"tag-SJ":"tag-SP"}">${c.m.gender==="M"?"남":"여"}</span>
+        <select onchange="demoSetPane(${i}, this.value)">
+          ${c.ev.players.map(p => `<option value="${p.id}" ${p.id===c.m.id?"selected":""}>${esc(dn(p))} · ${p.age}</option>`).join("")}
+        </select>
+      </div>
+      <div class="phone-body">${viewMain(c)}</div>
+      ${c.st.sheet ? viewSheet(c) : ""}
+      ${c.st.confirm ? viewConfirm(c) : ""}
+      ${viewSeatAck(c)}
+    </div>`;
+  };
+
+  return `
+  <div class="screen no-nav demo-wrap">
+    <div class="topbar">
+      <div class="who">
+        <div class="avatar" style="background:linear-gradient(140deg,var(--mint),var(--blue))">👀</div>
+        <div style="min-width:0">
+          <div class="nm">데모 뷰</div>
+          <div class="tiny muted">참가자 화면을 나란히 놓고 시연</div>
+        </div>
+      </div>
+      <button class="btn-sm btn-ghost" onclick="go('entry')">나가기</button>
+    </div>
+
+    <div class="demo-bar">
+      <span class="lbl">회차</span>
+      <select onchange="demoPickEvent(this.value)">
+        ${DB.events.map(e => `<option value="${e.id}" ${e.id===S.demoEvId?"selected":""}>${esc(e.name)}</option>`).join("")}
+      </select>
+      <span class="lbl">화면</span>
+      ${[1,2,3].map(k => `<button class="demo-step ${S.paneCount===k?"on":""}" onclick="demoSetCount(${k})">${k}개</button>`).join("")}
+    </div>
+
+    <div class="demo-bar">
+      <span class="lbl">단계</span>
+      ${PHASE_ORDER.map(x => `<button class="demo-step ${ph===x?"on":""}" onclick="demoPhase('${x}')">${PHASES[x].label}</button>`).join("")}
+    </div>
+
+    <div class="demo-bar">
+      <span class="lbl">자리</span>
+      <button class="demo-step" ${ph==="done"?"disabled":""} onclick="demoSeat(false)">🪑 배정 + 알림</button>
+      <button class="demo-step" ${ph==="done"?"disabled":""} onclick="demoSeat(true)">🏁 마지막 자리</button>
+      ${ph==="done" ? `<span class="tiny muted">발표 후엔 자리를 바꾸지 않아요</span>` : ""}
+      <span class="tiny muted">발행 ${ev ? ev.seating.filter(s=>s.status==="published").length : 0}라운드</span>
+    </div>
+
+    ${!ev || !ev.players.length ? `
+      <div class="empty"><div class="ico">📱</div><p>참가자가 없는 회차예요.<br>상단 <b>데모 회차</b> 버튼으로 샘플을 만들어보세요.</p></div>` : `
+      <div class="phones">${Array.from({length:n},(_,i) => phoneHtml(i)).join("")}</div>`}
+
+    <div class="note" style="margin-top:12px">
+      각 화면은 <b>서로 독립적으로</b> 움직입니다. 왼쪽에서 콕을 찌르면 오른쪽 <b>알림</b> 탭에 바로 반영돼요.
+      단계를 <b>발표 완료</b>로 옮기면 서로 찌른 쌍만 공개되는 것도 확인할 수 있습니다.
+    </div>
+  </div>`;
+}
+
+/* ── 등록 ─────────────────────────────────────── */
+function viewRegister(){
+  const ev = curEv();
+  const d = S.draft, g = d.gender;
+  const gate = canRegister(ev);
+  const STEPS = ["프로필","연락처","성향·매력"];
+  const st = S.regStep;
+
+  const step1 = () => `
+    <div class="field">
+      <label>닉네임 <span class="req">*</span> <span class="muted" style="font-weight:600">— 다른 참가자에게 보이는 이름</span></label>
+      <input class="input" id="f-nick" placeholder="예) 클라이밍하는곰" maxlength="12" value="${esc(d.nick)}">
+    </div>
+    <div class="field">
+      <label>이름 (실명) <span class="req">*</span> <span class="muted" style="font-weight:600">— 운영자 확인용</span></label>
+      <input class="input" id="f-name" placeholder="홍길동" maxlength="12" value="${esc(d.name)}">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:11px">
+      <div class="field">
+        <label>나이 <span class="req">*</span></label>
+        <input class="input" id="f-age" type="number" inputmode="numeric" placeholder="29" min="18" max="99" value="${esc(d.age)}">
+      </div>
+      <div class="field">
+        <label>성별 <span class="req">*</span></label>
+        <div class="choice">
+          <button data-g="M" class="${g==="M"?"on":""}" onclick="pickGender('M')">남성</button>
+          <button data-g="F" class="${g==="F"?"on":""}" onclick="pickGender('F')">여성</button>
+        </div>
+      </div>
+    </div>`;
+
+  const step2 = () => `
+    <div class="note" style="margin-bottom:16px">
+      여기 적는 건 <b>운영자만</b> 봅니다. 다른 참가자에게는 매칭이 되어도 공개되지 않아요.
+    </div>
+    <div class="field">
+      <label>전화번호 <span class="req">*</span> <span class="muted" style="font-weight:600">— 다시 접속할 때 본인 확인용</span></label>
+      <input class="input" id="f-phone" type="tel" inputmode="tel" placeholder="010-1234-5678" value="${esc(d.phone)}">
+    </div>
+    <div class="field">
+      <label>인스타 아이디 <span class="muted" style="font-weight:600">(선택)</span></label>
+      <div class="input-at"><span>@</span>
+        <input id="f-insta" placeholder="instagram_id" maxlength="30" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(d.insta)}">
+      </div>
+    </div>`;
+
+  const step3 = () => `
+    <div class="field">
+      <label>성향 <span class="req">*</span> <span class="muted" style="font-weight:600">— 네 가지만 골라주세요</span></label>
+      ${MBTI_AXES.map((ax, i) => `
+        <div class="axis">
+          <div class="axis-q">${ax.q}</div>
+          <div class="axis-opts">
+            ${ax.opts.map(([L, label]) => `
+              <button data-axis="${i}" data-letter="${L}" class="${d.axes[i]===L?"on":""}" onclick="pickAxis(${i}, '${L}')">
+                <b>${L}</b><span>${label}</span>
+              </button>`).join("")}
+          </div>
+        </div>`).join("")}
+      <div class="mbti-out">내 유형 <b id="mbti-out">${draftMbti() || "· · · ·"}</b></div>
+    </div>
+
+    <div class="field">
+      <label>내 매력 3가지 <span class="req">*</span> <span class="muted" style="font-weight:600">— 프로필에 그대로 보여요</span></label>
+      ${[0,1,2].map(i => `
+        <div class="charm-row">
+          <div class="num">${i+1}</div>
+          <div class="charm-input">
+            <input class="input" id="f-charm${i}" maxlength="30" value="${esc(d.charms[i]||"")}"
+                   placeholder="${["예) 주말마다 클라이밍하러 가요","예) 요리를 꽤 잘하는 편입니다","예) 고민을 끝까지 들어줘요"][i]}"
+                   oninput="charmCount(${i})">
+            <span class="charm-cnt" id="charm-cnt${i}">${(d.charms[i]||"").length}/30</span>
+          </div>
+        </div>`).join("")}
+      <div class="tiny muted" style="margin-top:2px;line-height:1.6">
+        짧은 태그도, 문장도 괜찮아요. 목록에서는 한 줄로 요약되고 <b>프로필을 열면 전부 보입니다.</b>
+      </div>
+    </div>`;
+
+  return `
+  <div class="screen no-nav">
+    <div class="topbar">
+      <button class="btn-sm btn-ghost" onclick="${st>1?`regStep(${st-1})`:"regExit()"}">← ${st>1?"이전":"뒤로"}</button>
+      ${ev?phaseBadge(ev):""}
+    </div>
+    <div style="margin-bottom:16px">
+      <div class="eyebrow">${esc(ev ? ev.name : "")}</div>
+      <h1 style="font-size:24px;margin-top:8px">참가자 등록</h1>
+    </div>
+
+    <div class="steps">
+      ${STEPS.map((t,i) => `
+        <div class="step ${st===i+1?"on":""} ${st>i+1?"done":""}" onclick="regStep(${i+1})">
+          <i>${st>i+1?"✓":i+1}</i><span>${t}</span>
+        </div>`).join("")}
+    </div>
+
+    ${!gate.ok ? `<div class="note warn" style="margin-bottom:16px">⏳ ${esc(gate.why)}</div>` : ""}
+
+    ${st===1 ? step1() : st===2 ? step2() : step3()}
+
+    <div class="err" id="f-err"></div>
+    ${st < 3
+      ? `<button class="btn btn-primary" onclick="regStep(${st+1})">다음 →</button>`
+      : `<button class="btn btn-primary" ${gate.ok?"":"disabled"} onclick="submitRegister()">입장하기 🎉</button>`}
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════
+   타이머 — 전체 재렌더 없이 카운트다운만 갱신
+   ══════════════════════════════════════════════════════════ */
+setInterval(() => {
+  let needRender = false;
+  document.querySelectorAll("[data-countdown]").forEach(el => {
+    const t = Number(el.dataset.countdown);
+    if(!t) return;
+    el.textContent = fmtDur(t - Date.now());
+    if(t - Date.now() <= 0) needRender = true;
+  });
+  for(const ev of DB.events){
+    const before = ev.phase;
+    phaseOf(ev);
+    if(ev.phase !== before) needRender = true;
+  }
+  if(needRender) render();
+}, 1000);
+
+render();
+</script>
+</body>
+</html>

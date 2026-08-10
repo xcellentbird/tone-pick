@@ -1,0 +1,49 @@
+# URL 맵과 히스토리 규칙
+
+## URL
+
+| URL | 화면 |
+|---|---|
+| `/` | 입장 |
+| `/j/:code` | 회차 확인 |
+| `/j/:code/register/1..3` | 등록 3스텝 |
+| `/e/:code` | 참가자 메인 · 참가자 탭 |
+| `/e/:code/p/:nick` | 프로필 시트 (모달) |
+| `/e/:code/alerts` `/e/:code/me` | 알림 · 내 정보 |
+| `/host` | PIN |
+| `/host/events` `/host/defaults` | 회차 목록 · 기본 설정 (공통 PIN 전용) |
+| `/host/new/1..3` | 새 회차 위저드 |
+| `/host/:id` `/players` `/seats` `/settings` | 콘솔 4탭 |
+| `/host/:id/players/:pid` | 참가자 상세 시트 (모달) |
+| `/demo/:id` | 데모 뷰 |
+
+**새로고침해도 같은 화면이 나와야 한다.** 참가자 식별은 URL 이 아니라 HttpOnly 세션 쿠키로 한다.
+
+## push / replace
+
+| 전환 | 방식 | 이유 |
+|---|---|---|
+| 탭 이동 | push | 뒤로 가기 = 직전 탭 |
+| 시트·모달 열기 | push | **뒤로 가기 = 모달 닫기.** 안드로이드에서 가장 중요 |
+| 위저드·등록 스텝 | push | 뒤로 가기 = 이전 스텝 |
+| 등록 완료 → 메인 | replace | 뒤로 가기로 등록 폼에 다시 들어가면 안 된다 |
+| PIN 성공 → 콘솔 | replace | 뒤로 가면 로그아웃처럼 보인다 |
+| 단계 전환·자리 발송·발표 | 변경 없음 | 데이터 변경이지 화면 전환이 아니다 |
+
+## 확인 다이얼로그
+
+실행 **전에** 히스토리를 정리한다. 안 그러면 실행 후 뒤로 갔을 때 처리된 다이얼로그가 다시 뜬다.
+
+```ts
+const confirmAndRun = useConfirmRunner();
+await confirmAndRun(() => api("/poke", { method: "POST", body }));
+```
+
+## 이탈 방지
+
+등록 폼은 `useDraftGuard(hasDraft, "/j/")`. SPA 내부 이동에는 `beforeunload` 가 안 걸린다.
+
+## 데모 뷰 예외
+
+폰 3대의 상태는 URL 에 담지 않는다. 운영자 시연용이고, 뒤로 가기로 폰 하나의 탭만
+되돌아가면 오히려 혼란스럽다.

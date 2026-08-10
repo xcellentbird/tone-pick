@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tone-pick",
+  "main": "src/server/index.ts",
+  "compatibility_date": "2026-08-01",
+
+  // 배포 주소: https://tone-pick.<계정>.workers.dev  (커스텀 도메인 불필요)
+  "workers_dev": true,
+
+  // Vite 빌드 결과를 정적 자산으로. SPA 라우팅을 위해 404 는 index.html 로.
+  "assets": {
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application"
+  },
+
+  // 회차 1개 = Durable Object 1개
+  "durable_objects": {
+    "bindings": [{ "name": "EVENT", "class_name": "EventDO" }]
+  },
+  // 무료 플랜에서 쓰려면 반드시 SQLite 백엔드로 마이그레이션해야 한다
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EventDO"] }],
+
+  // 회차 목록 인덱스 (코드 -> 회차 ID). 소량이라 KV 로 충분하다.
+  // `wrangler kv namespace create INDEX` 후 id 를 채워 넣을 것.
+  "kv_namespaces": [{ "binding": "INDEX", "id": "TODO_REPLACE_ME" }],
+
+  "observability": { "enabled": true }
+}
