@@ -12,7 +12,6 @@ export const LIMITS = {
   maxParty: { min: 1, max: 10 },
   charms: 3,
   nicknameMax: 12,
-  tableMin: 2,
   tableMax: 12,
   /** 테이블당 인원이 이 범위를 벗어나면 운영자에게 경고 */
   seatPerTable: { warnBelow: 2, warnAbove: 8 },
