@@ -1,8 +1,16 @@
+import { useNavigate } from "react-router";
+import { BTN, SCREEN_TITLE } from "../../shared/copy.ts";
+
 export default function NotFound() {
+  const navigate = useNavigate();
   return (
-    <main>
-      <h1>찾을 수 없어요</h1>
-      {/* TODO: 홈으로 돌아가기 */}
-    </main>
+    <div className="screen">
+      <div className="body stack center" style={{ justifyContent: "center" }}>
+        <h1>{SCREEN_TITLE.notFound}</h1>
+        <button className="btn primary" onClick={() => navigate("/")}>
+          {BTN.home}
+        </button>
+      </div>
+    </div>
   );
 }

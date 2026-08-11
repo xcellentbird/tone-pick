@@ -1,8 +1,58 @@
+/**
+ * 회차 목록. 공통 PIN 전용이다 — 회차 PIN 으로 들어오면 서버가 403 을 준다.
+ */
+import { useNavigate } from "react-router";
+import { HOST_UI, PHASE_LABEL, SCREEN_TITLE, UNIT } from "../../../shared/copy.ts";
+import type { EventSummary } from "../../../shared/types.ts";
+import { api, post } from "../../lib/api.ts";
+import { useLoad } from "../../lib/useLoad.ts";
+import { useAuthRedirect } from "../../lib/guard.ts";
+
 export default function HostEvents() {
+  const navigate = useNavigate();
+  const list = useLoad(() => api<EventSummary[]>("/host/events"));
+  // 회차 PIN 으로 목록에 닿으면 403 이다. PIN 화면으로 되돌린다
+  useAuthRedirect(list.error);
+
+  // 함수 이름을 DOM 빌트인과 겹치게 짓지 않는다 — createEvent 로 지었다가 버튼이 조용히 죽은 적 있다 (ADR-8)
+  const startWizard = () => navigate("/host/new/1");
+
+  async function leave() {
+    await post("/host/logout");
+    navigate("/host", { replace: true });
+  }
+
   return (
-    <main>
-      <h1>회차 목록</h1>
-      {/* TODO: 회차 카드 + 새 회차 + 기본 설정. 공통 PIN 전용 */}
-    </main>
+    <div className="screen">
+      <header>
+        <h1 className="grow">{SCREEN_TITLE.hostEvents}</h1>
+        <button className="btn ghost" onClick={leave}>
+          {HOST_UI.logout}
+        </button>
+      </header>
+
+      <div className="body stack">
+        <button className="btn primary block" onClick={startWizard}>
+          {HOST_UI.newEvent}
+        </button>
+        <button className="btn ghost block" onClick={() => navigate("/host/defaults")}>
+          {HOST_UI.openDefaults}
+        </button>
+
+        {list.data?.length === 0 && <p className="dim center">{HOST_UI.noEvents}</p>}
+
+        {list.data?.map((ev) => (
+          <button className="card row between" key={ev.id} onClick={() => navigate(`/host/${ev.id}`)}>
+            <span className="grow" style={{ textAlign: "left" }}>
+              <span className="name">{ev.name}</span>
+              <div className="small dim">
+                {ev.code} · {PHASE_LABEL[ev.phase]} · {UNIT.people(ev.playerCount)}
+              </div>
+            </span>
+            <span className="dim">{"›"}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

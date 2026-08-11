@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useBlocker, useNavigate } from "react-router";
+import { REGISTER } from "../../shared/copy.ts";
 
 /**
  * 확인 다이얼로그는 실행 **전에** 히스토리를 정리해야 한다.
@@ -28,7 +29,7 @@ export function useDraftGuard(hasDraft: boolean, prefix: string) {
   useEffect(() => {
     if (blocker.state !== "blocked") return;
     // TODO: 커스텀 확인 UI 로 교체 (window.confirm 은 브라우저 모달이라 스타일이 안 맞는다)
-    if (window.confirm("작성 중인 내용이 사라집니다. 나갈까요?")) blocker.proceed();
+    if (window.confirm(REGISTER.draftGuard)) blocker.proceed();
     else blocker.reset();
   }, [blocker]);
 }
