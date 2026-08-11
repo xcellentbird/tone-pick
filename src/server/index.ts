@@ -4,12 +4,23 @@ import { RegistryDO } from "./registry-do.ts";
 import { hostRoutes } from "./routes/host.ts";
 import { participantRoutes } from "./routes/participant.ts";
 import { PLAYER_COOKIE, readCookie, readSession } from "./auth.ts";
-import { eventStub, moveServerClock, registry, serverNow, syncClock, type Env } from "./http.ts";
+import { eventStub, missingSecrets, moveServerClock, registry, serverNow, syncClock, type Env } from "./http.ts";
 
 export { EventDO, RegistryDO };
 export type { Env };
 
 const app = new Hono<{ Bindings: Env }>();
+
+/**
+ * 시크릿이 없으면 아무것도 하지 않는다.
+ * SESSION_SECRET 이 비면 세션 서명 키가 빈 문자열이 되어 운영자 쿠키를 누구나 위조할 수 있다 —
+ * 에러 없이 그냥 열리는 종류의 사고라 요청을 받기 전에 막는다.
+ */
+app.use("/api/*", async (c, next) => {
+  const missing = missingSecrets(c.env);
+  if (missing.length) return c.json({ error: "server_misconfigured", missing }, 500);
+  await next();
+});
 
 /** 모든 응답에 서버 시각을 실어 보낸다. 클라이언트 시계를 믿지 않는다. */
 app.use("/api/*", async (c, next) => {

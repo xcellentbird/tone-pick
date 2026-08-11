@@ -21,6 +21,17 @@ export interface Env {
 
 export type Ctx = Context<{ Bindings: Env }>;
 
+// ─────────────────────────────────── 배포 안전장치
+//
+// 시크릿을 안 넣고 배포하면 조용히 뚫린다.
+//   SESSION_SECRET 없음 → HMAC 키가 빈 문자열이 된다. 누구나 { kind: "master" } 쿠키를 위조할 수 있다
+//   MASTER_PIN 없음     → PIN 비교에서 500 이 난다
+// 앞의 것이 훨씬 위험하다 — 에러가 안 나고 그냥 열린다. 그래서 뜨기 전에 막는다.
+
+export function missingSecrets(env: Partial<Env>): string[] {
+  return (["MASTER_PIN", "SESSION_SECRET"] as const).filter((key) => !env[key]);
+}
+
 // ─────────────────────────────────── 서버 시각
 //
 // 단계 전환은 서버 시각으로만 판단한다. 클라이언트가 뭐라고 주장하든 보지 않는다.
