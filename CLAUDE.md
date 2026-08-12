@@ -84,6 +84,7 @@ npm run check        # typecheck(클라이언트+Worker+테스트) + 문구 검�
 npm test             # workerd 안의 규칙 테스트 + happy-dom 화면 테스트
 npm run deploy       # 프로덕션. 비밀값 두 개(MASTER_PIN·SESSION_SECRET)만 넣으면 나간다
 npm run deploy:qa    # 연습용. 워커가 달라 회차·참가자 데이터가 완전히 분리된다
+                     # (`qa` 브랜치로 PR 을 열면 CI 통과 시 자동 머지 → 자동 배포)
 ```
 
 `npm run check:copy` 는 `copy.ts` 밖에 하드코딩된 한국어를 잡는다.

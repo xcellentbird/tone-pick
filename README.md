@@ -57,6 +57,23 @@ npx wrangler secret put SESSION_SECRET
 **워커가 다르면 Durable Object 도 다릅니다.** QA 의 회차·참가자·콕은 프로덕션과 섞이지 않고
 시크릿도 따로 넣습니다 (`npx wrangler secret put MASTER_PIN --env qa`).
 
+### 어떻게 QA 로 올리나
+
+```
+브랜치 → PR(base: qa) → CI 통과하면 자동 머지 → QA 배포
+브랜치 → PR(base: main) → CI 통과 + 사람이 머지 → 프로덕션 배포
+```
+
+프로덕션만 사람이 버튼을 누릅니다. QA 는 "일단 올려보는" 자리라 자동으로 들어갑니다 —
+다만 관문(`npm run check` · `npm test` · `npm run build`)은 양쪽 다 지납니다.
+
+`qa` 브랜치는 언제 버려도 되는 브랜치입니다. 오래 굴려 프로덕션과 멀어지면 맞춰주세요.
+
+```bash
+git push -f origin main:qa      # qa 를 main 기준으로 되돌린다
+git push -f origin HEAD:qa      # PR 없이 지금 브랜치를 바로 QA 로 (급할 때)
+```
+
 QA 에서는 화면 맨 위에 노란 띠가 뜹니다. 주소가 아니라 **배포된 설정**(`ENV_LABEL`)이 근거라,
 나중에 커스텀 도메인이 붙어도 그대로 따라옵니다. 파티 당일 운영자가 연습용 콘솔에서 단계를
 넘기고 "참가자 화면이 왜 안 바뀌지?" 하는 사고를 막는 장치입니다.
