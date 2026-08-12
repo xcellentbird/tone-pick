@@ -17,7 +17,7 @@ import type {
 import { HOST } from "../../shared/copy.ts";
 import { LIMITS } from "../../shared/constants.ts";
 import { PHASE_ORDER } from "../../shared/phase.ts";
-import { HOST_COOKIE, clearCookie, pinCollides, resolvePin, setCookie, signSession } from "../auth.ts";
+import { HOST_COOKIE, clearCookie, pinCollides, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
 import {
   apiError,
   canOpenEvent,
@@ -51,7 +51,7 @@ hostRoutes.post("/pin", async (c) => {
   if (!scope) return apiError(c, "unauthorized", HOST.pin.wrong);
 
   const token = await signSession(scope, c.env.SESSION_SECRET, serverNow());
-  c.header("set-cookie", setCookie(HOST_COOKIE, token, isSecure(c)));
+  c.header("set-cookie", setCookie(HOST_COOKIE, token, isSecure(c), sessionTtl(scope)));
   return c.json({ scope });
 });
 

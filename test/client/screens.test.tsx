@@ -11,10 +11,11 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router";
-import { ENTRY, POKE, SEAT } from "../../src/shared/copy.ts";
+import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
+import { ENTRY, POKE, SCREEN_TITLE, SEAT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
+import Join from "../../src/client/routes/Join.tsx";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
 import { Overlays } from "../../src/client/ui/Overlays.tsx";
@@ -187,5 +188,61 @@ describe("참가자 화면 · 자리", () => {
     renderParticipant(source);
     await screen.findByText(/그녀/);
     expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────── 참가 링크 재방문
+
+describe("참가 링크", () => {
+  /**
+   * 운영자는 링크를 한 번 뿌리고 참가자는 그 링크를 계속 다시 연다.
+   * 등록을 마친 사람에게 등록 화면을 다시 보여주면 "내가 등록이 안 됐나?" 하고
+   * 두 번 등록하려 든다. 실제로 나온 신고다.
+   */
+  function renderJoin() {
+    const router = createMemoryRouter(
+      [
+        { path: "/j/:code", element: <Join /> },
+        { path: "/e/:code", element: <div>참가자 화면</div> },
+      ],
+      { initialEntries: ["/j/ABCDEF"] },
+    );
+    return render(<RouterProvider router={router} />);
+  }
+
+  it("★ 이미 등록한 사람은 등록 화면이 아니라 자기 화면으로 간다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const body = url.includes("/me")
+          ? participantState()
+          : { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true };
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    renderJoin();
+    await screen.findByText("참가자 화면");
+  });
+
+  it("아직 등록하지 않았으면 등록 화면이 나온다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("/me")
+          ? new Response(JSON.stringify({ error: "unauthorized" }), {
+              status: 401,
+              headers: { "content-type": "application/json" },
+            })
+          : new Response(
+              JSON.stringify({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            ),
+      ),
+    );
+    renderJoin();
+    expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
   });
 });
