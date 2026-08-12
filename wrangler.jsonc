@@ -31,5 +31,37 @@
   // 무료 플랜에서 쓰려면 반드시 SQLite 백엔드로 마이그레이션해야 한다
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EventDO", "RegistryDO"] }],
 
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+
+  /*
+   * 연습용 환경.  npm run deploy:qa  →  https://tone-pick-qa.<계정>.workers.dev
+   *
+   * 워커가 다르면 Durable Object 도 다르다. QA 의 회차·참가자·콕은 프로덕션과 완전히 분리되고,
+   * 시크릿도 따로 넣는다. 그래서 100명 부하 리허설을 여기서 돌려도 진짜 파티 데이터가 안전하다.
+   *
+   * ENV_LABEL 이 있으면 화면 위에 띠가 뜬다. 파티 당일 운영자가 연습용 콘솔에서 단계를 넘기고
+   * "참가자 화면이 왜 안 바뀌지?" 하는 사고를 막는 게 목적이다.
+   *
+   * ⚠️ durable_objects·assets·vars 는 환경에 상속되지 않는다. 위와 똑같이 적어줘야 한다.
+   */
+  "env": {
+    "qa": {
+      "name": "tone-pick-qa",
+      "workers_dev": true,
+      "preview_urls": false,
+      "vars": { "ENV_LABEL": "QA" },
+      "assets": {
+        "directory": "./dist/client",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": ["/api/*", "/ws/*"]
+      },
+      "durable_objects": {
+        "bindings": [
+          { "name": "EVENT", "class_name": "EventDO" },
+          { "name": "REGISTRY", "class_name": "RegistryDO" }
+        ]
+      },
+      "observability": { "enabled": true }
+    }
+  }
 }

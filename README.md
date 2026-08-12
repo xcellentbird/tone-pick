@@ -47,6 +47,20 @@ npx wrangler secret put MASTER_PIN
 npx wrangler secret put SESSION_SECRET
 ```
 
+## 두 환경
+
+| 환경 | 주소 | 무엇에 쓰나 |
+|---|---|---|
+| 프로덕션 | `tone-pick.<계정>.workers.dev` | 진짜 파티 |
+| QA | `tone-pick-qa.<계정>.workers.dev` | 리허설·부하 시험·기능 확인 |
+
+**워커가 다르면 Durable Object 도 다릅니다.** QA 의 회차·참가자·콕은 프로덕션과 섞이지 않고
+시크릿도 따로 넣습니다 (`npx wrangler secret put MASTER_PIN --env qa`).
+
+QA 에서는 화면 맨 위에 노란 띠가 뜹니다. 주소가 아니라 **배포된 설정**(`ENV_LABEL`)이 근거라,
+나중에 커스텀 도메인이 붙어도 그대로 따라옵니다. 파티 당일 운영자가 연습용 콘솔에서 단계를
+넘기고 "참가자 화면이 왜 안 바뀌지?" 하는 사고를 막는 장치입니다.
+
 ---
 
 ## 구조

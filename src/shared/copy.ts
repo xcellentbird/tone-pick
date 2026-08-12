@@ -45,6 +45,12 @@ export const BTN = {
 
 export const GENDER: Record<"M" | "F", string> = { M: "남성", F: "여성" };
 
+/**
+ * 연습용 환경 표시. 파티 당일 운영자가 연습용 콘솔에서 단계를 넘기고
+ * "참가자 화면이 왜 안 바뀌지?" 하는 사고를 막는 게 목적이다.
+ */
+export const ENV_BANNER = (label: string) => `${label} — 연습용이에요. 진짜 파티가 아닙니다`;
+
 /** 사람 수·나이처럼 단위만 붙이는 것들 */
 export const UNIT = {
   people: (n: number) => `${n}명`,

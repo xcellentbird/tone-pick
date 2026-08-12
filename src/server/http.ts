@@ -17,6 +17,8 @@ export interface Env {
   SESSION_SECRET: string;
   /** "1" 일 때만 테스트 전용 라우트를 **등록**한다. 런타임 분기가 아니라 존재 자체를 없앤다 */
   ALLOW_TEST_ENDPOINTS?: string;
+  /** 연습용 환경에만 있다. 있으면 화면 위에 띠가 떠서 진짜 파티와 헷갈리지 않게 한다 */
+  ENV_LABEL?: string;
 }
 
 export type Ctx = Context<{ Bindings: Env }>;

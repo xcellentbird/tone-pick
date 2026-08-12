@@ -29,7 +29,9 @@ app.use("/api/*", async (c, next) => {
   c.header("x-server-time", String(serverNow()));
 });
 
-app.get("/api/health", (c) => c.json({ ok: true, serverTime: serverNow() }));
+app.get("/api/health", (c) =>
+  c.json({ ok: true, serverTime: serverNow(), label: c.env.ENV_LABEL || undefined }),
+);
 
 app.route("/api/host", hostRoutes);
 app.route("/api", participantRoutes);

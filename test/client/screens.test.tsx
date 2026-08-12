@@ -12,13 +12,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
-import { ENTRY, POKE, SCREEN_TITLE, SEAT } from "../../src/shared/copy.ts";
+import { ENTRY, ENV_BANNER, POKE, SCREEN_TITLE, SEAT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
 import { Overlays } from "../../src/client/ui/Overlays.tsx";
+import EnvBadge from "../../src/client/ui/EnvBadge.tsx";
 
 afterEach(cleanup);
 
@@ -244,5 +245,34 @@ describe("참가 링크", () => {
     );
     renderJoin();
     expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
+  });
+});
+
+// ─────────────────────────────────────────── 연습용 환경 표시
+
+describe("연습용 환경", () => {
+  /**
+   * 파티 당일 운영자가 연습용 콘솔에서 단계를 넘기고 "참가자 화면이 왜 안 바뀌지?" 하는 사고를 막는다.
+   * 주소가 아니라 **배포된 설정**이 진실이라, 서버가 알려준 라벨만 믿는다.
+   */
+  const health = (body: object) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })),
+    );
+
+  it("★ 라벨이 오면 띠를 띄운다", async () => {
+    health({ ok: true, serverTime: Date.now(), label: "QA" });
+    render(<EnvBadge />);
+    expect(await screen.findByText(ENV_BANNER("QA"))).toBeTruthy();
+  });
+
+  it("프로덕션에는 아무것도 뜨지 않는다", async () => {
+    health({ ok: true, serverTime: Date.now() });
+    const { container } = render(<EnvBadge />);
+    await waitFor(() => expect(container.querySelector(".envBadge")).toBeNull());
   });
 });
