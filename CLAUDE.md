@@ -82,13 +82,17 @@ npm run dev:worker   # Worker + DO (127.0.0.1:8787) — 이걸 먼저 띄운다
 npm run dev          # Vite. /api, /ws 를 8787 로 프록시
 npm run check        # typecheck(클라이언트+Worker+테스트) + 문구 검사. 커밋 전에 이걸 돌린다
 npm test             # workerd 안의 규칙 테스트 + happy-dom 화면 테스트
-npm run deploy       # 비밀값 두 개(MASTER_PIN·SESSION_SECRET)만 넣으면 나간다
+npm run deploy       # 프로덕션. 비밀값 두 개(MASTER_PIN·SESSION_SECRET)만 넣으면 나간다
+npm run deploy:qa    # 연습용. 워커가 달라 회차·참가자 데이터가 완전히 분리된다
 ```
 
 `npm run check:copy` 는 `copy.ts` 밖에 하드코딩된 한국어를 잡는다.
 주석은 통과한다. SQL·정규식처럼 화면 문구가 아닌 건 윗줄에 `copy-ok` 를 적는다.
 
 무료 플랜은 요청당 CPU 10ms다. 자리 배정 로컬 서치만 주의하면 된다.
+
+**부하 리허설·실험은 QA 에서 한다.** 프로덕션 DO 에 가짜 100명을 넣었다 지우지 마라.
+QA 에는 실제 참가자의 전화번호를 넣지 않는다 — 연습용이라고 개인정보가 덜 중요한 게 아니다.
 
 ## 자주 틀리는 것
 

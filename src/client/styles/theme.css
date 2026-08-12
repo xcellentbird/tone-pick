@@ -414,6 +414,29 @@ button {
 
 .seatChip.picked { border-color: var(--pink); }
 
+/* ─────────────────────────── 연습용 환경 표시 */
+
+.envBadge {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  padding: 3px 10px;
+  padding-top: max(3px, env(safe-area-inset-top));
+  background: var(--gold);
+  color: #2a2410;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none; /* 아래 화면을 가리기만 하고 손가락은 통과시킨다 */
+}
+
+/* 띠가 헤더를 덮지 않게 화면을 그만큼 밀어준다 */
+body:has(.envBadge) .screen > header {
+  padding-top: calc(var(--pad) + 18px);
+}
+
 /* ─────────────────────────── 데모 뷰 */
 
 .demo {

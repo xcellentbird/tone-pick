@@ -10,6 +10,7 @@
     "build:client": "vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit && tsc -p test/tsconfig.json --noEmit",
     "deploy": "npm run build:client && wrangler deploy",
+    "deploy:qa": "npm run build:client && wrangler deploy --env qa",
     "cf-typegen": "wrangler types",
     "check:copy": "node scripts/check-copy.mjs",
     "check": "npm run typecheck && npm run check:copy",
