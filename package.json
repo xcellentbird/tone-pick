@@ -13,6 +13,7 @@
     "deploy:qa": "npm run build:client && wrangler deploy --env qa",
     "cf-typegen": "wrangler types",
     "check:copy": "node scripts/check-copy.mjs",
+    "rehearsal": "node scripts/rehearsal.mjs",
     "check": "npm run typecheck && npm run check:copy",
     "test": "vitest run",
     "test:watch": "vitest"
