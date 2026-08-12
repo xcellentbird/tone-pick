@@ -40,20 +40,15 @@ participantRoutes.post("/events/:code/register", async (c) => {
   if (!id) return apiError(c, "not_found", ENTRY.notFound);
 
   const input = (await c.req.json().catch(() => ({}))) as RegisterInput;
-  const stub = eventStub(c.env, id);
-  const before = await stub.findByPhone(String(input.phone ?? ""));
-
-  const result = await stub.register(input, serverNow());
-  const { value: player, response } = unwrap(c, result, registerMessage(String(input.nickname ?? "")));
+  // 회차 DO 는 요청을 순차 처리한다. 등록이 몰리는 순간을 위해 왕복을 한 번으로 줄였다
+  const result = await eventStub(c.env, id).registerAndLoad(input, serverNow());
+  const { value, response } = unwrap(c, result, registerMessage(String(input.nickname ?? "")));
   if (response) return response;
 
-  const scope = { kind: "player", eventId: id, playerId: player!.id } as const;
+  const scope = { kind: "player", eventId: id, playerId: value!.state.me.id } as const;
   const token = await signSession(scope, c.env.SESSION_SECRET, serverNow());
   c.header("set-cookie", setCookie(PLAYER_COOKIE, token, isSecure(c), sessionTtl(scope)));
-
-  const state = await stub.participantState(player!.id, serverNow());
-  if (!state.ok) return apiError(c, "not_found");
-  return c.json({ state: state.value, resumed: !!before });
+  return c.json(value);
 });
 
 /**
