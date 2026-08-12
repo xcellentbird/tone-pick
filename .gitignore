@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.local
+.DS_Store
+npm-debug.log*
+
+# Cowork 원격 세션이 지우지 못한 파일을 모아두는 곳 (사용자가 직접 삭제)
+_to_delete/

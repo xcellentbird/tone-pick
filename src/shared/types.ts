@@ -47,12 +47,25 @@ export interface Poke {
   at: number;
 }
 
+/** 발표 후에만 만들어진다. 연락처는 주지 않는다 — 힌트는 "같은 테이블"까지다. */
+export interface MatchInfo {
+  player: PublicPlayer;
+  /** 마지막으로 발행된 자리에서 같은 테이블이면 그 번호 */
+  sameTable?: number;
+}
+
 /** 참가자 본인에게만 내려가는 요약. 누가 찔렀는지는 발표 전까지 절대 포함하지 않는다. */
 export interface MyPokeState {
   budget: Record<PokeRound, { max: number; used: number }>;
-  sentTo: Record<string, number>;   // playerId -> 내가 보낸 횟수
+  sentTo: Record<string, number>;   // playerId -> 내가 보낸 횟수 (라운드 합계)
+  /**
+   * 이번 라운드에 보낸 횟수. 되돌리기는 이번 라운드 것만 되돌릴 수 있어서
+   * `sentTo` 와 나눠 둔다 — 합계만 보고 `−` 를 띄우면 사전 투표 때 보낸 콕을
+   * 파티 라운드에서 되돌리려다 실패한다
+   */
+  sentThisRound: Record<string, number>;
   receivedCount: number;            // 받은 횟수만. 발신자는 익명
-  matches: PublicPlayer[];          // 발표 후에만 채워진다
+  matches: MatchInfo[];             // 발표 후에만 채워진다
 }
 
 // ─────────────────────────── 자리
@@ -116,12 +129,9 @@ export interface Defaults extends EventConfig {
 }
 
 // ─────────────────────────── API
-
-/** 모든 응답에 서버 시각을 실어 보낸다. 클라이언트 시계를 믿지 않기 위해. */
-export interface Envelope<T> {
-  data: T;
-  serverTime: number;
-}
+//
+// 응답 본문은 자료 그대로다. 서버 시각은 `x-server-time` 헤더로만 싣는다 —
+// 본문을 감싸면 모든 응답 타입이 한 겹 두꺼워지는데 얻는 게 없다.
 
 export type AuthScope =
   | { kind: "player"; eventId: string; playerId: string }
@@ -141,3 +151,144 @@ export type ServerEvent =
 export type ClientEvent =
   | { type: "ping" }
   | { type: "ack-seat"; round: number };
+
+// ─────────────────────────── 슬라이스 01 · API 계약
+// 공개 표면만 정의한다. 내부 구조(클래스·레이어)는 구현자가 정한다.
+
+/** 회차 생성 입력 */
+export interface CreateEventInput {
+  name: string;
+  pin: string;
+  /** 생략하면 서버가 만든다. 직접 넘겼는데 이미 쓰는 코드면 거부한다 */
+  code?: string;
+  /** "now" 는 '지금 바로'. datetime-local 이 초를 버리는 문제를 피하려고 시각이 아니라 리터럴로 받는다 */
+  regOpenAt: number | "now";
+  voteCloseAt: number;
+  config: EventConfig;
+  /** 멱등키. 같은 값으로 두 번 오면 같은 회차를 돌려준다 */
+  requestId: string;
+}
+
+/** 회차 목록용. PIN 은 절대 포함하지 않는다 */
+export interface EventSummary {
+  id: string;
+  name: string;
+  code: string;
+  phase: Phase;
+  playerCount: number;
+  createdAt: number;
+}
+
+/** 입장 코드 조회 응답 — **인증 없이** 누구나 받는다. 여기에 비밀을 넣지 마라 */
+export interface PublicEvent {
+  id: string;
+  name: string;
+  phase: Phase;
+  canRegister: boolean;
+  /** 등록할 수 없을 때의 안내. copy.ts 의 ENTRY.* 를 쓴다 */
+  message?: string;
+}
+
+export type ErrorCode =
+  | "unauthorized"
+  | "forbidden"
+  | "not_found"
+  | "pin_collision"
+  | "code_taken"
+  | "schedule_order"
+  | "bad_request"
+  // 슬라이스 02~05 에서 늘어난 것
+  | "nick_taken"     // 409 · 회차 안에서 닉네임이 겹쳤다
+  | "closed"         // 409 · 지금 단계에서는 할 수 없다
+  | "no_budget"      // 409 · 이번 라운드 콕을 다 썼다
+  | "no_poke"        // 404 · 되돌릴 콕이 이번 라운드에 없다
+  | "same_gender"    // 409 · 이성에게만 찌를 수 있다
+  | "conflict";      // 409 · 그 밖의 충돌
+
+export interface ApiErrorBody {
+  error: ErrorCode;
+  /** 사용자에게 보여줄 문구. copy.ts 에서 가져온다 */
+  message?: string;
+}
+
+// ─────────────────────────── 슬라이스 02~06 · API 계약
+
+/** 회차 설정 수정 (운영자). 넘긴 항목만 바뀐다 */
+export interface EventPatch {
+  name?: string;
+  pin?: string;
+  code?: string;
+  config?: EventConfig;
+}
+
+/** 참가자 등록 입력. 전화번호는 재접속 키라서 응답에 되돌려주지 않는다 */
+export interface RegisterInput {
+  nickname: string;
+  realName: string;
+  age: number;
+  gender: Gender;
+  phone: string;
+  instagram?: string;
+  mbti: string;
+  charms: [string, string, string];
+}
+
+/**
+ * 참가자에게 내려가는 회차 상태.
+ * 여기에 참가자 명단·콕 발신자·PIN 이 섞이면 안 된다. `players` 는 `PublicPlayer` 뿐이다.
+ */
+export interface PublicEventState {
+  id: string;
+  name: string;
+  code: string;
+  phase: Phase;
+  fired: FiredMap;
+  schedule: EventSchedule;
+  config: EventConfig;
+  playerCount: number;
+}
+
+/** 내 자리. 확인(ack)을 받아야 하는지까지 서버가 판단해서 내려준다 */
+export interface MySeat {
+  round: number;
+  table: number;
+  final: boolean;
+  mates: number;
+  men: number;
+  acked: boolean;
+}
+
+/** 참가자 화면 한 벌. 이 타입이 참가자 응답의 유일한 형태다 */
+export interface ParticipantState {
+  event: PublicEventState;
+  me: Player;              // 본인이 입력한 값이므로 본인에게는 그대로 보여준다
+  roster: PublicPlayer[];
+  poke: MyPokeState;
+  seat?: MySeat;
+}
+
+/** 등록 응답. 같은 번호로 다시 들어온 경우 `resumed` 로 알린다 (REGISTER.welcomeBack) */
+export interface RegisterResult {
+  state: ParticipantState;
+  resumed: boolean;
+}
+
+/** 운영자 콘솔 한 벌. 운영자만 전체를 본다 */
+export interface HostState {
+  meta: EventMeta;
+  players: Player[];
+  /** playerId -> 받은 콕 / 보낸 콕 */
+  received: Record<string, number>;
+  sent: Record<string, number>;
+  /** 사전 투표에서 받은 콕 순위 (내림차순) */
+  prevoteRank: Array<{ id: string; count: number }>;
+  mutual: Array<[string, string]>;
+  pokeCount: Record<PokeRound, number>;
+  seatings: SeatingRound[];
+}
+
+/** 자리 초안 생성 입력. 테이블 수는 설정이 아니라 이 요청의 값이다 (ADR-5) */
+export interface SeatingInput {
+  tableCount: number;
+  final: boolean;
+}

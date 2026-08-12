@@ -8,21 +8,24 @@
   "workers_dev": true,
 
   // Vite 빌드 결과를 정적 자산으로. SPA 라우팅을 위해 404 는 index.html 로.
+  // /api 와 /ws 는 정적 자산 매칭보다 Worker 가 먼저 봐야 한다 — 안 그러면 index.html 이 돌아온다.
   "assets": {
     "directory": "./dist/client",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/ws/*"]
   },
 
-  // 회차 1개 = Durable Object 1개
+  // 회차 1개 = Durable Object 1개.
+  // REGISTRY 는 회차 목록·입장 코드·공통 PIN 을 들고 있는 단 하나의 DO 다.
+  // KV 를 쓰지 않는 이유: 쓰기 직후 읽기가 보장되지 않아 코드 중복·중복 생성이 실제로 날 수 있다.
   "durable_objects": {
-    "bindings": [{ "name": "EVENT", "class_name": "EventDO" }]
+    "bindings": [
+      { "name": "EVENT", "class_name": "EventDO" },
+      { "name": "REGISTRY", "class_name": "RegistryDO" }
+    ]
   },
   // 무료 플랜에서 쓰려면 반드시 SQLite 백엔드로 마이그레이션해야 한다
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EventDO"] }],
-
-  // 회차 목록 인덱스 (코드 -> 회차 ID). 소량이라 KV 로 충분하다.
-  // `wrangler kv namespace create INDEX` 후 id 를 채워 넣을 것.
-  "kv_namespaces": [{ "binding": "INDEX", "id": "TODO_REPLACE_ME" }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EventDO", "RegistryDO"] }],
 
   "observability": { "enabled": true }
 }

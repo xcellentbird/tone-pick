@@ -1,0 +1,4 @@
+# 로컬 개발용 비밀값. 실제 파일은 .dev.vars (git 에 올리지 않는다)
+# 운영 배포는 `wrangler secret put <NAME>` 으로 넣는다.
+MASTER_PIN=0000
+SESSION_SECRET=change-me-please

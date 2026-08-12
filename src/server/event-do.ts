@@ -7,14 +7,41 @@
  *  - 회차가 끝나면 이 DO 만 지우면 개인정보 파기가 끝난다
  *
  * 무료 플랜에서 쓰려면 wrangler.jsonc 의 migrations 가 `new_sqlite_classes` 여야 한다.
+ *
+ * 상태를 바꾸는 건 전부 여기다. Worker 는 인증과 라우팅만 한다.
  */
-import type { ClientEvent, ServerEvent } from "../shared/types.ts";
+import { DurableObject } from "cloudflare:workers";
+import type {
+  EventConfig,
+  EventMeta,
+  EventSchedule,
+  EventSummary,
+  Gender,
+  MatchInfo,
+  MyPokeState,
+  ParticipantState,
+  Phase,
+  Player,
+  PokeRound,
+  PublicEvent,
+  PublicPlayer,
+  RegisterInput,
+  Seat,
+  SeatingRound,
+  ServerEvent,
+  HostState,
+  MySeat,
+} from "../shared/types.ts";
+import { toPublic } from "../shared/types.ts";
+import { ENTRY } from "../shared/copy.ts";
+import { LIMITS, normalizeNickname } from "../shared/constants.ts";
+import { PHASE_ORDER, canPoke, dueTransition } from "../shared/phase.ts";
+import { formatWhen } from "../shared/time.ts";
+import { buildSeating } from "./seating.ts";
+import { randomHex } from "./auth.ts";
 
+// copy-ok — SQL 스키마 주석이지 화면 문구가 아니다
 const SCHEMA = `
-CREATE TABLE IF NOT EXISTS meta (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS players (
   id         TEXT PRIMARY KEY,
   nickname   TEXT NOT NULL,
@@ -50,70 +77,771 @@ CREATE TABLE IF NOT EXISTS seatings (
 );
 `;
 
-export class EventDO implements DurableObject {
-  private sessions = new Map<WebSocket, { playerId?: string; host?: boolean }>();
+type Fail =
+  | "not_found"
+  | "forbidden"
+  | "bad_request"
+  | "schedule_order"
+  | "nick_taken"
+  | "closed"
+  | "same_gender"
+  | "no_budget"
+  | "no_poke";
 
-  constructor(
-    private state: DurableObjectState,
-    private env: unknown,
-  ) {
-    this.state.blockConcurrencyWhile(async () => {
-      this.state.storage.sql.exec(SCHEMA);
+/** `detail` 은 문구에 들어갈 숫자다 (예: 남은 콕 최대 횟수). 문장은 Worker 가 고른다 */
+export type Result<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: Fail; detail?: number };
+
+const ok = <T,>(value: T): Result<T> => ({ ok: true, value });
+const fail = <T,>(error: Fail, detail?: number): Result<T> => ({ ok: false, error, detail });
+
+interface Flags {
+  /** 마지막 자리까지 끝났는가. 지각자가 오면 다시 열 수 있어야 한다 */
+  seatingClosed: boolean;
+}
+
+interface Attachment {
+  playerId?: string;
+}
+
+export class EventDO extends DurableObject {
+  constructor(ctx: DurableObjectState, env: unknown) {
+    super(ctx as never, env as never);
+    ctx.blockConcurrencyWhile(async () => {
+      ctx.storage.sql.exec(SCHEMA);
     });
   }
 
-  async fetch(req: Request): Promise<Response> {
-    if (req.headers.get("Upgrade") === "websocket") return this.handleUpgrade(req);
+  // ─────────────────────────── 회차 메타
 
-    // TODO: 내부 라우팅 (운영자/참가자 명령). Worker 에서만 호출되므로 인증은 그쪽에서 끝난 상태.
-    return new Response("not implemented", { status: 501 });
+  /** 회차를 만든다. 같은 회차로 두 번 들어와도 이미 있는 걸 돌려준다 (멱등) */
+  async init(meta: EventMeta): Promise<EventMeta> {
+    const existing = await this.ctx.storage.get<EventMeta>("meta");
+    if (existing) return existing;
+    await this.ctx.storage.put("meta", meta);
+    await this.rearm(meta, meta.createdAt);
+    return meta;
   }
 
-  // ─────────────────── 실시간
+  async metaAt(now: number): Promise<Result<EventMeta>> {
+    const meta = await this.touch(now);
+    return meta ? ok(meta) : fail("not_found");
+  }
 
-  private handleUpgrade(req: Request): Response {
+  async summaryAt(now: number): Promise<Result<EventSummary>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    return ok({
+      id: meta.id,
+      name: meta.name,
+      code: meta.code,
+      phase: meta.phase,
+      playerCount: this.playerCount(),
+      createdAt: meta.createdAt,
+    });
+  }
+
+  /**
+   * 인증 없이 누구나 받는 응답. `PublicEvent` 밖의 필드를 넣지 마라 (S-C2).
+   * 여기에 PIN·참가자·콕이 새면 개발자 도구를 여는 참가자에게 그대로 보인다.
+   */
+  async publicAt(now: number): Promise<Result<PublicEvent>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    const base = { id: meta.id, name: meta.name, phase: meta.phase };
+    if (meta.phase === "prep") {
+      return ok({
+        ...base,
+        canRegister: false,
+        message: meta.schedule.regOpenAt
+          ? ENTRY.notOpenYet(formatWhen(meta.schedule.regOpenAt))
+          : ENTRY.notOpenYetUnknown,
+      });
+    }
+    if (meta.phase === "done") return ok({ ...base, canRegister: false, message: ENTRY.finished });
+    return ok({ ...base, canRegister: true });
+  }
+
+  /** 수동 진행. 되돌리기(뒤로 가는 전환)에서는 fired 를 건드리지 않는다 (ADR-2) */
+  async setPhase(to: Phase, now: number): Promise<Result<EventMeta>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (!PHASE_ORDER.includes(to)) return fail("bad_request");
+
+    const forward = PHASE_ORDER.indexOf(to) > PHASE_ORDER.indexOf(meta.phase);
+    meta.phase = to;
+    if (forward && to !== "prep") meta.fired[to] = now;
+    await this.ctx.storage.put("meta", meta);
+    await this.rearm(meta, now);
+    this.broadcast({ type: "phase", phase: meta.phase, fired: meta.fired });
+    if (to === "done") this.broadcast({ type: "reveal" });
+    return ok(meta);
+  }
+
+  async setSchedule(patch: EventSchedule, now: number): Promise<Result<EventMeta>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    const next: EventSchedule = { ...meta.schedule, ...patch };
+    if (!validSchedule(next, meta.phase)) return fail("schedule_order");
+    meta.schedule = next;
+    await this.ctx.storage.put("meta", meta);
+    await this.rearm(meta, now);
+    this.broadcast({ type: "phase", phase: meta.phase, fired: meta.fired });
+    return ok(meta);
+  }
+
+  async patchMeta(
+    patch: { name?: string; code?: string; config?: EventConfig },
+    now: number,
+  ): Promise<Result<EventMeta>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (patch.name !== undefined) {
+      if (!patch.name.trim()) return fail("bad_request");
+      meta.name = patch.name.trim();
+    }
+    if (patch.code) meta.code = patch.code.toUpperCase();
+    if (patch.config) {
+      const { maxPre, maxParty } = patch.config;
+      if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
+      meta.config = { maxPre, maxParty };
+    }
+    await this.ctx.storage.put("meta", meta);
+    // 콕 횟수가 바뀌면 참가자 화면의 남은 횟수가 그 자리에서 재계산돼야 한다
+    this.broadcast({ type: "phase", phase: meta.phase, fired: meta.fired });
+    return ok(meta);
+  }
+
+  async destroy(): Promise<void> {
+    await this.ctx.storage.deleteAll();
+  }
+
+  // ─────────────────────────── 참가자
+
+  /**
+   * 등록. 같은 전화번호로 다시 오면 새로 만들지 않고 그 사람으로 재접속시킨다.
+   * 닉네임 유일성은 회차 안에서만 — 다른 회차의 같은 닉네임은 상관없다.
+   */
+  async register(input: RegisterInput, now: number): Promise<Result<Player>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (meta.phase === "prep" || meta.phase === "done") return fail("closed");
+
+    const phone = input.phone.replace(/[^0-9]/g, "");
+    const nickNorm = normalizeNickname(input.nickname);
+    if (!nickNorm || !input.realName.trim() || !phone) return fail("bad_request");
+    if (input.nickname.trim().length > LIMITS.nicknameMax) return fail("bad_request");
+    if (!Number.isInteger(input.age) || input.age < 18 || input.age > 99) return fail("bad_request");
+    if (input.gender !== "M" && input.gender !== "F") return fail("bad_request");
+    if (!/^[EI][NS][TF][JP]$/.test(input.mbti)) return fail("bad_request");
+    if (input.charms.length !== LIMITS.charms || input.charms.some((c) => !c.trim())) {
+      return fail("bad_request");
+    }
+    if (input.instagram && !/^[A-Za-z0-9._]+$/.test(input.instagram)) return fail("bad_request");
+
+    const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone)[0];
+    const clash = this.rows<PlayerRow>("SELECT * FROM players WHERE nick_norm = ?", nickNorm)[0];
+    if (clash && clash.id !== mine?.id) return fail("nick_taken");
+
+    const player: Player = {
+      id: mine?.id ?? randomHex(8),
+      nickname: input.nickname.trim(),
+      realName: input.realName.trim(),
+      age: input.age,
+      gender: input.gender,
+      phone,
+      instagram: input.instagram?.trim() || undefined,
+      mbti: input.mbti,
+      charms: input.charms.map((c) => c.trim()) as [string, string, string],
+      createdAt: mine?.created_at ?? now,
+    };
+
+    this.ctx.storage.sql.exec(
+      `INSERT INTO players (id, nickname, nick_norm, real_name, age, gender, phone, instagram, mbti, charms, no_show, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,0,?)
+       ON CONFLICT(id) DO UPDATE SET
+         nickname=excluded.nickname, nick_norm=excluded.nick_norm, real_name=excluded.real_name,
+         age=excluded.age, gender=excluded.gender, instagram=excluded.instagram,
+         mbti=excluded.mbti, charms=excluded.charms`,
+      player.id,
+      player.nickname,
+      nickNorm,
+      player.realName,
+      player.age,
+      player.gender,
+      player.phone,
+      player.instagram ?? null,
+      player.mbti,
+      JSON.stringify(player.charms),
+      player.createdAt,
+    );
+
+    this.broadcast({ type: "roster", count: this.playerCount() });
+    return ok(player);
+  }
+
+  /** 전화번호로 기존 참가자를 찾는다. 재접속 판정용이라 운영자 응답에도 쓰지 않는다 */
+  async findByPhone(phone: string): Promise<Player | null> {
+    const row = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone.replace(/[^0-9]/g, ""))[0];
+    return row ? toPlayer(row) : null;
+  }
+
+  async deletePlayer(playerId: string): Promise<Result<true>> {
+    const row = this.rows<PlayerRow>("SELECT * FROM players WHERE id = ?", playerId)[0];
+    if (!row) return fail("not_found");
+    this.ctx.storage.sql.exec("DELETE FROM players WHERE id = ?", playerId);
+    this.ctx.storage.sql.exec("DELETE FROM pokes WHERE from_id = ? OR to_id = ?", playerId, playerId);
+    // 이미 발행한 자리에서도 빠진다
+    for (const s of this.seatings()) {
+      const seats = s.seats.filter((x) => x.playerId !== playerId);
+      const acks = s.acks.filter((x) => x !== playerId);
+      this.ctx.storage.sql.exec(
+        "UPDATE seatings SET seats = ?, acks = ? WHERE round = ?",
+        JSON.stringify(seats),
+        JSON.stringify(acks),
+        s.round,
+      );
+    }
+    this.broadcast({ type: "roster", count: this.playerCount() });
+    return ok(true);
+  }
+
+  // ─────────────────────────── 콕
+
+  async poke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (!canPoke(meta.phase)) return fail("closed");
+
+    const me = this.player(fromId);
+    const target = this.player(toId);
+    if (!me || !target) return fail("not_found");
+    if (me.gender === target.gender) return fail("same_gender");
+
+    const round = roundOf(meta.phase);
+    const max = round === "pre" ? meta.config.maxPre : meta.config.maxParty;
+    if (this.sentCount(fromId, round) >= max) return fail("no_budget", max);
+
+    this.ctx.storage.sql.exec(
+      "INSERT INTO pokes (id, from_id, to_id, round, at) VALUES (?,?,?,?,?)",
+      randomHex(8),
+      fromId,
+      toId,
+      round,
+      now,
+    );
+    // 익명이다. 누가 찔렀는지는 이 메시지에도, 어디에도 싣지 않는다
+    this.toPlayer(toId, { type: "poke", receivedCount: this.receivedCount(toId) });
+    return ok(await this.pokeState(fromId, meta));
+  }
+
+  /** 되돌리기. 같은 라운드에서 가장 최근에 보낸 것부터 지운다 */
+  async unpoke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (!canPoke(meta.phase)) return fail("closed");
+
+    const round = roundOf(meta.phase);
+    const last = this.rows<{ id: string }>(
+      "SELECT id FROM pokes WHERE from_id = ? AND to_id = ? AND round = ? ORDER BY at DESC LIMIT 1",
+      fromId,
+      toId,
+      round,
+    )[0];
+    if (!last) return fail("no_poke");
+    this.ctx.storage.sql.exec("DELETE FROM pokes WHERE id = ?", last.id);
+    this.toPlayer(toId, { type: "poke", receivedCount: this.receivedCount(toId) });
+    return ok(await this.pokeState(fromId, meta));
+  }
+
+  // ─────────────────────────── 참가자 화면
+
+  async participantState(playerId: string, now: number): Promise<Result<ParticipantState>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    const me = this.player(playerId);
+    if (!me) return fail("not_found");
+
+    return ok({
+      event: {
+        id: meta.id,
+        name: meta.name,
+        code: meta.code,
+        phase: meta.phase,
+        fired: meta.fired,
+        schedule: meta.schedule,
+        config: meta.config,
+        playerCount: this.playerCount(),
+      },
+      me,
+      roster: this.players()
+        .filter((p) => p.id !== playerId)
+        .map(toPublic),
+      poke: await this.pokeState(playerId, meta),
+      seat: this.mySeat(playerId),
+    });
+  }
+
+  async ackSeat(playerId: string, round: number): Promise<Result<true>> {
+    const s = this.seatings().find((x) => x.round === round && x.status === "published");
+    if (!s) return fail("not_found");
+    if (!s.acks.includes(playerId)) {
+      s.acks.push(playerId);
+      this.ctx.storage.sql.exec(
+        "UPDATE seatings SET acks = ? WHERE round = ?",
+        JSON.stringify(s.acks),
+        round,
+      );
+    }
+    return ok(true);
+  }
+
+  // ─────────────────────────── 운영자 화면
+
+  async hostState(now: number): Promise<Result<HostState & { seatingClosed: boolean }>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    const players = this.players();
+    const pokes = this.pokes();
+
+    const received: Record<string, number> = {};
+    const sent: Record<string, number> = {};
+    const preReceived: Record<string, number> = {};
+    for (const p of players) {
+      received[p.id] = 0;
+      sent[p.id] = 0;
+      preReceived[p.id] = 0;
+    }
+    const pokeCount: Record<PokeRound, number> = { pre: 0, party: 0 };
+    const pairs = new Set<string>();
+    for (const k of pokes) {
+      received[k.toId] = (received[k.toId] ?? 0) + 1;
+      sent[k.fromId] = (sent[k.fromId] ?? 0) + 1;
+      if (k.round === "pre") preReceived[k.toId] = (preReceived[k.toId] ?? 0) + 1;
+      pokeCount[k.round]++;
+      pairs.add(`${k.fromId}>${k.toId}`);
+    }
+    const mutual: Array<[string, string]> = [];
+    for (const key of pairs) {
+      const [a, b] = key.split(">");
+      if (a < b && pairs.has(`${b}>${a}`)) mutual.push([a, b]);
+    }
+
+    return ok({
+      meta,
+      players,
+      received,
+      sent,
+      prevoteRank: Object.entries(preReceived)
+        .map(([id, count]) => ({ id, count }))
+        .sort((a, b) => b.count - a.count),
+      mutual,
+      pokeCount,
+      seatings: this.seatings(),
+      seatingClosed: (await this.flags()).seatingClosed,
+    });
+  }
+
+  // ─────────────────────────── 자리
+
+  /** 초안 생성. 참가자에게는 보이지 않으므로 확인 없이 몇 번이든 다시 만든다 (ADR-6) */
+  async makeSeating(tableCount: number, final: boolean, now: number): Promise<Result<SeatingRound>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (meta.phase === "done") return fail("closed");
+    if ((await this.flags()).seatingClosed) return fail("closed");
+    if (!Number.isInteger(tableCount) || tableCount < 1 || tableCount > LIMITS.tableMax) {
+      return fail("bad_request");
+    }
+
+    const players = this.players();
+    if (players.length < tableCount * 2) return fail("bad_request");
+
+    const published = this.seatings().filter((s) => s.status === "published");
+    const round = (published.at(-1)?.round ?? 0) + 1;
+    const { mutual, oneWay } = this.pairs();
+
+    const seats = buildSeating({
+      players,
+      tableCount,
+      round,
+      final,
+      history: published.map((s) => s.seats),
+      mutual,
+      oneWay,
+    });
+
+    const draft: SeatingRound = {
+      round,
+      tableCount,
+      final,
+      status: "draft",
+      seats,
+      acks: [],
+      createdAt: now,
+    };
+    this.writeSeating(draft);
+    return ok(draft);
+  }
+
+  /** 좌석 변경은 맞교환 하나뿐이다. 한 명만 옮기면 테이블 성비가 깨진다 (SEATING.md) */
+  async swapSeats(a: string, b: string): Promise<Result<SeatingRound>> {
+    const draft = this.seatings().find((s) => s.status === "draft");
+    if (!draft) return fail("not_found");
+    const sa = draft.seats.find((s) => s.playerId === a);
+    const sb = draft.seats.find((s) => s.playerId === b);
+    if (!sa || !sb) return fail("not_found");
+    const pa = this.player(a);
+    const pb = this.player(b);
+    if (!pa || !pb || pa.gender !== pb.gender) return fail("forbidden");
+    [sa.table, sb.table] = [sb.table, sa.table];
+    this.writeSeating(draft);
+    return ok(draft);
+  }
+
+  async discardSeating(): Promise<Result<true>> {
+    const draft = this.seatings().find((s) => s.status === "draft");
+    if (!draft) return fail("not_found");
+    this.ctx.storage.sql.exec("DELETE FROM seatings WHERE round = ? AND status = 'draft'", draft.round);
+    return ok(true);
+  }
+
+  async publishSeating(now: number): Promise<Result<SeatingRound>> {
+    const draft = this.seatings().find((s) => s.status === "draft");
+    if (!draft) return fail("not_found");
+    draft.status = "published";
+    draft.publishedAt = now;
+    draft.acks = [];
+    this.writeSeating(draft);
+    if (draft.final) await this.setFlags({ seatingClosed: true });
+
+    for (const seat of draft.seats) {
+      this.toPlayer(seat.playerId, { type: "seating", round: draft.round, table: seat.table });
+    }
+    return ok(draft);
+  }
+
+  /** 마지막 자리까지 끝난 뒤 지각자가 오면 다시 열 수 있어야 한다 */
+  async reopenSeating(): Promise<Result<true>> {
+    await this.setFlags({ seatingClosed: false });
+    return ok(true);
+  }
+
+  // ─────────────────────────── 예약 알람 (ADR-2)
+
+  /**
+   * 예약은 한 번만 울리는 알람이다. 실제 전환 시각을 fired 에 남기고,
+   * fired 가 비어 있을 때만 울린다. 그래서 되돌리기를 해도 즉시 다시 밀리지 않는다.
+   */
+  private async touch(now: number): Promise<EventMeta | null> {
+    let meta = await this.ctx.storage.get<EventMeta>("meta");
+    if (!meta) return null;
+    let moved = false;
+    for (let i = 0; i < PHASE_ORDER.length; i++) {
+      const to = dueTransition(meta, now);
+      if (!to) break;
+      meta = { ...meta, phase: to, fired: { ...meta.fired, [to]: now } };
+      moved = true;
+    }
+    if (moved) {
+      await this.ctx.storage.put("meta", meta);
+      await this.rearm(meta, now);
+      this.broadcast({ type: "phase", phase: meta.phase, fired: meta.fired });
+      if (meta.phase === "done") this.broadcast({ type: "reveal" });
+    }
+    return meta;
+  }
+
+  /** 다음에 울릴 예약 하나만 걸어둔다. 폴링이 아니라서 유휴 중 비용이 0이다 */
+  private async rearm(meta: EventMeta, now: number) {
+    const at = nextDue(meta);
+    if (at === null) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    await this.ctx.storage.setAlarm(Math.max(at, now + 1000));
+  }
+
+  async alarm() {
+    await this.touch(Date.now());
+  }
+
+  // ─────────────────────────── 실시간
+
+  async fetch(req: Request): Promise<Response> {
+    if (req.headers.get("Upgrade") !== "websocket") return new Response("expected websocket", { status: 400 });
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     // Hibernation: 연결은 유지하되 유휴 중 컴퓨트를 소모하지 않는다
-    this.state.acceptWebSocket(server);
-    this.sessions.set(server, {});
+    this.ctx.acceptWebSocket(server);
+    const playerId = req.headers.get("x-player-id") ?? undefined;
+    server.serializeAttachment({ playerId } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
   }
 
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
-    let msg: ClientEvent;
+    let msg: { type?: string; round?: number };
     try {
       msg = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw));
     } catch {
       return;
     }
-    switch (msg.type) {
-      case "ping":
-        return this.send(ws, { type: "pong", serverTime: Date.now() });
-      case "ack-seat":
-        // TODO: acks 에 playerId 추가 → 운영자 확인율 갱신
-        return;
+    if (msg.type === "ping") return this.send(ws, { type: "pong", serverTime: Date.now() });
+    if (msg.type === "ack-seat" && typeof msg.round === "number") {
+      const at = (ws.deserializeAttachment() ?? {}) as Attachment;
+      if (at.playerId) await this.ackSeat(at.playerId, msg.round);
     }
-  }
-
-  async webSocketClose(ws: WebSocket) {
-    this.sessions.delete(ws);
   }
 
   private send(ws: WebSocket, ev: ServerEvent) {
     try {
       ws.send(JSON.stringify(ev));
     } catch {
-      this.sessions.delete(ws);
+      /* 끊긴 소켓은 다음 브로드캐스트에서 자연히 빠진다 */
     }
   }
 
-  /** 회차 전체에 방송. 콕 알림처럼 수신자별로 내용이 달라야 하는 건 여기 쓰지 말 것. */
-  protected broadcast(ev: ServerEvent) {
-    for (const ws of this.state.getWebSockets()) this.send(ws, ev);
+  /** 회차 전체에 방송. 콕처럼 수신자별로 내용이 달라야 하는 건 toPlayer 를 쓴다 */
+  private broadcast(ev: ServerEvent) {
+    for (const ws of this.ctx.getWebSockets()) this.send(ws, ev);
   }
 
-  // ─────────────────── TODO: 도메인 명령
-  // registerPlayer / poke / unpoke / setPhase / makeSeating / publishSeating / reveal
-  // 전부 이 클래스 안에서만 상태를 바꾼다. Worker 는 인증과 라우팅만 한다.
+  private toPlayer(playerId: string, ev: ServerEvent) {
+    for (const ws of this.ctx.getWebSockets()) {
+      const at = (ws.deserializeAttachment() ?? {}) as Attachment;
+      if (at.playerId === playerId) this.send(ws, ev);
+    }
+  }
+
+  // ─────────────────────────── 내부 조회
+
+  private rows<T>(query: string, ...binds: unknown[]): T[] {
+    return this.ctx.storage.sql.exec(query, ...(binds as never[])).toArray() as T[];
+  }
+
+  private players(): Player[] {
+    return this.rows<PlayerRow>("SELECT * FROM players ORDER BY created_at").map(toPlayer);
+  }
+
+  private player(id: string): Player | null {
+    const row = this.rows<PlayerRow>("SELECT * FROM players WHERE id = ?", id)[0];
+    return row ? toPlayer(row) : null;
+  }
+
+  private playerCount(): number {
+    return this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM players")[0]?.n ?? 0;
+  }
+
+  private pokes() {
+    return this.rows<{ id: string; from_id: string; to_id: string; round: PokeRound; at: number }>(
+      "SELECT * FROM pokes",
+    ).map((r) => ({ id: r.id, fromId: r.from_id, toId: r.to_id, round: r.round, at: r.at }));
+  }
+
+  private sentCount(fromId: string, round: PokeRound): number {
+    return (
+      this.rows<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM pokes WHERE from_id = ? AND round = ?",
+        fromId,
+        round,
+      )[0]?.n ?? 0
+    );
+  }
+
+  private receivedCount(toId: string): number {
+    return this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM pokes WHERE to_id = ?", toId)[0]?.n ?? 0;
+  }
+
+  /**
+   * 참가자 본인에게 내려가는 콕 상태.
+   * 받은 콕은 **횟수만** 넣는다. 발신자(fromId)는 발표 후에도 상호 매칭이 아니면 넣지 않는다 (ADR-1).
+   */
+  private async pokeState(playerId: string, meta: EventMeta): Promise<MyPokeState> {
+    const round = roundOf(meta.phase);
+    const sentTo: Record<string, number> = {};
+    const sentThisRound: Record<string, number> = {};
+    for (const k of this.pokes()) {
+      if (k.fromId !== playerId) continue;
+      sentTo[k.toId] = (sentTo[k.toId] ?? 0) + 1;
+      if (k.round === round) sentThisRound[k.toId] = (sentThisRound[k.toId] ?? 0) + 1;
+    }
+
+    const matches: MatchInfo[] = [];
+    if (meta.phase === "done") {
+      const { mutual } = this.pairs();
+      const mySeat = this.mySeat(playerId);
+      const last = this.lastPublished();
+      for (const [a, b] of mutual) {
+        const otherId = a === playerId ? b : b === playerId ? a : null;
+        if (!otherId) continue;
+        const other = this.player(otherId);
+        if (!other) continue;
+        const theirTable = last?.seats.find((s) => s.playerId === otherId)?.table;
+        matches.push({
+          player: toPublic(other),
+          sameTable: mySeat && theirTable === mySeat.table ? mySeat.table : undefined,
+        });
+      }
+    }
+
+    return {
+      budget: {
+        pre: { max: meta.config.maxPre, used: this.sentCount(playerId, "pre") },
+        party: { max: meta.config.maxParty, used: this.sentCount(playerId, "party") },
+      },
+      sentTo,
+      sentThisRound,
+      receivedCount: this.receivedCount(playerId),
+      matches,
+    };
+  }
+
+  private pairs() {
+    const set = new Set<string>();
+    for (const k of this.pokes()) set.add(`${k.fromId}>${k.toId}`);
+    const mutual: Array<[string, string]> = [];
+    const oneWay: Array<[string, string]> = [];
+    for (const key of set) {
+      const [a, b] = key.split(">");
+      if (set.has(`${b}>${a}`)) {
+        if (a < b) mutual.push([a, b]);
+      } else {
+        oneWay.push([a, b]);
+      }
+    }
+    return { mutual, oneWay };
+  }
+
+  private seatings(): SeatingRound[] {
+    return this.rows<SeatingRow>("SELECT * FROM seatings ORDER BY round").map((r) => ({
+      round: r.round,
+      tableCount: r.table_count,
+      final: !!r.final,
+      status: r.status,
+      seats: JSON.parse(r.seats) as Seat[],
+      acks: JSON.parse(r.acks) as string[],
+      createdAt: r.created_at,
+      publishedAt: r.published_at ?? undefined,
+    }));
+  }
+
+  private lastPublished(): SeatingRound | undefined {
+    return this.seatings().filter((s) => s.status === "published").at(-1);
+  }
+
+  private mySeat(playerId: string): MySeat | undefined {
+    const last = this.lastPublished();
+    if (!last) return undefined;
+    const mine = last.seats.find((s) => s.playerId === playerId);
+    if (!mine) return undefined;
+    const mates = last.seats.filter((s) => s.table === mine.table);
+    const men = mates.filter((s) => this.player(s.playerId)?.gender === "M").length;
+    return {
+      round: last.round,
+      table: mine.table,
+      final: last.final,
+      mates: mates.length,
+      men,
+      acked: last.acks.includes(playerId),
+    };
+  }
+
+  private writeSeating(s: SeatingRound) {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO seatings (round, table_count, final, status, seats, acks, created_at, published_at)
+       VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT(round) DO UPDATE SET
+         table_count=excluded.table_count, final=excluded.final, status=excluded.status,
+         seats=excluded.seats, acks=excluded.acks, published_at=excluded.published_at`,
+      s.round,
+      s.tableCount,
+      s.final ? 1 : 0,
+      s.status,
+      JSON.stringify(s.seats),
+      JSON.stringify(s.acks),
+      s.createdAt,
+      s.publishedAt ?? null,
+    );
+  }
+
+  private async flags(): Promise<Flags> {
+    return (await this.ctx.storage.get<Flags>("flags")) ?? { seatingClosed: false };
+  }
+
+  private async setFlags(patch: Partial<Flags>) {
+    await this.ctx.storage.put("flags", { ...(await this.flags()), ...patch });
+  }
+}
+
+// ─────────────────────────── 순수 헬퍼
+
+interface PlayerRow {
+  id: string;
+  nickname: string;
+  real_name: string;
+  age: number;
+  gender: Gender;
+  phone: string;
+  instagram: string | null;
+  mbti: string;
+  charms: string;
+  no_show: number;
+  created_at: number;
+}
+
+interface SeatingRow {
+  round: number;
+  table_count: number;
+  final: number;
+  status: "draft" | "published";
+  seats: string;
+  acks: string;
+  created_at: number;
+  published_at: number | null;
+}
+
+function toPlayer(r: PlayerRow): Player {
+  return {
+    id: r.id,
+    nickname: r.nickname,
+    realName: r.real_name,
+    age: r.age,
+    gender: r.gender,
+    phone: r.phone,
+    instagram: r.instagram ?? undefined,
+    mbti: r.mbti,
+    charms: JSON.parse(r.charms) as [string, string, string],
+    noShow: !!r.no_show,
+    createdAt: r.created_at,
+  };
+}
+
+function roundOf(phase: Phase): PokeRound {
+  return phase === "prevote" ? "pre" : "party";
+}
+
+function inRange(n: number, r: { min: number; max: number }): boolean {
+  return Number.isInteger(n) && n >= r.min && n <= r.max;
+}
+
+/** 다음에 울릴 예약 시각. fired 가 찬 항목은 이미 울린 것이므로 건너뛴다 */
+function nextDue(meta: EventMeta): number | null {
+  const { phase, fired, schedule } = meta;
+  if (phase === "prep" && schedule.regOpenAt && !fired.reg) return schedule.regOpenAt;
+  if (phase === "prevote" && schedule.voteCloseAt && !fired.party) return schedule.voteCloseAt;
+  if (phase === "party" && schedule.revealAt && !fired.done) return schedule.revealAt;
+  return null;
+}
+
+/**
+ * 순서 검증. 발표 시각이 마감보다 앞서는 건 막되,
+ * 이미 파티 단계로 넘어왔으면 현장 판단을 막지 않는다 (FLOWS.md)
+ */
+export function validSchedule(s: EventSchedule, phase: Phase): boolean {
+  if (s.regOpenAt && s.voteCloseAt && s.voteCloseAt <= s.regOpenAt) return false;
+  if (s.voteCloseAt && s.revealAt && s.revealAt <= s.voteCloseAt) {
+    return phase === "party" || phase === "done";
+  }
+  return true;
 }

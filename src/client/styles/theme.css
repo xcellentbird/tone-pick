@@ -2,17 +2,29 @@
  * 색·간격·모서리를 전부 변수로 빼둔다.
  * 운영자가 회차별 UI 테마를 고르는 기능(고도화 A-1)이 이 구조 위에 올라간다.
  * :root 를 통째로 갈아끼우는 방식 → [data-theme="cyworld"] 같은 선택자를 추가.
+ *
+ * 컴포넌트에서 색·간격을 직접 쓰지 마라. 여기 없는 값이 필요하면 여기에 변수를 늘린다.
  */
 :root {
   --bg: #12101a;
   --card: #1c1930;
+  --card-2: #241f3c;
   --line: #2c2745;
   --fg: #f2eefc;
   --dim: #9c93b8;
   --pink: #ff6f9c;
   --gold: #ffd166;
+  --warn: #ffb020;
+  --danger: #ff5c5c;
+  --ok: #5ce1a6;
   --radius: 14px;
+  --radius-sm: 10px;
   --tap: 44px; /* 터치 타겟 최소 크기 */
+  --gap: 12px;
+  --gap-lg: 18px;
+  --pad: 16px;
+  --card-h: 74px; /* 참가자 카드 높이 고정 — 문장형 매력이 들어와도 흔들리면 안 된다 */
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 * { box-sizing: border-box; }
@@ -23,12 +35,407 @@ html, body, #root {
   background: var(--bg);
   color: var(--fg);
   font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif;
+  -webkit-tap-highlight-color: transparent;
 }
 
 input, select, textarea {
   font-size: 16px; /* 16px 미만이면 iOS 가 입력 시 자동 확대한다 */
+  font-family: inherit;
 }
 
-button { min-height: var(--tap); min-width: var(--tap); }
+button {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  font-family: inherit;
+  cursor: pointer;
+}
 
-.tabbar { padding-bottom: env(safe-area-inset-bottom); }
+/* ─────────────────────────── 화면 뼈대 */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.screen > header {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: var(--pad);
+  padding-top: max(var(--pad), env(safe-area-inset-top));
+  border-bottom: 1px solid var(--line);
+}
+
+.screen > header h1 {
+  font-size: 17px;
+  margin: 0;
+  font-weight: 700;
+}
+
+.screen > header .sub {
+  color: var(--dim);
+  font-size: 13px;
+}
+
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--pad);
+  padding-bottom: calc(var(--pad) * 2);
+  -webkit-overflow-scrolling: touch;
+}
+
+.stack { display: flex; flex-direction: column; gap: var(--gap); }
+.row { display: flex; align-items: center; gap: var(--gap); }
+.row.between { justify-content: space-between; }
+.grow { flex: 1; min-width: 0; }
+.dim { color: var(--dim); }
+.small { font-size: 13px; }
+.tiny { font-size: 12px; }
+.center { text-align: center; }
+.pre { white-space: pre-line; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.danger { color: var(--danger); }
+.warnText { color: var(--warn); }
+.okText { color: var(--ok); }
+
+/* ─────────────────────────── 카드 */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--pad);
+}
+
+.card.flat { padding: 12px; }
+
+.kicker {
+  font-size: 12px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+/* ─────────────────────────── 버튼 */
+
+.btn {
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--fg);
+  border-radius: var(--radius-sm);
+  padding: 0 16px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn.primary { background: var(--pink); border-color: var(--pink); color: #24102a; }
+.btn.gold { background: var(--gold); border-color: var(--gold); color: #2a2410; }
+.btn.ghost { background: transparent; }
+.btn.danger { border-color: var(--danger); color: var(--danger); background: transparent; }
+.btn.block { width: 100%; }
+.btn.wide { flex: 1; }
+
+/* ─────────────────────────── 입력 */
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > label { font-size: 13px; color: var(--dim); }
+
+.field input,
+.field select,
+.field textarea {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: 12px;
+  min-height: var(--tap);
+  width: 100%;
+}
+
+.field .err { color: var(--danger); font-size: 13px; }
+.field input:focus, .field textarea:focus { outline: 2px solid var(--pink); outline-offset: 1px; }
+
+.choice { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.choice button {
+  flex: 1;
+  min-width: 88px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--dim);
+  font-size: 15px;
+  padding: 0 10px;
+}
+
+.choice button[aria-pressed="true"] {
+  border-color: var(--pink);
+  color: var(--fg);
+  background: var(--card-2);
+}
+
+/* ─────────────────────────── 탭바 */
+
+.tabbar {
+  display: flex;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.tabbar a, .tabbar button {
+  flex: 1;
+  min-height: var(--tap);
+  padding: 8px 0 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--dim);
+  text-decoration: none;
+  font-size: 12px;
+  background: none;
+  border: none;
+}
+
+.tabbar a.active, .tabbar button.active { color: var(--pink); }
+.tabbar .icon { font-size: 18px; }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px var(--pad);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+
+.tabs a {
+  padding: 8px 14px;
+  border-radius: 999px;
+  color: var(--dim);
+  text-decoration: none;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.tabs a.active { background: var(--card-2); color: var(--fg); }
+
+/* ─────────────────────────── 참가자 카드 */
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  height: var(--card-h);
+  padding: 0 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  width: 100%;
+  text-align: left;
+  color: var(--fg);
+}
+
+.person .meta { min-width: 0; flex: 1; }
+.person .name { font-weight: 700; font-size: 15px; }
+.person .charm { color: var(--dim); font-size: 13px; }
+
+.avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--card-2);
+  font-size: 18px;
+  flex: none;
+}
+
+.pokeBtn {
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--fg);
+  border-radius: var(--radius-sm);
+  font-size: 18px;
+  width: var(--tap);
+  height: var(--tap);
+  flex: none;
+}
+
+.pokeBtn.on { border-color: var(--pink); background: var(--pink); color: #24102a; }
+.pokeCount { font-size: 12px; color: var(--pink); min-width: 18px; text-align: center; }
+
+/* ─────────────────────────── 상태 셀 · 배너 */
+
+.status {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gap);
+  background: linear-gradient(135deg, var(--card-2), var(--card));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px var(--pad);
+}
+
+.status .big { font-size: 22px; font-weight: 800; }
+
+.banner {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--pink);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  color: var(--fg);
+}
+
+.banner.warn { border-left-color: var(--warn); }
+
+/* ─────────────────────────── 시트 · 다이얼로그 */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 4, 12, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 20;
+}
+
+.sheet {
+  width: min(560px, 100%);
+  max-height: 88dvh;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: var(--pad);
+  padding-bottom: calc(var(--pad) + env(safe-area-inset-bottom));
+  box-shadow: var(--shadow);
+}
+
+.dialog {
+  width: min(420px, 100%);
+  margin: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--pad);
+  box-shadow: var(--shadow);
+}
+
+.facts { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+
+.fact {
+  display: flex;
+  gap: 10px;
+  font-size: 14px;
+  background: var(--card-2);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+
+.fact b { color: var(--dim); font-weight: 600; flex: none; min-width: 84px; }
+
+/* ─────────────────────────── 전체 화면 자리 안내 */
+
+.takeover {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--gap-lg);
+  padding: calc(var(--pad) * 2);
+  text-align: center;
+}
+
+.takeover .table { font-size: 34px; font-weight: 800; }
+
+/* ─────────────────────────── 토스트 */
+
+.toasts {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(72px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.toast {
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 14px;
+  box-shadow: var(--shadow);
+  max-width: 92%;
+  white-space: pre-line;
+  text-align: center;
+}
+
+/* ─────────────────────────── 자리표 */
+
+.tableGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--gap);
+}
+
+.seatChip {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 13px;
+  width: 100%;
+  color: var(--fg);
+  text-align: left;
+}
+
+.seatChip.picked { border-color: var(--pink); }
+
+/* ─────────────────────────── 데모 뷰 */
+
+.demo {
+  display: flex;
+  gap: var(--gap);
+  padding: var(--pad);
+  overflow-x: auto;
+  height: 100dvh;
+  align-items: flex-start;
+}
+
+.phone {
+  position: relative;
+  flex: none;
+  width: 360px;
+  height: min(760px, 92dvh);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  overflow: hidden;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+
+.phone .screen { height: 100%; }
+.phone .scrim, .phone .takeover, .phone .toasts { position: absolute; }

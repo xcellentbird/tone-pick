@@ -1,18 +1,116 @@
-import { Hono } from "hono";
-
 /**
  * 참가자 API.
  *
  * ⚠️ 여기서 나가는 응답에 실명·전화번호·인스타가 섞이면 안 된다.
  *    반드시 `toPublic()` 을 거칠 것. 발표 전에는 콕 발신자 정보도 응답에 없어야 한다.
  *    (개발자 도구로 응답을 열어보는 참가자가 반드시 있다)
+ *
+ *    참가자 응답을 만드는 곳은 EventDO 의 participantState() 하나뿐이다.
+ *    새 화면이 필요해도 여기서 자료를 조립하지 말고 그쪽을 넓혀라.
  */
-export const participantRoutes = new Hono();
+import { Hono } from "hono";
+import type { RegisterInput } from "../../shared/types.ts";
+import { ENTRY } from "../../shared/copy.ts";
+import { PLAYER_COOKIE, setCookie, signSession } from "../auth.ts";
+import {
+  apiError,
+  eventStub,
+  isSecure,
+  playerScope,
+  registry,
+  serverNow,
+  unwrap,
+  type Ctx,
+  type Env,
+} from "../http.ts";
+import { pokeMessage, registerMessage } from "../messages.ts";
 
-participantRoutes.get("/events/by-code/:code", (c) => c.json({ error: "not_implemented" }, 501));
-participantRoutes.post("/events/:code/register", (c) => c.json({ error: "not_implemented" }, 501));
-participantRoutes.get("/me", (c) => c.json({ error: "not_implemented" }, 501));
-participantRoutes.get("/roster", (c) => c.json({ error: "not_implemented" }, 501));
-participantRoutes.post("/poke", (c) => c.json({ error: "not_implemented" }, 501));
-participantRoutes.delete("/poke/:toId", (c) => c.json({ error: "not_implemented" }, 501));
-participantRoutes.post("/seat/ack", (c) => c.json({ error: "not_implemented" }, 501));
+export const participantRoutes = new Hono<{ Bindings: Env }>();
+
+/** 입장 코드 조회. 인증이 없으므로 `PublicEvent` 밖의 필드를 절대 넣지 않는다 */
+participantRoutes.get("/events/by-code/:code", async (c) => {
+  const id = await registry(c.env).idByCode(c.req.param("code"));
+  if (!id) return apiError(c, "not_found", ENTRY.notFound);
+  const { value, response } = unwrap(c, await eventStub(c.env, id).publicAt(serverNow()), () => ENTRY.notFound);
+  return response ?? c.json(value);
+});
+
+participantRoutes.post("/events/:code/register", async (c) => {
+  const id = await registry(c.env).idByCode(c.req.param("code"));
+  if (!id) return apiError(c, "not_found", ENTRY.notFound);
+
+  const input = (await c.req.json().catch(() => ({}))) as RegisterInput;
+  const stub = eventStub(c.env, id);
+  const before = await stub.findByPhone(String(input.phone ?? ""));
+
+  const result = await stub.register(input, serverNow());
+  const { value: player, response } = unwrap(c, result, registerMessage(String(input.nickname ?? "")));
+  if (response) return response;
+
+  const token = await signSession(
+    { kind: "player", eventId: id, playerId: player!.id },
+    c.env.SESSION_SECRET,
+    serverNow(),
+  );
+  c.header("set-cookie", setCookie(PLAYER_COOKIE, token, isSecure(c)));
+
+  const state = await stub.participantState(player!.id, serverNow());
+  if (!state.ok) return apiError(c, "not_found");
+  return c.json({ state: state.value, resumed: !!before });
+});
+
+/**
+ * 한 브라우저에 참가자 세션은 하나뿐이다. 다른 회차에 등록하면 앞의 세션이 덮인다.
+ * 그때 `/e/앞회차코드` 를 열면 **다른 회차의 자료가 그 URL 로 보인다** —
+ * 그래서 화면이 어느 회차를 보고 있는지 함께 받아 확인한다.
+ */
+participantRoutes.get("/me", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const { value, response } = unwrap(c, await seat.stub.participantState(seat.playerId, serverNow()));
+  if (response) return response;
+
+  const asked = c.req.query("code");
+  if (asked && asked.toUpperCase() !== value!.event.code) return apiError(c, "unauthorized", ENTRY.notFound);
+  return c.json(value);
+});
+
+participantRoutes.post("/poke", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const body = (await c.req.json().catch(() => ({}))) as { toId?: string };
+  if (!body.toId) return apiError(c, "bad_request");
+  const { value, response } = unwrap(
+    c,
+    await seat.stub.poke(seat.playerId, body.toId, serverNow()),
+    pokeMessage,
+  );
+  return response ?? c.json(value);
+});
+
+/** 되돌리기는 확인 없이 즉시다 (ADR-6). 다시 찌르면 복구된다 */
+participantRoutes.delete("/poke/:toId", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const { value, response } = unwrap(
+    c,
+    await seat.stub.unpoke(seat.playerId, c.req.param("toId"), serverNow()),
+    pokeMessage,
+  );
+  return response ?? c.json(value);
+});
+
+participantRoutes.post("/seat/ack", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const body = (await c.req.json().catch(() => ({}))) as { round?: number };
+  const { response } = unwrap(c, await seat.stub.ackSeat(seat.playerId, Number(body.round)));
+  return response ?? c.json({ ok: true });
+});
+
+/** 참가자 세션. URL 이 아니라 HttpOnly 쿠키에서만 참가자를 알아낸다 */
+async function seatOf(c: Ctx) {
+  const scope = await playerScope(c);
+  if (scope?.kind !== "player") return null;
+  return { playerId: scope.playerId, stub: eventStub(c.env, scope.eventId) };
+}

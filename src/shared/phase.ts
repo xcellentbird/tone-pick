@@ -2,13 +2,7 @@ import type { EventMeta, FiredMap, Phase } from "./types.ts";
 
 export const PHASE_ORDER: Phase[] = ["prep", "reg", "prevote", "party", "done"];
 
-export const PHASE_LABEL: Record<Phase, string> = {
-  prep: "준비 중",
-  reg: "등록 중",
-  prevote: "사전 투표",
-  party: "파티 진행",
-  done: "발표 완료",
-};
+// 단계 이름을 포함해 화면에 나가는 모든 문구는 `copy.ts` 에 있다. 이 파일은 로직만 담는다.
 
 /** 어떤 예약 시각이 어떤 전환을 울리는가 */
 export const SCHED_OF = {
@@ -36,10 +30,6 @@ export function schedLocked(fired: FiredMap, key: keyof typeof SCHED_OF | string
   if (key === "voteCloseAt") return !!fired.party;
   if (key === "revealAt") return !!fired.done;
   return false;
-}
-
-export function isRevealed(ev: Pick<EventMeta, "phase">): boolean {
-  return ev.phase === "done";
 }
 
 export function canPoke(phase: Phase): boolean {

@@ -8,9 +8,13 @@
     "dev:worker": "npm run build:client && wrangler dev",
     "build": "npm run build:client",
     "build:client": "vite build",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit && tsc -p test/tsconfig.json --noEmit",
     "deploy": "npm run build:client && wrangler deploy",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "check:copy": "node scripts/check-copy.mjs",
+    "check": "npm run typecheck && npm run check:copy",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "hono": "^4.6.14",
@@ -19,12 +23,17 @@
     "react-router": "^7.1.1"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.20.3",
     "@cloudflare/workers-types": "^5.20260801.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "happy-dom": "^20.11.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.7",
+    "vitest": "^4.1.10",
     "wrangler": "^4.20.0"
   }
 }
