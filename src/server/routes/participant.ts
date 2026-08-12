@@ -11,7 +11,7 @@
 import { Hono } from "hono";
 import type { RegisterInput } from "../../shared/types.ts";
 import { ENTRY } from "../../shared/copy.ts";
-import { PLAYER_COOKIE, setCookie, signSession } from "../auth.ts";
+import { PLAYER_COOKIE, sessionTtl, setCookie, signSession } from "../auth.ts";
 import {
   apiError,
   eventStub,
@@ -47,12 +47,9 @@ participantRoutes.post("/events/:code/register", async (c) => {
   const { value: player, response } = unwrap(c, result, registerMessage(String(input.nickname ?? "")));
   if (response) return response;
 
-  const token = await signSession(
-    { kind: "player", eventId: id, playerId: player!.id },
-    c.env.SESSION_SECRET,
-    serverNow(),
-  );
-  c.header("set-cookie", setCookie(PLAYER_COOKIE, token, isSecure(c)));
+  const scope = { kind: "player", eventId: id, playerId: player!.id } as const;
+  const token = await signSession(scope, c.env.SESSION_SECRET, serverNow());
+  c.header("set-cookie", setCookie(PLAYER_COOKIE, token, isSecure(c), sessionTtl(scope)));
 
   const state = await stub.participantState(player!.id, serverNow());
   if (!state.ok) return apiError(c, "not_found");

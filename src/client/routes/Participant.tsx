@@ -26,6 +26,8 @@ export type Tab = "people" | "alerts" | "me";
 
 interface ViewProps {
   source: ParticipantSource;
+  /** URL 이 가리키는 회차. 세션이 끊겼을 때 어디로 되돌릴지 판단에 쓴다 */
+  code?: string;
   /** 같은 번호로 다시 들어온 경우의 인사. 한 번만 띄운다 */
   welcome?: string;
   /** 값이 바뀌면 다시 읽는다. 실시간을 직접 듣지 않는 화면(데모 뷰)이 쓴다 */
@@ -57,6 +59,7 @@ export default function Participant() {
   return (
     <ParticipantView
       source={source}
+      code={code}
       welcome={(location.state as { welcome?: string } | null)?.welcome}
       tab={tab}
       // 탭 이동은 push — 뒤로 가기가 직전 탭이 된다
@@ -69,7 +72,7 @@ export default function Participant() {
 }
 
 export function ParticipantView(props: ViewProps) {
-  const { source, refreshToken } = props;
+  const { source, refreshToken, code } = props;
   const state = useLoad(() => source.load(), [source.key, refreshToken]);
 
   // 실시간은 "다시 읽어라"는 신호로만 쓴다. 부분 갱신을 만들면 화면과 서버가 조용히 어긋난다
@@ -80,7 +83,7 @@ export function ParticipantView(props: ViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source.liveCode]);
 
-  if (state.error) return <Failed error={state.error} />;
+  if (state.error) return <Failed error={state.error} code={code} />;
   if (!state.data) return <div className="screen" />;
   return <Loaded {...props} state={state.data} reload={state.reload} />;
 }
@@ -171,10 +174,14 @@ function Greeting({ text }: { text: string }) {
 
 /**
  * 세션이 없거나 만료됐다. 참가자 식별은 쿠키뿐이라 여기서 할 수 있는 건 다시 입장하는 것이다.
- * 전화번호를 다시 넣으면 그 회차의 기존 참가자로 돌아온다.
+ * 회차 확인 화면으로 보낸다 — 전화번호를 다시 넣으면 그 회차의 기존 참가자로 돌아온다.
  */
-function Failed({ error }: { error: ApiError }) {
+function Failed({ error, code }: { error: ApiError; code?: string }) {
   const navigate = useNavigate();
+  useEffect(() => {
+    if (code && error.status === 401) navigate(`/j/${code}`, { replace: true });
+  }, [code, error.status, navigate]);
+
   return (
     <div className="screen">
       <div className="body stack center" style={{ justifyContent: "center" }}>

@@ -1,0 +1,32 @@
+# PR 이 main 에 들어가기 전에 기계가 먼저 본다.
+#
+# Cloudflare 빌드는 테스트를 돌리지 않고 그대로 배포한다. 그래서 여기가 유일한 관문이다 —
+# 이 워크플로가 없으면 62개 테스트는 있으나 마나다.
+#
+# 세 가지를 본다.
+#   check  타입(클라이언트·Worker·테스트) + 문구가 copy.ts 밖에 하드코딩됐는지
+#   test   규칙 테스트(workerd 안에서 진짜 DO 로) + 화면 테스트
+#   build  배포될 물건이 실제로 만들어지는지
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # 시크릿은 필요 없다. 테스트용 값은 vitest.config.ts 가 직접 넣는다
+      - run: npm run check
+      - run: npm test
+      - run: npm run build

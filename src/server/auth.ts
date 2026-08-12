@@ -93,7 +93,19 @@ function hex(buf: Uint8Array): string {
 /** 운영자 세션과 참가자 세션은 쿠키가 다르다. 한 브라우저에서 둘 다 가능해야 한다 */
 export const HOST_COOKIE = "tp_host";
 export const PLAYER_COOKIE = "tp_play";
-const SESSION_TTL = 12 * 3600_000;
+
+/**
+ * 참가자 세션은 길게, 운영자 세션은 짧게.
+ *
+ * 참가자는 전날 등록하고 파티 당일에 다시 열어본다 — 12시간이면 그 사이에 끊긴다.
+ * 끊겨도 전화번호로 재접속은 되지만, 파티장에서 폼을 다시 채우게 만들 이유가 없다.
+ * 운영자 세션은 전체 권한이라 반대로 짧게 둔다.
+ */
+const TTL = { player: 7 * 24 * 3600_000, host: 12 * 3600_000 } as const;
+
+export function sessionTtl(scope: AuthScope): number {
+  return scope.kind === "player" ? TTL.player : TTL.host;
+}
 
 interface SessionPayload {
   scope: AuthScope;
@@ -101,7 +113,7 @@ interface SessionPayload {
 }
 
 export async function signSession(scope: AuthScope, secret: string, now: number): Promise<string> {
-  const payload = b64url(JSON.stringify({ scope, exp: now + SESSION_TTL } satisfies SessionPayload));
+  const payload = b64url(JSON.stringify({ scope, exp: now + sessionTtl(scope) } satisfies SessionPayload));
   return `${payload}.${await sign(payload, secret)}`;
 }
 
@@ -143,8 +155,8 @@ function unb64url(s: string): string {
   return atob(s.replace(/-/g, "+").replace(/_/g, "/"));
 }
 
-export function setCookie(name: string, value: string, secure: boolean): string {
-  const bits = [`${name}=${value}`, "Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${SESSION_TTL / 1000}`];
+export function setCookie(name: string, value: string, secure: boolean, ttlMs: number): string {
+  const bits = [`${name}=${value}`, "Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${Math.floor(ttlMs / 1000)}`];
   if (secure) bits.push("Secure");
   return bits.join("; ");
 }

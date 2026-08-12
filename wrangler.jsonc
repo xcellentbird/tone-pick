@@ -7,6 +7,10 @@
   // 배포 주소: https://tone-pick.<계정>.workers.dev  (커스텀 도메인 불필요)
   "workers_dev": true,
 
+  // 버전마다 생기는 미리보기 주소는 끈다. 같은 DO 를 물고 있어서, 옛 버전 주소로 들어오면
+  // 옛 코드가 지금 데이터를 만진다 — 회차 하나를 여러 주소로 여는 이유가 없다.
+  "preview_urls": false,
+
   // Vite 빌드 결과를 정적 자산으로. SPA 라우팅을 위해 404 는 index.html 로.
   // /api 와 /ws 는 정적 자산 매칭보다 Worker 가 먼저 봐야 한다 — 안 그러면 index.html 이 돌아온다.
   "assets": {
