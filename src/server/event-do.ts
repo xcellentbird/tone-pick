@@ -26,6 +26,7 @@ import type {
   PublicEvent,
   PublicPlayer,
   RegisterInput,
+  RegisterResult,
   Seat,
   SeatingRound,
   ServerEvent,
@@ -281,10 +282,24 @@ export class EventDO extends DurableObject {
     return ok(player);
   }
 
-  /** 전화번호로 기존 참가자를 찾는다. 재접속 판정용이라 운영자 응답에도 쓰지 않는다 */
-  async findByPhone(phone: string): Promise<Player | null> {
-    const row = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone.replace(/[^0-9]/g, ""))[0];
-    return row ? toPlayer(row) : null;
+  /**
+   * 등록하고 화면 한 벌까지 한 번에 돌려준다.
+   *
+   * 예전에는 Worker 가 findByPhone → register → participantState 로 **세 번** 들어왔다.
+   * 회차 DO 는 요청을 순차 처리하므로, 등록이 몰리는 순간 그 세 배가 그대로 줄이 된다.
+   */
+  async registerAndLoad(input: RegisterInput, now: number): Promise<Result<RegisterResult>> {
+    const before = this.rows<{ id: string }>(
+      "SELECT id FROM players WHERE phone = ?",
+      String(input.phone ?? "").replace(/[^0-9]/g, ""),
+    )[0];
+
+    const made = await this.register(input, now);
+    if (!made.ok) return made as Result<RegisterResult>;
+
+    const state = await this.participantState(made.value.id, now);
+    if (!state.ok) return state as Result<RegisterResult>;
+    return ok({ state: state.value, resumed: !!before });
   }
 
   async deletePlayer(playerId: string): Promise<Result<true>> {
@@ -661,10 +676,18 @@ export class EventDO extends DurableObject {
     const round = roundOf(meta.phase);
     const sentTo: Record<string, number> = {};
     const sentThisRound: Record<string, number> = {};
-    for (const k of this.pokes()) {
-      if (k.fromId !== playerId) continue;
-      sentTo[k.toId] = (sentTo[k.toId] ?? 0) + 1;
-      if (k.round === round) sentThisRound[k.toId] = (sentThisRound[k.toId] ?? 0) + 1;
+    const used: Record<PokeRound, number> = { pre: 0, party: 0 };
+
+    // 색인(pokes_from)으로 **내 것만** 센다. 예전엔 요청마다 콕 전체를 읽어서
+    // 파티가 무르익을수록 콕 한 번이 느려졌다 — 100명 리허설에서 드러났다
+    const mine = this.rows<{ to_id: string; round: PokeRound; n: number }>(
+      "SELECT to_id, round, COUNT(*) AS n FROM pokes WHERE from_id = ? GROUP BY to_id, round",
+      playerId,
+    );
+    for (const r of mine) {
+      sentTo[r.to_id] = (sentTo[r.to_id] ?? 0) + r.n;
+      used[r.round] += r.n;
+      if (r.round === round) sentThisRound[r.to_id] = (sentThisRound[r.to_id] ?? 0) + r.n;
     }
 
     const matches: MatchInfo[] = [];
@@ -687,8 +710,8 @@ export class EventDO extends DurableObject {
 
     return {
       budget: {
-        pre: { max: meta.config.maxPre, used: this.sentCount(playerId, "pre") },
-        party: { max: meta.config.maxParty, used: this.sentCount(playerId, "party") },
+        pre: { max: meta.config.maxPre, used: used.pre },
+        party: { max: meta.config.maxParty, used: used.party },
       },
       sentTo,
       sentThisRound,
@@ -736,7 +759,11 @@ export class EventDO extends DurableObject {
     const mine = last.seats.find((s) => s.playerId === playerId);
     if (!mine) return undefined;
     const mates = last.seats.filter((s) => s.table === mine.table);
-    const men = mates.filter((s) => this.player(s.playerId)?.gender === "M").length;
+    // 한 명씩 조회하면 테이블 인원만큼 질의가 나간다. 성별만 한 번에 읽는다
+    const genders = new Map(
+      this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
+    );
+    const men = mates.filter((s) => genders.get(s.playerId) === "M").length;
     return {
       round: last.round,
       table: mine.table,

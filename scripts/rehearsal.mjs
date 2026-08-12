@@ -15,6 +15,9 @@ const BASE = process.argv[2]?.replace(/\/$/, "");
 const PIN = process.env.MASTER_PIN;
 const PEOPLE = Number(process.env.PEOPLE ?? 100);
 const TABLES = Number(process.env.TABLES ?? 12);
+/** 소켓을 붙이지 않고 돌려보면, 느린 게 요청 자체인지 브로드캐스트인지 갈린다 */
+const SOCKETS = Number(process.env.SOCKETS ?? PEOPLE);
+const WIDTH = Number(process.env.WIDTH ?? 25);
 const KEEP = process.argv.includes("--keep");
 
 if (!BASE || !PIN) {
@@ -116,7 +119,7 @@ console.log("① 등록");
 const players = [];
 const regTimes = [];
 let regFailed = 0;
-await pool([...Array(PEOPLE).keys()], 25, async (i) => {
+await pool([...Array(PEOPLE).keys()], WIDTH, async (i) => {
   const c = client();
   const res = await c(`/events/${code}/register`, {
     method: "POST",
@@ -143,7 +146,7 @@ let opened = 0;
 let received = 0;
 let firstAt = 0;
 await Promise.all(
-  Array.from({ length: PEOPLE }, () =>
+  Array.from({ length: SOCKETS }, () =>
     new Promise((done) => {
       const ws = new WebSocket(`${BASE.replace(/^http/, "ws")}/ws/${code}`);
       const timer = setTimeout(done, 15_000);
@@ -166,7 +169,7 @@ await Promise.all(
     }),
   ),
 );
-console.log(`  연결 ${opened}/${PEOPLE}`);
+console.log(`  연결 ${opened}/${SOCKETS}`);
 
 // ④ 콕 — 사람마다 3회씩
 console.log("\n③ 콕");
@@ -175,7 +178,7 @@ const men = players.filter((p) => p.gender === "M");
 const women = players.filter((p) => p.gender === "F");
 const pokeTimes = [];
 let pokeFailed = 0;
-await pool(players, 25, async (me) => {
+await pool(players, WIDTH, async (me) => {
   const targets = me.gender === "M" ? women : men;
   for (let k = 0; k < 3; k++) {
     const target = targets[(players.indexOf(me) + k * 7) % targets.length];
