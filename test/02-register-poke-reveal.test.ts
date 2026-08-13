@@ -278,7 +278,7 @@ describe("콕", () => {
     expect(inParty.status).toBe(200);
   });
 
-  it("이성에게만 찌를 수 있다", async () => {
+  it("기본은 이성에게만 찌를 수 있다", async () => {
     const ev = await freshEvent();
     const me = await join(ev.code);
     const him = await join(ev.code);
@@ -291,6 +291,38 @@ describe("콕", () => {
     });
     expect(res.status).toBe(409);
     expect(res.body.message).toBe(POKE.blocked.sameGender);
+  });
+
+  it("★ 운영자가 열어두면 동성에게도 찌를 수 있다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev.code);
+    const him = await join(ev.code);
+
+    const opened = await api(`/api/host/events/${ev.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { config: { maxPre: 2, maxParty: 3, allowSameGender: true } },
+    });
+    expect(opened.status).toBe(200);
+    await setPhase(ev.id, "prevote");
+
+    const res = await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: him.id } });
+    expect(res.status).toBe(200);
+  });
+
+  it("★ 열어둬도 자기 자신은 찌를 수 없다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev.code);
+    await join(ev.code, { gender: "F" });
+    await api(`/api/host/events/${ev.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { config: { maxPre: 2, maxParty: 3, allowSameGender: true } },
+    });
+    await setPhase(ev.id, "prevote");
+
+    const res = await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: me.id } });
+    expect(res.status).toBe(409);
   });
 
   it("등록 중에는 아직, 발표 후에는 더 이상 찌를 수 없다", async () => {

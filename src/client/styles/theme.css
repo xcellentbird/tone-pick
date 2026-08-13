@@ -288,6 +288,13 @@ button {
 
 .status .big { font-size: 22px; font-weight: 800; }
 
+/* 초가 바뀔 때마다 숫자 폭이 달라지면 줄이 들썩인다 */
+.status .countdown {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: 0.02em;
+}
+
 .banner {
   display: flex;
   gap: 10px;

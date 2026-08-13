@@ -33,13 +33,20 @@ export function formatClock(ts?: number): string {
   return ts ? timeOnly.format(new Date(ts)) : "";
 }
 
-/** 남은 시간. 1시간 이상은 시·분, 그 아래는 분·초 */
-export function formatRemaining(ms: number): string {
+/**
+ * 남은 시간을 `01:10:45` 로. 초가 움직여야 마감이 다가오는 게 눈에 보인다.
+ *
+ * "13시간 42분"은 1분에 한 번 바뀌어서 멈춘 화면처럼 보인다. 파티 중에 참가자가
+ * 가장 자주 보는 숫자라 움직이는 편이 낫다.
+ *
+ * 시간은 24를 넘어도 그대로 쓴다 (37:12:04). 날짜로 접으면 "며칠 남았지" 를
+ * 다시 계산하게 만든다.
+ */
+export function formatCountdown(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return h > 0 ? DURATION.hourMin(h, m) : DURATION.minSec(m, s);
+  return [Math.floor(total / 3600), Math.floor((total % 3600) / 60), total % 60]
+    .map((n) => String(n).padStart(2, "0"))
+    .join(":");
 }
 
 /** 예약과 수동 진행의 차이. 분 단위로 보여준다 (UI.md) */

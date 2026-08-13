@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import type {
   CreateEventInput,
   Defaults,
+  EventConfig,
   EventPatch,
   EventSchedule,
   EventSummary,
@@ -155,7 +156,12 @@ hostRoutes.post("/events", async (c) => {
     phase: openNow ? "reg" : "prep",
     fired: openNow ? { reg: now } : {},
     schedule: { regOpenAt, voteCloseAt },
-    config: { maxPre: body.config.maxPre, maxParty: body.config.maxParty },
+    // 켰을 때만 적는다. 끈 상태를 굳이 써 넣으면 설정의 모양이 회차마다 달라진다
+    config: {
+      maxPre: body.config.maxPre,
+      maxParty: body.config.maxParty,
+      ...(body.config.allowSameGender ? { allowSameGender: true as const } : {}),
+    },
     createdAt: now,
   });
   return c.json(meta);
@@ -338,7 +344,7 @@ async function json<T>(c: Ctx): Promise<T> {
   return (await c.req.json().catch(() => ({}))) as T;
 }
 
-function validConfig(config: { maxPre: number; maxParty: number } | undefined): boolean {
+function validConfig(config: EventConfig | undefined): boolean {
   if (!config) return false;
   const { maxPre, maxParty } = config;
   return (

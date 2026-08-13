@@ -4,7 +4,7 @@
  */
 import { STATUS, UNIT } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
-import { formatRemaining } from "../../shared/time.ts";
+import { formatCountdown } from "../../shared/time.ts";
 import { now } from "../lib/serverTime.ts";
 import { useTicker } from "../lib/useLoad.ts";
 
@@ -14,10 +14,12 @@ export default function StatusCell({ state }: { state: ParticipantState }) {
   useTicker(counting);
 
   const [label, value] = pick();
+  const ticking = counting && /^\d/.test(value);
   return (
     <div className="status">
       <span className="dim small">{label}</span>
-      <span className="big">{value}</span>
+      {/* 초가 바뀔 때마다 글자 폭이 흔들리지 않게 고정폭 숫자로 */}
+      <span className={`big ${ticking ? "countdown" : ""}`}>{value}</span>
     </div>
   );
 
@@ -36,6 +38,6 @@ export default function StatusCell({ state }: { state: ParticipantState }) {
   function left(at?: number): string | null {
     if (!at) return null;
     const ms = at - now();
-    return ms > 0 ? formatRemaining(ms) : null;
+    return ms > 0 ? formatCountdown(ms) : null;
   }
 }

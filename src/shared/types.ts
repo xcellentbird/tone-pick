@@ -99,6 +99,11 @@ export interface FiredMap {
 export interface EventConfig {
   maxPre: number;    // 1~5
   maxParty: number;  // 1~10
+  /**
+   * 동성에게도 찌를 수 있게 할지. 없으면 이성만 — 기존 회차가 그대로 돈다.
+   * 회차마다 정한다. 파티 성격이 회차마다 다르기 때문이다.
+   */
+  allowSameGender?: boolean;
 }
 
 export interface EventMeta {

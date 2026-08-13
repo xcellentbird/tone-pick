@@ -24,7 +24,9 @@ interface Props {
 }
 
 export default function People({ state, source, reload, profileId, onProfile }: Props) {
-  const [onlyOpposite, setOnlyOpposite] = useState(true);
+  // 동성에게도 찌를 수 있는 회차라면 처음부터 전체를 보여준다 — 반쪽만 보이면 설정이 무색해진다
+  const sameGenderOk = !!state.event.config.allowSameGender;
+  const [onlyOpposite, setOnlyOpposite] = useState(!sameGenderOk);
   const { confirm, toast } = useOverlay();
 
   const round = state.event.phase === "prevote" ? "pre" : "party";
@@ -36,7 +38,7 @@ export default function People({ state, source, reload, profileId, onProfile }: 
   async function send(target: PublicPlayer) {
     const already = state.poke.sentTo[target.id] ?? 0;
     if (!open) return toast(POKE.blocked.closed);
-    if (target.gender === state.me.gender) return toast(POKE.blocked.sameGender);
+    if (!sameGenderOk && target.gender === state.me.gender) return toast(POKE.blocked.sameGender);
     if (budget.used >= budget.max) return toast(POKE.blocked.noBudget(budget.max));
 
     // 확인창은 무엇이 어떻게 바뀌는지 숫자로 보여준다
