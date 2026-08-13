@@ -275,21 +275,29 @@ button {
 
 /* ─────────────────────────── 상태 셀 · 배너 */
 
-.status {
+/* 화면 맨 위 한 줄 — 단계 · 남은 콕 · 카운트다운. 스크롤해도 남는다 */
+.screen > header.bar { padding: 10px var(--pad); }
+
+.statusbar {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: var(--gap);
-  background: linear-gradient(135deg, var(--card-2), var(--card));
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 14px var(--pad);
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
 }
 
-.status .big { font-size: 22px; font-weight: 800; }
+.statusbar .phase { font-weight: 800; font-size: 16px; }
+
+/* 단계를 색으로도 기억하게 한다 — 글자를 읽기 전에 어디쯤인지 안다 */
+.statusbar.phase-reg .phase { color: var(--dim); }
+.statusbar.phase-prevote .phase { color: var(--pink); }
+.statusbar.phase-party .phase { color: var(--gold); }
+.statusbar.phase-done .phase { color: var(--ok); }
 
 /* 초가 바뀔 때마다 숫자 폭이 달라지면 줄이 들썩인다 */
-.status .countdown {
+.statusbar .countdown {
+  font-size: 20px;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
   letter-spacing: 0.02em;

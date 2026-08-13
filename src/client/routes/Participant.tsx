@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { BTN, ENTRY, PHASE_LABEL, TABS_PARTICIPANT } from "../../shared/copy.ts";
+import { BTN, ENTRY, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
@@ -20,7 +20,7 @@ import People from "./People.tsx";
 import Alerts from "./Alerts.tsx";
 import Me from "./Me.tsx";
 import SeatTakeover from "../ui/SeatTakeover.tsx";
-import StatusCell from "../ui/StatusCell.tsx";
+import StatusBar from "../ui/StatusBar.tsx";
 
 export type Tab = "people" | "alerts" | "me";
 
@@ -116,15 +116,12 @@ function Loaded({
     <Overlays history={!!source.liveCode}>
       {welcome && <Greeting text={welcome} />}
       <div className="screen">
-        <header>
-          <div className="grow">
-            <h1 className="ellipsis">{state.event.name}</h1>
-            <div className="sub">{PHASE_LABEL[state.event.phase]}</div>
-          </div>
+        {/* 스크롤해도 남는 자리다. 여기엔 반복해서 볼 것만 둔다 */}
+        <header className="bar">
+          <StatusBar state={state} />
         </header>
 
         <div className="body stack">
-          <StatusCell state={state} />
           {banner && (
             // 최근 3분 안의 변화만 배너로. 그보다 오래된 건 알림 탭에만 남는다
             <button className={`banner ${banner.warn ? "warn" : ""}`} onClick={() => onTab("alerts")}>
