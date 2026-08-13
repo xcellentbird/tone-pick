@@ -48,6 +48,24 @@ export function formatGap(ms: number): string {
   return min >= 60 ? DURATION.hourMin(Math.floor(min / 60), min % 60) : DURATION.minOnly(min);
 }
 
+/**
+ * 일정은 30분 단위로만 고른다.
+ *
+ * 파티 일정은 "21:00 / 21:30" 으로 잡히지 21:07 로 잡히지 않는다. 분 단위로 열어두면
+ * 고를 것만 많아지고, 안내 문구에도 어중간한 시각이 그대로 나간다.
+ *
+ * 실제 전환 시각(`fired`)은 그대로 초 단위다 — 그건 사람이 고른 값이 아니라 일어난 일이라서.
+ *
+ * epoch 를 그대로 반올림해도 우리 시간대(+09:00)에서는 :00/:30 에 맞는다.
+ * 30분이 아닌 오프셋을 쓰는 지역(예: +05:45)까지 노린다면 이 계산을 시간대 기준으로 바꿔야 한다.
+ */
+export const SCHEDULE_STEP_MIN = 30;
+const STEP = SCHEDULE_STEP_MIN * 60_000;
+
+export function snapSchedule(ts: number, dir: "near" | "up" = "near"): number {
+  return (dir === "up" ? Math.ceil(ts / STEP) : Math.round(ts / STEP)) * STEP;
+}
+
 /** `<input type="datetime-local">` 이 읽는 형식. 브라우저 시간대 기준 */
 export function toLocalInput(ts?: number): string {
   if (!ts) return "";

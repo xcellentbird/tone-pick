@@ -14,7 +14,7 @@ import { useNavigate, useParams } from "react-router";
 import { BTN, HOST_UI, SCREEN_TITLE, pokeEstimateLabel } from "../../../shared/copy.ts";
 import type { CreateEventInput, Defaults, EventMeta } from "../../../shared/types.ts";
 import { LIMITS, pokeEstimate } from "../../../shared/constants.ts";
-import { fromLocalInput, toLocalInput } from "../../../shared/time.ts";
+import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, api, post } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
@@ -36,9 +36,10 @@ export default function HostWizard() {
   const [pin, setPin] = useState("");
   const [code, setCode] = useState("");
   const [openNow, setOpenNow] = useState(false);
-  const [regOpenAt, setRegOpenAt] = useState<number>(Date.now() + HOUR);
-  const [keptRegOpenAt, setKept] = useState<number>(Date.now() + HOUR);
-  const [voteCloseAt, setVoteCloseAt] = useState<number>(Date.now() + 25 * HOUR);
+  // 기본 설정이 도착하기 전에도 30분에 맞은 값을 보여준다 — 잠깐이라도 21:07 이 보이면 안 된다
+  const [regOpenAt, setRegOpenAt] = useState<number>(() => snapSchedule(Date.now() + HOUR, "up"));
+  const [keptRegOpenAt, setKept] = useState<number>(() => snapSchedule(Date.now() + HOUR, "up"));
+  const [voteCloseAt, setVoteCloseAt] = useState<number>(() => snapSchedule(Date.now() + 25 * HOUR, "up"));
   const [maxPre, setMaxPre] = useState(3);
   const [maxParty, setMaxParty] = useState(3);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +50,8 @@ export default function HostWizard() {
     if (!d) return;
     setMaxPre(d.maxPre);
     setMaxParty(d.maxParty);
-    const open = Date.now() + d.regOpenAfterH * HOUR;
+    // 기본값은 올림한다 — 반올림하면 "1시간 뒤"가 55분 뒤가 되는 수가 있다
+    const open = snapSchedule(Date.now() + d.regOpenAfterH * HOUR, "up");
     setRegOpenAt(open);
     setKept(open);
     setVoteCloseAt(open + d.voteWindowH * HOUR);
@@ -62,7 +64,7 @@ export default function HostWizard() {
       setKept(regOpenAt);
       setRegOpenAt(Date.now());
     } else {
-      const restored = keptRegOpenAt > Date.now() ? keptRegOpenAt : Date.now() + HOUR;
+      const restored = keptRegOpenAt > Date.now() ? keptRegOpenAt : snapSchedule(Date.now() + HOUR, "up");
       setRegOpenAt(restored);
       if (voteCloseAt <= restored) {
         setVoteCloseAt(restored + (defaults.data?.voteWindowH ?? 24) * HOUR);
@@ -72,8 +74,10 @@ export default function HostWizard() {
   }
 
   function changeRegOpen(value: string) {
-    const ts = fromLocalInput(value);
-    if (!ts) return;
+    const raw = fromLocalInput(value);
+    if (!raw) return;
+    // 직접 타이핑하면 브라우저가 step 을 강제하지 않는다. 받은 값을 여기서 맞춘다
+    const ts = snapSchedule(raw);
     setRegOpenAt(ts);
     setKept(ts);
     if (voteCloseAt <= ts) setVoteCloseAt(ts + (defaults.data?.voteWindowH ?? 24) * HOUR);
@@ -161,6 +165,7 @@ export default function HostWizard() {
               {!openNow && (
                 <input
                   type="datetime-local"
+                  step={SCHEDULE_STEP_MIN * 60}
                   value={toLocalInput(regOpenAt)}
                   onChange={(e) => changeRegOpen(e.target.value)}
                 />
@@ -171,8 +176,12 @@ export default function HostWizard() {
               <input
                 id="close"
                 type="datetime-local"
+                step={SCHEDULE_STEP_MIN * 60}
                 value={toLocalInput(voteCloseAt)}
-                onChange={(e) => setVoteCloseAt(fromLocalInput(e.target.value) ?? voteCloseAt)}
+                onChange={(e) => {
+                  const ts = fromLocalInput(e.target.value);
+                  setVoteCloseAt(ts ? snapSchedule(ts) : voteCloseAt);
+                }}
               />
             </div>
           </>
