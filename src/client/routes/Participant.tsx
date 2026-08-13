@@ -62,8 +62,16 @@ export default function Participant() {
       code={code}
       welcome={(location.state as { welcome?: string } | null)?.welcome}
       tab={tab}
-      // 탭 이동은 push — 뒤로 가기가 직전 탭이 된다
-      onTab={(next) => navigate(next === "people" ? base : `${base}/${next}`)}
+      onTab={(next) => {
+        /**
+         * 참가자 탭이 스택의 **바닥**이다. 어느 탭에 있든 뒤로 가기 한 번이면 여기로 온다.
+         *
+         * 예전에는 탭 이동이 전부 push 라, 탭을 오갈수록 히스토리가 쌓이고 뒤로 가기가
+         * "내 발자국 되감기"가 됐다. 사람은 뒤로 가기를 "목록으로 돌아가기"로 기대한다.
+         */
+        const to = next === "people" ? base : `${base}/${next}`;
+        navigate(to, { replace: tab !== "people" });
+      }}
       profileId={profileId}
       // 시트 열기는 push, 닫기는 뒤로 가기 — 안드로이드 백 버튼으로 닫혀야 한다
       onProfile={(id) => (id ? navigate(`${base}/p/${id}`) : navigate(-1))}

@@ -142,7 +142,6 @@ export const PEOPLE = {
   /** 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 둘 중 하나를 고르게 한다 */
   onlyOpposite: "이성만",
   everyone: "전체",
-  leftLabel: (n: number) => `남은 콕 ${n}회`,
   empty: "아직 참가자가 없어요",
   /** 프로필 시트에서는 매력 전문을 보여준다 */
   charmTitle: "이 사람의 매력",
