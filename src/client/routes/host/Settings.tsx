@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { BTN, DELETE_EVENT, HOST_UI } from "../../../shared/copy.ts";
 import type { EventMeta, EventSchedule } from "../../../shared/types.ts";
-import { LIMITS } from "../../../shared/constants.ts";
+import { LIMITS, RETENTION_DAYS } from "../../../shared/constants.ts";
 import { schedLocked } from "../../../shared/phase.ts";
 import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, del, put } from "../../lib/api.ts";
@@ -145,6 +145,8 @@ export default function Settings() {
       <button className="btn primary block" onClick={save}>
         {BTN.save}
       </button>
+
+      <p className="tiny dim">{HOST_UI.retention(RETENTION_DAYS)}</p>
 
       <div className="kicker">{HOST_UI.settings.danger}</div>
       <button className="btn danger block" onClick={askDelete}>
