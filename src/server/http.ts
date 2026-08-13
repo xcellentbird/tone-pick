@@ -76,7 +76,6 @@ const STATUS: Record<ErrorCode, number> = {
   unauthorized: 401,
   forbidden: 403,
   not_found: 404,
-  no_poke: 404,
   pin_collision: 409,
   code_taken: 409,
   nick_taken: 409,

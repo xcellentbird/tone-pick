@@ -12,7 +12,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
-import { ENTRY, ENV_BANNER, POKE, SCREEN_TITLE, SEAT } from "../../src/shared/copy.ts";
+import { ENTRY, ENV_BANNER, PEOPLE, POKE, SCREEN_TITLE, SEAT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
@@ -28,7 +28,6 @@ afterEach(cleanup);
 const POKE_STATE: MyPokeState = {
   budget: { pre: { max: 3, used: 1 }, party: { max: 3, used: 0 } },
   sentTo: { her: 1 },
-  sentThisRound: { her: 1 },
   receivedCount: 0,
   matches: [],
 };
@@ -63,19 +62,15 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
 }
 
 function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & {
-  calls: { poke: string[]; unpoke: string[]; ack: number[] };
+  calls: { poke: string[]; ack: number[] };
 } {
-  const calls = { poke: [] as string[], unpoke: [] as string[], ack: [] as number[] };
+  const calls = { poke: [] as string[], ack: [] as number[] };
   return {
     key: "test",
     calls,
     load: async () => participantState(),
     poke: async (toId) => {
       calls.poke.push(toId);
-      return POKE_STATE;
-    },
-    unpoke: async (toId) => {
-      calls.unpoke.push(toId);
       return POKE_STATE;
     },
     ackSeat: async (round) => {
@@ -147,14 +142,25 @@ describe("참가자 화면 · 콕", () => {
     await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
   });
 
-  it("★ 되돌리기(−)에는 확인창이 없다 — 다시 찌르면 복구되니까", async () => {
-    const source = fakeSource();
-    renderParticipant(source);
+  it("되돌리기는 지금 화면에 없다 — 확인창도 되돌릴 수 없다고 말한다", async () => {
+    renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
+    expect(screen.queryByText("−")).toBeNull();
+    expect(POKE.confirm.note).not.toContain("되돌릴 수 있");
+  });
 
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.rowTarget)[0]);
-    await waitFor(() => expect(source.calls.unpoke).toEqual(["her"]));
-    expect(screen.queryByText(POKE.confirm.title(1))).toBeNull();
+  it("★ '이성만 / 전체' 는 지금 어느 쪽인지 보인다", async () => {
+    renderParticipant(fakeSource());
+    const onlyOpposite = await screen.findByText(PEOPLE.onlyOpposite);
+    const everyone = screen.getByText(PEOPLE.everyone);
+
+    // 한 버튼을 껐다 켜는 방식이면 눌린 상태를 화면에서 알 수 없다. 둘 중 하나가 항상 켜져 있어야 한다
+    expect(onlyOpposite.getAttribute("aria-pressed")).toBe("true");
+    expect(everyone.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(everyone);
+    expect(onlyOpposite.getAttribute("aria-pressed")).toBe("false");
+    expect(everyone.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("등록 중에는 콕 버튼이 잠겨 있다", async () => {

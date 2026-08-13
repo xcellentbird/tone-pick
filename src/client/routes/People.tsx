@@ -4,8 +4,8 @@
  * 카드 높이는 고정이다 — 매력이 문장으로 들어와도 카드가 흔들리면 목록이 읽히지 않는다.
  * 전문은 프로필 시트에서 본다.
  *
- * `+` 는 확인을 거치고, `−`(되돌리기)는 즉시 실행한다. 되돌릴 수 있는 행동에
- * 확인을 붙이면 마찰만 늘어난다 (ADR-6).
+ * 콕은 확인을 거친다 — 예산이 줄고 상대에게 알림이 간다 (ADR-6).
+ * 되돌리기는 지금 화면에 두지 않는다. 그래서 확인창이 "되돌릴 수 없다"고 분명히 말한다.
  */
 import { useState } from "react";
 import { BTN, PEOPLE, POKE, UNIT } from "../../shared/copy.ts";
@@ -63,27 +63,25 @@ export default function People({ state, source, reload, profileId, onProfile }: 
     );
   }
 
-  async function undo(target: PublicPlayer) {
-    try {
-      const next = await source.unpoke(target.id);
-      toast(POKE.removed(next.budget[round].max - next.budget[round].used));
-      reload();
-    } catch (e) {
-      toast(e instanceof ApiError && e.userMessage ? e.userMessage : POKE.blocked.closed);
-    }
-  }
-
   return (
     <>
       <div className="row between">
-        <button
-          className="btn ghost"
-          aria-pressed={onlyOpposite}
-          onClick={() => setOnlyOpposite((v) => !v)}
-        >
-          {PEOPLE.onlyOpposite}
-        </button>
-        {open && <span className="small dim">{ME_LEFT(budget.max - budget.used)}</span>}
+        <div className="choice grow">
+          {[
+            { on: true, label: PEOPLE.onlyOpposite },
+            { on: false, label: PEOPLE.everyone },
+          ].map((opt) => (
+            <button
+              key={opt.label}
+              type="button"
+              aria-pressed={onlyOpposite === opt.on}
+              onClick={() => setOnlyOpposite(opt.on)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {open && <span className="small dim">{PEOPLE.leftLabel(budget.max - budget.used)}</span>}
       </div>
 
       {list.length === 0 && <p className="dim center">{PEOPLE.empty}</p>}
@@ -100,13 +98,7 @@ export default function People({ state, source, reload, profileId, onProfile }: 
                 <span className="charm ellipsis">{p.charms[0]}</span>
               </span>
             </button>
-            <PokeControls
-              count={state.poke.sentTo[p.id] ?? 0}
-              undoable={(state.poke.sentThisRound[p.id] ?? 0) > 0}
-              disabled={!open}
-              onSend={() => send(p)}
-              onUndo={() => undo(p)}
-            />
+            <PokeControls count={state.poke.sentTo[p.id] ?? 0} disabled={!open} onSend={() => send(p)} />
           </div>
         ))}
       </div>
@@ -124,10 +116,8 @@ export default function People({ state, source, reload, profileId, onProfile }: 
               </div>
               <PokeControls
                 count={state.poke.sentTo[profile.id] ?? 0}
-                undoable={(state.poke.sentThisRound[profile.id] ?? 0) > 0}
                 disabled={!open}
                 onSend={() => send(profile)}
-                onUndo={() => undo(profile)}
               />
             </div>
 
@@ -153,35 +143,19 @@ export default function People({ state, source, reload, profileId, onProfile }: 
   );
 }
 
-/**
- * `−` 는 **이번 라운드에 보낸 콕이 있을 때만** 뜬다.
- * 사전 투표에서 보낸 건 파티 라운드에서 되돌릴 수 없다 — 예산이 라운드별로 분리돼 있어서다.
- */
+/** 보낸 횟수와 찌르기 버튼. 되돌리기는 지금 화면에 없다 */
 function PokeControls({
   count,
-  undoable,
   disabled,
   onSend,
-  onUndo,
 }: {
   count: number;
-  undoable: boolean;
   disabled: boolean;
   onSend: () => void;
-  onUndo: () => void;
 }) {
   return (
     <div className="row" style={{ gap: 6 }}>
-      {count > 0 && (
-        <>
-          {undoable && !disabled && (
-            <button className="pokeBtn" onClick={onUndo} aria-label={POKE.confirm.rowTarget}>
-              −
-            </button>
-          )}
-          <span className="pokeCount">{POKE.confirm.count(count)}</span>
-        </>
-      )}
+      {count > 0 && <span className="pokeCount">{POKE.confirm.count(count)}</span>}
       <button
         className={`pokeBtn ${count > 0 ? "on" : ""}`}
         disabled={disabled}
@@ -193,5 +167,3 @@ function PokeControls({
     </div>
   );
 }
-
-const ME_LEFT = (left: number) => POKE.confirm.count(left);

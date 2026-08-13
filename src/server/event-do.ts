@@ -86,8 +86,7 @@ type Fail =
   | "nick_taken"
   | "closed"
   | "same_gender"
-  | "no_budget"
-  | "no_poke";
+  | "no_budget";
 
 /** `detail` 은 문구에 들어갈 숫자다 (예: 남은 콕 최대 횟수). 문장은 Worker 가 고른다 */
 export type Result<T> =
@@ -361,25 +360,6 @@ export class EventDO extends DurableObject {
       now,
     );
     // 익명이다. 누가 찔렀는지는 이 메시지에도, 어디에도 싣지 않는다
-    this.toPlayer(toId, { type: "poke", receivedCount: this.receivedCount(toId) });
-    return ok(await this.pokeState(fromId, meta));
-  }
-
-  /** 되돌리기. 같은 라운드에서 가장 최근에 보낸 것부터 지운다 */
-  async unpoke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
-    const meta = await this.touch(now);
-    if (!meta) return fail("not_found");
-    if (!canPoke(meta.phase)) return fail("closed");
-
-    const round = roundOf(meta.phase);
-    const last = this.rows<{ id: string }>(
-      "SELECT id FROM pokes WHERE from_id = ? AND to_id = ? AND round = ? ORDER BY at DESC LIMIT 1",
-      fromId,
-      toId,
-      round,
-    )[0];
-    if (!last) return fail("no_poke");
-    this.ctx.storage.sql.exec("DELETE FROM pokes WHERE id = ?", last.id);
     this.toPlayer(toId, { type: "poke", receivedCount: this.receivedCount(toId) });
     return ok(await this.pokeState(fromId, meta));
   }
@@ -687,9 +667,7 @@ export class EventDO extends DurableObject {
    * 받은 콕은 **횟수만** 넣는다. 발신자(fromId)는 발표 후에도 상호 매칭이 아니면 넣지 않는다 (ADR-1).
    */
   private async pokeState(playerId: string, meta: EventMeta): Promise<MyPokeState> {
-    const round = roundOf(meta.phase);
     const sentTo: Record<string, number> = {};
-    const sentThisRound: Record<string, number> = {};
     const used: Record<PokeRound, number> = { pre: 0, party: 0 };
 
     // 색인(pokes_from)으로 **내 것만** 센다. 예전엔 요청마다 콕 전체를 읽어서
@@ -701,7 +679,6 @@ export class EventDO extends DurableObject {
     for (const r of mine) {
       sentTo[r.to_id] = (sentTo[r.to_id] ?? 0) + r.n;
       used[r.round] += r.n;
-      if (r.round === round) sentThisRound[r.to_id] = (sentThisRound[r.to_id] ?? 0) + r.n;
     }
 
     const matches: MatchInfo[] = [];
@@ -728,7 +705,6 @@ export class EventDO extends DurableObject {
         party: { max: meta.config.maxParty, used: used.party },
       },
       sentTo,
-      sentThisRound,
       receivedCount: this.receivedCount(playerId),
       matches,
     };
