@@ -8,7 +8,7 @@
  * 되돌리기는 지금 화면에 두지 않는다. 그래서 확인창이 "되돌릴 수 없다"고 분명히 말한다.
  */
 import { useState } from "react";
-import { BTN, PEOPLE, POKE, UNIT } from "../../shared/copy.ts";
+import { BTN, PEOPLE, POKE, STATUS, UNIT } from "../../shared/copy.ts";
 import type { ParticipantState, PublicPlayer } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
 import { ApiError } from "../lib/api.ts";
@@ -83,7 +83,7 @@ export default function People({ state, source, reload, profileId, onProfile }: 
             </button>
           ))}
         </div>
-        {open && <span className="small dim">{PEOPLE.leftLabel(budget.max - budget.used)}</span>}
+        {open && <span className="small dim">{STATUS.pokeLeft(budget.max - budget.used)}</span>}
       </div>
 
       {list.length === 0 && <p className="dim center">{PEOPLE.empty}</p>}

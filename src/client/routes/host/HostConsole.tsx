@@ -3,7 +3,7 @@
  * 탭마다 따로 읽으면 같은 화면 안에서 숫자가 서로 다르게 보인다.
  */
 import { useEffect } from "react";
-import { NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router";
+import { NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams } from "react-router";
 import { HOST_UI, PHASE_LABEL, TABS_HOST } from "../../../shared/copy.ts";
 import type { HostState } from "../../../shared/types.ts";
 import { api, post } from "../../lib/api.ts";
@@ -26,6 +26,7 @@ export function useConsole(): ConsoleCtx {
 export default function HostConsole() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const loaded = useLoad(() => api<ConsoleState>(`/host/events/${id}/state`), [id]);
   useAuthRedirect(loaded.error, `/host?event=${id}`);
 
@@ -44,6 +45,8 @@ export default function HostConsole() {
 
   if (!loaded.data) return <div className="screen" />;
   const base = `/host/${id}`;
+  // 현황 탭이 스택의 바닥이다. 다른 탭에서 뒤로 가면 현황으로 온다 (참가자 화면과 같은 규칙)
+  const atHome = location.pathname.replace(/\/$/, "") === base;
 
   return (
     <Overlays>
@@ -66,6 +69,7 @@ export default function HostConsole() {
               key={t.key}
               to={t.path ? `${base}/${t.path}` : base}
               end={!t.path}
+              replace={!atHome}
               className={({ isActive }) => (isActive ? "active" : "")}
             >
               {t.label}
