@@ -75,7 +75,7 @@ export default function Demo() {
 
 /** 폰 한 대. 탭·시트·확인창이 전부 이 안에서만 움직인다 */
 function Phone({ eventId, playerId, tick }: { eventId: string; playerId: string; tick: number }) {
-  const [tab, setTab] = useState<Tab>("people");
+  const [tab, setTab] = useState<Tab>("home");
   const [profileId, setProfileId] = useState<string | undefined>(undefined);
   const [source] = useState(() => demoSource(eventId, playerId));
 

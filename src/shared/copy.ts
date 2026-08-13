@@ -166,8 +166,32 @@ export const ME = {
     event: "회차",
     code: "입장 코드",
   },
-  budget: (round: PokeRound, left: number, max: number) =>
-    `${roundName(round)} 남은 콕 ${left}회 / ${max}회`,
+} as const;
+
+// ─────────────────────────────────────────── 참가자 · 홈
+
+/**
+ * 홈은 "지금 무슨 일이고 내가 뭘 하면 되나"에 답하는 자리다.
+ * 단계 이름("사전 투표")은 운영자 용어다 — 참가자에게는 할 일을 문장으로 준다.
+ */
+export const HOME = {
+  todo: {
+    prep: { title: "곧 시작해요", body: "운영자가 등록을 열면 알려드릴게요." },
+    reg: { title: "사람들이 모이는 중이에요", body: "다 모이면 콕 찌르기가 열려요." },
+    prevote: {
+      title: "마음이 가는 사람을 콕 찔러보세요",
+      body: "상대에게는 누가 찔렀는지 보이지 않아요. 서로 찔렀을 때만 발표 때 공개돼요.",
+    },
+    party: {
+      title: "오늘 만난 사람도 찔러보세요",
+      body: "파티 라운드 콕을 새로 받았어요. 사전 투표에서 찌른 건 그대로예요.",
+    },
+    done: { title: "결과가 나왔어요", body: "서로 찌른 상대를 확인해보세요." },
+  },
+  goPeople: "참가자 보러 가기",
+  goResult: "결과 보기",
+  matched: (n: number) => `서로 찌른 상대 ${n}명`,
+  seatWaiting: "자리가 정해지면 여기에 알려드려요",
 } as const;
 
 // ─────────────────────────────────────────── 참가자 · 자리
@@ -509,6 +533,7 @@ export function pokeEstimateLabel(pct: number): { label: string; tone: "rare" | 
 
 export const SCREEN_TITLE = {
   entry: "입장",
+  home: "홈",
   join: "회차 확인",
   register: "참가자 등록",
   people: "참가자",
@@ -527,9 +552,18 @@ export const SCREEN_TITLE = {
   settings: "설정",
 } as const;
 
-/** 참가자 하단 탭 */
+/**
+ * 참가자 하단 탭.
+ *
+ * 탭마다 답하는 질문이 하나씩이고, 겹치지 않는다.
+ *   홈      지금 무슨 일이고 내가 뭘 하면 되나  (+ 내 자리)
+ *   참가자  누가 왔나 · 누굴 찌를까
+ *   알림    무슨 일이 있었나
+ *   내 정보 내가 낸 것 · 내 결과
+ */
 export const TABS_PARTICIPANT = [
-  { key: "people", icon: "👥", label: "참가자", path: "" },
+  { key: "home", icon: "🏠", label: "홈", path: "" },
+  { key: "people", icon: "👥", label: "참가자", path: "people" },
   { key: "alerts", icon: "🔔", label: "알림", path: "alerts" },
   { key: "me", icon: "🙋", label: "내 정보", path: "me" },
 ] as const;
