@@ -10,7 +10,7 @@ import { BTN, DELETE_EVENT, HOST_UI } from "../../../shared/copy.ts";
 import type { EventMeta, EventSchedule } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
 import { schedLocked } from "../../../shared/phase.ts";
-import { fromLocalInput, toLocalInput } from "../../../shared/time.ts";
+import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, del, put } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import { Num } from "./HostDefaults.tsx";
@@ -170,9 +170,14 @@ function When({
       <label>{label}</label>
       <input
         type="datetime-local"
+        step={SCHEDULE_STEP_MIN * 60}
         value={toLocalInput(value)}
         disabled={locked}
-        onChange={(e) => onChange(fromLocalInput(e.target.value))}
+        // 이미 저장된 값은 건드리지 않는다. 사람이 새로 고른 값만 30분에 맞춘다
+        onChange={(e) => {
+          const ts = fromLocalInput(e.target.value);
+          onChange(ts ? snapSchedule(ts) : undefined);
+        }}
       />
       {/* 지나간 예약은 지우지 않는다 — 기록으로 남긴다 */}
       {locked && <span className="tiny dim">{HOST_UI.locked}</span>}
