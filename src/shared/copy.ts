@@ -164,6 +164,8 @@ export const ME = {
     instagram: "인스타",
     mbti: "MBTI",
     charms: "나의 매력",
+    event: "회차",
+    code: "입장 코드",
   },
   budget: (round: PokeRound, left: number, max: number) =>
     `${roundName(round)} 남은 콕 ${left}회 / ${max}회`,
@@ -205,6 +207,8 @@ export const REVEAL = {
 
 export const STATUS = {
   done: "🎊 발표 완료",
+  /** 파티 중 참가자가 가장 자주 확인하는 숫자. 상단에 항상 띄운다 */
+  pokeLeft: (n: number) => `콕 ${n}회 남음`,
   untilVoteClose: "투표 마감까지",
   untilReveal: "발표까지",
   revealSoon: "곧 발표해요",

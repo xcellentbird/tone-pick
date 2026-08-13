@@ -62,6 +62,11 @@ export default function Me({ state }: { state: ParticipantState }) {
       )}
 
       <div className="card stack">
+        <Row label={ME.labels.event} value={event.name} />
+        <Row label={ME.labels.code} value={event.code} />
+      </div>
+
+      <div className="card stack">
         <Row label={ME.labels.nickname} value={me.nickname} />
         <Row label={ME.labels.age} value={UNIT.age(me.age)} />
         <Row label={ME.labels.gender} value={GENDER[me.gender]} />

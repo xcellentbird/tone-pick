@@ -12,7 +12,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
-import { ENTRY, ENV_BANNER, PEOPLE, POKE, SCREEN_TITLE, SEAT } from "../../src/shared/copy.ts";
+import { ENTRY, ENV_BANNER, PEOPLE, PHASE_LABEL, POKE, SCREEN_TITLE, SEAT, STATUS } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
@@ -280,5 +280,34 @@ describe("연습용 환경", () => {
     health({ ok: true, serverTime: Date.now() });
     const { container } = render(<EnvBadge />);
     await waitFor(() => expect(container.querySelector(".envBadge")).toBeNull());
+  });
+});
+
+// ─────────────────────────────────────────── 상단 한 줄
+
+describe("상단 바", () => {
+  /**
+   * 참가자가 반복해서 보는 건 셋뿐이다 — 지금 단계, 남은 콕, 남은 시간.
+   * 헤더는 스크롤되지 않으므로 여기 있는 것만 항상 보인다.
+   */
+  it("★ 단계·남은 콕·카운트다운이 한 줄에 있다", async () => {
+    renderParticipant(fakeSource());
+    await screen.findByText(PHASE_LABEL.prevote);
+    // 사전 투표 3회 중 1회를 썼다
+    expect(screen.getByText(STATUS.pokeLeft(2))).toBeTruthy();
+    expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/)).toBeTruthy();
+  });
+
+  it("회차 이름은 상단이 아니라 '내 정보' 에 있다", async () => {
+    const { rerender } = renderParticipant(fakeSource());
+    await screen.findByText(PHASE_LABEL.prevote);
+    expect(screen.queryByText("테스트 파티")).toBeNull();
+
+    rerender(
+      <MemoryRouter>
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} />
+      </MemoryRouter>,
+    );
+    await screen.findByText("테스트 파티");
   });
 });
