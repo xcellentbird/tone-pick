@@ -44,6 +44,7 @@ export const router = createBrowserRouter([
   { path: "/j/:code/register/:step", element: plain(<Register />) },
   { path: "/e/:code", element: <Participant /> },
   { path: "/e/:code/people", element: <Participant /> },
+  // 알림 탭은 홈으로 합쳤다. 폰에 열어둔 옛 주소가 막다른 길이 되지 않게 남겨둔다
   { path: "/e/:code/alerts", element: <Participant /> },
   { path: "/e/:code/me", element: <Participant /> },
   // 프로필 시트도 라우트다 — 뒤로 가기로 닫히게 하기 위해

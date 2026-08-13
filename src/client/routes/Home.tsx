@@ -7,10 +7,15 @@
  *   · 단계별 할 일 한 줄
  *   · **내 자리** — 파티 중 가장 자주 보는 정보라 '내 정보' 에서 여기로 옮겼다
  *   · 결과 **요약**(몇 명인지). 상대가 누구인지는 '내 정보' 에서 본다
+ *   · **지금까지의 소식** — 알림 탭을 없애고 여기로 합쳤다.
+ *     `fired` 에서 파생되는 것뿐이라 파티 한 번에 많아야 네 개고, 읽음 상태도 없다.
+ *     받은편지함이 아니라 타임라인이고, 그건 "지금 무슨 일인가"의 과거형이다 (ADR-4)
  */
-import { HOME, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
+import { HOME, POKE, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
+import { formatWhen } from "../../shared/time.ts";
+import { noticesOf } from "../lib/notices.ts";
 import type { Tab } from "./Participant.tsx";
 
 export default function Home({ state, onTab }: { state: ParticipantState; onTab: (tab: Tab) => void }) {
@@ -59,6 +64,35 @@ export default function Home({ state, onTab }: { state: ParticipantState; onTab:
       ) : (
         !revealed && <p className="tiny dim center">{HOME.seatWaiting}</p>
       )}
+
+      <News state={state} />
     </div>
+  );
+}
+
+/**
+ * 저장된 게 아니라 `fired` 에서 매번 파생된다 (ADR-4).
+ * 그래서 운영자가 발표를 되돌리면 이 목록도 그 자리에서 "되돌렸어요"로 바뀐다.
+ */
+function News({ state }: { state: ParticipantState }) {
+  const list = noticesOf(state);
+  if (list.length === 0) return null;
+
+  return (
+    <>
+      <div className="kicker">{HOME.news}</div>
+      <div className="stack">
+        {list.map((n) => (
+          <div className={`banner ${n.warn ? "warn" : ""}`} key={n.key}>
+            <span className="icon">{n.icon}</span>
+            <span className="grow">
+              <span className="name">{n.title}</span>
+              <div className="small dim pre">{n.body}</div>
+              {n.at > 0 && <div className="tiny dim">{formatWhen(n.at)}</div>}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
