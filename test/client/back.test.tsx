@@ -11,7 +11,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { TABS_PARTICIPANT } from "../../src/shared/copy.ts";
+import { HOME, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
 import type { ParticipantState } from "../../src/shared/types.ts";
 import Participant from "../../src/client/routes/Participant.tsx";
 
@@ -48,6 +48,7 @@ function participantRouter(start = "/e/ABCDEF") {
   return createMemoryRouter(
     [
       { path: "/e/:code", element: <Participant /> },
+      { path: "/e/:code/people", element: <Participant /> },
       { path: "/e/:code/alerts", element: <Participant /> },
       { path: "/e/:code/me", element: <Participant /> },
       { path: "/e/:code/p/:pid", element: <Participant /> },
@@ -56,7 +57,7 @@ function participantRouter(start = "/e/ABCDEF") {
   );
 }
 
-const tab = (key: "people" | "alerts" | "me") =>
+const tab = (key: "home" | "people" | "alerts" | "me") =>
   screen.getByText(TABS_PARTICIPANT.find((t) => t.key === key)!.label);
 
 beforeEach(() => {
@@ -74,7 +75,7 @@ describe("참가자 화면 · 뒤로 가기", () => {
   it("★ 탭을 여러 번 오가도 뒤로 가기 한 번이면 참가자 탭이다", async () => {
     const router = participantRouter();
     render(<RouterProvider router={router} />);
-    await screen.findByText(/그녀/);
+    await screen.findByText(HOME.todo.prevote.title);
 
     fireEvent.click(tab("alerts"));
     await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF/alerts"));
@@ -91,7 +92,7 @@ describe("참가자 화면 · 뒤로 가기", () => {
   it("★ 참가자 탭에서 뒤로 가면 앱 밖이다 — 탭 사이를 맴돌지 않는다", async () => {
     const router = participantRouter();
     render(<RouterProvider router={router} />);
-    await screen.findByText(/그녀/);
+    await screen.findByText(HOME.todo.prevote.title);
 
     fireEvent.click(tab("me"));
     await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF/me"));
@@ -106,10 +107,14 @@ describe("참가자 화면 · 뒤로 가기", () => {
     const router = participantRouter();
     render(<RouterProvider router={router} />);
 
+    // 화면이 뜬 뒤 참가자 탭으로 간다
+    await screen.findByText(HOME.todo.prevote.title);
+    fireEvent.click(tab("people"));
     fireEvent.click(await screen.findByText(/그녀/));
     await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF/p/her"));
 
+    // 시트만 닫히고 목록이 남는다
     await router.navigate(-1);
-    expect(router.state.location.pathname).toBe("/e/ABCDEF");
+    expect(router.state.location.pathname).toBe("/e/ABCDEF/people");
   });
 });

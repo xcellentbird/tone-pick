@@ -43,6 +43,7 @@ export const router = createBrowserRouter([
   { path: "/j/:code", element: plain(<Join />) },
   { path: "/j/:code/register/:step", element: plain(<Register />) },
   { path: "/e/:code", element: <Participant /> },
+  { path: "/e/:code/people", element: <Participant /> },
   { path: "/e/:code/alerts", element: <Participant /> },
   { path: "/e/:code/me", element: <Participant /> },
   // 프로필 시트도 라우트다 — 뒤로 가기로 닫히게 하기 위해

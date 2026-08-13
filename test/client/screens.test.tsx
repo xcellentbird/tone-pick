@@ -12,7 +12,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
-import { ENTRY, ENV_BANNER, PEOPLE, PHASE_LABEL, POKE, SCREEN_TITLE, SEAT, STATUS } from "../../src/shared/copy.ts";
+import { ENTRY, ENV_BANNER, HOME, ME, PEOPLE, PHASE_LABEL, POKE, SCREEN_TITLE, SEAT, STATUS } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
@@ -290,12 +290,18 @@ describe("상단 바", () => {
    * 참가자가 반복해서 보는 건 셋뿐이다 — 지금 단계, 남은 콕, 남은 시간.
    * 헤더는 스크롤되지 않으므로 여기 있는 것만 항상 보인다.
    */
-  it("★ 단계·남은 콕·카운트다운이 한 줄에 있다", async () => {
+  it("★ 단계와 '무엇까지' 가 붙은 카운트다운이 한 줄에 있다", async () => {
     renderParticipant(fakeSource());
     await screen.findByText(PHASE_LABEL.prevote);
-    // 사전 투표 3회 중 1회를 썼다
-    expect(screen.getByText(STATUS.pokeLeft(2))).toBeTruthy();
+    // 숫자만 있으면 무엇을 세는지 알 수 없다
+    expect(screen.getByText(STATUS.untilVoteClose)).toBeTruthy();
     expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/)).toBeTruthy();
+  });
+
+  it("★ 남은 콕은 한 곳에만 — 콕을 찌르는 화면", async () => {
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+    expect(screen.getAllByText(STATUS.pokeLeft(2))).toHaveLength(1);
   });
 
   it("회차 이름은 상단이 아니라 '내 정보' 에 있다", async () => {
@@ -309,5 +315,43 @@ describe("상단 바", () => {
       </MemoryRouter>,
     );
     await screen.findByText("테스트 파티");
+  });
+});
+
+// ─────────────────────────────────────────── 탭 역할 분담
+
+describe("탭 역할 분담", () => {
+  /**
+   * 같은 정보가 두 탭에 있으면 어느 쪽이 맞는지 눈이 한 번 더 확인한다.
+   * 탭마다 답하는 질문이 하나씩이고 겹치지 않아야 한다.
+   */
+  const withSeat = { round: 1, table: 2, final: false, mates: 6, men: 3, acked: true };
+
+  const renderTab = (t: "home" | "me", over: Partial<ParticipantState> = {}) =>
+    render(
+      <MemoryRouter>
+        <ParticipantView
+          source={fakeSource({ load: async () => participantState(over) })}
+          tab={t}
+          onTab={() => {}}
+          onProfile={() => {}}
+        />
+      </MemoryRouter>,
+    );
+
+  it("★ 내 자리는 홈에만 있다", async () => {
+    renderTab("home", { seat: withSeat });
+    await screen.findByText(SEAT.banner(2));
+    cleanup();
+
+    renderTab("me", { seat: withSeat });
+    await screen.findByText(ME.labels.nickname);
+    expect(screen.queryByText(SEAT.banner(2))).toBeNull();
+  });
+
+  it("홈은 단계 이름 대신 할 일을 말한다", async () => {
+    renderTab("home");
+    // "사전 투표"는 운영자 용어다. 참가자에게는 문장으로
+    await screen.findByText(HOME.todo.prevote.title);
   });
 });

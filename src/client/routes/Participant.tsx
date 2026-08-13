@@ -19,10 +19,11 @@ import { Overlays, useOverlay } from "../ui/Overlays.tsx";
 import People from "./People.tsx";
 import Alerts from "./Alerts.tsx";
 import Me from "./Me.tsx";
+import Home from "./Home.tsx";
 import SeatTakeover from "../ui/SeatTakeover.tsx";
 import StatusBar from "../ui/StatusBar.tsx";
 
-export type Tab = "people" | "alerts" | "me";
+export type Tab = "home" | "people" | "alerts" | "me";
 
 interface ViewProps {
   source: ParticipantSource;
@@ -47,11 +48,14 @@ export default function Participant() {
   const base = `/e/${code}`;
 
   const source = useMemo(() => sessionSource(code), [code]);
+  // 프로필 시트(/p/:id)는 참가자 탭 위에 뜬 것이다 — 탭 표시도 참가자로 둔다
   const tab: Tab = location.pathname.endsWith("/alerts")
     ? "alerts"
     : location.pathname.endsWith("/me")
       ? "me"
-      : "people";
+      : location.pathname.endsWith("/people") || location.pathname.includes("/p/")
+        ? "people"
+        : "home";
   const profileId = location.pathname.includes("/p/")
     ? decodeURIComponent(location.pathname.split("/p/")[1])
     : undefined;
@@ -64,13 +68,13 @@ export default function Participant() {
       tab={tab}
       onTab={(next) => {
         /**
-         * 참가자 탭이 스택의 **바닥**이다. 어느 탭에 있든 뒤로 가기 한 번이면 여기로 온다.
+         * 홈 탭이 스택의 **바닥**이다. 어느 탭에 있든 뒤로 가기 한 번이면 여기로 온다.
          *
          * 예전에는 탭 이동이 전부 push 라, 탭을 오갈수록 히스토리가 쌓이고 뒤로 가기가
          * "내 발자국 되감기"가 됐다. 사람은 뒤로 가기를 "목록으로 돌아가기"로 기대한다.
          */
-        const to = next === "people" ? base : `${base}/${next}`;
-        navigate(to, { replace: tab !== "people" });
+        const to = next === "home" ? base : `${base}/${next}`;
+        navigate(to, { replace: tab !== "home" });
       }}
       profileId={profileId}
       // 시트 열기는 push, 닫기는 뒤로 가기 — 안드로이드 백 버튼으로 닫혀야 한다
@@ -140,6 +144,7 @@ function Loaded({
               </span>
             </button>
           )}
+          {tab === "home" && <Home state={state} onTab={onTab} />}
           {tab === "people" && (
             <People state={state} source={source} reload={reload} profileId={profileId} onProfile={onProfile} />
           )}

@@ -6,30 +6,20 @@
  * 앱이 만드는 건 "같은 테이블"까지다.
  */
 import { useState } from "react";
-import { GENDER, ME, PEOPLE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
+import { GENDER, ME, PEOPLE, REVEAL, UNIT } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
 
 export default function Me({ state }: { state: ParticipantState }) {
   const [shown, setShown] = useState(false);
-  const { me, poke, seat, event } = state;
-  const round = event.phase === "prevote" ? "pre" : "party";
-  const budget = poke.budget[round];
+  const { me, poke, event } = state;
+  const budget = poke.budget[event.phase === "prevote" ? "pre" : "party"];
   const revealed = event.phase === "done";
   const anonymous = Math.max(0, poke.receivedCount - poke.matches.length);
 
+  // 자리와 남은 콕은 홈 탭에 있다. 같은 숫자를 두 곳에 두지 않는다
   return (
     <div className="stack">
-      {seat && (
-        <div className="card">
-          <div className="kicker">{SEAT.sectionTitle}</div>
-          <div className="big" style={{ fontSize: 20, fontWeight: 800 }}>
-            {SEAT.banner(seat.table)}
-          </div>
-          <div className="small dim">{SEAT.ack.mates(seat.mates, seat.men)}</div>
-        </div>
-      )}
-
       {revealed ? (
         <div className="card stack">
           <div className="kicker">{REVEAL.mutualTitle}</div>
@@ -56,7 +46,6 @@ export default function Me({ state }: { state: ParticipantState }) {
         canPoke(event.phase) && (
           <div className="card">
             <div className="kicker">{PEOPLE.sentSoFar(budget.used)}</div>
-            <div>{ME.budget(round, budget.max - budget.used, budget.max)}</div>
           </div>
         )
       )}
