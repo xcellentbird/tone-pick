@@ -58,12 +58,6 @@ export interface MatchInfo {
 export interface MyPokeState {
   budget: Record<PokeRound, { max: number; used: number }>;
   sentTo: Record<string, number>;   // playerId -> 내가 보낸 횟수 (라운드 합계)
-  /**
-   * 이번 라운드에 보낸 횟수. 되돌리기는 이번 라운드 것만 되돌릴 수 있어서
-   * `sentTo` 와 나눠 둔다 — 합계만 보고 `−` 를 띄우면 사전 투표 때 보낸 콕을
-   * 파티 라운드에서 되돌리려다 실패한다
-   */
-  sentThisRound: Record<string, number>;
   receivedCount: number;            // 받은 횟수만. 발신자는 익명
   matches: MatchInfo[];             // 발표 후에만 채워진다
 }
@@ -201,7 +195,6 @@ export type ErrorCode =
   | "nick_taken"     // 409 · 회차 안에서 닉네임이 겹쳤다
   | "closed"         // 409 · 지금 단계에서는 할 수 없다
   | "no_budget"      // 409 · 이번 라운드 콕을 다 썼다
-  | "no_poke"        // 404 · 되돌릴 콕이 이번 라운드에 없다
   | "same_gender"    // 409 · 이성에게만 찌를 수 있다
   | "conflict";      // 409 · 그 밖의 충돌
 

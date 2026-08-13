@@ -121,14 +121,12 @@ export const POKE = {
     rowTarget: "이 사람에게 보낸 콕",
     rowBudget: (round: PokeRound) => `${roundName(round)} 남은 횟수`,
     count: (n: number) => `${n}회`,
-    note: "상대에게는 누가 찔렀는지 보이지 않아요.\n발표 전까지는 프로필에서 되돌릴 수 있어요.",
+    note: "상대에게는 누가 찔렀는지 보이지 않아요.\n한 번 보낸 콕은 되돌릴 수 없어요.",
     submit: "콕 찌르기",
   },
 
   sent: (nick: string, total: number, left: number) =>
     `${nick}님에게 콕! ${total > 1 ? `(누적 ${total}회) ` : ""}— 남은 횟수 ${left}회`,
-  /** 되돌리기는 확인 없이 즉시 실행되므로 결과만 알린다 */
-  removed: (left: number) => `콕을 하나 되돌렸어요 — 남은 횟수 ${left}회`,
 
   emptySent: "아직 아무도 찌르지 않았어요.\n찌르지 않아도 괜찮아요 — 선택이에요.",
   /** 익명으로 도착한 콕 */
@@ -142,7 +140,10 @@ export const POKE = {
 // ─────────────────────────────────────────── 참가자 · 명단/프로필/내 정보
 
 export const PEOPLE = {
-  onlyOpposite: "이성만 보기",
+  /** 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 둘 중 하나를 고르게 한다 */
+  onlyOpposite: "이성만",
+  everyone: "전체",
+  leftLabel: (n: number) => `남은 콕 ${n}회`,
   empty: "아직 참가자가 없어요",
   /** 프로필 시트에서는 매력 전문을 보여준다 */
   charmTitle: "이 사람의 매력",

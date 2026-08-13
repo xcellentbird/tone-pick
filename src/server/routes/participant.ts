@@ -80,18 +80,6 @@ participantRoutes.post("/poke", async (c) => {
   return response ?? c.json(value);
 });
 
-/** 되돌리기는 확인 없이 즉시다 (ADR-6). 다시 찌르면 복구된다 */
-participantRoutes.delete("/poke/:toId", async (c) => {
-  const seat = await seatOf(c);
-  if (!seat) return apiError(c, "unauthorized");
-  const { value, response } = unwrap(
-    c,
-    await seat.stub.unpoke(seat.playerId, c.req.param("toId"), serverNow()),
-    pokeMessage,
-  );
-  return response ?? c.json(value);
-});
-
 participantRoutes.post("/seat/ack", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");

@@ -9,7 +9,7 @@
  * 두 벌이 갈라져 데모가 거짓말을 하게 된다 (ADR-7).
  */
 import type { MyPokeState, ParticipantState } from "../../shared/types.ts";
-import { api, del, post } from "./api.ts";
+import { api, post } from "./api.ts";
 
 export interface ParticipantSource {
   /** 화면 구분용. 데모 뷰에서 폰마다 다르다 */
@@ -18,7 +18,6 @@ export interface ParticipantSource {
   liveCode?: string;
   load(): Promise<ParticipantState>;
   poke(toId: string): Promise<MyPokeState>;
-  unpoke(toId: string): Promise<MyPokeState>;
   ackSeat(round: number): Promise<void>;
 }
 
@@ -29,7 +28,6 @@ export function sessionSource(code: string): ParticipantSource {
     liveCode: code,
     load: () => api<ParticipantState>(`/me?code=${encodeURIComponent(code)}`),
     poke: (toId) => post<MyPokeState>("/poke", { toId }),
-    unpoke: (toId) => del<MyPokeState>(`/poke/${toId}`),
     ackSeat: async (round) => {
       await post("/seat/ack", { round });
     },
@@ -43,7 +41,6 @@ export function demoSource(eventId: string, playerId: string): ParticipantSource
     key: `demo:${eventId}:${playerId}`,
     load: () => api<ParticipantState>(base),
     poke: (toId) => post<MyPokeState>(`${base}/poke`, { toId }),
-    unpoke: (toId) => del<MyPokeState>(`${base}/poke/${toId}`),
     ackSeat: async (round) => {
       await post(`${base}/seat/ack`, { round });
     },

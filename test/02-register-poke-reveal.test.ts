@@ -278,46 +278,6 @@ describe("콕", () => {
     expect(inParty.status).toBe(200);
   });
 
-  it("되돌리면 예산이 돌아오고, 다시 찌르면 복구된다", async () => {
-    const ev = await freshEvent();
-    const me = await join(ev.code);
-    const her = await join(ev.code, { gender: "F" });
-    await setPhase(ev.id, "prevote");
-
-    await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
-    const undone = await api<ParticipantState["poke"]>(`/api/poke/${her.id}`, {
-      method: "DELETE",
-      cookie: me.cookie,
-    });
-    expect(undone.status).toBe(200);
-    expect(undone.body.budget.pre.used).toBe(0);
-    expect(undone.body.sentTo[her.id] ?? 0).toBe(0);
-
-    const again = await api<ParticipantState["poke"]>("/api/poke", {
-      method: "POST",
-      cookie: me.cookie,
-      body: { toId: her.id },
-    });
-    expect(again.body.sentTo[her.id]).toBe(1);
-  });
-
-  it("★ 이번 라운드에 보낸 콕만 되돌릴 수 있다", async () => {
-    const ev = await freshEvent();
-    const me = await join(ev.code);
-    const her = await join(ev.code, { gender: "F" });
-    await setPhase(ev.id, "prevote");
-    await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
-
-    // 파티 라운드로 넘어가면 사전 투표에서 보낸 건 그대로 남지만 되돌릴 수는 없다
-    await setPhase(ev.id, "party");
-    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
-    expect(state.body.poke.sentTo[her.id]).toBe(1);
-    expect(state.body.poke.sentThisRound[her.id] ?? 0).toBe(0);
-
-    const undo = await api(`/api/poke/${her.id}`, { method: "DELETE", cookie: me.cookie });
-    expect(undo.status).toBe(404);
-  });
-
   it("이성에게만 찌를 수 있다", async () => {
     const ev = await freshEvent();
     const me = await join(ev.code);

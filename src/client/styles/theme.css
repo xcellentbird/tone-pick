@@ -239,9 +239,14 @@ button {
   color: var(--fg);
 }
 
-.person .meta { min-width: 0; flex: 1; }
-.person .name { font-weight: 700; font-size: 15px; }
-.person .charm { color: var(--dim); font-size: 13px; }
+/*
+ * 이름 줄과 매력 줄은 **각각 한 줄**이다.
+ * 인라인으로 두면 둘이 이어 흘러서 짧은 매력은 MBTI 옆에 붙고 긴 매력만 아래로 내려간다.
+ * 말줄임(.ellipsis)도 인라인에서는 걸리지 않는다 — 폭을 가진 블록이어야 한다.
+ */
+.person .meta { min-width: 0; flex: 1; display: block; }
+.person .name { display: block; font-weight: 700; font-size: 15px; }
+.person .charm { display: block; color: var(--dim); font-size: 13px; }
 
 .avatar {
   width: 42px;

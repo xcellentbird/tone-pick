@@ -307,17 +307,6 @@ hostRoutes.post("/events/:id/as/:pid/poke", async (c) => {
   return response ?? c.json(value);
 });
 
-hostRoutes.delete("/events/:id/as/:pid/poke/:toId", async (c) => {
-  const gate = await openEvent(c);
-  if (gate.response) return gate.response;
-  const { value, response } = unwrap(
-    c,
-    await gate.stub.unpoke(c.req.param("pid"), c.req.param("toId"), serverNow()),
-    pokeMessage,
-  );
-  return response ?? c.json(value);
-});
-
 hostRoutes.post("/events/:id/as/:pid/seat/ack", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
