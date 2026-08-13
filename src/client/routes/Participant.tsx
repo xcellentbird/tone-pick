@@ -17,13 +17,12 @@ import { useLoad } from "../lib/useLoad.ts";
 import { ApiError } from "../lib/api.ts";
 import { Overlays, useOverlay } from "../ui/Overlays.tsx";
 import People from "./People.tsx";
-import Alerts from "./Alerts.tsx";
 import Me from "./Me.tsx";
 import Home from "./Home.tsx";
 import SeatTakeover from "../ui/SeatTakeover.tsx";
 import StatusBar from "../ui/StatusBar.tsx";
 
-export type Tab = "home" | "people" | "alerts" | "me";
+export type Tab = "home" | "people" | "me";
 
 interface ViewProps {
   source: ParticipantSource;
@@ -49,13 +48,11 @@ export default function Participant() {
 
   const source = useMemo(() => sessionSource(code), [code]);
   // 프로필 시트(/p/:id)는 참가자 탭 위에 뜬 것이다 — 탭 표시도 참가자로 둔다
-  const tab: Tab = location.pathname.endsWith("/alerts")
-    ? "alerts"
-    : location.pathname.endsWith("/me")
-      ? "me"
-      : location.pathname.endsWith("/people") || location.pathname.includes("/p/")
-        ? "people"
-        : "home";
+  const tab: Tab = location.pathname.endsWith("/me")
+    ? "me"
+    : location.pathname.endsWith("/people") || location.pathname.includes("/p/")
+      ? "people"
+      : "home";
   const profileId = location.pathname.includes("/p/")
     ? decodeURIComponent(location.pathname.split("/p/")[1])
     : undefined;
@@ -134,9 +131,9 @@ function Loaded({
         </header>
 
         <div className="body stack">
-          {banner && (
-            // 최근 3분 안의 변화만 배너로. 그보다 오래된 건 알림 탭에만 남는다
-            <button className={`banner ${banner.warn ? "warn" : ""}`} onClick={() => onTab("alerts")}>
+          {banner && tab !== "home" && (
+            // 최근 3분 안의 변화만 배너로. 홈에는 소식 목록이 이미 있으니 띄우지 않는다
+            <button className={`banner ${banner.warn ? "warn" : ""}`} onClick={() => onTab("home")}>
               <span className="icon">{banner.icon}</span>
               <span className="grow">
                 <span className="name">{banner.title}</span>
@@ -148,7 +145,6 @@ function Loaded({
           {tab === "people" && (
             <People state={state} source={source} reload={reload} profileId={profileId} onProfile={onProfile} />
           )}
-          {tab === "alerts" && <Alerts state={state} />}
           {tab === "me" && <Me state={state} />}
         </div>
 

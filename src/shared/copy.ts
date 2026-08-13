@@ -188,6 +188,7 @@ export const HOME = {
     },
     done: { title: "결과가 나왔어요", body: "서로 찌른 상대를 확인해보세요." },
   },
+  news: "지금까지의 소식",
   goPeople: "참가자 보러 가기",
   goResult: "결과 보기",
   matched: (n: number) => `서로 찌른 상대 ${n}명`,
@@ -564,7 +565,6 @@ export const SCREEN_TITLE = {
 export const TABS_PARTICIPANT = [
   { key: "home", icon: "🏠", label: "홈", path: "" },
   { key: "people", icon: "👥", label: "참가자", path: "people" },
-  { key: "alerts", icon: "🔔", label: "알림", path: "alerts" },
   { key: "me", icon: "🙋", label: "내 정보", path: "me" },
 ] as const;
 

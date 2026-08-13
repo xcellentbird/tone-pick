@@ -57,7 +57,7 @@ function participantRouter(start = "/e/ABCDEF") {
   );
 }
 
-const tab = (key: "home" | "people" | "alerts" | "me") =>
+const tab = (key: "home" | "people" | "me") =>
   screen.getByText(TABS_PARTICIPANT.find((t) => t.key === key)!.label);
 
 beforeEach(() => {
@@ -77,12 +77,12 @@ describe("참가자 화면 · 뒤로 가기", () => {
     render(<RouterProvider router={router} />);
     await screen.findByText(HOME.todo.prevote.title);
 
-    fireEvent.click(tab("alerts"));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF/alerts"));
+    fireEvent.click(tab("people"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF/people"));
     fireEvent.click(tab("me"));
     await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF/me"));
-    fireEvent.click(tab("alerts"));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF/alerts"));
+    fireEvent.click(tab("people"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF/people"));
 
     // 발자국을 되감지 않는다. 한 번이면 목록으로
     await router.navigate(-1);

@@ -12,7 +12,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
-import { ENTRY, ENV_BANNER, HOME, ME, PEOPLE, PHASE_LABEL, POKE, SCREEN_TITLE, SEAT, STATUS } from "../../src/shared/copy.ts";
+import { ENTRY, ENV_BANNER, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
@@ -353,5 +353,16 @@ describe("탭 역할 분담", () => {
     renderTab("home");
     // "사전 투표"는 운영자 용어다. 참가자에게는 문장으로
     await screen.findByText(HOME.todo.prevote.title);
+  });
+
+  it("★ 소식은 홈에 있다 — 알림 탭을 따로 두지 않는다", async () => {
+    // 파티 한 번에 많아야 네 개다. 탭 하나를 상시 내줄 양이 아니다
+    renderTab("home", { poke: { ...POKE_STATE, receivedCount: 2 } });
+    await screen.findByText(HOME.news);
+    expect(screen.getByText(POKE.received)).toBeTruthy();
+    expect(screen.getByText(NOTICE.prevote(3).title)).toBeTruthy();
+
+    // 탭은 셋뿐이다
+    expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me"]);
   });
 });
