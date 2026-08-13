@@ -84,6 +84,8 @@ export const ENTRY = {
 export const REGISTER = {
   steps: ["기본 정보", "연락처", "나를 소개"],
   charmHint: "문장으로 써도 좋아요. 세 가지 모두 필요해요.",
+  /** 전화번호를 받는 자리에서 언제까지 들고 있을지 밝힌다 */
+  retention: (days: number) => `연락처는 운영자만 보고, 파티가 끝나고 ${days}일 뒤에 지워져요.`,
   err: {
     nick: "닉네임을 입력해주세요.",
     name: "이름(실명)을 입력해주세요.",
@@ -472,6 +474,9 @@ export const HOST_UI = {
   },
 
   deleteEvent: "이 회차 삭제하기",
+  /** 자동 파기 안내. 운영자가 모르는 채로 회차가 사라지면 그게 사고다 */
+  retention: (days: number) =>
+    `파티가 끝나고 ${days}일이 지나면 이 회차와 참가자 정보가 자동으로 삭제돼요.`,
 
   settings: {
     schedule: "일정",

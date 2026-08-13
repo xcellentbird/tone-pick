@@ -36,7 +36,7 @@ import type {
 import { toPublic } from "../shared/types.ts";
 import { ENTRY } from "../shared/copy.ts";
 import { LIMITS, normalizeNickname } from "../shared/constants.ts";
-import { PHASE_ORDER, canPoke, dueTransition } from "../shared/phase.ts";
+import { PHASE_ORDER, canPoke, dueTransition, purgeDueAt } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
@@ -216,6 +216,20 @@ export class EventDO extends DurableObject {
 
   async destroy(): Promise<void> {
     await this.ctx.storage.deleteAll();
+  }
+
+  /**
+   * 보관 기간이 지났으면 통째로 버린다.
+   *
+   * 개인정보만 골라 지우는 대신 회차째 지운다 — 반쯤 지워진 상태를 만들지 않기 위해서다.
+   * "회차 1개 = DO 1개"로 잡은 것이 여기서 값을 한다. 지울 게 한 곳에 다 있다.
+   */
+  async purgeIfExpired(now: number, retentionDays: number): Promise<boolean> {
+    const meta = await this.ctx.storage.get<EventMeta>("meta");
+    if (!meta) return false;
+    if (now < purgeDueAt(meta, retentionDays)) return false;
+    await this.ctx.storage.deleteAll();
+    return true;
   }
 
   // ─────────────────────────── 참가자

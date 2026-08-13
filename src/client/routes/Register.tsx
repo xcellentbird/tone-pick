@@ -12,7 +12,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared/copy.ts";
 import type { RegisterInput, RegisterResult } from "../../shared/types.ts";
-import { LIMITS } from "../../shared/constants.ts";
+import { LIMITS, RETENTION_DAYS } from "../../shared/constants.ts";
 import { ApiError, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
 
@@ -168,6 +168,7 @@ export default function Register() {
               />
               {err("phone")}
             </div>
+            <p className="tiny dim">{REGISTER.retention(RETENTION_DAYS)}</p>
             <div className="field">
               <label htmlFor="insta">{ME.labels.instagram}</label>
               <input id="insta" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} />

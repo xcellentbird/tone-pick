@@ -5,6 +5,7 @@ import { hostRoutes } from "./routes/host.ts";
 import { participantRoutes } from "./routes/participant.ts";
 import { PLAYER_COOKIE, readCookie, readSession } from "./auth.ts";
 import { eventStub, missingSecrets, moveServerClock, registry, serverNow, syncClock, type Env } from "./http.ts";
+import { RETENTION_DAYS } from "../shared/constants.ts";
 
 export { EventDO, RegistryDO };
 export type { Env };
@@ -77,4 +78,33 @@ app.post("/api/__test__/now", async (c, next) => {
 
 app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
 
-export default app;
+/**
+ * 개인정보 파기.  하루 한 번, 보관 기간이 지난 회차를 지운다.
+ *
+ * 참가자에게 실명과 전화번호를 받아놓고 언제까지 들고 있을지 정해두지 않는 건 그 자체가 사고다.
+ * 회차 1개 = DO 1개라서 지울 것이 한 곳에 다 있다 — 그 매핑이 여기서 값을 한다.
+ *
+ * 실패해도 다음 날 다시 온다. 한 회차가 막혔다고 나머지를 건너뛰지 않는다.
+ */
+async function scheduled(_event: ScheduledController, env: Env) {
+  // 단계 판정과 같은 시계를 쓴다. 테스트에서 시간을 앞으로 돌려 이 경로를 확인할 수 있게
+  await syncClock(env);
+  const reg = registry(env);
+  const now = serverNow();
+  let purged = 0;
+
+  for (const entry of await reg.listEvents()) {
+    try {
+      if (await eventStub(env, entry.id).purgeIfExpired(now, RETENTION_DAYS)) {
+        await reg.removeEvent(entry.id);
+        purged++;
+      }
+    } catch (e) {
+      // 한 건이 막혀도 나머지는 돈다. 다음 날 다시 시도한다
+      console.error("purge failed", entry.id, e);
+    }
+  }
+  console.log(`purge: ${purged} events removed (retention ${RETENTION_DAYS}d)`);
+}
+
+export default { fetch: app.fetch, scheduled };

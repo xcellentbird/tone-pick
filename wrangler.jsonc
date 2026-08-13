@@ -31,6 +31,9 @@
   // 무료 플랜에서 쓰려면 반드시 SQLite 백엔드로 마이그레이션해야 한다
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EventDO", "RegistryDO"] }],
 
+  // 개인정보 파기. 04:00 KST — 파티가 도는 시간대를 피한다
+  "triggers": { "crons": ["0 19 * * *"] },
+
   "observability": { "enabled": true },
 
   /*

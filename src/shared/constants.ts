@@ -26,6 +26,14 @@ export const SEAT_W = {
   POKE_ONE: 4,      // 단방향 콕 동석 보너스
 } as const;
 
+/**
+ * 회차를 얼마나 들고 있을 것인가.
+ *
+ * 파티 뒤 며칠은 참가자가 결과를 다시 본다. 그 뒤로는 실명과 전화번호를 들고 있을 이유가 없다 —
+ * 이 앱이 참가자에게 요구한 것 중 가장 무거운 게 그 둘이다.
+ */
+export const RETENTION_DAYS = 7;
+
 export const AGE_GAP = 10;
 export const REP_CAP_RATIO = 0.75;
 export const FINAL_MUTUAL_BOOST = 2.5;
