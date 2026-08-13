@@ -10,7 +10,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { SCHEDULE_STEP_MIN, snapSchedule, toLocalInput } from "../../src/shared/time.ts";
+import { SCHEDULE_STEP_MIN, formatCountdown, snapSchedule, toLocalInput } from "../../src/shared/time.ts";
 import { HOST_UI } from "../../src/shared/copy.ts";
 import HostWizard from "../../src/client/routes/host/HostWizard.tsx";
 
@@ -74,5 +74,19 @@ describe("위저드", () => {
       // 기본값도 맞아 있어야 한다 — 분 자리가 00 이나 30
       expect((input as HTMLInputElement).value.slice(-2)).toMatch(/^(00|30)$/);
     }
+  });
+});
+
+describe("카운트다운", () => {
+  /** 초가 움직여야 마감이 다가오는 게 보인다. "13시간 42분"은 1분에 한 번만 바뀐다 */
+  it("01:10:45 꼴로 보여준다", () => {
+    expect(formatCountdown((1 * 3600 + 10 * 60 + 45) * 1000)).toBe("01:10:45");
+    expect(formatCountdown(9 * 1000)).toBe("00:00:09");
+    expect(formatCountdown(0)).toBe("00:00:00");
+    expect(formatCountdown(-5000)).toBe("00:00:00");
+  });
+
+  it("24시간이 넘어도 시간으로 센다 — 날짜로 접으면 다시 계산하게 만든다", () => {
+    expect(formatCountdown((37 * 3600 + 12 * 60 + 4) * 1000)).toBe("37:12:04");
   });
 });

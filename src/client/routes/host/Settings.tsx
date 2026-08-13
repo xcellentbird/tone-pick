@@ -27,6 +27,7 @@ export default function Settings() {
   const [code, setCode] = useState(meta.code);
   const [maxPre, setMaxPre] = useState(meta.config.maxPre);
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
+  const [allowSameGender, setAllowSameGender] = useState(!!meta.config.allowSameGender);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +36,7 @@ export default function Settings() {
     setCode(meta.code);
     setMaxPre(meta.config.maxPre);
     setMaxParty(meta.config.maxParty);
+    setAllowSameGender(!!meta.config.allowSameGender);
     setSchedule(meta.schedule);
   }, [meta]);
 
@@ -45,7 +47,7 @@ export default function Settings() {
         name,
         code: code !== meta.code ? code : undefined,
         pin: pin || undefined,
-        config: { maxPre, maxParty },
+        config: { maxPre, maxParty, allowSameGender },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
       setPin("");
@@ -120,6 +122,26 @@ export default function Settings() {
         max={LIMITS.maxParty.max}
         onChange={setMaxParty}
       />
+
+      <div className="field">
+        <label>{HOST_UI.fields.pokeTarget}</label>
+        <div className="choice">
+          {[
+            { on: false, label: HOST_UI.fields.pokeTargetOpposite },
+            { on: true, label: HOST_UI.fields.pokeTargetAll },
+          ].map((opt) => (
+            <button
+              key={opt.label}
+              type="button"
+              aria-pressed={allowSameGender === opt.on}
+              onClick={() => setAllowSameGender(opt.on)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <span className="tiny dim">{HOST_UI.fields.pokeTargetNote}</span>
+      </div>
 
       <div className="kicker">{HOST_UI.settings.schedule}</div>
       <When

@@ -203,9 +203,9 @@ export class EventDO extends DurableObject {
     }
     if (patch.code) meta.code = patch.code.toUpperCase();
     if (patch.config) {
-      const { maxPre, maxParty } = patch.config;
+      const { maxPre, maxParty, allowSameGender } = patch.config;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
-      meta.config = { maxPre, maxParty };
+      meta.config = { maxPre, maxParty, ...(allowSameGender ? { allowSameGender: true as const } : {}) };
     }
     await this.ctx.storage.put("meta", meta);
     // 콕 횟수가 바뀌면 참가자 화면의 남은 횟수가 그 자리에서 재계산돼야 한다
@@ -345,7 +345,9 @@ export class EventDO extends DurableObject {
     const me = this.player(fromId);
     const target = this.player(toId);
     if (!me || !target) return fail("not_found");
-    if (me.gender === target.gender) return fail("same_gender");
+    // 자기 자신은 어떤 설정에서도 못 찌른다
+    if (me.id === target.id) return fail("same_gender");
+    if (!meta.config.allowSameGender && me.gender === target.gender) return fail("same_gender");
 
     const round = roundOf(meta.phase);
     const max = round === "pre" ? meta.config.maxPre : meta.config.maxParty;

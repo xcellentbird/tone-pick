@@ -64,7 +64,6 @@ const roundName = (r: PokeRound) => (r === "pre" ? "사전 투표" : "파티");
 export const DURATION = {
   hourMin: (h: number, m: number) => (m ? `${h}시간 ${m}분` : `${h}시간`),
   minOnly: (m: number) => `${m}분`,
-  minSec: (m: number, s: number) => `${m}분 ${String(s).padStart(2, "0")}초`,
 } as const;
 
 // ─────────────────────────────────────────── 참가자 · 입장/등록
@@ -431,6 +430,10 @@ export const HOST_UI = {
     revealAt: "발표 예정",
     maxPre: "사전 투표 콕 (1~5)",
     maxParty: "파티 콕 (1~10)",
+    pokeTarget: "콕을 찌를 수 있는 대상",
+    pokeTargetOpposite: "이성에게만",
+    pokeTargetAll: "모두에게",
+    pokeTargetNote: "'모두에게'로 두면 동성에게도 찌를 수 있어요. 자리 배정의 남녀 정원은 그대로예요.",
     masterPin: "공통 PIN",
     regOpenAfterH: "회차를 만들고 몇 시간 뒤에 등록을 열까요",
     voteWindowH: "등록 시작 후 몇 시간 뒤에 투표를 마감할까요",
