@@ -3,8 +3,11 @@
  *
  * 일정 기본값은 **파티 일시에서 거꾸로** 잰다 — 운영자가 실제로 아는 건 "언제 모이나" 하나뿐이다.
  *
- * 되돌리기는 **콕 횟수와 일정 오프셋만** 되돌린다. 운영자 PIN 과 이미 만든 회차는 그대로다 —
+ * 되돌리기는 **콕 횟수와 일정 오프셋만** 되돌린다. 이미 만든 회차는 그대로다 —
  * 확인창에서 그 사실을 숫자와 함께 보여준다.
+ *
+ * 운영자 PIN 은 여기서 바꾸지 않는다. 배포 시크릿(`MASTER_PIN`) 하나가 유일한 출처다 —
+ * 바꾸는 자리가 둘이면 지금 무엇이 맞는 PIN 인지 화면으로는 알 수 없다.
  */
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
@@ -23,7 +26,6 @@ export default function HostDefaults() {
   const { confirm, toast } = useOverlay();
 
   const [form, setForm] = useState<Defaults | null>(null);
-  const [masterPin, setMasterPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => setForm(loaded.data), [loaded.data]);
 
@@ -36,9 +38,8 @@ export default function HostDefaults() {
 
   async function save() {
     try {
-      const next = await put<Defaults>("/host/defaults", { ...form, masterPin: masterPin || undefined });
+      const next = await put<Defaults>("/host/defaults", form);
       loaded.set(next);
-      setMasterPin("");
       toast(BTN.saved);
     } catch (e) {
       setError(e instanceof ApiError ? (e.userMessage ?? HOST.pin.saveFailed) : HOST.pin.saveFailed);
@@ -105,18 +106,7 @@ export default function HostDefaults() {
           onChange={(v) => set("prevoteBeforeH", v)}
         />
 
-        <div className="field">
-          <label htmlFor="master">{HOST_UI.fields.masterPin}</label>
-          <input
-            id="master"
-            value={masterPin}
-            inputMode="numeric"
-            type="password"
-            autoComplete="off"
-            onChange={(e) => setMasterPin(e.target.value.replace(/[^0-9]/g, ""))}
-          />
-          {error && <span className="err">{error}</span>}
-        </div>
+        {error && <p className="err danger">{error}</p>}
 
         <button className="btn primary block" onClick={save}>
           {BTN.save}
