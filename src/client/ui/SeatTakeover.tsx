@@ -11,7 +11,7 @@ export default function SeatTakeover({ seat, onAck }: { seat: MySeat; onAck: () 
   return (
     <div className="takeover">
       {/* 마지막 자리라는 사실은 참가자에게 알리지 않는다 — kicker 가 알아서 문장을 고른다 */}
-      <div className="kicker">{SEAT.ack.kicker(seat.round, seat.final)}</div>
+      <div className="kicker">{SEAT.ack.kicker(seat.round)}</div>
       <div className="table">{SEAT.ack.headline(seat.table)}</div>
       <div className="dim">{SEAT.ack.mates(seat.mates, seat.men)}</div>
       <button className="btn primary block" onClick={onAck}>

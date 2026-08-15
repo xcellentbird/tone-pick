@@ -24,6 +24,12 @@ export default function Seats() {
 
   const base = `/host/events/${state.meta.id}/seating`;
   const draft = state.seatings.find((s) => s.status === "draft");
+  /** 서로 찌른 사람. 커플 자리에서만 쓴다 — 다른 라운드는 쌍을 붙이려 하지 않는다 */
+  const partner = new Map<string, string>();
+  for (const [a, b] of state.mutual) {
+    partner.set(a, b);
+    partner.set(b, a);
+  }
   const published = state.seatings.filter((s) => s.status === "published");
   const revealed = state.meta.phase === "done";
 
@@ -39,9 +45,24 @@ export default function Seats() {
 
   async function shuffle() {
     await post(`${base}/shuffle`);
-    toast(HOST.seating.shuffled);
+    // 커플 자리에서는 쌍이 제자리에 남는다. 그 사실을 그때 말해준다
+    toast(draft?.final ? HOST_UI.seats.shuffleKeepsPairs : HOST.seating.shuffled);
     setPicked(null);
     reload();
+  }
+
+  /** 이 맞교환이 **붙어 앉은 쌍을 떼어놓는가**. 커플 자리에서만 본다 */
+  function breaksPair(round: SeatingRound, a: string, b: string): boolean {
+    if (!round.final) return false;
+    const table = new Map(round.seats.map((s) => [s.playerId, s.table]));
+    return [
+      [a, b],
+      [b, a],
+    ].some(([one, other]) => {
+      const mate = partner.get(one);
+      // 짝과 지금 같은 테이블인데, 상대가 다른 테이블이면 이 교환으로 떨어진다
+      return !!mate && mate !== other && table.get(one) === table.get(mate) && table.get(other) !== table.get(one);
+    });
   }
 
   async function swap(playerId: string) {
@@ -49,21 +70,46 @@ export default function Seats() {
     if (picked === playerId) return setPicked(null);
     const first = picked;
     setPicked(null);
-    // 남녀를 맞바꿔도 된다. 인원은 그대로고, 바뀐 성비는 테이블 머리의 숫자에 바로 보인다
-    await post(`${base}/swap`, { a: first, b: playerId });
-    reload();
+
+    // 막지는 않는다 — 현장 사정은 운영자가 안다. 다만 무엇이 깨지는지는 말한다
+    const run = async () => {
+      // 남녀를 맞바꿔도 된다. 인원은 그대로고, 바뀐 성비는 테이블 머리의 숫자에 바로 보인다
+      await post(`${base}/swap`, { a: first, b: playerId });
+      reload();
+    };
+    if (draft && breaksPair(draft, first, playerId)) {
+      const name = (id: string) => state.players.find((p) => p.id === id)?.nickname ?? "";
+      return confirm(
+        {
+          btn: HOST_UI.seats.breakBtn,
+          title: HOST_UI.seats.breakTitle,
+          danger: true,
+          note: HOST_UI.seats.breakNote,
+          facts: [[HOST_UI.dash.mutualTitle, HOST_UI.dash.mutualPair(name(first), name(partner.get(first) ?? playerId))]],
+        },
+        run,
+      );
+    }
+    await run();
   }
 
   function askPublish(round: SeatingRound) {
     const perTable = round.seats.length / round.tableCount;
+    const pairs = pairStats(round, partner);
     confirm(
       {
         btn: HOST.seating.publish,
-        title: HOST_UI.seats.publishTitle,
+        title: round.final ? HOST_UI.seats.publishClosesTitle : HOST_UI.seats.publishTitle,
         facts: [
           [HOST_UI.seats.tableCount, `${round.tableCount}`],
           [HOST_UI.dash.registered(round.seats.length), UNIT.people(Math.round(perTable))],
-          [HOST_UI.seats.roundTitle(round.round, round.final), HOST.seating.draftOnly],
+          // 커플 자리는 성적표와 '배정이 닫힌다'는 사실을 함께 보여준다
+          ...(round.final
+            ? ([
+                [HOST_UI.dash.mutualTitle, HOST_UI.seats.pairSummary(pairs.together, pairs.total)],
+                [HOST_UI.seats.roundTitle(round.round, true), HOST_UI.seats.publishCloses],
+              ] as Array<[string, string]>)
+            : ([[HOST_UI.seats.roundTitle(round.round, false), HOST.seating.draftOnly]] as Array<[string, string]>)),
         ],
       },
       async () => {
@@ -115,8 +161,10 @@ export default function Seats() {
       {draft && (
         <div className="card stack">
           <div className="kicker">{HOST_UI.seats.roundTitle(draft.round, draft.final)}</div>
+          {/* 커플 자리의 성적표. 이 라운드가 제 일을 했는지 여기서 보인다 (ADR-23) */}
+          {draft.final && <PairReport round={draft} partner={partner} state={state} />}
           <p className="small dim">{HOST_UI.seats.swapHint}</p>
-          <Tables round={draft} picked={picked} onPick={swap} state={state} />
+          <Tables round={draft} picked={picked} onPick={swap} state={state} partner={draft.final ? partner : undefined} />
           <div className="row">
             <button
               className="btn wide ghost"
@@ -147,10 +195,55 @@ export default function Seats() {
             <span className="kicker">{HOST_UI.seats.roundTitle(round.round, round.final)}</span>
             <span className="small dim">{HOST.ack.progress(round.acks.length, round.seats.length)}</span>
           </div>
-          <Tables round={round} picked={null} onPick={() => {}} state={state} />
+          <Tables round={round} picked={null} onPick={() => {}} state={state} partner={round.final ? partner : undefined} />
           <Unassigned round={round} state={state} />
         </div>
       ))}
+    </div>
+  );
+}
+
+/** 서로 찌른 쌍이 **같은 테이블에 앉았는가**. 커플 자리의 성적표다 */
+function pairStats(round: SeatingRound, partner: Map<string, string>) {
+  const table = new Map(round.seats.map((s) => [s.playerId, s.table]));
+  const seen = new Set<string>();
+  let total = 0;
+  const split: Array<[string, string]> = [];
+  for (const [a, b] of partner) {
+    if (seen.has(a) || seen.has(b)) continue;
+    seen.add(a);
+    seen.add(b);
+    // 이 라운드에 자리가 없는 사람(늦게 등록)은 세지 않는다
+    if (!table.has(a) || !table.has(b)) continue;
+    total++;
+    if (table.get(a) !== table.get(b)) split.push([a, b]);
+  }
+  return { total, together: total - split.length, split };
+}
+
+/** 이 배정이 제 일을 했는지 한눈에. 못 붙인 쌍은 운영자가 손볼 수 있는 유일한 신호다 */
+function PairReport({
+  round,
+  partner,
+  state,
+}: {
+  round: SeatingRound;
+  partner: Map<string, string>;
+  state: ReturnType<typeof useConsole>["state"];
+}) {
+  const { total, together, split } = pairStats(round, partner);
+  const name = (id: string) => state.players.find((p) => p.id === id)?.nickname ?? "";
+  if (total === 0) return <p className="small dim">{HOST_UI.seats.pairNone}</p>;
+  return (
+    <div className="stack">
+      <span className="small">{HOST_UI.seats.pairSummary(together, total)}</span>
+      {split.length === 0 ? (
+        <span className="small okText">{HOST_UI.seats.pairAllTogether}</span>
+      ) : (
+        <span className="small warnText">
+          {HOST_UI.seats.pairSplit(split.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", "))}
+        </span>
+      )}
     </div>
   );
 }
@@ -160,10 +253,13 @@ function Tables({
   picked,
   onPick,
   state,
+  partner,
 }: {
   round: SeatingRound;
   picked: string | null;
   onPick: (playerId: string) => void;
+  /** 있으면 같은 테이블에 앉은 쌍에 💘 를 붙인다. 커플 자리에서만 넘어온다 */
+  partner?: Map<string, string>;
   state: ReturnType<typeof useConsole>["state"];
 }) {
   const tables = Array.from({ length: round.tableCount }, (_, i) => i + 1);
@@ -182,7 +278,11 @@ function Tables({
               <span className="men">{HOST_UI.seats.men(men)}</span>
               <span className="women">{HOST_UI.seats.women(here.length - men)}</span>
             </div>
-            {here.map((person) => (
+            {here.map((person) => {
+              // 짝이 이 테이블에 함께 앉았는가. 커플 자리에서만 본다
+              const mate = partner?.get(person.id);
+              const withMate = !!mate && here.some((x) => x.id === mate);
+              return (
               <button
                 className={`seatChip ${person.gender === "M" ? "m" : "f"} ${picked === person.id ? "picked" : ""}`}
                 key={person.id}
@@ -190,7 +290,10 @@ function Tables({
               >
                 <span className="grow" style={{ minWidth: 0 }}>
                   <span className="row between">
-                    <span className="ellipsis">{person.nickname}</span>
+                    <span className="ellipsis">
+                      {withMate && "💘 "}
+                      {person.nickname}
+                    </span>
                     {/* 색만으로 구분하지 않는다 */}
                     <span className="sex">{person.gender === "M" ? "♂" : "♀"}</span>
                   </span>
@@ -200,7 +303,8 @@ function Tables({
                   </span>
                 </span>
               </button>
-            ))}
+              );
+            })}
           </div>
         );
       })}

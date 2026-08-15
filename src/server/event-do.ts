@@ -671,6 +671,10 @@ export class EventDO extends DurableObject {
    * 테이블마다 남 몇·여 몇인지는 손대지 않고, 그 자리에 누가 앉는지만 바꾼다.
    * 나이차·재회·콕 보너스는 보지 않는다 — 운영자가 "그냥 다시 섞어줘" 라고 할 때 쓰는 손잡이다.
    * 다시 계산하고 싶으면 자리 재배정을 누르면 된다.
+   *
+   * **커플 자리에서는 이어진 쌍이 움직이지 않는다** (ADR-23).
+   * 그 배정의 목적이 쌍을 같은 테이블에 앉히는 것인데, 섞기가 그걸 흩어놓으면
+   * 버튼 하나로 그 라운드가 무의미해진다. 붙어 앉은 쌍은 자리를 지키고 나머지만 섞인다.
    */
   async shuffleSeating(): Promise<Result<SeatingRound>> {
     const draft = this.seatings().find((s) => s.status === "draft");
@@ -679,14 +683,30 @@ export class EventDO extends DurableObject {
     const gender = new Map(
       this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
     );
+    const held = draft.final ? this.pairedSeatIds(draft) : new Set<string>();
+
     for (const g of ["M", "F"] as const) {
-      // 이 성별이 앉아 있던 자리들과 사람들을 따로 모아, 사람 쪽만 섞어 도로 앉힌다
-      const mine = draft.seats.filter((s) => gender.get(s.playerId) === g);
+      // 이 성별이 앉아 있던 자리들과 사람들을 따로 모아, 사람 쪽만 섞어 도로 앉힌다.
+      // 붙어 앉은 쌍은 애초에 이 목록에 들어오지 않으므로 제자리에 남는다
+      const mine = draft.seats.filter((s) => gender.get(s.playerId) === g && !held.has(s.playerId));
       const ids = shuffle(mine.map((s) => s.playerId));
       mine.forEach((seat, i) => (seat.playerId = ids[i]));
     }
     this.writeSeating(draft);
     return ok(draft);
+  }
+
+  /** 이 배정에서 **같은 테이블에 앉은** 상호 매칭 쌍의 사람들 */
+  private pairedSeatIds(round: SeatingRound): Set<string> {
+    const table = new Map(round.seats.map((s) => [s.playerId, s.table]));
+    const held = new Set<string>();
+    for (const [a, b] of this.pairs().mutual) {
+      if (table.has(a) && table.get(a) === table.get(b)) {
+        held.add(a);
+        held.add(b);
+      }
+    }
+    return held;
   }
 
   async discardSeating(): Promise<Result<true>> {
