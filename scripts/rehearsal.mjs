@@ -142,6 +142,7 @@ await pool([...Array(PEOPLE).keys()], WIDTH, async (i) => {
       realName: `가짜${i}`,
       age: 24 + (i % 21),
       gender: i % 2 === 0 ? "M" : "F",
+      instagram: `rehearsal_${i}`,
       mbti: i % 3 === 0 ? "ISTJ" : "ENFP",
       charms: ["리허설용 매력 하나", "둘", "셋"],
     },

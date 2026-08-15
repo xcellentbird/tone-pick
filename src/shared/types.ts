@@ -21,7 +21,12 @@ export interface Player {
   age: number;
   gender: Gender;
   phone: string;             // 운영자 전용 · 재접속 키
-  instagram?: string;        // 운영자 전용 · 선택
+  /**
+   * 운영자 전용 + 발표 후 서로 찌른 상대에게 (ADR-19).
+   * 등록에서는 **필수**지만 타입은 선택이다 — 저장된 자료는 코드보다 오래 살고,
+   * 필수가 되기 전에 등록한 사람의 행에는 이 값이 없다.
+   */
+  instagram?: string;
   mbti: string;              // "ENFP"
   charms: [string, string, string];
   noShow?: boolean;
@@ -288,7 +293,8 @@ export interface RegisterInput {
   realName: string;
   age: number;
   gender: Gender;
-  instagram?: string;
+  /** 필수. 매칭되면 서로에게 공개되는 연락 수단이라 (ADR-19) 없이는 매칭이 반쪽이 된다 */
+  instagram: string;
   mbti: string;
   charms: [string, string, string];
 }

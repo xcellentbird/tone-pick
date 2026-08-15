@@ -67,7 +67,7 @@ export default function Register() {
         realName: draft.realName.trim(),
         age: Number(draft.age),
         gender: draft.gender as "M" | "F",
-        instagram: draft.instagram.trim() || undefined,
+        instagram: draft.instagram.trim(),
         mbti: MBTI_AXES.map((_, i) => draft.mbti[i]).join(""),
         charms: draft.charms.map((c) => c.trim()) as [string, string, string],
       };
@@ -232,7 +232,8 @@ function validate(d: Draft, step: number): { field: string; text: string } | nul
     if (!d.gender) return { field: "gender", text: REGISTER.err.gender };
   }
   if (step === 2) {
-    if (d.instagram && !/^[A-Za-z0-9._]+$/.test(d.instagram.trim())) {
+    if (!d.instagram.trim()) return { field: "instagram", text: REGISTER.err.instaRequired };
+    if (!/^[A-Za-z0-9._]+$/.test(d.instagram.trim())) {
       return { field: "instagram", text: REGISTER.err.insta };
     }
   }
