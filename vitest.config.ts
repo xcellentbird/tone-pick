@@ -25,7 +25,16 @@ export default defineConfig({
             },
           }),
         ],
-        test: { name: "worker", include: ["test/*.test.ts"] },
+        test: {
+          name: "worker",
+          include: ["test/*.test.ts"],
+          /**
+           * 회차 DO 는 요청을 **한 줄로** 처리한다. 여덟 명을 등록하는 테스트는
+           * 명단·입장·등록 세 왕복 × 8 이 순서대로 서므로 기본 5초를 넘길 때가 있다.
+           * 느린 것이지 틀린 게 아니라, 여유를 넓힌다.
+           */
+          testTimeout: 20_000,
+        },
       },
       {
         plugins: [react()],

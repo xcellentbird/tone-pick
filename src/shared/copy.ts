@@ -639,11 +639,21 @@ export const HOST_UI = {
    * 남는 건 **서로 찌른 커플**과 **사전 투표 1위**, 운영에 실제로 쓰는 둘이다.
    */
   dash: {
-    mutualTitle: "서로 찌른 커플",
+    mutualTitle: (n: number) => `💘 상호 매칭 ${n}쌍`,
     mutualNone: "아직 서로 찌른 쌍이 없어요",
     mutualPair: (a: string, b: string) => `${a} ↔ ${b}`,
-    prevoteTop: "사전 투표 1위",
+    prevoteTop: "👑 사전 투표 1위",
+    /** 왕관 카드의 머리. 남녀 각각 한 장 */
+    crown: (gender: "M" | "F") => `${gender === "M" ? "남성" : "여성"} 1위`,
+    gotPokes: (n: number) => `받은 콕 ${n}회`,
     noVotes: "아직 콕이 없어요",
+    /**
+     * 받은 콕 순위. **현황 탭에서만** 본다 (ADR-30) —
+     * 참가자 탭의 개인 행에는 넣지 않는다. 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
+     */
+    rankTitle: "🔥 받은 콕 순위",
+    rankNote: "전체 라운드 합계 · 운영자만",
+    live: "실시간 · 운영자만",
     registered: (n: number) => `등록 ${n}명`,
   },
 
@@ -708,6 +718,8 @@ export const HOST_UI = {
      * 이 라운드의 목적은 **서로 찌른 쌍을 같은 테이블에 앉히는 것** 하나다.
      * 이름만 늘어놓으면 그게 됐는지 눈으로 확인할 방법이 없다.
      */
+    /** 확인창의 항목 이름. 현황 탭의 카드 제목과 달리 숫자가 붙지 않는다 */
+    pairLabel: "서로 찌른 쌍",
     pairSummary: (together: number, total: number) => `서로 찌른 ${total}쌍 중 ${together}쌍을 같은 테이블에`,
     /** 인원 구성상 100%가 안 될 수 있다. 못 붙인 쌍이 운영자가 손볼 수 있는 유일한 신호다 */
     pairSplit: (names: string) => `⚠️ 떨어진 쌍: ${names}`,

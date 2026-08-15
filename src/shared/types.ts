@@ -356,12 +356,13 @@ export interface HostState {
   meta: EventMeta;
   players: Player[];
   /**
-   * playerId -> 보낸 콕.
+   * playerId -> 보낸 콕 / 받은 콕.
    *
-   * **받은 콕은 내려가지 않는다** (ADR-22). 운영자가 알면 그 사람을 다르게 대하게 되고,
-   * 그건 이 앱이 없애려던 경험이다. 화면에서 감추는 게 아니라 응답에 없다.
+   * 받은 콕은 **현황 탭의 순위**에서만 쓴다 (ADR-30).
+   * 참가자 탭의 개인 행에는 넣지 않는다 — 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
    */
   sent: Record<string, number>;
+  received: Record<string, number>;
   /** 사전 투표에서 받은 콕 순위 (내림차순) */
   prevoteRank: Array<{ id: string; count: number }>;
   mutual: Array<[string, string]>;

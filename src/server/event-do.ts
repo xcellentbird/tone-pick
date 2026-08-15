@@ -651,17 +651,20 @@ export class EventDO extends DurableObject {
     const pokes = this.pokes().filter((k) => here.has(k.fromId) && here.has(k.toId));
 
     const sent: Record<string, number> = {};
+    const received: Record<string, number> = {};
     const preReceived: Record<string, number> = {};
     // 상한을 내릴 수 있는지 판단하려면 **한 사람이 라운드마다 몇 번 썼는지**가 필요하다
     const usedBy: Record<PokeRound, Record<string, number>> = { pre: {}, party: {} };
     for (const p of players) {
       sent[p.id] = 0;
+      received[p.id] = 0;
       preReceived[p.id] = 0;
     }
     const pokeCount: Record<PokeRound, number> = { pre: 0, party: 0 };
     const pairs = new Set<string>();
     for (const k of pokes) {
       sent[k.fromId] = (sent[k.fromId] ?? 0) + 1;
+      received[k.toId] = (received[k.toId] ?? 0) + 1;
       if (k.round === "pre") preReceived[k.toId] = (preReceived[k.toId] ?? 0) + 1;
       usedBy[k.round][k.fromId] = (usedBy[k.round][k.fromId] ?? 0) + 1;
       pokeCount[k.round]++;
@@ -681,6 +684,7 @@ export class EventDO extends DurableObject {
       meta,
       players,
       sent,
+      received,
       prevoteRank: Object.entries(preReceived)
         .map(([id, count]) => ({ id, count }))
         .sort((a, b) => b.count - a.count),

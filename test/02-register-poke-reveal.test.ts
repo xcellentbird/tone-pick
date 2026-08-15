@@ -1015,18 +1015,26 @@ describe("콕 상한", () => {
     expect(res.body.code).toBe(ev.code);
   });
 
-  it("★ 운영자 응답에 받은 콕이 없다", async () => {
+  it("★ 받은 콕은 현황 탭 순위로만 쓴다", async () => {
+    // 운영자에게 아예 감췄다가(ADR-22), 현황 탭의 순위로만 되살렸다 (ADR-30).
+    // 참가자 탭의 개인 행에는 여전히 넣지 않는다 — 명단을 훑으며 한 사람씩 볼 숫자가 아니다
     const ev = await freshEvent();
     const me = await join(ev);
     const her = await join(ev, { gender: "F" });
     await setPhase(ev.id, "prevote");
     await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
 
-    const state = await api<Record<string, unknown>>(`/api/host/events/${ev.id}/state`, { cookie: master });
-    // 화면에서 감추는 게 아니라 응답에 없다 (ADR-22)
-    expect(Object.keys(state.body)).not.toContain("received");
-    // 사전 투표 1위는 그대로 나온다 — 그건 운영에 쓴다
+    const state = await api<{ received: Record<string, number>; prevoteRank: unknown }>(
+      `/api/host/events/${ev.id}/state`,
+      { cookie: master },
+    );
+    expect(state.body.received[her.id]).toBe(1);
+    expect(state.body.received[me.id]).toBe(0);
     expect(state.body.prevoteRank).toBeTruthy();
+
+    // 참가자에게는 여전히 남의 받은 콕이 가지 않는다
+    const mine = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(JSON.stringify(mine.body.roster)).not.toContain("received");
   });
 });
 

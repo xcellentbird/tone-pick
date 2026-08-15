@@ -23,14 +23,15 @@ import type { Phase } from "../../../shared/types.ts";
 import { PHASE_ORDER } from "../../../shared/phase.ts";
 import { formatGap, formatWhen } from "../../../shared/time.ts";
 import { post } from "../../lib/api.ts";
+import Avatar from "../../ui/Avatar.tsx";
 import { now } from "../../lib/serverTime.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
-import { useConsole } from "./HostConsole.tsx";
+import { useConsole, type ConsoleState } from "./HostConsole.tsx";
 
 export default function Dash() {
   const { state, reload } = useConsole();
   const { confirm, toast } = useOverlay();
-  const { meta, players, prevoteRank, mutual, seatings } = state;
+  const { meta, players, prevoteRank, mutual, received, seatings } = state;
 
   const nextPhase = PHASE_ORDER[PHASE_ORDER.indexOf(meta.phase) + 1] as Phase | undefined;
   const lastSeating = seatings.filter((s) => s.status === "published").at(-1);
@@ -97,40 +98,115 @@ export default function Dash() {
       {/* 링크만 보내면 참가자가 문 앞에서 막힌다. 코드를 따로 알려야 한다는 걸 여기서 못 박는다 */}
       <p className="tiny dim">{HOST_UI.entryLinkNote}</p>
 
+      {/* 👑 사전 투표 1위 — 진행 멘트에 쓰는 정보라 이름이 크게 읽혀야 한다 */}
+      <div className="row between">
+        <span className="kicker">{HOST_UI.dash.prevoteTop}</span>
+        <span className="tiny dim">{HOST_UI.dash.live}</span>
+      </div>
+      {(["M", "F"] as const).map((g) => {
+        // 공동 1위는 **함께** 보여준다. 한 명만 집으면 나머지가 조용히 가려진다
+        const mine = prevoteRank.filter((r) => players.find((p) => p.id === r.id)?.gender === g && r.count > 0);
+        const best = mine[0]?.count ?? 0;
+        const tops = mine.filter((r) => r.count === best).map((r) => players.find((p) => p.id === r.id));
+        if (tops.length === 0) {
+          return (
+            <div className="card" key={g}>
+              <div className="kicker">{HOST_UI.dash.crown(g)}</div>
+              <span className="small dim">{HOST_UI.dash.noVotes}</span>
+            </div>
+          );
+        }
+        return (
+          <div className="crown stack" key={g}>
+            <div className="kicker">{HOST_UI.dash.crown(g)}</div>
+            {tops.map((p) => (
+              <div className="row" key={p!.id}>
+                <span className="ico">👑</span>
+                <Avatar nickname={p!.nickname} />
+                <span className="grow">
+                  <span className="name">{p!.nickname}</span>
+                  <div className="small dim">
+                    {p!.realName} · {HOST_UI.dash.gotPokes(best)}
+                  </div>
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+
+      {/* 💘 상호 매칭 — 자리를 붙일지 판단하는 자리 */}
       <div className="card stack">
-        <div className="kicker">{HOST_UI.dash.mutualTitle}</div>
+        <div className="kicker">{HOST_UI.dash.mutualTitle(mutual.length)}</div>
         {mutual.length === 0 ? (
           <span className="small dim">{HOST_UI.dash.mutualNone}</span>
         ) : (
           mutual.map(([a, b]) => (
-            <span className="small" key={`${a}>${b}`}>
-              {HOST_UI.dash.mutualPair(nick(a), nick(b))}
-            </span>
+            <div className="row pairRow" key={`${a}>${b}`}>
+              <Avatar nickname={nick(a)} size="sm" />
+              <span className="grow ellipsis">{nick(a)}</span>
+              <span>💘</span>
+              <span className="grow ellipsis" style={{ textAlign: "right" }}>
+                {nick(b)}
+              </span>
+              <Avatar nickname={nick(b)} size="sm" />
+            </div>
           ))
         )}
       </div>
 
-      <div className="card stack">
-        <div className="kicker">{HOST_UI.dash.prevoteTop}</div>
-        {(["M", "F"] as const).map((g) => {
-          // 공동 1위는 **함께** 보여준다. 한 명만 집으면 나머지가 조용히 가려진다
-          const mine = prevoteRank.filter((r) => players.find((p) => p.id === r.id)?.gender === g && r.count > 0);
-          const best = mine[0]?.count ?? 0;
-          const tops = mine.filter((r) => r.count === best);
-          const names = tops.map((r) => players.find((p) => p.id === r.id)?.nickname).filter(Boolean);
-          return (
-            <span className="small" key={g}>
-              {names.length ? `${names.join(", ")} · ${UNIT.times(best)}` : HOST_UI.dash.noVotes}
-            </span>
-          );
-        })}
+      {/*
+        🔥 받은 콕 순위. 현황 탭에서만 본다 (ADR-30) —
+        참가자 탭의 개인 행에는 넣지 않는다. 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
+      */}
+      <div className="row between">
+        <span className="kicker">{HOST_UI.dash.rankTitle}</span>
+        <span className="tiny dim">{HOST_UI.dash.rankNote}</span>
       </div>
+      <Ranking players={players} received={received} />
 
       {lastSeating && (
         <div className="card stack">
           <div className="kicker">{HOST.ack.progress(lastSeating.acks.length, lastSeating.seats.length)}</div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 받은 콕 순위. 바 길이는 1위 대비 비율이다 — 절대 수보다 "얼마나 몰렸나" 가 눈에 들어온다.
+ *
+ * 0회인 사람도 목록에 남긴다. 빼면 **빠진 사람이 곧 0회**라 감춘 게 감춰지지 않는다.
+ */
+function Ranking({
+  players,
+  received,
+}: {
+  players: ConsoleState["players"];
+  received: Record<string, number>;
+}) {
+  const rows = players
+    .map((p) => ({ p, n: received[p.id] ?? 0 }))
+    .sort((a, b) => b.n - a.n || a.p.nickname.localeCompare(b.p.nickname));
+  const top = Math.max(1, rows[0]?.n ?? 0);
+
+  return (
+    <div className="stack">
+      {rows.map((r, i) => (
+        <div className="rank" key={r.p.id}>
+          <span className={`no ${i === 0 && r.n > 0 ? "top" : ""}`}>{i + 1}</span>
+          <Avatar nickname={r.p.nickname} size="sm" />
+          <span className="who">
+            <span className="name">{r.p.nickname}</span>
+            <span className="small dim"> {r.p.realName}</span>
+            <span className="bar">
+              <i style={{ width: `${(r.n / top) * 100}%` }} />
+            </span>
+          </span>
+          <span className="ct">{r.n}</span>
+        </div>
+      ))}
     </div>
   );
 }
