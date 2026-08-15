@@ -55,24 +55,12 @@
   --on-gold: #241a00;
 
   /*
-   * 성별 색 계열 — 파랑=남, 분홍=여. 아바타 배경(--av-m/--av-f)과 같은 뜻이다.
-   * 자리 탭의 띠·숫자는 이 단색을, 아바타는 그라데이션을 쓴다.
+   * 성별 색 계열 — 파랑=남, 분홍=여. 자리 탭의 띠·숫자와 **아바타 링**이 같은 단색을 쓴다.
    * 색만으로 구분하지 않는다 — 자리 탭에는 ♂/♀ 기호를 함께 남긴다 (색각 이상).
    * 단계 색(앰버·청록)과 겹치지 않는 계열로 골랐다.
    */
   --male: #5b9dff;
   --female: #ff7eb6;
-
-  /*
-   * 아바타 배경 — **성별**을 말한다 (ADR-30 보완). 사람 구분은 동물이 맡는다.
-   * 자리 탭의 성별 색(--male/--female)과 같은 계열이다. 화면이 달라도 파랑=남, 분홍=여.
-   *
-   * 프로토타입 그라데이션(파랑→보라, 분홍→주황)을 그대로 가져왔다가 물렀다 —
-   * 보라 끝은 주 색(--accent, 매칭 강조)과 색각 이상에서 완전히 겹치고,
-   * 주황 끝은 경고(--warn)·파티 앰버(--gold) 계열로 넘어간다. 성별은 성별 계열 안에 머문다.
-   */
-  --av-m: linear-gradient(140deg, #6ab0ff, #3b82f6);
-  --av-f: linear-gradient(140deg, #ff4d8d, #ff7eb6);
 
   /*
    * 하트 — **콕(보낸 마음)의 색.** 매칭은 참가자·운영자 모두 주 색(--accent) 하나다 —
@@ -88,7 +76,7 @@
    * NT 보라 · NF 초록 · SJ 파랑 · SP 노랑.
    *
    * NT 보라가 주 색과 같은 계열인 건 **알고 허용했다** — 배지는 글자(INTJ)가 정보를
-   * 다 나르고 색은 보조라, 아바타 그라데이션(색이 곧 정보)과는 기준이 다르다.
+   * 다 나르고 색은 보조라, 아바타 링(색이 곧 정보)과는 기준이 다르다.
    * 16personalities 관행을 깨고 NT 를 딴 색으로 옮기는 비용이 더 크다.
    */
   --mbti-nt: #bd93f9;
@@ -476,22 +464,37 @@ button {
 }
 .choice button[aria-pressed="true"] .filterCount { opacity: 0.85; }
 
-/* 아바타 — 동물 한 마리가 성별 색 원 안에. 동물은 사람을, 색은 남녀를 말한다 (ADR-30) */
+/*
+ * 아바타 — 동물 한 마리가 원 안에. 동물은 사람을, **링 색**은 남녀를 말한다 (ADR-30).
+ *
+ * 처음엔 채도 높은 성별 그라데이션으로 원을 채웠는데, 이모지 고유색과 싸웠다 —
+ * 분홍 고래가 분홍 위에서 뭉개졌다. 이모지는 말풍선 같은 중립 배경용 그림이다.
+ * 그래서 바닥은 어두운 틴트로 낮추고, 성별의 채도는 **링**이 다 가져간다:
+ * 남녀는 더 또렷해지고 동물은 자기 색으로 뜬다.
+ */
 .avatar {
   width: 42px;
   height: 42px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font-size: 21px;
+  font-size: 23px;
   line-height: 1;
   flex: none;
 }
-.avatar.sm { width: 30px; height: 30px; font-size: 15px; }
-.avatar.lg { width: 62px; height: 62px; font-size: 31px; }
+.avatar.sm { width: 30px; height: 30px; font-size: 16px; }
+.avatar.lg { width: 62px; height: 62px; font-size: 35px; }
 
-.avatar.m { background: var(--av-m); }
-.avatar.f { background: var(--av-f); }
+.avatar.m {
+  background: color-mix(in srgb, var(--male) 18%, var(--card-2));
+  border: 2px solid var(--male);
+}
+.avatar.f {
+  background: color-mix(in srgb, var(--female) 18%, var(--card-2));
+  border: 2px solid var(--female);
+}
+/* 작은 원에서 2px 링은 이모지를 잡아먹는다. border 축약형 **뒤**에 와야 덮이지 않는다 */
+.avatar.sm { border-width: 1.5px; }
 
 .pokeBtn {
   border: 1px solid var(--line);
