@@ -601,9 +601,20 @@ button {
   text-wrap: balance;
 }
 
-.fortuneStep {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
+/* 세 문단. 폰에서 읽는 글이라 줄 간격을 넉넉히 준다 */
+.fortuneBody {
+  margin: 0;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+/* 미션은 읽고 끝나는 게 아니라 **하는 것**이다. 오늘의 색으로 한 겹 띄운다 */
+.fortuneMission {
+  margin-top: 4px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent);
+  background: color-mix(in srgb, var(--tone) 10%, transparent);
   display: flex;
   flex-direction: column;
   gap: 6px;

@@ -36,6 +36,7 @@ import type {
   MySeat,
 } from "../shared/types.ts";
 import type { Fortune } from "../shared/fortune.ts";
+import { readFortune } from "../shared/fortune.ts";
 import { rosterOpen, toPublic } from "../shared/types.ts";
 import { ENTRY } from "../shared/copy.ts";
 import { ENTRY_TRIES, LIMITS, normalizeNickname, normalizePhone } from "../shared/constants.ts";
@@ -492,7 +493,7 @@ export class EventDO extends DurableObject {
       poke: await this.pokeState(playerId, meta),
       seat: this.mySeat(playerId),
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
-      ...(saved ? { fortune: JSON.parse(saved.json) as Fortune } : {}),
+      ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),
     });
   }
 
@@ -567,7 +568,7 @@ export class EventDO extends DurableObject {
    */
   async fortuneOf(playerId: string): Promise<Result<Fortune | null>> {
     const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
-    return ok(row ? (JSON.parse(row.json) as Fortune) : null);
+    return ok(row ? readFortune(JSON.parse(row.json)) : null);
   }
 
   /**
@@ -582,7 +583,7 @@ export class EventDO extends DurableObject {
       JSON.stringify(fortune),
     );
     const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
-    return ok(JSON.parse(row.json) as Fortune);
+    return ok(readFortune(JSON.parse(row.json)));
   }
 
   // ─────────────────────────── 자리

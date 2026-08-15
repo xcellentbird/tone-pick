@@ -11,8 +11,10 @@ import {
   fallbackFortune,
   fortuneInput,
   matchTypes,
+  paragraphs,
   parseFortune,
   pickColor,
+  readFortune,
   seedOf,
 } from "../src/shared/fortune.ts";
 import { FORTUNE } from "../src/shared/copy.ts";
@@ -65,7 +67,7 @@ describe("한 번 연 운세는 바뀌지 않는다", () => {
     const b = fallbackFortune(fortuneInput(PLAYER), 999, FORTUNE.fallback);
     expect(b.headline).toBe(a.headline);
     expect(b.color).toBe(a.color);
-    expect(b.step).toBe(a.step);
+    expect(b.mission).toBe(a.mission);
   });
 
   it("사람이 다르면 다르게 나온다", () => {
@@ -84,8 +86,9 @@ describe("외부 서비스가 없어도", () => {
   it("★ 규칙 문구만으로 화면에 들어갈 것이 다 채워진다", () => {
     const f = fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback);
     expect(f.headline.length).toBeGreaterThan(0);
-    expect(f.body.length).toBeGreaterThan(0);
-    expect(f.step.length).toBeGreaterThan(0);
+    expect(f.mission.length).toBeGreaterThan(0);
+    // 오늘의 기운은 세 문단이다
+    expect(paragraphs(f.body)).toHaveLength(3);
     expect(f.matchTypes).toHaveLength(2);
     expect(f.fallback).toBe(true);
     // 본인이 쓴 매력을 그대로 안아 쓴다. 남이 지어준 말보다 잘 맞는다
@@ -102,27 +105,46 @@ describe("모델이 뱉은 것을 읽을 때", () => {
   const input = fortuneInput(PLAYER);
 
   it("코드 블록으로 감싸 와도 읽는다", () => {
-    const raw = '```json\n{"headline":"천천히 걷는 밤","body":"오늘은 이런 날이에요.","step":"뭐 좋아하세요?"}\n```';
+    const raw = '```json\n{"headline":"천천히 걷는 밤","body":"오늘은 이런 날이에요.","mission":"이름을 물어보세요"}\n```';
     expect(parseFortune(raw, input, 1)?.headline).toBe("천천히 걷는 밤");
   });
 
   it("★ 하나라도 비면 통째로 버린다 — 반쯤 채워진 운세가 제일 이상하다", () => {
     for (const raw of [
-      '{"headline":"","body":"b","step":"s"}',
+      '{"headline":"","body":"b","mission":"m"}',
       '{"headline":"h","body":"b"}',
       "그냥 아무 말",
       "",
-      `{"headline":"${"긴".repeat(100)}","body":"b","step":"s"}`,
+      `{"headline":"${"긴".repeat(100)}","body":"b","mission":"m"}`,
     ]) {
       expect(parseFortune(raw, input, 1)).toBeNull();
     }
   });
 
   it("모델이 뭘 넣어 보내든 화면에 들어가는 항목만 통과한다", () => {
-    const raw = '{"headline":"h","body":"b","step":"s","score":92,"color":"#ff0000"}';
+    const raw = '{"headline":"h","body":"b","mission":"m","score":92,"color":"#ff0000"}';
     const f = parseFortune(raw, input, 1)!;
-    expect(Object.keys(f).sort()).toEqual(["at", "body", "color", "headline", "matchTypes", "step"]);
+    expect(Object.keys(f).sort()).toEqual(["at", "body", "color", "headline", "matchTypes", "mission"]);
     expect(Object.keys(FORTUNE.colorName)).toContain(f.color);
+  });
+});
+
+describe("저장된 옛 모양", () => {
+  it("★ '오늘의 한 걸음' 시절에 저장된 운세도 미션 자리에 들어온다", () => {
+    // 저장된 자료는 코드보다 오래 산다. 이름이 바뀌었다고 칸이 비면 안 된다
+    const old = { headline: "h", body: "b", step: "옛 문구", color: "gold", matchTypes: ["ENFP", "ENTJ"], at: 1 };
+    const f = readFortune(old);
+    expect(f.mission).toBe("옛 문구");
+    expect(Object.keys(f)).not.toContain("step");
+  });
+});
+
+describe("문단 나누기", () => {
+  it("빈 줄이 문단 경계다", () => {
+    expect(paragraphs("하나\n\n둘\n\n셋")).toEqual(["하나", "둘", "셋"]);
+    // 한 문단만 와도 그대로 한 덩어리로 그린다
+    expect(paragraphs("한 덩어리")).toEqual(["한 덩어리"]);
+    expect(paragraphs("  \n\n  ")).toEqual([]);
   });
 });
 
