@@ -8,8 +8,8 @@
  * 되돌리기는 지금 화면에 두지 않는다. 그래서 확인창이 "되돌릴 수 없다"고 분명히 말한다.
  */
 import { useState } from "react";
-import { BTN, PEOPLE, POKE, REVEAL, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
-import type { ParticipantState, PublicPlayer } from "../../shared/types.ts";
+import { BTN, ME, PEOPLE, POKE, REVEAL, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
+import type { MatchInfo, ParticipantState, PublicPlayer } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
@@ -92,7 +92,7 @@ export default function People({ state, source, reload, profileId, onProfile, co
             </button>
           ))}
         </div>
-        {open && <span className="small dim">{STATUS.pokeLeft(budget.max - budget.used)}</span>}
+        {open && <span className="small dim">{STATUS.roundLeft(round, budget.max - budget.used)}</span>}
       </div>
 
       {list.length === 0 && <p className="dim center">{PEOPLE.empty}</p>}
@@ -139,7 +139,10 @@ export default function People({ state, source, reload, profileId, onProfile, co
                     ? REVEAL.hintSameTable(matched.get(profile.id)!.sameTable!)
                     : REVEAL.hintOther}
                 </span>
-                {/* 매칭돼도 연락처는 주지 않는다 (ADR-1) */}
+
+                {/* 연락처는 **서로 찌른 사이에게만** 열린다 (ADR-19) */}
+                <div className="kicker">{REVEAL.contactTitle}</div>
+                <Contact match={matched.get(profile.id)!} />
                 <span className="tiny dim">{REVEAL.contactNote}</span>
               </div>
             )}
@@ -181,6 +184,36 @@ export default function People({ state, source, reload, profileId, onProfile, co
 }
 
 /** 보낸 횟수와 찌르기 버튼. 되돌리기는 지금 화면에 없다 */
+/**
+ * 서로 찌른 상대의 연락처.
+ *
+ * 전화와 인스타는 **누를 수 있게** 둔다 — 파티장에서 번호를 손으로 옮겨 적게 하지 않는다.
+ * 이 컴포넌트는 `MatchInfo` 없이는 그려지지 않는다. 그 타입이 곧 "발표 후 서로 찌른 쌍"이다.
+ */
+function Contact({ match }: { match: MatchInfo }) {
+  const { realName, phone, instagram } = match.contact;
+  return (
+    <div className="stack">
+      <div className="row between">
+        <span className="small dim">{ME.labels.realName}</span>
+        <span>{realName}</span>
+      </div>
+      <div className="row between">
+        <span className="small dim">{ME.labels.phone}</span>
+        <a href={`tel:${phone}`}>{phone}</a>
+      </div>
+      {instagram && (
+        <div className="row between">
+          <span className="small dim">{ME.labels.instagram}</span>
+          <a href={`https://instagram.com/${instagram}`} target="_blank" rel="noreferrer">
+            @{instagram}
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PokeControls({
   count,
   disabled,

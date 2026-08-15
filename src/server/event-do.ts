@@ -792,6 +792,13 @@ export class EventDO extends DurableObject {
         matches.push({
           player: toPublic(other),
           sameTable: mySeat && theirTable === mySeat.table ? mySeat.table : undefined,
+          // 연락처가 참가자에게 나가는 유일한 자리다 (ADR-19).
+          // 이 블록은 `meta.phase === "done"` 안이고, `mutual` 에 든 쌍만 지난다
+          contact: {
+            realName: other.realName,
+            phone: other.phone,
+            ...(other.instagram ? { instagram: other.instagram } : {}),
+          },
         });
       }
     }

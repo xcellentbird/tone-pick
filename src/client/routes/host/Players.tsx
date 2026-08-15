@@ -152,14 +152,13 @@ export default function Players() {
 }
 
 /**
- * 명단 편집. **더하고 빼기만 있다.**
+ * 명단 편집. **한 명 넣기와 한 명 빼기뿐**이다.
  *
  * 통째로 갈아치우는 길은 두지 않는다 — 한 명 추가하려다 손이 미끄러지면
- * 그 파티의 명단 전체가 날아간다. 되돌릴 방법도 없다.
+ * 그 파티의 명단 전체가 날아가고, 되돌릴 방법이 없다.
  *
- * 두 가지 일이 실제로 일어난다.
- *   한 명씩  — "저도 갈게요" 연락이 파티 전날에 온다
- *   붙여넣기 — 처음 명단을 만들 때. 한 명씩으로는 100명을 넣을 수 없다
+ * 여러 줄을 한 번에 붙여넣는 칸도 뺐다. 화면에서 하는 일은 번호 하나를 더하는 것이고,
+ * 그 하나만 있으면 헷갈릴 자리가 없다. (API 는 배열을 받으므로 리허설 스크립트는 그대로 쓴다)
  */
 function Invites({
   invites,
@@ -172,11 +171,8 @@ function Invites({
   onDone: (added: number) => void;
 }) {
   const [one, setOne] = useState("");
-  const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const parsed = [...new Set(text.split(/[\s,;]+/).map(normalizePhone).filter((p) => p.length >= 9))];
   const known = new Set(invites.map((i) => i.phone));
 
   async function add(phones: string[], clear: () => void) {
@@ -228,22 +224,10 @@ function Invites({
             {HOST_UI.invites.addOne}
           </button>
         </div>
+        <span className="tiny dim">{HOST_UI.invites.addHint}</span>
       </form>
 
-      <div className="field">
-        <label htmlFor="invites">{HOST_UI.invites.pasteLabel}</label>
-        <textarea id="invites" rows={5} value={text} onChange={(e) => setText(e.target.value)} />
-        <span className="tiny dim">{HOST_UI.invites.pasteHint}</span>
-      </div>
-
       {error && <p className="err danger">{error}</p>}
-      <button
-        className="btn primary block"
-        onClick={() => add(parsed, () => setText(""))}
-        disabled={busy || parsed.length === 0}
-      >
-        {HOST_UI.invites.save} · {UNIT.people(parsed.length)}
-      </button>
 
       {invites.length > 0 && (
         <>

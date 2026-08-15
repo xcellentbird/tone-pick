@@ -219,6 +219,7 @@ describe("발표 후 참가자 탭", () => {
           charms: ["가", "나", "다"],
         },
         sameTable: 2,
+        contact: { realName: "이실명", phone: "01055556666", instagram: "her_gram" },
       },
     ],
   };
@@ -245,14 +246,16 @@ describe("발표 후 참가자 탭", () => {
     expect(screen.queryByText(new RegExp(REVEAL.matchBadge))).toBeNull();
   });
 
-  it("★ 매칭돼도 연락처는 주지 않는다", async () => {
+  it("★ 서로 찌른 상대의 연락처가 프로필에서 열린다", async () => {
     // 프로필 시트를 연 채로 그린다
     renderParticipant(revealed(), "her");
 
-    // 프로필에서 매칭이라고 말하되, 연락처는 없다고 분명히 적는다
-    await screen.findByText(REVEAL.contactNote);
-    expect(screen.queryByText("01000000000")).toBeNull();
-    expect(document.body.textContent).not.toContain("실명");
+    await screen.findByText(REVEAL.contactTitle);
+    expect(screen.getByText("이실명")).toBeTruthy();
+    // 번호는 눌러서 걸 수 있어야 한다 — 파티장에서 손으로 옮겨 적게 하지 않는다
+    expect(screen.getByText("01055556666").getAttribute("href")).toBe("tel:01055556666");
+    // 상대에게도 내 연락처가 간다는 걸 그 자리에서 말한다
+    expect(screen.getByText(REVEAL.contactNote)).toBeTruthy();
   });
 });
 
@@ -415,7 +418,8 @@ describe("상단 바", () => {
   it("★ 남은 콕은 한 곳에만 — 콕을 찌르는 화면", async () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
-    expect(screen.getAllByText(STATUS.pokeLeft(2))).toHaveLength(1);
+    // 어느 라운드의 콕인지 함께 적는다. 숫자만 있으면 마감된 줄 모른다
+    expect(screen.getAllByText(STATUS.roundLeft("pre", 2))).toHaveLength(1);
   });
 
   it("회차 이름은 상단이 아니라 '내 정보' 에 있다", async () => {
