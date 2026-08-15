@@ -132,11 +132,11 @@ hostRoutes.post("/events", async (c) => {
     phase: openNow ? "reg" : "prep",
     fired: openNow ? { reg: now } : {},
     schedule: { partyAt, regOpenAt, prevoteAt },
-    // 켰을 때만 적는다. 끈 상태를 굳이 써 넣으면 설정의 모양이 회차마다 달라진다
+    // 좁혔을 때만 적는다. 기본값을 굳이 써 넣으면 설정의 모양이 회차마다 달라진다
     config: {
       maxPre: body.config.maxPre,
       maxParty: body.config.maxParty,
-      ...(body.config.allowSameGender ? { allowSameGender: true as const } : {}),
+      ...(body.config.allowSameGender === false ? { allowSameGender: false } : {}),
     },
     createdAt: now,
   });

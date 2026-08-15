@@ -109,7 +109,10 @@ export interface EventConfig {
   maxPre: number;    // 1~5
   maxParty: number;  // 1~10
   /**
-   * 동성에게도 찌를 수 있게 할지. 없으면 이성만 — 기존 회차가 그대로 돈다.
+   * 콕을 찌를 수 있는 대상.
+   *
+   * **없으면 모두에게**다 — 누구에게 마음이 가는지는 앱이 정할 일이 아니다.
+   * 이성만으로 좁히고 싶은 회차에서만 `false` 를 적는다.
    * 회차마다 정한다. 파티 성격이 회차마다 다르기 때문이다.
    */
   allowSameGender?: boolean;

@@ -454,10 +454,28 @@ describe("콕", () => {
     expect(inParty.status).toBe(200);
   });
 
-  it("기본은 이성에게만 찌를 수 있다", async () => {
+  it("★ 기본은 성별을 가리지 않는다", async () => {
+    // 누구에게 마음이 가는지는 앱이 정할 일이 아니다 (ADR-17)
     const ev = await freshEvent();
     const me = await join(ev);
     const him = await join(ev);
+    await setPhase(ev.id, "prevote");
+
+    const res = await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: him.id } });
+    expect(res.status).toBe(200);
+  });
+
+  it("운영자가 좁히면 이성에게만 찌를 수 있다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const him = await join(ev);
+
+    const narrowed = await api(`/api/host/events/${ev.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { config: { maxPre: 2, maxParty: 3, allowSameGender: false } },
+    });
+    expect(narrowed.status).toBe(200);
     await setPhase(ev.id, "prevote");
 
     const res = await api<{ error: string; message: string }>("/api/poke", {
@@ -469,32 +487,10 @@ describe("콕", () => {
     expect(res.body.message).toBe(POKE.blocked.sameGender);
   });
 
-  it("★ 운영자가 열어두면 동성에게도 찌를 수 있다", async () => {
-    const ev = await freshEvent();
-    const me = await join(ev);
-    const him = await join(ev);
-
-    const opened = await api(`/api/host/events/${ev.id}`, {
-      method: "PUT",
-      cookie: master,
-      body: { config: { maxPre: 2, maxParty: 3, allowSameGender: true } },
-    });
-    expect(opened.status).toBe(200);
-    await setPhase(ev.id, "prevote");
-
-    const res = await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: him.id } });
-    expect(res.status).toBe(200);
-  });
-
-  it("★ 열어둬도 자기 자신은 찌를 수 없다", async () => {
+  it("★ 자기 자신은 어떤 설정에서도 찌를 수 없다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
     await join(ev, { gender: "F" });
-    await api(`/api/host/events/${ev.id}`, {
-      method: "PUT",
-      cookie: master,
-      body: { config: { maxPre: 2, maxParty: 3, allowSameGender: true } },
-    });
     await setPhase(ev.id, "prevote");
 
     const res = await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: me.id } });

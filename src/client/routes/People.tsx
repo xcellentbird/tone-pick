@@ -8,7 +8,7 @@
  * 되돌리기는 지금 화면에 두지 않는다. 그래서 확인창이 "되돌릴 수 없다"고 분명히 말한다.
  */
 import { useState } from "react";
-import { BTN, PEOPLE, POKE, STATUS, UNIT } from "../../shared/copy.ts";
+import { BTN, PEOPLE, POKE, REVEAL, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
 import type { ParticipantState, PublicPlayer } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
 import { ApiError } from "../lib/api.ts";
@@ -28,7 +28,7 @@ interface Props {
 
 export default function People({ state, source, reload, profileId, onProfile, container }: Props) {
   // 동성에게도 찌를 수 있는 회차라면 처음부터 전체를 보여준다 — 반쪽만 보이면 설정이 무색해진다
-  const sameGenderOk = !!state.event.config.allowSameGender;
+  const sameGenderOk = state.event.config.allowSameGender !== false;
   const [onlyOpposite, setOnlyOpposite] = useState(!sameGenderOk);
   const { confirm, toast } = useOverlay();
 
@@ -37,6 +37,12 @@ export default function People({ state, source, reload, profileId, onProfile, co
   const open = canPoke(state.event.phase);
   const list = state.roster.filter((p) => !onlyOpposite || p.gender !== state.me.gender);
   const profile = state.roster.find((p) => p.id === profileId);
+  /**
+   * 발표 후에만 채워진다. 서로 찌른 사람은 **목록에서** 눈에 띄어야 한다 —
+   * 결과를 다른 탭에 숨겨두면 파티장에서 그 사람을 앞에 두고 화면을 뒤진다.
+   * 발표 전에는 비어 있으므로 목록에 아무 표시도 생기지 않는다.
+   */
+  const matched = new Map(state.poke.matches.map((m) => [m.player.id, m]));
 
   async function send(target: PublicPlayer) {
     const already = state.poke.sentTo[target.id] ?? 0;
@@ -92,20 +98,28 @@ export default function People({ state, source, reload, profileId, onProfile, co
       {list.length === 0 && <p className="dim center">{PEOPLE.empty}</p>}
 
       <div className="stack">
-        {list.map((p) => (
-          <div className="row" key={p.id}>
-            <button className="person grow" onClick={() => onProfile(p.id)}>
-              <span className="avatar">{p.gender === "M" ? "🙋‍♂️" : "🙋‍♀️"}</span>
-              <span className="meta">
-                <span className="name ellipsis">
-                  {p.nickname} · {UNIT.age(p.age)} · {p.mbti}
+        {list.map((p) => {
+          const match = matched.get(p.id);
+          return (
+            <div className="row" key={p.id}>
+              <button className={`person grow ${match ? "matched" : ""}`} onClick={() => onProfile(p.id)}>
+                <span className="avatar">{p.gender === "M" ? "🙋‍♂️" : "🙋‍♀️"}</span>
+                <span className="meta">
+                  <span className="name ellipsis">
+                    {p.nickname} · {UNIT.age(p.age)} · {p.mbti}
+                  </span>
+                  {/* 색만으로 말하지 않는다. 매칭이면 매력 대신 그 사실을 적는다 */}
+                  <span className={`charm ellipsis ${match ? "matchLine" : ""}`}>
+                    {match
+                      ? `${REVEAL.matchBadge}${match.sameTable ? ` · ${SEAT.banner(match.sameTable)}` : ""}`
+                      : p.charms[0]}
+                  </span>
                 </span>
-                <span className="charm ellipsis">{p.charms[0]}</span>
-              </span>
-            </button>
-            <PokeControls count={state.poke.sentTo[p.id] ?? 0} disabled={!open} onSend={() => send(p)} />
-          </div>
-        ))}
+              </button>
+              <PokeControls count={state.poke.sentTo[p.id] ?? 0} disabled={!open} onSend={() => send(p)} />
+            </div>
+          );
+        })}
       </div>
 
       <Sheet
@@ -117,6 +131,18 @@ export default function People({ state, source, reload, profileId, onProfile, co
       >
         {profile && (
           <>
+            {matched.has(profile.id) && (
+              <div className="card stack matchCard">
+                <div className="kicker">{REVEAL.matchBadge}</div>
+                <span className="small">
+                  {matched.get(profile.id)!.sameTable
+                    ? REVEAL.hintSameTable(matched.get(profile.id)!.sameTable!)
+                    : REVEAL.hintOther}
+                </span>
+                {/* 매칭돼도 연락처는 주지 않는다 (ADR-1) */}
+                <span className="tiny dim">{REVEAL.contactNote}</span>
+              </div>
+            )}
             <div className="row">
               <span className="avatar">{profile.gender === "M" ? "🙋‍♂️" : "🙋‍♀️"}</span>
               <div className="grow">

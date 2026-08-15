@@ -26,7 +26,7 @@ export default function Settings() {
   const [code, setCode] = useState(meta.code);
   const [maxPre, setMaxPre] = useState(meta.config.maxPre);
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
-  const [allowSameGender, setAllowSameGender] = useState(!!meta.config.allowSameGender);
+  const [allowSameGender, setAllowSameGender] = useState(meta.config.allowSameGender !== false);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +35,7 @@ export default function Settings() {
     setCode(meta.code);
     setMaxPre(meta.config.maxPre);
     setMaxParty(meta.config.maxParty);
-    setAllowSameGender(!!meta.config.allowSameGender);
+    setAllowSameGender(meta.config.allowSameGender !== false);
     setSchedule(meta.schedule);
   }, [meta]);
 

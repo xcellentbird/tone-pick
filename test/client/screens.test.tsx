@@ -12,7 +12,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
-import { ENTRY, ENV_BANNER, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
+import { ENTRY, ENV_BANNER, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
@@ -80,10 +80,10 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
   };
 }
 
-function renderParticipant(source: ParticipantSource) {
+function renderParticipant(source: ParticipantSource, profileId?: string) {
   return render(
     <MemoryRouter>
-      <ParticipantView source={source} tab="people" onTab={() => {}} onProfile={() => {}} />
+      <ParticipantView source={source} tab="people" profileId={profileId} onTab={() => {}} onProfile={() => {}} />
     </MemoryRouter>,
   );
 }
@@ -154,13 +154,14 @@ describe("참가자 화면 · 콕", () => {
     const onlyOpposite = await screen.findByText(PEOPLE.onlyOpposite);
     const everyone = screen.getByText(PEOPLE.everyone);
 
+    // 기본은 성별을 가리지 않는다. 반쪽만 보여주면 찌를 수 있는 사람이 가려진다 (ADR-17)
+    expect(everyone.getAttribute("aria-pressed")).toBe("true");
+    expect(onlyOpposite.getAttribute("aria-pressed")).toBe("false");
+
     // 한 버튼을 껐다 켜는 방식이면 눌린 상태를 화면에서 알 수 없다. 둘 중 하나가 항상 켜져 있어야 한다
+    fireEvent.click(onlyOpposite);
     expect(onlyOpposite.getAttribute("aria-pressed")).toBe("true");
     expect(everyone.getAttribute("aria-pressed")).toBe("false");
-
-    fireEvent.click(everyone);
-    expect(onlyOpposite.getAttribute("aria-pressed")).toBe("false");
-    expect(everyone.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("등록 중에는 콕 버튼이 잠겨 있다", async () => {
@@ -195,6 +196,63 @@ describe("참가자 화면 · 자리", () => {
     renderParticipant(source);
     await screen.findByText(/그녀/);
     expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────── 발표
+
+describe("발표 후 참가자 탭", () => {
+  /**
+   * 결과는 **그 사람이 있는 자리**에 나와야 한다. 다른 탭에 숨겨두면
+   * 파티장에서 상대를 앞에 두고 화면을 뒤지게 된다.
+   */
+  const matched: MyPokeState = {
+    ...POKE_STATE,
+    matches: [
+      {
+        player: {
+          id: "her",
+          nickname: "그녀",
+          age: 29,
+          gender: "F",
+          mbti: "ISFJ",
+          charms: ["가", "나", "다"],
+        },
+        sameTable: 2,
+      },
+    ],
+  };
+
+  const revealed = (over = {}) =>
+    fakeSource({
+      load: async () =>
+        participantState({
+          event: { ...participantState().event, phase: "done" },
+          poke: matched,
+          ...over,
+        }),
+    });
+
+  it("★ 서로 찌른 사람은 목록에서 글자로도 구분된다 — 색만으로 말하지 않는다", async () => {
+    renderParticipant(revealed());
+    await screen.findByText(/그녀/);
+    expect(screen.getByText(new RegExp(REVEAL.matchBadge))).toBeTruthy();
+  });
+
+  it("★ 발표 전에는 목록에 아무 표시도 없다", async () => {
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+    expect(screen.queryByText(new RegExp(REVEAL.matchBadge))).toBeNull();
+  });
+
+  it("★ 매칭돼도 연락처는 주지 않는다", async () => {
+    // 프로필 시트를 연 채로 그린다
+    renderParticipant(revealed(), "her");
+
+    // 프로필에서 매칭이라고 말하되, 연락처는 없다고 분명히 적는다
+    await screen.findByText(REVEAL.contactNote);
+    expect(screen.queryByText("01000000000")).toBeNull();
+    expect(document.body.textContent).not.toContain("실명");
   });
 });
 

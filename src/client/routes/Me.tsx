@@ -2,11 +2,13 @@
  * 내 정보 탭.
  *
  * 실명과 전화번호는 기본으로 가린다 — 파티장에서 어깨너머로 보인다.
- * 상호 매칭은 발표 후에만 나온다. 매칭돼도 연락처는 주지 않는다 (ADR-1):
- * 앱이 만드는 건 "같은 테이블"까지다.
+ *
+ * **매칭 상대는 참가자 탭에서 본다.** 여기에는 숫자만 남긴다 —
+ * 결과를 이 탭에 숨겨두면 파티장에서 그 사람을 앞에 두고 화면을 뒤지게 된다.
+ * 매칭돼도 연락처는 주지 않는다 (ADR-1): 앱이 만드는 건 "같은 테이블"까지다.
  */
 import { useState } from "react";
-import { GENDER, ME, PEOPLE, REVEAL, UNIT } from "../../shared/copy.ts";
+import { GENDER, HOME, ME, PEOPLE, REVEAL, UNIT } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
 
@@ -26,14 +28,8 @@ export default function Me({ state }: { state: ParticipantState }) {
           {poke.matches.length === 0 ? (
             <p className="pre">{REVEAL.noMutual(poke.receivedCount)}</p>
           ) : (
-            poke.matches.map((m) => (
-              <div className="fact" key={m.player.id}>
-                <b>{m.player.nickname}</b>
-                <span className="grow">
-                  {m.sameTable ? REVEAL.hintSameTable(m.sameTable) : REVEAL.hintOther}
-                </span>
-              </div>
-            ))
+            /* 이름과 힌트는 참가자 탭에 있다. 같은 것을 두 곳에 두지 않는다 */
+            <p className="small">{HOME.matched(poke.matches.length)}</p>
           )}
           {anonymous > 0 && (
             <>
