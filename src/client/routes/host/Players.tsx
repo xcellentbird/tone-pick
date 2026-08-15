@@ -145,7 +145,7 @@ export default function Players() {
           eventId={state.meta.id}
           onDone={(added) => {
             // 뺀 것과 더한 것, 이미 있어서 아무 일도 없었던 것은 다른 말이다
-            toast(added > 0 ? HOST_UI.invites.saved(added) : added < 0 ? HOST_UI.invites.removed : HOST_UI.invites.already);
+            toast(added > 0 ? HOST_UI.invites.saved : added < 0 ? HOST_UI.invites.removed : HOST_UI.invites.already);
             reload();
           }}
         />

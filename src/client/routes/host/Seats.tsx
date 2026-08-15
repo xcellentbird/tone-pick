@@ -9,7 +9,7 @@
  */
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { HOST, HOST_UI, UNIT } from "../../../shared/copy.ts";
+import { HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
 import type { SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
@@ -132,7 +132,7 @@ export default function Seats() {
         title: HOST_UI.seats.publishTitle,
         facts: [
           [HOST_UI.seats.tableCount, `${round.tableCount}`],
-          [HOST_UI.dash.registered(round.seats.length), UNIT.people(Math.round(perTable))],
+          [HOST_UI.seats.seated, HOST_UI.seats.seatedCount(round.seats.length, Math.round(perTable))],
           // 커플 자리는 성적표를 함께 보여준다. 배정이 닫히지는 않는다 — 한 번 더 할 수 있다
           ...(round.final
             ? ([[HOST_UI.seats.pairLabel, HOST_UI.seats.pairSummary(pairs.together, pairs.total)]] as Array<[string, string]>)
@@ -353,7 +353,7 @@ function Tables({
         const men = here.filter((p) => p.gender === "M").length;
         return (
           <div className="stack" key={t}>
-            <div className="tiny dim">{HOST_UI.seats.tableTitle(t)}</div>
+            <div className="tiny dim">{SEAT.banner(t)}</div>
             {/* 테이블마다 남녀가 몇인지 — 맞교환할지 판단하는 숫자다 */}
             <div className="tiny tableMix">
               <span className="men">{HOST_UI.seats.men(men)}</span>

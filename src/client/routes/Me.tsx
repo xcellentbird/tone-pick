@@ -17,14 +17,15 @@ import { useOverlay } from "../ui/Overlays.tsx";
 export default function Me({ state, reload }: { state: ParticipantState; reload: () => void }) {
   const [shown, setShown] = useState(false);
   const { me, poke, event } = state;
-  const budget = poke.budget[event.phase === "prevote" ? "pre" : "party"];
+  const round = event.phase === "prevote" ? ("pre" as const) : ("party" as const);
+  const budget = poke.budget[round];
 
   // 자리·남은 콕은 홈 탭에, 결과는 참가자 탭에 있다. 같은 것을 두 곳에 두지 않는다
   return (
     <div className="stack">
       {canPoke(event.phase) && (
         <div className="card">
-          <div className="kicker">{PEOPLE.sentSoFar(budget.used)}</div>
+          <div className="kicker">{PEOPLE.sentSoFar(round, budget.used)}</div>
         </div>
       )}
 
@@ -73,7 +74,7 @@ function Charms({ state, reload }: { state: ParticipantState; reload: () => void
     setError(null);
     try {
       await put<Player>("/me/charms", { charms: draft.map((c) => c.trim()) });
-      toast(ME.charmsSaved);
+      toast(BTN.saved);
       setEditing(false);
       reload();
     } catch (e) {

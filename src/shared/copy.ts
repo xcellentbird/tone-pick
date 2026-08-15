@@ -9,6 +9,8 @@
  *  2. 확인 문구는 "정말 하시겠습니까?"가 아니라 무엇이 어떻게 바뀌는지 보여준다
  *  3. 참가자에게 "0번"을 들이대지 않는다 — 받은 콕이 0이면 다른 문장을 쓴다
  *  4. 날짜·시간 포매팅은 여기서 하지 않는다. 포맷된 문자열을 받아 조립만 한다
+ *  5. 부드러운 설명은 해요체로, 바꿀 수 없는 규칙·경고는 합니다체로 끊는다
+ *     ("보이지 않아요. 확정해야 자리가 뜹니다") — 섞임이 아니라 신호다
  */
 
 import type { Phase, PokeRound } from "./types.ts";
@@ -33,7 +35,6 @@ export const MBTI_AXES = [
 
 export const BTN = {
   cancel: "취소",
-  confirm: "확인",
   delete: "삭제하기",
   back: "이전",
   next: "다음",
@@ -94,11 +95,11 @@ export const ENTRY = {
    * 회차는 멀쩡하고 내가 빠진 것이다. 왜 빠졌는지는 앱이 모른다 (운영자만 안다).
    * 명단에 아직 있으면 같은 번호로 다시 들어올 수 있다.
    */
-  removed: "참가가 취소되었어요.\n운영자에게 확인해주세요 — 같은 번호로 다시 들어올 수도 있어요.",
+  removed: "참가가 삭제되었어요.\n운영자에게 확인해주세요 — 같은 번호로 다시 들어올 수도 있어요.",
   reenter: "다시 입장하기",
   partyAt: (when: string) => `파티 ${when}`,
   /** 아직 준비 중인 회차 */
-  notOpenYet: (opensAt: string) => `${opensAt}부터 등록이 열립니다.`,
+  notOpenYet: (opensAt: string) => `${opensAt}부터 등록이 열려요.`,
   /** 준비 중인데 등록 시각이 아직 정해지지 않은 경우 */
   notOpenYetUnknown: "아직 등록이 열리지 않았어요.",
   finished: "이 회차는 종료되었어요.",
@@ -112,13 +113,16 @@ export const REGISTER = {
    * 서로 찌른 상대에게 공개되는 걸 등록 전에 알리지 않으면, 그건 약속을 어기는 일이다 (ADR-19).
    */
   retention: (days: number) =>
-    `연락처는 운영자와, 발표 때 **서로 찌른 상대**에게만 보여요.\n한쪽만 찌른 경우에는 끝까지 공개되지 않고, 파티가 끝나고 ${days}일 뒤에 지워져요.`,
+    `연락처는 운영자와, 발표 때 서로 찌른 상대에게만 보여요.\n한쪽만 찌른 경우에는 끝까지 공개되지 않고, 파티가 끝나고 ${days}일 뒤에 지워져요.`,
   err: {
     nick: "닉네임을 입력해주세요.",
+    nickLen: (min: number, max: number) => `닉네임은 ${min}~${max}자로 입력해주세요.`,
+    nickChars: "닉네임에는 한글·영문만 쓸 수 있어요.",
     name: "이름(실명)을 입력해주세요.",
+    nameDigit: "이름에는 숫자를 쓸 수 없어요.",
     age: "나이는 18~99 사이로 입력해주세요.",
     gender: "성별을 선택해주세요.",
-    phone: "전화번호를 정확히 입력해주세요.",
+    /** 전화번호 오류 문구는 여기 없다 — 등록 폼은 번호를 받지 않는다 (ADR-15). 입장은 ENTRY.phoneBad */
     /** 인스타는 필수다 — 매칭되면 서로에게 공개되는 연락 수단이라, 없으면 매칭이 반쪽이 된다 */
     instaRequired: "인스타 아이디를 입력해주세요.",
     insta: "인스타 아이디는 영문·숫자·마침표·밑줄만 쓸 수 있어요.",
@@ -149,20 +153,15 @@ export const POKE = {
     title: (already: number) => (already > 0 ? "한 번 더 콕 찌를까요?" : "이 사람을 콕 찌를까요?"),
     rowTarget: "이 사람에게 보낸 콕",
     rowBudget: (round: PokeRound) => `${roundName(round)} 남은 횟수`,
-    count: (n: number) => `${n}회`,
     note: "상대에게는 누가 찔렀는지 보이지 않아요.\n한 번 보낸 콕은 되돌릴 수 없어요.",
     submit: "콕 찌르기",
   },
 
-  sent: (nick: string, total: number, left: number) =>
-    `${nick}님에게 콕! ${total > 1 ? `(누적 ${total}회) ` : ""}— 남은 횟수 ${left}회`,
-
-  emptySent: "아직 아무도 찌르지 않았어요.\n찌르지 않아도 괜찮아요 — 선택이에요.",
+  /** 누적·남은 횟수는 방금 확인창과 상단 상시 표시가 이미 말했다 — 세 번째로 반복하지 않는다 */
+  sent: (nick: string) => `${nick}님에게 콕!`,
   /** 익명으로 도착한 콕. **한 번 받을 때마다 한 줄**로 쌓인다 */
   received: "누군가 콕! 찔렀어요",
   receivedNote: "누구인지는 비밀이에요",
-  /** 알림이 하나도 없을 때 */
-  none: "아직 알림이 없어요",
 } as const;
 
 // ─────────────────────────────────────────── 참가자 · 명단/프로필/내 정보
@@ -179,7 +178,8 @@ export const PEOPLE = {
   notOpenYet: "사전 투표가 열리면 참가자를 볼 수 있어요.\n조금만 기다려주세요.",
   /** 프로필 시트에서는 매력 전문을 보여준다 */
   charmTitle: "이 사람의 매력",
-  sentSoFar: (n: number) => `내가 보낸 콕 ${n}회`,
+  /** 라운드를 명시한다 — 파티 단계에 사전 투표 콕이 빠진 숫자를 총합처럼 읽게 하지 않는다 */
+  sentSoFar: (round: PokeRound, n: number) => `${roundName(round)} 라운드 · 보낸 콕 ${n}회`,
 } as const;
 
 export const ME = {
@@ -192,11 +192,10 @@ export const ME = {
   editCharms: "매력 고치기",
   charmsHint: "사람들이 보기 전까지 다듬을 수 있어요.",
   charmsLocked: "사전 투표가 시작돼서 이제 고칠 수 없어요.",
-  charmsSaved: "매력을 고쳤어요",
   hidden: "••••••",
   show: "가린 정보 보기",
   hide: "다시 가리기",
-  hideNote: "실명과 전화번호는 기본으로 가려둬요. 파티장에서는 어깨너머로 보입니다.",
+  hideNote: "파티장에서는 어깨너머로 보여서 기본으로 가려둬요.",
   labels: {
     nickname: "닉네임",
     realName: "이름",
@@ -207,7 +206,6 @@ export const ME = {
     mbti: "MBTI",
     charms: "나의 매력",
     event: "회차",
-    code: "입장 코드",
   },
 } as const;
 
@@ -220,7 +218,7 @@ export const ME = {
 export const HOME = {
   todo: {
     prep: { title: "곧 시작해요", body: "운영자가 등록을 열면 알려드릴게요." },
-    reg: { title: "사람들이 모이는 중이에요", body: "다 모이면 콕 찌르기가 열려요." },
+    reg: { title: "사람들이 모이는 중이에요", body: "때가 되면 콕 찌르기가 열려요." },
     prevote: {
       title: "마음이 가는 사람을 콕 찔러보세요",
       body: "상대에게는 누가 찔렀는지 보이지 않아요. 서로 찔렀을 때만 발표 때 공개돼요.",
@@ -357,7 +355,6 @@ export const FORTUNE = {
 // ─────────────────────────────────────────── 참가자 · 발표
 
 export const REVEAL = {
-  mutualTitle: "💘 서로 찔렀어요",
   /** 상호 매칭이 없을 때 — 받은 콕이 0이면 숫자를 꺼내지 않는다 */
   noMutual: (received: number) =>
     received === 0
@@ -368,8 +365,6 @@ export const REVEAL = {
   hintOther: "파티장에서 직접 인사하고 연락처를 나눠보세요",
   /** 참가자 목록에서 매칭된 사람에게 붙는 표시. 색과 함께 글자로도 말한다 */
   matchBadge: "💘 서로 찔렀어요",
-  /** 발표 전에는 목록 어디에도 이런 표시가 없어야 한다 */
-  matchOpen: "결과 보기",
   /** 서로 찌른 상대에게만 열린다 (ADR-19). 한쪽만 찌른 경우에는 끝까지 익명이다 */
   contactTitle: "연락처",
   contactNote: "서로 찌른 사이라서 보여요. 상대에게도 내 연락처가 보입니다.",
@@ -378,7 +373,6 @@ export const REVEAL = {
 // ─────────────────────────────────────────── 참가자 · 상태 셀 / 알림
 
 export const STATUS = {
-  done: "🎊 발표 완료",
   /** 파티 중 참가자가 가장 자주 확인하는 숫자 */
   pokeLeft: (n: number) => `콕 ${n}회 남음`,
   /**
@@ -394,8 +388,6 @@ export const STATUS = {
    */
   untilParty: "파티까지",
   peopleHere: "함께하는 사람",
-  pokeClosed: "마감했어요",
-  pokeSoon: "곧 시작해요",
 } as const;
 
 /** 참가자 알림. `ev.fired` 에서 파생되며 읽음 상태를 따로 저장하지 않는다 */
@@ -407,13 +399,14 @@ export const NOTICE = {
   }),
   party: (maxParty: number) => ({
     icon: "🎉",
-    title: "사전 투표가 마감됐어요",
+    title: "파티가 시작됐어요",
     body: `파티 라운드 콕 ${maxParty}회를 새로 받았어요`,
   }),
   done: {
     icon: "🎊",
     title: "결과가 발표됐어요",
-    body: "서로 찌른 상대를 확인해보세요",
+    /** 홈 카드(HOME.todo.done)와 같은 말을 두 번 하지 않는다 — 배너로 뜰 때의 길 안내만 */
+    body: "홈에서 결과를 볼 수 있어요",
   },
   /** 운영자가 발표를 되돌린 경우 */
   unrevealed: {
@@ -445,7 +438,7 @@ export function phaseAction(
         btn: "참가자 등록 시작",
         title: "참가자 등록을 시작할까요?",
         facts: [
-          ["참가자", `입장 코드 ${v.code}로 들어와 등록할 수 있게 됩니다`],
+          ["참가자", `참가 링크나 입장 코드 ${v.code}로 찾아와, 입장 명단에 넣은 번호로 등록합니다`],
           ["콕 찌르기", "아직 잠겨 있어요"],
         ],
       };
@@ -461,7 +454,7 @@ export function phaseAction(
       };
     case "party":
       return {
-        btn: "파티 진행 시작",
+        btn: "파티 시작",
         title: "사전 투표를 마감하고 파티를 시작할까요?",
         facts: [
           ["사전 투표", "지금 순위로 마감됩니다"],
@@ -477,7 +470,7 @@ export function phaseAction(
         facts: [
           ["참가자", "서로 찌른 상대를 바로 확인하게 됩니다"],
           ["콕 찌르기", "즉시 마감됩니다"],
-          ["되돌리기", "발표를 취소해도 이미 본 사람에게는 소용이 없어요"],
+          ["되돌리기", "발표를 되돌려도 이미 본 사람에게는 소용이 없어요"],
         ],
       };
     default:
@@ -519,7 +512,7 @@ export const DELETE_PLAYER = {
   title: "이 참가자를 삭제할까요?",
   /** 받은 콕은 숫자로도 말하지 않는다 (ADR-22) — 여기서 새면 감춘 의미가 없다 */
   facts: (v: { sent: number; rounds: number }): Fact[] => [
-    ["보낸 콕", `${v.sent}회 → 삭제`],
+    ["보낸 콕", `${v.sent}회 → 남겨둠`],
     ["배정된 자리", `${v.rounds}개 라운드 → 해제`],
   ],
   /**
@@ -530,7 +523,7 @@ export const DELETE_PLAYER = {
   note:
     "이 참가자가 받은 콕과 배정된 자리가 사라지고, 되돌릴 수 없어요.\n" +
     "이 사람이 보낸 콕은 남습니다 — 받은 쪽 숫자가 줄면 누가 찔렀는지 드러나거든요.\n" +
-    "입장 명단에는 남아 있어서 같은 번호로 다시 들어올 수 있어요 — 완전히 막으려면 명단에서도 빼주세요.",
+    "입장 명단에 남아 있으면 같은 번호로 다시 들어올 수 있어요 — 완전히 막으려면 명단에서도 빼주세요.",
 } as const;
 
 export const DELETE_EVENT = {
@@ -567,7 +560,6 @@ export const HOST = {
   },
 
   ack: {
-    confirmed: "자리 이동을 확인했어요 👍",
     progress: (done: number, total: number) => `자리 이동 확인 ${done}/${total}명`,
   },
 
@@ -631,7 +623,7 @@ export const HOST_UI = {
   /** '지금 바로'는 시각이 아니라 토글이다 — datetime-local 이 초를 버린다 */
   nowToggle: "지금 바로",
   pickTime: "시각 지정",
-  locked: "이미 지나간 일정이라 바꿀 수 없어요",
+  locked: "이미 진행된 단계라 바꿀 수 없어요",
 
   /**
    * 현황 탭이 보여주는 건 둘뿐이다.
@@ -664,7 +656,6 @@ export const HOST_UI = {
     empty: "아직 등록한 참가자가 없어요",
     emptyFiltered: "이 조건에 맞는 참가자가 없어요",
     sent: (n: number) => `보낸 콕 ${n}회`,
-    contact: "연락처",
     /** 전체 / 남성 / 여성. 지금 어느 쪽인지 항상 하나가 켜져 있다 */
     filterAll: "전체",
   },
@@ -677,7 +668,6 @@ export const HOST_UI = {
    */
   invites: {
     title: "입장 명단",
-    open: "입장 명단 관리",
     count: (invited: number, joined: number) => `초대 ${invited}명 · 등록 ${joined}명`,
     empty: "명단이 비어 있어요 — 지금은 아무도 들어올 수 없어요",
     emptyNote: "여기에 번호를 넣은 사람만 파티에 들어옵니다.",
@@ -685,7 +675,7 @@ export const HOST_UI = {
     addLabel: "전화번호 한 명",
     addOne: "추가",
     addHint: "하이픈이 있어도 괜찮아요.",
-    saved: (n: number) => `${n}명을 명단에 더했어요`,
+    saved: "명단에 더했어요",
     /** 이미 있는 번호를 다시 넣은 경우 */
     already: "이미 명단에 있는 번호예요",
     joined: "등록함",
@@ -701,15 +691,17 @@ export const HOST_UI = {
     tableCount: "테이블 수",
     /** 누를 때마다 처음부터 다시 계산한다 — '초안'은 운영자 말이 아니다 */
     make: "자리 재배정",
-    /** 만든 자리를 버리고 없던 일로 되돌린다 */
-    discard: "취소",
+    /** 만든 자리를 버리고 없던 일로 되돌린다. 확인창의 "취소" 버튼과 같은 글자를 쓰지 않는다 (규칙 1) */
+    discard: "자리 되돌리기",
     /** 계산은 그대로, 사람만 다시 섞는다 */
     shuffle: "자리 섞기",
     /** 고른 테이블 수가 어떤 자리를 만드는지 미리 */
     preview: (per: number, men: number) => `테이블당 ${per}명 · 남 ${men} / 여 ${per - men}`,
     finalNote: (pairs: number) => `서로 찌른 ${pairs}쌍을 같은 테이블에 앉힙니다.`,
     swapHint: "두 명을 고르면 자리를 맞바꿔요. 남녀도 바꿀 수 있어요 — 한 명만 옮기는 건 없습니다.",
-    tableTitle: (n: number) => `${n}번 테이블`,
+    /** 발행 확인창 — '등록'이 아니라 '배정'이다. 초안 뒤에 등록한 사람은 이 수에 없다 */
+    seated: "배정 인원",
+    seatedCount: (total: number, per: number) => `${total}명 · 테이블당 ${per}명`,
     /** 테이블 성비. 색과 같은 정보를 글자로도 준다 */
     men: (n: number) => `남 ${n}`,
     women: (n: number) => `여 ${n}`,
@@ -738,7 +730,6 @@ export const HOST_UI = {
     /** 자리를 발행한 뒤 등록한 사람. 다음 배정에서 들어간다 */
     unassigned: (names: string) => `이 라운드에 자리가 없는 사람: ${names}`,
     publishTitle: "이 자리로 확정하고 전원에게 알릴까요?",
-    publishBtn: "자리 확정하고 알리기",
   },
 
   deleteEvent: "이 회차 삭제하기",
@@ -780,6 +771,8 @@ export const DEMO_UI = {
    */
   seed: {
     nicknames: ["달빛", "노을", "바다", "구름", "서리", "파도", "바람", "안개", "새벽", "별밤"],
+    /** 일련번호를 한글로 읽는 표 — 닉네임에 숫자를 쓸 수 없어서 `달빛3` 대신 `달빛삼`이 된다 */
+    digitNames: "영일이삼사오육칠팔구",
     surnames: ["김", "이", "박", "최", "정", "강", "조", "윤"],
     givenNames: ["서준", "하윤", "지호", "수아", "도현", "예린", "민재", "채원"],
     mbti: ["ENFP", "ISFJ", "INTJ", "ESTP", "INFP", "ESFJ", "ISTP", "ENTJ"],
@@ -812,14 +805,11 @@ export function pokeEstimateLabel(pct: number): { label: string; tone: "rare" | 
 
 // ─────────────────────────────────────────── 화면 제목 · 탭
 
+/** 독립 화면의 헤더 제목. 탭 화면 제목은 여기 없다 — TABS_PARTICIPANT/TABS_HOST 의 label 이 단일 출처다 */
 export const SCREEN_TITLE = {
   entry: "입장",
-  home: "홈",
   join: "회차 확인",
   register: "참가자 등록",
-  people: "참가자",
-  alerts: "알림",
-  me: "내 정보",
   demo: "데모 뷰",
   notFound: "찾을 수 없어요",
   hostPin: "운영자 PIN",
@@ -827,10 +817,6 @@ export const SCREEN_TITLE = {
   hostDefaults: "회차 기본 설정",
   hostWizard: "새 회차 만들기",
   hostConsole: "회차 콘솔",
-  dash: "현황",
-  players: "참가자",
-  seats: "자리",
-  settings: "설정",
 } as const;
 
 /**

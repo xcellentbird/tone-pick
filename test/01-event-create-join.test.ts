@@ -172,17 +172,17 @@ describe("A. 운영자 인증", () => {
 
 describe("B. 회차 생성", () => {
   it("S-B1 기본 설정을 물려받는다", async () => {
-    // Given 기본값이 { maxPre:3, maxParty:3, regOpenBeforeD:6, prevoteBeforeH:24 } 다
+    // Given 기본값이 { maxPre:1, maxParty:2, regOpenBeforeD:6, prevoteBeforeH:20 } 다
     const res = await api<{ maxPre: number; maxParty: number; regOpenBeforeD: number; prevoteBeforeH: number }>(
       "/api/host/defaults",
       { cookie: master },
     );
     // Then  위저드가 채워 넣을 값을 그대로 돌려준다 — 등록은 파티 6일 전에 연다
     expect(res.status).toBe(200);
-    expect(res.body.maxPre).toBe(3);
-    expect(res.body.maxParty).toBe(3);
+    expect(res.body.maxPre).toBe(1);
+    expect(res.body.maxParty).toBe(2);
     expect(res.body.regOpenBeforeD).toBe(6);
-    expect(res.body.prevoteBeforeH).toBe(24);
+    expect(res.body.prevoteBeforeH).toBe(20);
   });
 
   it("S-B2 ★ 회차를 만들 때 회차 PIN 을 받지 않는다", async () => {
@@ -293,8 +293,8 @@ describe("B. 회차 생성", () => {
 
     // Then  콕·일정 기본값만 초기값으로 돌아간다
     expect(reset.status).toBe(200);
-    expect(reset.body.maxPre).toBe(3);
-    expect(reset.body.maxParty).toBe(3);
+    expect(reset.body.maxPre).toBe(1);
+    expect(reset.body.maxParty).toBe(2);
 
     // And   로그인은 그대로 된다 — PIN 은 기본 설정이 아니라 배포 시크릿이다
     const relogin = await login(MASTER_PIN);
@@ -370,7 +370,7 @@ describe("C. 입장 코드", () => {
     const res = await api<PublicEvent>(`/api/events/by-code/${ev.body.code}`);
     // Then  등록 불가이고 ENTRY.notOpenYet 형태의 안내가 온다
     expect(res.body.canRegister).toBe(false);
-    expect(res.body.message).toMatch(/부터 등록이 열립니다\.$/);
+    expect(res.body.message).toMatch(/부터 등록이 열려요\.$/);
   });
 
   it("S-C5 종료된 회차는 닫혔다고 알려준다", async () => {

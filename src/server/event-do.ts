@@ -39,7 +39,14 @@ import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
 import { rosterOpen, toPublic } from "../shared/types.ts";
 import { DEMO_UI, ENTRY } from "../shared/copy.ts";
-import { ENTRY_TRIES, LIMITS, normalizeNickname, normalizePhone } from "../shared/constants.ts";
+import {
+  ENTRY_TRIES,
+  LIMITS,
+  nicknameProblem,
+  normalizeNickname,
+  normalizePhone,
+  realNameProblem,
+} from "../shared/constants.ts";
 import { PHASE_ORDER, canPoke, dueTransition, purgeDueAt } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
 import { buildSeating } from "./seating.ts";
@@ -352,9 +359,11 @@ export class EventDO extends DurableObject {
     if (meta.phase === "prep" || meta.phase === "done") return fail("closed");
 
     // 번호는 폼이 아니라 입장할 때 확인한 값에서 온다 (ADR-15)
+    // 닉네임·실명 규칙은 화면과 같은 함수를 본다 — 폼을 우회해 API 로 바로 쏘는 참가자가 있다
+    if (nicknameProblem(input.nickname) || realNameProblem(input.realName) || !phone) {
+      return fail("bad_request");
+    }
     const nickNorm = normalizeNickname(input.nickname);
-    if (!nickNorm || !input.realName.trim() || !phone) return fail("bad_request");
-    if (input.nickname.trim().length > LIMITS.nicknameMax) return fail("bad_request");
     if (!Number.isInteger(input.age) || input.age < 18 || input.age > 99) return fail("bad_request");
     if (input.gender !== "M" && input.gender !== "F") return fail("bad_request");
     if (!/^[EI][NS][TF][JP]$/.test(input.mbti)) return fail("bad_request");
@@ -473,9 +482,11 @@ export class EventDO extends DurableObject {
       const gender: Gender = n % 2 === 0 ? "M" : "F";
       const phone = `010${String(now).slice(-4)}${String(n).padStart(4, "0")}`;
       const pick = <T,>(list: readonly T[]) => list[(n * 7 + list.length) % list.length];
+      // 닉네임에 숫자를 쓸 수 없다 — 일련번호도 한글로 읽어 register() 규칙을 그대로 통과시킨다
+      const suffix = String(n).replace(/[0-9]/g, (d) => DEMO_UI.seed.digitNames[Number(d)]);
       const made = await this.register(
         {
-          nickname: `${pick(DEMO_UI.seed.nicknames)}${n}`,
+          nickname: `${pick(DEMO_UI.seed.nicknames)}${suffix}`,
           realName: `${pick(DEMO_UI.seed.surnames)}${pick(DEMO_UI.seed.givenNames)}`,
           instagram: `tone_pick_${n}`,
           age: 24 + (n * 3) % 18,
