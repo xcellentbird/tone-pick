@@ -371,7 +371,11 @@ describe("공개 범위", () => {
     expect(raw).not.toContain(other.id);
   });
 
-  it("★ 발표 후 상호 매칭만 닉네임까지 공개된다 (연락처는 여전히 아니다)", async () => {
+  /**
+   * 연락처가 참가자에게 나가는 **유일한 통로**다 (ADR-19).
+   * 세 조건이 모두 맞아야 한다 — 발표 단계 · 서로 찌름 · 그 상대의 것.
+   */
+  it("★ 발표 후 서로 찌른 상대의 연락처가 열린다", async () => {
     const ev = await freshEvent();
     const me = await join(ev, { nickname: "나야나" });
     const her = await join(ev, { gender: "F", nickname: "그녀", realName: "이실명", instagram: "her_gram" });
@@ -385,9 +389,52 @@ describe("공개 범위", () => {
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
     expect(state.body.poke.matches.length).toBe(1);
     expect(state.body.poke.matches[0].player.nickname).toBe("그녀");
-    const raw = JSON.stringify(state.body.poke.matches);
-    expect(raw).not.toContain("이실명");
-    expect(raw).not.toContain("her_gram");
+    expect(state.body.poke.matches[0].contact).toEqual({
+      realName: "이실명",
+      phone: her.phone,
+      instagram: "her_gram",
+    });
+
+    // 명단(roster)은 여전히 깨끗하다. 연락처는 매칭 안에만 있다
+    const roster = JSON.stringify(state.body.roster);
+    expect(roster).not.toContain("이실명");
+    expect(roster).not.toContain(her.phone);
+  });
+
+  it("★ 발표 전에는 서로 찔렀어도 연락처가 없다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev, { nickname: "나" });
+    const her = await join(ev, { gender: "F", realName: "박비밀", instagram: "her_gram" });
+    await setPhase(ev.id, "prevote");
+
+    await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
+    await api("/api/poke", { method: "POST", cookie: her.cookie, body: { toId: me.id } });
+
+    // 아직 사전 투표 중이다
+    const during = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(during.body.poke.matches).toEqual([]);
+    const raw = JSON.stringify(during.body);
+    expect(raw).not.toContain("박비밀");
+    expect(raw).not.toContain(her.phone);
+  });
+
+  it("★ 한쪽만 찌른 상대의 연락처는 발표 뒤에도 나가지 않는다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev, { nickname: "나" });
+    const her = await join(ev, { gender: "F", realName: "박비밀", instagram: "one_way" });
+    await setPhase(ev.id, "prevote");
+
+    // 나만 찔렀다
+    await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
+    await setPhase(ev.id, "party");
+    await setPhase(ev.id, "done");
+
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.poke.matches).toEqual([]);
+    const raw = JSON.stringify(state.body);
+    expect(raw).not.toContain("박비밀");
+    expect(raw).not.toContain("one_way");
+    expect(raw).not.toContain(her.phone);
   });
 
   it("★ 다른 회차의 세션으로는 이 회차 화면을 볼 수 없다", async () => {

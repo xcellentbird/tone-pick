@@ -47,11 +47,19 @@ export interface Poke {
   at: number;
 }
 
-/** 발표 후에만 만들어진다. 연락처는 주지 않는다 — 힌트는 "같은 테이블"까지다. */
+/**
+ * 발표 후, **서로 찌른 쌍에게만** 만들어진다.
+ *
+ * 연락처가 참가자에게 나가는 **유일한 통로**다 (ADR-19). 조건이 셋 다 맞아야 한다.
+ *   ① 발표 단계일 것  ② 서로 찔렀을 것  ③ 그 상대의 것일 것
+ * 한쪽만 찌른 상대의 연락처는 발표 뒤에도 끝까지 나가지 않는다.
+ */
 export interface MatchInfo {
   player: PublicPlayer;
   /** 마지막으로 발행된 자리에서 같은 테이블이면 그 번호 */
   sameTable?: number;
+  /** 서로 찌른 상대에게만. 등록할 때 이 공개를 미리 알린다 */
+  contact: { realName: string; phone: string; instagram?: string };
 }
 
 /** 참가자 본인에게만 내려가는 요약. 누가 찔렀는지는 발표 전까지 절대 포함하지 않는다. */
