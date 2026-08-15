@@ -279,13 +279,6 @@ hostRoutes.post("/events/:id/seating/publish", async (c) => {
   return response ?? c.json(value);
 });
 
-hostRoutes.post("/events/:id/seating/reopen", async (c) => {
-  const gate = await openEvent(c);
-  if (gate.response) return gate.response;
-  const { response } = unwrap(c, await gate.stub.reopenSeating());
-  return response ?? c.json({ ok: true });
-});
-
 // ─────────────────────────────────── 시연 도구 (연습용 환경 전용)
 //
 // **프로덕션에는 존재하지 않는다.** `ENV_LABEL` 이 있는 환경(연습용)에서만 라우트가 산다 —

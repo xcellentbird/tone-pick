@@ -17,6 +17,7 @@
 | `/host/:id` `/players` `/seats` `/settings` | 콘솔 4탭 |
 | `/host/:id/players/:pid` | 참가자 상세 시트 (모달) |
 | `/host/:id/players/invites` | 입장 명단 시트 (모달) |
+| `/host/:id/seats/:mode` | 테이블 수 고르기 시트 (모달) — `new` · `final` |
 | `/demo/:id` | 데모 뷰 |
 
 **새로고침해도 같은 화면이 나와야 한다.** 참가자 식별은 URL 이 아니라 HttpOnly 세션 쿠키로 한다.

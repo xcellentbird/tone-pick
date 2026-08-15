@@ -34,6 +34,7 @@ export function pokeLimitMessage(error: string, detail?: number): string | undef
   return error === "conflict" ? HOST_UI.pokeFloor(detail ?? 0) : undefined;
 }
 
+/** 발표가 끝나면 자리를 더 바꾸지 않는다. 그 밖에는 막을 일이 없다 */
 export function seatingMessage(error: string): string | undefined {
-  return error === "closed" ? HOST.seating.closed : undefined;
+  return error === "closed" ? HOST.seating.afterReveal : undefined;
 }

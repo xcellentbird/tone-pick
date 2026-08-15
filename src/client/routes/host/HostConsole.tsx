@@ -12,7 +12,7 @@ import { useAuthRedirect } from "../../lib/guard.ts";
 import { connect } from "../../lib/realtime.ts";
 import { Overlays } from "../../ui/Overlays.tsx";
 
-export type ConsoleState = HostState & { seatingClosed: boolean };
+export type ConsoleState = HostState;
 
 export interface ConsoleCtx {
   state: ConsoleState;

@@ -65,6 +65,8 @@ export const router = createBrowserRouter([
       { path: "players", element: <Players /> },
       { path: "players/:pid", element: <Players /> },   // 상세 시트
       { path: "seats", element: <Seats /> },
+      // 테이블 수 고르는 시트도 라우트다 — 뒤로 가기로 닫힌다
+      { path: "seats/:mode", element: <Seats /> },
       { path: "settings", element: <Settings /> },
     ],
   },
