@@ -14,6 +14,7 @@ import { canPoke } from "../../shared/phase.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
+import Sheet from "../ui/Sheet.tsx";
 
 interface Props {
   state: ParticipantState;
@@ -21,9 +22,11 @@ interface Props {
   reload: () => void;
   profileId?: string;
   onProfile: (playerId: string | null) => void;
+  /** 데모 뷰의 폰 안에 그릴 때 */
+  container?: HTMLElement | null;
 }
 
-export default function People({ state, source, reload, profileId, onProfile }: Props) {
+export default function People({ state, source, reload, profileId, onProfile, container }: Props) {
   // 동성에게도 찌를 수 있는 회차라면 처음부터 전체를 보여준다 — 반쪽만 보이면 설정이 무색해진다
   const sameGenderOk = !!state.event.config.allowSameGender;
   const [onlyOpposite, setOnlyOpposite] = useState(!sameGenderOk);
@@ -105,9 +108,15 @@ export default function People({ state, source, reload, profileId, onProfile }: 
         ))}
       </div>
 
-      {profile && (
-        <div className="scrim" onClick={() => onProfile(null)} role="presentation">
-          <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <Sheet
+        open={!!profile}
+        onClose={() => onProfile(null)}
+        title={profile?.nickname ?? ""}
+        titleHidden
+        container={container}
+      >
+        {profile && (
+          <>
             <div className="row">
               <span className="avatar">{profile.gender === "M" ? "🙋‍♂️" : "🙋‍♀️"}</span>
               <div className="grow">
@@ -138,9 +147,9 @@ export default function People({ state, source, reload, profileId, onProfile }: 
             <button className="btn block ghost" style={{ marginTop: 16 }} onClick={() => onProfile(null)}>
               {BTN.close}
             </button>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Sheet>
     </>
   );
 }

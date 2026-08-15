@@ -78,12 +78,15 @@ function Phone({ eventId, playerId, tick }: { eventId: string; playerId: string;
   const [tab, setTab] = useState<Tab>("home");
   const [profileId, setProfileId] = useState<string | undefined>(undefined);
   const [source] = useState(() => demoSource(eventId, playerId));
+  // 시트를 이 폰 안에 그린다. 기본 포털(document.body)로 나가면 폰 밖에 뜬다
+  const [frame, setFrame] = useState<HTMLDivElement | null>(null);
 
   return (
-    <div className="phone">
-      <Overlays history={false}>
+    <div className="phone" ref={setFrame}>
+      <Overlays history={false} container={frame}>
         <ParticipantView
           source={source}
+          container={frame}
           refreshToken={tick}
           tab={tab}
           onTab={setTab}

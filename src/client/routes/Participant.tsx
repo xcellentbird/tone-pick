@@ -32,6 +32,8 @@ interface ViewProps {
   welcome?: string;
   /** 값이 바뀌면 다시 읽는다. 실시간을 직접 듣지 않는 화면(데모 뷰)이 쓴다 */
   refreshToken?: number;
+  /** 데모 뷰의 폰 안에 시트를 그릴 때 */
+  container?: HTMLElement | null;
   tab: Tab;
   onTab: (tab: Tab) => void;
   /** 프로필 시트. 라우트에서는 URL, 데모에서는 폰 안의 상태 */
@@ -104,6 +106,7 @@ function Loaded({
   profileId,
   onProfile,
   welcome,
+  container,
   state,
   reload,
 }: ViewProps & { state: ParticipantState; reload: () => void }) {
@@ -122,7 +125,7 @@ function Loaded({
     !!state.seat && !state.seat.acked && !acked.includes(state.seat.round) && state.event.phase !== "done";
 
   return (
-    <Overlays history={!!source.liveCode}>
+    <Overlays history={!!source.liveCode} container={container}>
       {welcome && <Greeting text={welcome} />}
       <div className="screen">
         {/* 스크롤해도 남는 자리다. 여기엔 반복해서 볼 것만 둔다 */}
@@ -143,7 +146,14 @@ function Loaded({
           )}
           {tab === "home" && <Home state={state} onTab={onTab} />}
           {tab === "people" && (
-            <People state={state} source={source} reload={reload} profileId={profileId} onProfile={onProfile} />
+            <People
+              state={state}
+              source={source}
+              reload={reload}
+              profileId={profileId}
+              onProfile={onProfile}
+              container={container}
+            />
           )}
           {tab === "me" && <Me state={state} />}
         </div>

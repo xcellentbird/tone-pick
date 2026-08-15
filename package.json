@@ -20,6 +20,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.23",
     "hono": "^4.6.14",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

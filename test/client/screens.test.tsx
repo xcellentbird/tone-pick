@@ -366,3 +366,33 @@ describe("탭 역할 분담", () => {
     expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me"]);
   });
 });
+
+// ─────────────────────────────────────────── 시트·확인창의 동작
+
+describe("시트와 확인창", () => {
+  /**
+   * 손으로 만들었을 때 없던 것들. Radix Dialog 로 동작만 빌려 왔다 (gzip 12KB).
+   * 특히 Escape 로 닫을 때 **행동이 실행되면 안 된다** — 취소와 같아야 한다.
+   */
+  it("★ Escape 로 확인창을 닫아도 콕은 나가지 않는다", async () => {
+    const source = fakeSource();
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    await screen.findByText(POKE.confirm.title(1));
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByText(POKE.confirm.title(1))).toBeNull());
+    expect(source.calls.poke).toEqual([]);
+  });
+
+  it("확인창에 읽을 수 있는 이름이 붙는다", async () => {
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain(POKE.confirm.title(1));
+  });
+});
