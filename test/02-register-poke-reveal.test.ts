@@ -633,6 +633,94 @@ describe("명단 공개 범위", () => {
   });
 });
 
+// ─────────────────────────────────────────── 참가자를 지웠을 때
+
+/**
+ * 라운드 중에 참가자를 지우는 일이 있다. 그때 **남는 것과 사라지는 것**이 분명해야 한다.
+ */
+describe("참가자를 지웠을 때", () => {
+  async function pair() {
+    const ev = await freshEvent();
+    const a = await join(ev, { gender: "M", nickname: "남을이" });
+    const b = await join(ev, { gender: "F", nickname: "지워질이" });
+    await setPhase(ev.id, "prevote");
+    await api("/api/poke", { method: "POST", cookie: a.cookie, body: { toId: b.id } });
+    await api("/api/poke", { method: "POST", cookie: b.cookie, body: { toId: a.id } });
+    return { ev, a, b };
+  }
+
+  it("★ 지워진 사람에게는 '회차가 없다' 가 아니라 '참가가 취소됐다' 고 말한다", async () => {
+    const { ev, b } = await pair();
+    await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
+
+    const res = await api<{ message: string }>("/api/me", { cookie: b.cookie });
+    expect(res.status).toBe(404);
+    // 회차는 멀쩡하다. 링크를 의심하게 만들면 운영자에게 엉뚱한 걸 묻는다
+    expect(res.body.message).toBe(ENTRY.removed);
+    expect(res.body.message).not.toBe(ENTRY.notFound);
+  });
+
+  it("★ 지운 사람의 운세가 남지 않는다 — 그 문장에 닉네임이 들어 있다", async () => {
+    const { ev, b } = await pair();
+    await setPhase(ev.id, "party");
+    const made = await api<{ headline: string }>("/api/fortune", { method: "POST", cookie: b.cookie });
+    expect(made.status).toBe(200);
+
+    await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
+    // 같은 번호로 다시 들어오면 새 사람이다. 앞사람의 운세를 물려받지 않는다
+    const back = await enter(ev.id, b.phone);
+    expect(back.body.registered).toBe(false);
+  });
+
+  it("★ 명단에는 남아 있어서 같은 번호로 다시 들어올 수 있다", async () => {
+    const { ev, b } = await pair();
+    await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
+
+    const back = await enter(ev.id, b.phone);
+    expect(back.status).toBe(200);
+    expect(back.body.registered).toBe(false);   // 등록 폼부터 다시
+  });
+
+  it("명단에서도 빼면 그때는 못 들어온다", async () => {
+    const { ev, b } = await pair();
+    await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
+    await api(`/api/host/events/${ev.id}/invites/${b.phone}`, { method: "DELETE", cookie: master });
+
+    expect((await enter(ev.id, b.phone)).status).toBe(403);
+  });
+
+  it("남은 사람의 받은 콕이 그만큼 줄어든다", async () => {
+    const { ev, a, b } = await pair();
+    const before = await api<ParticipantState>("/api/me", { cookie: a.cookie });
+    expect(before.body.poke.receivedCount).toBe(1);
+
+    await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
+    const after = await api<ParticipantState>("/api/me", { cookie: a.cookie });
+    // 지운 사람이 찌른 콕도 함께 사라진다. 확인창이 그 사실을 말해야 하는 이유다
+    expect(after.body.poke.receivedCount).toBe(0);
+    expect(after.body.roster).toEqual([]);
+  });
+
+  it("★ 발행한 자리에서도 빠진다", async () => {
+    const ev = await freshEvent();
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    await api(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, final: false },
+    });
+    await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
+
+    await api(`/api/host/events/${ev.id}/players/${ids[0]}`, { method: "DELETE", cookie: master });
+    const state = await api<{ seatings: Array<{ seats: Array<{ playerId: string }> }> }>(
+      `/api/host/events/${ev.id}/state`,
+      { cookie: master },
+    );
+    const seated = state.body.seatings.flatMap((r) => r.seats.map((s) => s.playerId));
+    expect(seated).not.toContain(ids[0]);
+    expect(seated.length).toBe(3);
+  });
+});
+
 // ─────────────────────────────────────────── 매력 고치기
 
 /**
