@@ -298,6 +298,18 @@ button {
 .person .name { display: block; font-weight: 700; font-size: 15px; }
 .person .charm { display: block; color: var(--dim); font-size: 13px; }
 
+/*
+ * 발표 후 서로 찌른 사람. 목록에서 **바로 눈에 띄어야** 한다 —
+ * 파티장에서 그 사람을 앞에 두고 화면을 뒤지게 만들지 않는다.
+ * 색만으로 말하지 않는다: 매력 자리에 "💘 서로 찔렀어요"가 글자로 들어간다.
+ */
+.person.matched {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, var(--card)), var(--card));
+}
+.person .charm.matchLine { color: var(--accent); font-weight: 700; }
+.matchCard { border: 1px solid var(--accent); }
+
 .avatar {
   width: 42px;
   height: 42px;

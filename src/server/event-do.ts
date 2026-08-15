@@ -219,7 +219,8 @@ export class EventDO extends DurableObject {
     if (patch.config) {
       const { maxPre, maxParty, allowSameGender } = patch.config;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
-      meta.config = { maxPre, maxParty, ...(allowSameGender ? { allowSameGender: true as const } : {}) };
+      // 기본이 '모두에게'라, **좁혔을 때만** 적는다. 켠 상태를 굳이 써 넣으면 설정 모양이 회차마다 달라진다
+      meta.config = { maxPre, maxParty, ...(allowSameGender === false ? { allowSameGender: false } : {}) };
     }
     await this.ctx.storage.put("meta", meta);
     // 콕 횟수가 바뀌면 참가자 화면의 남은 횟수가 그 자리에서 재계산돼야 한다
@@ -436,7 +437,8 @@ export class EventDO extends DurableObject {
     if (!me || !target) return fail("not_found");
     // 자기 자신은 어떤 설정에서도 못 찌른다
     if (me.id === target.id) return fail("same_gender");
-    if (!meta.config.allowSameGender && me.gender === target.gender) return fail("same_gender");
+    // 운영자가 이성만으로 좁힌 회차에서만 막는다 (ADR-17)
+    if (meta.config.allowSameGender === false && me.gender === target.gender) return fail("same_gender");
 
     const round = roundOf(meta.phase);
     const max = round === "pre" ? meta.config.maxPre : meta.config.maxParty;
