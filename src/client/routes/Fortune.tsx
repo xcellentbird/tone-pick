@@ -11,7 +11,7 @@
  */
 import { useState } from "react";
 import { FORTUNE } from "../../shared/copy.ts";
-import type { Fortune } from "../../shared/fortune.ts";
+import { paragraphs, type Fortune } from "../../shared/fortune.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { ApiError, post } from "../lib/api.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
@@ -54,14 +54,17 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
       <div className={`card stack fortuneCard tone-${card.color}`}>
         <div className="kicker">{FORTUNE.title}</div>
         <h2 className="fortuneHeadline">{card.headline}</h2>
-        <p className="pre" style={{ margin: 0 }}>
-          {card.body}
-        </p>
+        {/* 세 문단. 한 덩어리로 붙여 놓으면 폰에서 읽다가 놓친다 */}
+        {paragraphs(card.body).map((para, i) => (
+          <p className="fortuneBody" key={i}>
+            {para}
+          </p>
+        ))}
 
-        <div className="fortuneStep">
-          <div className="kicker">💬 {FORTUNE.stepTitle}</div>
+        <div className="fortuneMission">
+          <div className="kicker">🎯 {FORTUNE.missionTitle}</div>
           <p className="pre" style={{ margin: 0 }}>
-            {card.step}
+            {card.mission}
           </p>
         </div>
 

@@ -656,11 +656,11 @@ describe("오늘의 연애운", () => {
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
 
-    const first = await api<{ headline: string; step: string; color: string }>("/api/fortune", {
+    const first = await api<{ headline: string; mission: string; color: string }>("/api/fortune", {
       method: "POST",
       cookie: me.cookie,
     });
-    const again = await api<{ headline: string; step: string; color: string }>("/api/fortune", {
+    const again = await api<{ headline: string; mission: string; color: string }>("/api/fortune", {
       method: "POST",
       cookie: me.cookie,
     });
@@ -678,15 +678,17 @@ describe("오늘의 연애운", () => {
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
 
-    const res = await api<{ headline: string; body: string; step: string; fallback?: boolean }>(
+    const res = await api<{ headline: string; body: string; mission: string; fallback?: boolean }>(
       "/api/fortune",
       { method: "POST", cookie: me.cookie },
     );
     expect(res.status).toBe(200);
     expect(res.body.fallback).toBe(true);
-    for (const line of [res.body.headline, res.body.body, res.body.step]) {
+    for (const line of [res.body.headline, res.body.body, res.body.mission]) {
       expect(line.length).toBeGreaterThan(0);
     }
+    // 오늘의 기운은 세 문단이다
+    expect(res.body.body.split(/\n\s*\n/).length).toBe(3);
   });
 
   it("남의 운세는 볼 수 없다", async () => {

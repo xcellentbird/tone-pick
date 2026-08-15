@@ -228,15 +228,15 @@ describe("오늘 탭", () => {
   it("★ 열기 전에는 뒷면이다 — 운세가 미리 보이지 않는다", async () => {
     renderFortune(party());
     expect(await screen.findByText(FORTUNE.open)).toBeTruthy();
-    expect(screen.queryByText(FORTUNE.stepTitle)).toBeNull();
+    expect(screen.queryByText(new RegExp(FORTUNE.missionTitle))).toBeNull();
   });
 
   it("★ 이미 연 사람에게는 뒤집기 없이 바로 보인다", async () => {
     const opened = party({
       fortune: {
         headline: "천천히 말하는 밤이에요",
-        body: "오늘의 당신은 이런 결이에요.",
-        step: "요즘 자주 듣는 노래를 물어보세요",
+        body: "첫 문단이에요.\n\n둘째 문단이에요.\n\n셋째 문단이에요.",
+        mission: "요즘 자주 듣는 노래를 물어보세요",
         color: "violet",
         matchTypes: ["ENFP", "ENTJ"],
         at: 1,
@@ -246,6 +246,10 @@ describe("오늘 탭", () => {
 
     await screen.findByText("천천히 말하는 밤이에요");
     expect(screen.queryByText(FORTUNE.open)).toBeNull();
+    // 세 문단이 각각 제 줄을 갖는다 — 한 덩어리로 붙여 놓으면 폰에서 읽다가 놓친다
+    for (const para of ["첫 문단이에요.", "둘째 문단이에요.", "셋째 문단이에요."]) {
+      expect(screen.getByText(para)).toBeTruthy();
+    }
     // 다시 열어도 같은 운세라는 걸 미리 말해둔다
     expect(screen.getByText(FORTUNE.again)).toBeTruthy();
   });
@@ -256,7 +260,7 @@ describe("오늘 탭", () => {
         fortune: {
           headline: "h",
           body: "b",
-          step: "s",
+          mission: "m",
           color: "gold",
           matchTypes: ["ENFP", "ENTJ"],
           at: 1,
@@ -582,7 +586,8 @@ describe("탭 역할 분담", () => {
     expect(screen.getAllByText(POKE.received)).toHaveLength(3);
 
     // '오늘' 은 파티가 시작돼야 생긴다. 사전 투표 중에는 세 개다
-    expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "fortune", "people", "me"]);
+    // '오늘' 은 맨 오른쪽에 붙는다 — 도중에 끼어들면 옆 탭들이 밀린다
+    expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me", "fortune"]);
     expect(screen.queryByText(FORTUNE.tab)).toBeNull();
   });
 });

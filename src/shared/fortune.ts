@@ -17,10 +17,10 @@ export type FortuneColor = "violet" | "gold" | "teal" | "coral";
 export interface Fortune {
   /** 이 화면의 주인공. 한 줄이다 */
   headline: string;
-  /** 오늘의 나를 말하는 2~3문장 */
+  /** 오늘의 나를 말하는 **세 문단**. 문단 사이는 빈 줄이다 */
   body: string;
-  /** 파티에서 실제로 쓸 수 있는 것 — 말 붙이는 문장 하나를 통째로 준다 */
-  step: string;
+  /** 오늘의 기운에서 이어지는 작은 미션. 30분 안에 해볼 수 있고 실패해도 티가 나지 않는 것 */
+  mission: string;
   color: FortuneColor;
   /** 오늘 말이 잘 통할 결. 규칙으로 정한다 (LLM 아님) */
   matchTypes: [string, string];
@@ -112,7 +112,7 @@ export function fallbackFortune(input: FortuneInput, now: number, lines: Fallbac
   return {
     headline: lines.headline[seed % lines.headline.length],
     body: lines.body(charm, input.mbti[0] === "E"),
-    step: lines.step[(seed >> 3) % lines.step.length],
+    mission: lines.mission[(seed >> 3) % lines.mission.length],
     color: pickColor(seed),
     matchTypes: matchTypes(input.mbti),
     at: now,
@@ -123,8 +123,26 @@ export function fallbackFortune(input: FortuneInput, now: number, lines: Fallbac
 /** 문구는 `copy.ts` 에서 넘겨받는다. 이 파일에는 한국어를 두지 않는다 */
 export interface FallbackLines {
   headline: readonly string[];
-  step: readonly string[];
+  mission: readonly string[];
   body: (charm: string, outgoing: boolean) => string;
+}
+
+/**
+ * 저장돼 있던 운세를 지금 모양으로 읽는다.
+ *
+ * 저장된 자료는 코드보다 오래 산다 — '오늘의 한 걸음'(`step`)이 '오늘의 미션'(`mission`)이 됐을 때
+ * 이미 저장된 운세가 그대로 올라오면 미션 칸이 빈다. 기본값 NaN 사고와 같은 자리다.
+ */
+export function readFortune(saved: unknown): Fortune {
+  const { step, ...rest } = saved as Fortune & { step?: string };
+  return { ...rest, mission: rest.mission || step || "" };
+}
+
+/**
+ * 문단을 나눈다. 빈 줄이 문단 경계다 — 모델이 한 문단만 줘도 그대로 한 덩어리로 그린다.
+ */
+export function paragraphs(body: string): string[] {
+  return body.split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
 }
 
 /**
@@ -133,7 +151,7 @@ export interface FallbackLines {
  */
 export function parseFortune(raw: string, input: FortuneInput, now: number): Fortune | null {
   const text = raw.trim().replace(/^```(?:json)?/, "").replace(/```$/, "");
-  let data: { headline?: unknown; body?: unknown; step?: unknown };
+  let data: { headline?: unknown; body?: unknown; mission?: unknown; step?: unknown };
   try {
     data = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
   } catch {
@@ -143,14 +161,15 @@ export function parseFortune(raw: string, input: FortuneInput, now: number): For
     typeof v === "string" && v.trim().length > 0 && v.length <= max ? v.trim() : null;
 
   const headline = str(data.headline, 60);
-  const body = str(data.body, 400);
-  const step = str(data.step, 120);
-  if (!headline || !body || !step) return null;
+  const body = str(data.body, 1200);
+  // 이름을 바꾸기 전 모델이 `step` 으로 답하는 일이 있다. 뜻이 같으면 받아준다
+  const mission = str(data.mission, 160) ?? str(data.step, 160);
+  if (!headline || !body || !mission) return null;
 
   return {
     headline,
     body,
-    step,
+    mission,
     color: pickColor(seedOf(`${input.nickname}:${input.mbti}`)),
     matchTypes: matchTypes(input.mbti),
     at: now,
