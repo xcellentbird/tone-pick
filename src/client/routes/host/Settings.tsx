@@ -23,7 +23,6 @@ export default function Settings() {
   const meta = state.meta;
 
   const [name, setName] = useState(meta.name);
-  const [pin, setPin] = useState("");
   const [code, setCode] = useState(meta.code);
   const [maxPre, setMaxPre] = useState(meta.config.maxPre);
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
@@ -46,11 +45,9 @@ export default function Settings() {
       await put<EventMeta>(`/host/events/${meta.id}`, {
         name,
         code: code !== meta.code ? code : undefined,
-        pin: pin || undefined,
         config: { maxPre, maxParty, allowSameGender },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
-      setPin("");
       toast(BTN.saved);
       reload();
     } catch (e) {
@@ -95,18 +92,6 @@ export default function Settings() {
           onChange={(e) => setCode(e.target.value.toUpperCase())}
         />
       </div>
-      <div className="field">
-        <label htmlFor="spin">{HOST_UI.fields.pin}</label>
-        <input
-          id="spin"
-          value={pin}
-          type="password"
-          inputMode="numeric"
-          autoComplete="off"
-          onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ""))}
-        />
-      </div>
-
       <div className="kicker">{HOST_UI.settings.rules}</div>
       <Num
         label={HOST_UI.fields.maxPre}
@@ -144,6 +129,13 @@ export default function Settings() {
       </div>
 
       <div className="kicker">{HOST_UI.settings.schedule}</div>
+      {/* 파티 일시는 잠그지 않는다 — 장소가 바뀌면 시각도 바뀐다 */}
+      <When
+        label={HOST_UI.fields.partyAt}
+        value={schedule.partyAt}
+        locked={false}
+        onChange={(v) => setSchedule({ ...schedule, partyAt: v })}
+      />
       <When
         label={HOST_UI.fields.regOpenAt}
         value={schedule.regOpenAt}
@@ -151,17 +143,13 @@ export default function Settings() {
         onChange={(v) => setSchedule({ ...schedule, regOpenAt: v })}
       />
       <When
-        label={HOST_UI.fields.voteCloseAt}
-        value={schedule.voteCloseAt}
-        locked={schedLocked(meta.fired, "voteCloseAt")}
-        onChange={(v) => setSchedule({ ...schedule, voteCloseAt: v })}
+        label={HOST_UI.fields.prevoteAt}
+        value={schedule.prevoteAt}
+        locked={schedLocked(meta.fired, "prevoteAt")}
+        onChange={(v) => setSchedule({ ...schedule, prevoteAt: v })}
       />
-      <When
-        label={HOST_UI.fields.revealAt}
-        value={schedule.revealAt}
-        locked={schedLocked(meta.fired, "revealAt")}
-        onChange={(v) => setSchedule({ ...schedule, revealAt: v })}
-      />
+      {/* 예약이 없는 전환을 여기서 찾지 않도록, 없는 이유를 그 자리에 적어둔다 */}
+      <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
 
       {error && <p className="err danger">{error}</p>}
       <button className="btn primary block" onClick={save}>

@@ -40,7 +40,7 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
       code: "ABCDEF",
       phase: "prevote",
       fired: { reg: 1, prevote: 2 },
-      schedule: { voteCloseAt: Date.now() + 3600_000 },
+      schedule: { partyAt: Date.now() + 3600_000 },
       config: { maxPre: 3, maxParty: 3 },
       playerCount: 2,
     },
@@ -209,10 +209,10 @@ describe("참가 링크", () => {
   function renderJoin() {
     const router = createMemoryRouter(
       [
-        { path: "/j/:code", element: <Join /> },
+        { path: "/j/:id", element: <Join /> },
         { path: "/e/:code", element: <div>참가자 화면</div> },
       ],
-      { initialEntries: ["/j/ABCDEF"] },
+      { initialEntries: ["/j/e1"] },
     );
     return render(<RouterProvider router={router} />);
   }
@@ -234,23 +234,63 @@ describe("참가 링크", () => {
     await screen.findByText("참가자 화면");
   });
 
-  it("아직 등록하지 않았으면 등록 화면이 나온다", async () => {
+  /**
+   * ★ 링크만으로는 들어올 수 없다 (ADR-13).
+   *
+   * 참가 링크는 단톡방에 돌고, 스크린샷으로도 퍼진다. 그 링크가 곧 입장이면
+   * 운영자가 부르지 않은 사람이 명단에 들어온다 — 코드가 그 문이다.
+   */
+  // 맞춘 코드는 탭이 살아 있는 동안 기억된다. 테스트끼리 그 기억을 물려받지 않게 지운다
+  beforeEach(() => sessionStorage.clear());
+
+  function stubGate(byCode: unknown = { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true }) {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: string) =>
-        url.includes("/me")
-          ? new Response(JSON.stringify({ error: "unauthorized" }), {
-              status: 401,
-              headers: { "content-type": "application/json" },
-            })
-          : new Response(
-              JSON.stringify({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true }),
-              { status: 200, headers: { "content-type": "application/json" } },
-            ),
-      ),
+      vi.fn(async (url: string) => {
+        if (url.includes("/me")) {
+          return new Response(JSON.stringify({ error: "unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        const body = url.includes("/by-code/")
+          ? byCode
+          : { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true };
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
     );
+  }
+
+  it("★ 링크만 열면 회차만 보이고, 코드를 넣어야 등록으로 간다", async () => {
+    stubGate();
     renderJoin();
+
+    // 방은 보인다
+    await screen.findByText("테스트 파티");
+    // 등록으로 가는 문은 아직 닫혀 있다
+    expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
+    expect(screen.getByText(ENTRY.gateNote)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(ENTRY.codeLabel), { target: { value: "ABCDEF" } });
+    fireEvent.click(screen.getByText(ENTRY.submit));
+
     expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
+  });
+
+  it("★ 다른 회차의 유효한 코드로는 열리지 않는다", async () => {
+    // 코드 자체는 실재하지만 다른 회차의 것이다
+    stubGate({ id: "다른회차", name: "다른 파티", phase: "reg", canRegister: true });
+    renderJoin();
+    await screen.findByText("테스트 파티");
+
+    fireEvent.change(screen.getByLabelText(ENTRY.codeLabel), { target: { value: "ZZZZZZ" } });
+    fireEvent.click(screen.getByText(ENTRY.submit));
+
+    expect(await screen.findByText(ENTRY.wrongCode)).toBeTruthy();
+    expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
   });
 });
 
@@ -294,7 +334,7 @@ describe("상단 바", () => {
     renderParticipant(fakeSource());
     await screen.findByText(PHASE_LABEL.prevote);
     // 숫자만 있으면 무엇을 세는지 알 수 없다
-    expect(screen.getByText(STATUS.untilVoteClose)).toBeTruthy();
+    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
     expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/)).toBeTruthy();
   });
 

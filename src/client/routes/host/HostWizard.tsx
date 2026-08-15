@@ -1,19 +1,21 @@
 /**
  * 새 회차 만들기 3스텝.
  *
+ * **파티 일시가 먼저다.** 등록 시작도 사전 투표 시작도 거기서 거꾸로 계산된다 —
+ * 운영자가 실제로 아는 건 "언제 모이나" 하나뿐이고, 나머지는 그것에 딸린 값이다.
+ * 파티 일시를 옮기면 아직 손대지 않은 값들이 따라 움직인다. 직접 고친 값은 그대로 둔다.
+ *
+ * 예약하는 건 등록 시작과 사전 투표 시작 **둘뿐**이다.
+ * 사전 투표 마감·파티 시작·발표는 현장에서 운영자가 누른다 (ADR-14).
+ *
  * '지금 바로'는 시각이 아니라 **토글**이다 — `datetime-local` 이 초를 버려서
  * "지금"을 시각으로 넣으면 매번 몇 초씩 어긋난다. 서버에는 리터럴 "now" 로 보낸다.
- *
- * 토글 규칙 (UI.md)
- *   켤 때  → 기존 시각을 보관하고 now 로 바꾼다
- *   끌 때  → 보관한 시각이 미래면 그대로 복원, 아니면 +1시간
- *   공통   → 마감이 등록 시작보다 앞이면 기본 기간만큼 밀어준다
  */
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, HOST_UI, SCREEN_TITLE, pokeEstimateLabel } from "../../../shared/copy.ts";
 import type { CreateEventInput, Defaults, EventMeta } from "../../../shared/types.ts";
-import { LIMITS, pokeEstimate } from "../../../shared/constants.ts";
+import { DEFAULTS, LIMITS, pokeEstimate } from "../../../shared/constants.ts";
 import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, api, post } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
@@ -21,6 +23,15 @@ import { useAuthRedirect } from "../../lib/guard.ts";
 import { Num } from "./HostDefaults.tsx";
 
 const HOUR = 3600_000;
+const DAY = 24 * HOUR;
+
+/** 다음 금요일 저녁 8시 — 손대지 않고 넘어가도 말이 되는 값 */
+function defaultPartyAt(from: number): number {
+  const d = new Date(from);
+  d.setHours(20, 0, 0, 0);
+  d.setDate(d.getDate() + ((5 - d.getDay() + 7) % 7 || 7));
+  return d.getTime();
+}
 
 export default function HostWizard() {
   const { step = "1" } = useParams();
@@ -33,15 +44,15 @@ export default function HostWizard() {
   const requestId = useMemo(() => `w-${Date.now()}-${Math.random().toString(36).slice(2)}`, []);
 
   const [name, setName] = useState("");
-  const [pin, setPin] = useState("");
   const [code, setCode] = useState("");
   const [openNow, setOpenNow] = useState(false);
-  // 기본 설정이 도착하기 전에도 30분에 맞은 값을 보여준다 — 잠깐이라도 21:07 이 보이면 안 된다
-  const [regOpenAt, setRegOpenAt] = useState<number>(() => snapSchedule(Date.now() + HOUR, "up"));
-  const [keptRegOpenAt, setKept] = useState<number>(() => snapSchedule(Date.now() + HOUR, "up"));
-  const [voteCloseAt, setVoteCloseAt] = useState<number>(() => snapSchedule(Date.now() + 25 * HOUR, "up"));
-  const [maxPre, setMaxPre] = useState(3);
-  const [maxParty, setMaxParty] = useState(3);
+  const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
+  const [regOpenAt, setRegOpenAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.regOpenBeforeD * DAY);
+  const [prevoteAt, setPrevoteAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.prevoteBeforeH * HOUR);
+  // 직접 고친 값은 파티 일시를 옮겨도 따라가지 않는다. 고쳐놓은 걸 되돌리는 건 사고다
+  const [touched, setTouched] = useState<{ reg?: boolean; prevote?: boolean }>({});
+  const [maxPre, setMaxPre] = useState(DEFAULTS.maxPre);
+  const [maxParty, setMaxParty] = useState(DEFAULTS.maxParty);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -50,37 +61,29 @@ export default function HostWizard() {
     if (!d) return;
     setMaxPre(d.maxPre);
     setMaxParty(d.maxParty);
-    // 기본값은 올림한다 — 반올림하면 "1시간 뒤"가 55분 뒤가 되는 수가 있다
-    const open = snapSchedule(Date.now() + d.regOpenAfterH * HOUR, "up");
-    setRegOpenAt(open);
-    setKept(open);
-    setVoteCloseAt(open + d.voteWindowH * HOUR);
-    // 기본값이 0시간이면 위저드가 '지금 바로'로 열린다
-    setOpenNow(d.regOpenAfterH === 0);
+    setRegOpenAt((prev) => (touched.reg ? prev : partyAt - d.regOpenBeforeD * DAY));
+    setPrevoteAt((prev) => (touched.prevote ? prev : partyAt - d.prevoteBeforeH * HOUR));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaults.data]);
 
-  function toggleNow(next: boolean) {
-    if (next) {
-      setKept(regOpenAt);
-      setRegOpenAt(Date.now());
-    } else {
-      const restored = keptRegOpenAt > Date.now() ? keptRegOpenAt : snapSchedule(Date.now() + HOUR, "up");
-      setRegOpenAt(restored);
-      if (voteCloseAt <= restored) {
-        setVoteCloseAt(restored + (defaults.data?.voteWindowH ?? 24) * HOUR);
-      }
-    }
-    setOpenNow(next);
+  function changeParty(value: string) {
+    const raw = fromLocalInput(value);
+    if (!raw) return;
+    const ts = snapSchedule(raw);
+    setPartyAt(ts);
+    const d = defaults.data ?? DEFAULTS;
+    if (!touched.reg) setRegOpenAt(ts - d.regOpenBeforeD * DAY);
+    if (!touched.prevote) setPrevoteAt(ts - d.prevoteBeforeH * HOUR);
   }
 
-  function changeRegOpen(value: string) {
+  function changeWhen(key: "reg" | "prevote", value: string) {
     const raw = fromLocalInput(value);
     if (!raw) return;
     // 직접 타이핑하면 브라우저가 step 을 강제하지 않는다. 받은 값을 여기서 맞춘다
     const ts = snapSchedule(raw);
-    setRegOpenAt(ts);
-    setKept(ts);
-    if (voteCloseAt <= ts) setVoteCloseAt(ts + (defaults.data?.voteWindowH ?? 24) * HOUR);
+    setTouched({ ...touched, [key]: true });
+    if (key === "reg") setRegOpenAt(ts);
+    else setPrevoteAt(ts);
   }
 
   async function finish() {
@@ -89,10 +92,10 @@ export default function HostWizard() {
     try {
       const body: CreateEventInput = {
         name: name.trim(),
-        pin,
         code: code.trim() ? code.trim().toUpperCase() : undefined,
+        partyAt,
         regOpenAt: openNow ? "now" : regOpenAt,
-        voteCloseAt,
+        prevoteAt,
         config: { maxPre, maxParty },
         requestId,
       };
@@ -127,16 +130,6 @@ export default function HostWizard() {
               <input id="ename" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div className="field">
-              <label htmlFor="epin">{HOST_UI.fields.pin}</label>
-              <input
-                id="epin"
-                value={pin}
-                inputMode="numeric"
-                maxLength={8}
-                onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ""))}
-              />
-            </div>
-            <div className="field">
               <label htmlFor="ecode">{HOST_UI.fields.code}</label>
               <input
                 id="ecode"
@@ -153,12 +146,23 @@ export default function HostWizard() {
         {at === 2 && (
           <>
             <div className="field">
+              <label htmlFor="party">{HOST_UI.fields.partyAt}</label>
+              <input
+                id="party"
+                type="datetime-local"
+                step={SCHEDULE_STEP_MIN * 60}
+                value={toLocalInput(partyAt)}
+                onChange={(e) => changeParty(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
               <label>{HOST_UI.fields.regOpenAt}</label>
               <div className="choice">
-                <button type="button" aria-pressed={openNow} onClick={() => toggleNow(true)}>
+                <button type="button" aria-pressed={openNow} onClick={() => setOpenNow(true)}>
                   {HOST_UI.nowToggle}
                 </button>
-                <button type="button" aria-pressed={!openNow} onClick={() => toggleNow(false)}>
+                <button type="button" aria-pressed={!openNow} onClick={() => setOpenNow(false)}>
                   {HOST_UI.pickTime}
                 </button>
               </div>
@@ -167,22 +171,21 @@ export default function HostWizard() {
                   type="datetime-local"
                   step={SCHEDULE_STEP_MIN * 60}
                   value={toLocalInput(regOpenAt)}
-                  onChange={(e) => changeRegOpen(e.target.value)}
+                  onChange={(e) => changeWhen("reg", e.target.value)}
                 />
               )}
             </div>
+
             <div className="field">
-              <label htmlFor="close">{HOST_UI.fields.voteCloseAt}</label>
+              <label htmlFor="prevote">{HOST_UI.fields.prevoteAt}</label>
               <input
-                id="close"
+                id="prevote"
                 type="datetime-local"
                 step={SCHEDULE_STEP_MIN * 60}
-                value={toLocalInput(voteCloseAt)}
-                onChange={(e) => {
-                  const ts = fromLocalInput(e.target.value);
-                  setVoteCloseAt(ts ? snapSchedule(ts) : voteCloseAt);
-                }}
+                value={toLocalInput(prevoteAt)}
+                onChange={(e) => changeWhen("prevote", e.target.value)}
               />
+              <span className="tiny dim">{HOST_UI.fields.manualNote}</span>
             </div>
           </>
         )}
@@ -214,7 +217,7 @@ export default function HostWizard() {
       <div className="row" style={{ padding: "0 16px 16px" }}>
         <button
           className="btn wide primary"
-          disabled={busy || (at === 1 && (!name.trim() || pin.length < 4))}
+          disabled={busy || (at === 1 && !name.trim())}
           onClick={() => (at < 3 ? navigate(`/host/new/${at + 1}`) : finish())}
         >
           {at < 3 ? BTN.next : HOST_UI.newEvent}

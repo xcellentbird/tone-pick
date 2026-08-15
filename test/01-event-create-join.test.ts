@@ -15,6 +15,7 @@ import type { CreateEventInput, EventMeta, EventSummary, PublicEvent } from "../
 
 const MASTER_PIN = "1234";
 const HOUR = 3600_000;
+const DAY = 24 * HOUR;
 
 // ─────────────────────────────────────────── 헬퍼
 
@@ -55,8 +56,9 @@ async function api<T = unknown>(
   };
 }
 
-/** 공통 PIN 또는 회차 PIN 으로 로그인하고 세션 쿠키를 돌려준다 */
+/** 운영자 PIN 으로 로그인하고 세션 쿠키를 돌려준다. PIN 은 하나뿐이다 (ADR-12) */
 async function login(pin: string, eventId?: string) {
+  // eventId 는 옛 회차 PIN 시절의 입력이다. 지금은 서버가 무시해야 한다 — 그걸 확인하려고 남겨둔다
   const res = await api<{ scope: unknown }>("/api/host/pin", {
     method: "POST",
     body: eventId ? { pin, eventId } : { pin },
@@ -70,9 +72,9 @@ function draft(over: Partial<CreateEventInput> = {}): CreateEventInput {
   const now = Date.now();
   return {
     name: `${seq}회차 솔로 파티`,
-    pin: String(2000 + seq),
+    partyAt: now + 7 * DAY,
     regOpenAt: now + HOUR,
-    voteCloseAt: now + 25 * HOUR,
+    prevoteAt: now + 25 * HOUR,
     config: { maxPre: 3, maxParty: 3 },
     requestId: `req-${seq}-${now}`,
     ...over,
@@ -111,66 +113,48 @@ describe("A. 운영자 인증", () => {
     expect(list.status).toBe(200);
   });
 
-  it("S-A2 회차 PIN 으로는 그 회차만 연다", async () => {
-    // Given 회차 X 의 PIN 이 "5678" 이고 공통 PIN 은 "1234" 다
-    const x = await createEvent(master, { pin: "5678" });
-    const y = await createEvent(master, { pin: "8765" });
+  it("S-A2 ★ 회차별 PIN 은 없다 — 운영자 PIN 하나로 모든 회차를 연다", async () => {
+    // Given 회차가 둘 있다
+    const x = await createEvent(master);
+    const y = await createEvent(master);
     expect(x.status).toBe(200);
 
-    // When  회차 X 화면에서 "5678" 을 입력한다
-    const auth = await login("5678", x.body.id);
-
-    // Then  scope 는 { kind: "host", eventId: X } 다
-    expect(auth.status).toBe(200);
-    expect(auth.body.scope).toEqual({ kind: "host", eventId: x.body.id });
-
-    // And   회차 Y 의 콘솔은 403 이다
-    const other = await api(`/api/host/events/${y.body.id}`, { cookie: auth.cookie });
-    expect(other.status).toBe(403);
-
-    // And   회차 목록도 403 이다
-    const list = await api("/api/host/events", { cookie: auth.cookie });
-    expect(list.status).toBe(403);
-  });
-
-  it("S-A3 ★ 두 PIN 이 같아도 회차 권한만 준다", async () => {
-    // Given 회차 X 의 PIN 이 공통 PIN 과 같다
-    //       (생성 시점에는 막히므로, 이미 그런 데이터가 있는 상황을 공통 PIN 변경으로 만든다)
-    const x = await createEvent(master, { pin: "7777" });
-    expect(x.status).toBe(200);
-    const changed = await api("/api/host/defaults", {
-      method: "PUT",
-      cookie: master,
-      body: { maxPre: 3, maxParty: 3, regOpenAfterH: 1, voteWindowH: 24, masterPin: "7777" },
-    });
-    // 공통 PIN 을 기존 회차 PIN 과 같게 만드는 것도 막혀야 한다
-    expect(changed.status).toBe(409);
-
-    // 그래도 검사 순서 자체가 안전해야 한다 — 회차 PIN 을 먼저 본다
+    // When  회차 X 화면에서 운영자 PIN 을 넣는다 (옛 회차 PIN 자리에 eventId 를 함께 보내도)
     const auth = await login(MASTER_PIN, x.body.id);
-    // Then master 를 얻을 수는 있지만(회차 PIN 이 아니므로) 그건 공통 PIN 이 맞았기 때문이다.
+
+    // Then  얻는 권한은 언제나 master 뿐이다. eventId 는 권한에 영향을 주지 않는다
+    expect(auth.status).toBe(200);
     expect(auth.body.scope).toEqual({ kind: "master" });
 
-    // 그리고 회차 PIN 으로 들어오면 절대 master 가 아니다
-    const host = await login("7777", x.body.id);
-    expect(host.body.scope).toEqual({ kind: "host", eventId: x.body.id });
-    const list = await api("/api/host/events", { cookie: host.cookie });
-    expect(list.status).toBe(403);
+    // And   두 회차 모두 열리고 목록도 열린다
+    expect((await api(`/api/host/events/${x.body.id}`, { cookie: auth.cookie })).status).toBe(200);
+    expect((await api(`/api/host/events/${y.body.id}`, { cookie: auth.cookie })).status).toBe(200);
+    expect((await api("/api/host/events", { cookie: auth.cookie })).status).toBe(200);
+  });
+
+  it("S-A3 ★ 회차 아이디를 안다고 권한이 생기지 않는다", async () => {
+    // Given 회차가 있고, 그 아이디를 아는 사람이 있다
+    const x = await createEvent(master);
+
+    // When  아무 번호나 그 회차 아이디와 함께 보낸다
+    for (const guess of ["0000", "7777", "9999"]) {
+      const auth = await login(guess, x.body.id);
+      // Then  운영자 PIN 이 아니면 401 이다. 회차 단위의 뒷문은 없다
+      expect(auth.status).toBe(401);
+      expect(auth.cookie).toBeNull();
+    }
   });
 
   it("S-A4 틀린 PIN 은 거부하고 정답을 흘리지 않는다", async () => {
-    // Given 회차 X 의 PIN 이 "5678" 이다
-    const x = await createEvent(master, { pin: "5678" });
-    // When  "9999" 를 입력한다
+    // When  틀린 번호를 입력한다
     const res = await api<{ error: string; message?: string }>("/api/host/pin", {
       method: "POST",
-      body: { pin: "9999", eventId: x.body.id },
+      body: { pin: "9999" },
     });
     // Then  401 이고 메시지는 HOST.pin.wrong 이다
     expect(res.status).toBe(401);
     expect(res.body.message).toBe(HOST.pin.wrong);
     // And   응답 어디에도 올바른 PIN 이 들어 있지 않다
-    expect(JSON.stringify(res.body)).not.toContain("5678");
     expect(JSON.stringify(res.body)).not.toContain(MASTER_PIN);
   });
 
@@ -188,37 +172,28 @@ describe("A. 운영자 인증", () => {
 
 describe("B. 회차 생성", () => {
   it("S-B1 기본 설정을 물려받는다", async () => {
-    // Given 기본값이 { maxPre:3, maxParty:3, regOpenAfterH:1, voteWindowH:24 } 다
-    const res = await api<{ maxPre: number; maxParty: number; regOpenAfterH: number; voteWindowH: number }>(
+    // Given 기본값이 { maxPre:3, maxParty:3, regOpenBeforeD:6, prevoteBeforeH:24 } 다
+    const res = await api<{ maxPre: number; maxParty: number; regOpenBeforeD: number; prevoteBeforeH: number }>(
       "/api/host/defaults",
       { cookie: master },
     );
-    // Then  위저드가 채워 넣을 값을 그대로 돌려준다
+    // Then  위저드가 채워 넣을 값을 그대로 돌려준다 — 등록은 파티 6일 전에 연다
     expect(res.status).toBe(200);
     expect(res.body.maxPre).toBe(3);
     expect(res.body.maxParty).toBe(3);
-    expect(res.body.regOpenAfterH).toBe(1);
-    expect(res.body.voteWindowH).toBe(24);
+    expect(res.body.regOpenBeforeD).toBe(6);
+    expect(res.body.prevoteBeforeH).toBe(24);
   });
 
-  it("S-B2 ★ 회차 PIN 을 공통 PIN 과 같게 만들 수 없다", async () => {
-    // When  회차 PIN 을 공통 PIN 과 같게 두고 생성한다
-    const res = await createEvent(master, { pin: MASTER_PIN });
-    // Then  거부되고 메시지는 HOST.pin.sameAsMaster 다
-    expect(res.status).toBe(409);
-    expect((res.body as unknown as { error: string }).error).toBe("pin_collision");
-    expect((res.body as unknown as { message: string }).message).toBe(HOST.pin.sameAsMaster(MASTER_PIN));
-  });
-
-  it("S-B2b 자동 생성 PIN 도 공통 PIN 을 피한다", async () => {
-    // 생성 응답에 PIN 이 없으므로, 공통 PIN 으로는 그 회차의 host scope 가 나오면 안 된다
-    for (let i = 0; i < 10; i++) {
-      const ev = await createEvent(master, { pin: undefined as unknown as string });
-      // 생성이 실패하면 이 테스트는 아무것도 검증하지 못한다 — 조용히 통과시키지 않는다
-      expect(ev.status, "PIN 을 생략하면 서버가 만들어야 한다").toBe(200);
-      const auth = await login(MASTER_PIN, ev.body.id);
-      expect(auth.body.scope).toEqual({ kind: "master" });
-    }
+  it("S-B2 ★ 회차를 만들 때 회차 PIN 을 받지 않는다", async () => {
+    // When  옛 입력대로 회차 PIN 을 함께 보낸다
+    const legacy = { ...draft(), pin: "5678" };
+    const res = await api<EventMeta>("/api/host/events", { method: "POST", body: legacy, cookie: master });
+    // Then  회차는 만들어지되, 그 번호로는 아무 문도 열리지 않는다
+    expect(res.status).toBe(200);
+    expect((await login("5678", res.body.id)).status).toBe(401);
+    // And   응답에 PIN 이 남지 않는다
+    expect(JSON.stringify(res.body)).not.toContain("5678");
   });
 
   it("S-B3 ★ 입장 코드는 회차 사이에서 유일하다", async () => {
@@ -240,7 +215,7 @@ describe("B. 회차 생성", () => {
 
   it("S-B4 '지금 바로' 로 만들면 그 자리에서 등록이 열린다", async () => {
     // When  등록 시작을 "now" 로 두고 생성한다
-    const res = await createEvent(master, { regOpenAt: "now", voteCloseAt: Date.now() + 24 * HOUR });
+    const res = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
     // Then  phase 는 "reg" 이고 fired.reg 가 채워져 있다
     expect(res.status).toBe(200);
     expect(res.body.phase).toBe("reg");
@@ -253,7 +228,7 @@ describe("B. 회차 생성", () => {
   it("S-B5 ★ 예약은 한 번만 울린다", async () => {
     // Given 등록 시작을 1시간 뒤로 예약한다
     const at = Date.now() + HOUR;
-    const res = await createEvent(master, { regOpenAt: at, voteCloseAt: at + 24 * HOUR });
+    const res = await createEvent(master, { regOpenAt: at, prevoteAt: at + 24 * HOUR });
     // Then  phase 는 "prep" 이고 fired.reg 는 비어 있다
     expect(res.body.phase).toBe("prep");
     expect(res.body.fired.reg).toBeUndefined();
@@ -273,9 +248,9 @@ describe("B. 회차 생성", () => {
   });
 
   it("S-B6 일정 순서가 뒤집히면 거부한다", async () => {
-    // Given 등록 시작이 마감보다 뒤다
+    // Given 등록 시작이 사전 투표 시작보다 뒤다
     const now = Date.now();
-    const res = await createEvent(master, { regOpenAt: now + 2 * HOUR, voteCloseAt: now + HOUR });
+    const res = await createEvent(master, { regOpenAt: now + 2 * HOUR, prevoteAt: now + HOUR });
     // Then  거부된다
     expect(res.status).toBe(400);
     expect((res.body as unknown as { error: string }).error).toBe("schedule_order");
@@ -300,12 +275,12 @@ describe("B. 회차 생성", () => {
     expect(after.body.length).toBe(before.body.length + 1);
   });
 
-  it("S-B9 기본값 되돌리기는 PIN 과 기존 회차를 건드리지 않는다", async () => {
+  it("S-B9 기본값 되돌리기는 운영자 PIN 과 기존 회차를 건드리지 않는다", async () => {
     // Given 기본값을 바꾸고 회차를 만들었다
     await api("/api/host/defaults", {
       method: "PUT",
       cookie: master,
-      body: { maxPre: 5, maxParty: 9, regOpenAfterH: 3, voteWindowH: 48 },
+      body: { maxPre: 5, maxParty: 9, regOpenBeforeD: 3, prevoteBeforeH: 48 },
     });
     const ev = await createEvent(master, { config: { maxPre: 5, maxParty: 9 } });
     expect(ev.status).toBe(200);
@@ -321,7 +296,7 @@ describe("B. 회차 생성", () => {
     expect(reset.body.maxPre).toBe(3);
     expect(reset.body.maxParty).toBe(3);
 
-    // And   공통 PIN 은 그대로다 (그대로여야 로그인이 계속 된다)
+    // And   운영자 PIN 은 그대로다 (그대로여야 로그인이 계속 된다)
     const relogin = await login(MASTER_PIN);
     expect(relogin.status).toBe(200);
 
@@ -336,7 +311,7 @@ describe("B. 회차 생성", () => {
 describe("C. 입장 코드", () => {
   it("S-C1 유효한 코드로 회차를 찾는다", async () => {
     // Given 등록 중인 회차가 있다
-    const ev = await createEvent(master, { regOpenAt: "now", voteCloseAt: Date.now() + 24 * HOUR });
+    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
     // When  코드로 조회한다
     const res = await api<PublicEvent>(`/api/events/by-code/${ev.body.code}`);
     // Then  200 이고 이름과 phase 를 받는다
@@ -346,12 +321,8 @@ describe("C. 입장 코드", () => {
   });
 
   it("S-C2 ★ 코드 조회 응답에 비밀이 없다", async () => {
-    // Given 회차 PIN 이 "5678" 인 등록 중 회차가 있다
-    const ev = await createEvent(master, {
-      pin: "5678",
-      regOpenAt: "now",
-      voteCloseAt: Date.now() + 24 * HOUR,
-    });
+    // Given 등록 중인 회차가 있다
+    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
     // When  인증 없이 코드로 조회한다
     const res = await api<PublicEvent>(`/api/events/by-code/${ev.body.code}`);
     // 빈 응답이면 "비밀이 없다"가 저절로 참이 된다. 먼저 진짜 응답인지 확인한다
@@ -361,12 +332,25 @@ describe("C. 입장 코드", () => {
     const raw = JSON.stringify(res.body);
 
     // Then  PIN 이 없다
-    expect(raw).not.toContain("5678");
     expect(raw).not.toContain(MASTER_PIN);
     // And   개인정보·콕 기록으로 이어질 필드가 없다
     for (const leak of ["pin", "phone", "insta", "realName", "players", "pokes"]) {
       expect(Object.keys(res.body as object)).not.toContain(leak);
     }
+  });
+
+  it("S-C2b ★ 참가 링크 응답에 입장 코드가 없다", async () => {
+    // Given 등록 중인 회차가 있다. 참가 링크는 회차 아이디만 담는다 (ADR-13)
+    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
+
+    // When  링크를 받은 사람이 인증 없이 그 회차를 연다
+    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe(ev.body.name);
+
+    // Then  코드가 응답 어디에도 없다 — 있으면 링크 하나로 문이 열린다
+    expect(JSON.stringify(res.body)).not.toContain(ev.body.code);
+    expect(Object.keys(res.body as object)).not.toContain("code");
   });
 
   it("S-C3 없는 코드는 알려준다", async () => {
@@ -380,7 +364,7 @@ describe("C. 입장 코드", () => {
   it("S-C4 준비 중인 회차는 등록을 막고 안내한다", async () => {
     // Given 준비 중이고 등록 시작이 예약돼 있다
     const at = Date.now() + 5 * HOUR;
-    const ev = await createEvent(master, { regOpenAt: at, voteCloseAt: at + 24 * HOUR });
+    const ev = await createEvent(master, { regOpenAt: at, prevoteAt: at + 24 * HOUR });
     expect(ev.body.phase).toBe("prep");
     // When  코드로 조회한다
     const res = await api<PublicEvent>(`/api/events/by-code/${ev.body.code}`);
@@ -391,7 +375,7 @@ describe("C. 입장 코드", () => {
 
   it("S-C5 종료된 회차는 닫혔다고 알려준다", async () => {
     // Given 발표까지 끝난 회차가 있다
-    const ev = await createEvent(master, { regOpenAt: "now", voteCloseAt: Date.now() + HOUR });
+    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + HOUR });
     const done = await api(`/api/host/events/${ev.body.id}/phase`, {
       method: "POST",
       cookie: master,
@@ -407,7 +391,7 @@ describe("C. 입장 코드", () => {
 
   it("S-C6 코드는 대소문자를 가리지 않는다", async () => {
     // Given 코드가 대문자로 발급됐다
-    const ev = await createEvent(master, { regOpenAt: "now", voteCloseAt: Date.now() + 24 * HOUR });
+    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
     // When  소문자로 조회한다
     const res = await api<PublicEvent>(`/api/events/by-code/${ev.body.code.toLowerCase()}`);
     // Then  같은 회차를 찾는다
@@ -429,7 +413,7 @@ describe("D. 서버 시각", () => {
   it("S-D2 ★ 클라이언트가 주장하는 시각으로는 단계가 바뀌지 않는다", async () => {
     // Given 등록 시작이 5시간 뒤로 예약돼 있다
     const at = Date.now() + 5 * HOUR;
-    const ev = await createEvent(master, { regOpenAt: at, voteCloseAt: at + 24 * HOUR });
+    const ev = await createEvent(master, { regOpenAt: at, prevoteAt: at + 24 * HOUR });
     expect(ev.body.phase).toBe("prep");
 
     // When  클라이언트가 자기 시각을 미래로 주장하며 조회한다

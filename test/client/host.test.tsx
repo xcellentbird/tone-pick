@@ -7,8 +7,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { HOST_UI, PREVOTE_ALREADY_CLOSED, phaseAction } from "../../src/shared/copy.ts";
-import { formatWhen } from "../../src/shared/time.ts";
+import { HOST_UI, phaseAction, schedDiff } from "../../src/shared/copy.ts";
+import { formatGap, formatWhen } from "../../src/shared/time.ts";
 import type { HostState } from "../../src/shared/types.ts";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
 import Dash from "../../src/client/routes/host/Dash.tsx";
@@ -25,7 +25,7 @@ function hostState(over: Partial<HostState["meta"]> = {}): HostState & { seating
       code: "ABCDEF",
       phase: "reg",
       fired: { reg: Date.now() - HOUR },
-      schedule: { regOpenAt: Date.now() - HOUR, voteCloseAt: Date.now() + HOUR },
+      schedule: { partyAt: Date.now() + 24 * HOUR, regOpenAt: Date.now() - HOUR, prevoteAt: Date.now() + HOUR },
       config: { maxPre: 3, maxParty: 3 },
       createdAt: Date.now() - 2 * HOUR,
       ...over,
@@ -125,14 +125,19 @@ describe("운영자 콘솔", () => {
     await waitFor(() => expect(calls.find((c) => c.url.includes("/phase"))?.body).toEqual({ to: "prevote" }));
   });
 
-  it("★ 마감이 이미 지났으면 시작하자마자 마감된다고 경고한다", async () => {
-    const past = Date.now() - 10 * 60_000;
-    stubFetch(hostState({ schedule: { regOpenAt: Date.now() - HOUR, voteCloseAt: past } }));
+  it("★ 예약보다 일찍 넘기면 얼마나 이른지 확인창에 적는다", async () => {
+    const soon = Date.now() + 30 * 60_000;
+    stubFetch(hostState({ schedule: { partyAt: Date.now() + 24 * HOUR, regOpenAt: Date.now() - HOUR, prevoteAt: soon } }));
     renderConsole();
 
     const copy = phaseAction("prevote", { code: "ABCDEF", maxPre: 3, maxParty: 3 })!;
     fireEvent.click(await screen.findByText(copy.btn));
     await screen.findByText(copy.title);
-    expect(screen.getByText(PREVOTE_ALREADY_CLOSED(formatWhen(past))[1])).toBeTruthy();
+    const line = schedDiff("prevote", {
+      atText: formatWhen(soon),
+      gapText: formatGap(soon - Date.now()),
+      direction: "early",
+    })!;
+    expect(screen.getByText(line[1])).toBeTruthy();
   });
 });

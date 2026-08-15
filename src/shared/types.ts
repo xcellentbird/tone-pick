@@ -82,10 +82,19 @@ export interface SeatingRound {
 
 // ─────────────────────────── 회차
 
+/**
+ * 예약할 수 있는 시각은 **앞의 두 개뿐**이다.
+ *
+ * 사전 투표 마감 · 파티 시작 · 발표는 예약하지 않는다. 현장에서 사람이 다 모였는지,
+ * 이야기가 무르익었는지 보고 운영자가 누른다 — 시각을 미리 박아두면 그 판단을 못 한다.
+ *
+ * `partyAt` 은 전환을 울리지 않는다. 등록·사전 투표 시작의 기준점이고,
+ * 참가자 화면 카운트다운이 향하는 곳이다.
+ */
 export interface EventSchedule {
+  partyAt?: number;
   regOpenAt?: number;
-  voteCloseAt?: number;
-  revealAt?: number;
+  prevoteAt?: number;
 }
 
 /** 실제로 전환이 일어난 시각. 예약은 여기가 비어 있을 때만 한 번 울린다. (ADR-2) */
@@ -117,14 +126,10 @@ export interface EventMeta {
   createdAt: number;
 }
 
-/** 운영자 콘솔용. pinHash 는 절대 응답에 포함하지 않는다. */
-export interface EventSecret {
-  pinHash: string;
-}
-
+/** 새 회차의 일정 기본값. 둘 다 **파티 일시에서 거꾸로** 잰다 */
 export interface Defaults extends EventConfig {
-  regOpenAfterH: number;   // 회차 생성 후 N시간 뒤 등록 시작 (0 이면 '지금 바로')
-  voteWindowH: number;     // 등록 시작 후 N시간 뒤 사전 투표 마감
+  regOpenBeforeD: number;   // 파티 N일 전에 등록 시작
+  prevoteBeforeH: number;   // 파티 N시간 전에 사전 투표 시작
 }
 
 // ─────────────────────────── API
@@ -132,10 +137,15 @@ export interface Defaults extends EventConfig {
 // 응답 본문은 자료 그대로다. 서버 시각은 `x-server-time` 헤더로만 싣는다 —
 // 본문을 감싸면 모든 응답 타입이 한 겹 두꺼워지는데 얻는 게 없다.
 
+/**
+ * 운영자 권한은 하나뿐이다 — 운영자 PIN.
+ *
+ * 회차마다 PIN 을 따로 두던 때에는 "두 PIN 이 같으면 회차 담당자가 전체 권한을 얻는다"는
+ * 사고가 있었다. 권한을 한 종류로 줄여 그 사고의 자리 자체를 없앴다 (ADR-12).
+ */
 export type AuthScope =
   | { kind: "player"; eventId: string; playerId: string }
-  | { kind: "host"; eventId: string }        // 회차 PIN
-  | { kind: "master" };                      // 공통 PIN
+  | { kind: "master" };
 
 // ─────────────────────────── 실시간 (WebSocket)
 
@@ -157,12 +167,13 @@ export type ClientEvent =
 /** 회차 생성 입력 */
 export interface CreateEventInput {
   name: string;
-  pin: string;
   /** 생략하면 서버가 만든다. 직접 넘겼는데 이미 쓰는 코드면 거부한다 */
   code?: string;
+  /** 파티 일시. 나머지 일정이 여기서 거꾸로 계산된다 */
+  partyAt: number;
   /** "now" 는 '지금 바로'. datetime-local 이 초를 버리는 문제를 피하려고 시각이 아니라 리터럴로 받는다 */
   regOpenAt: number | "now";
-  voteCloseAt: number;
+  prevoteAt: number;
   config: EventConfig;
   /** 멱등키. 같은 값으로 두 번 오면 같은 회차를 돌려준다 */
   requestId: string;
@@ -178,11 +189,18 @@ export interface EventSummary {
   createdAt: number;
 }
 
-/** 입장 코드 조회 응답 — **인증 없이** 누구나 받는다. 여기에 비밀을 넣지 마라 */
+/**
+ * 회차 미리보기 — **인증 없이** 누구나 받는다. 여기에 비밀을 넣지 마라.
+ *
+ * 입장 코드는 절대 넣지 않는다. 참가 링크를 받은 사람이 코드를 **입력해야** 들어오는 구조라,
+ * 이 응답에 코드가 실리면 그 문이 그대로 열린다.
+ */
 export interface PublicEvent {
   id: string;
   name: string;
   phase: Phase;
+  /** 파티 일시. 링크를 받은 사람이 "그 파티가 맞나"를 확인하는 값이다 */
+  partyAt?: number;
   canRegister: boolean;
   /** 등록할 수 없을 때의 안내. copy.ts 의 ENTRY.* 를 쓴다 */
   message?: string;
@@ -192,7 +210,6 @@ export type ErrorCode =
   | "unauthorized"
   | "forbidden"
   | "not_found"
-  | "pin_collision"
   | "code_taken"
   | "schedule_order"
   | "bad_request"
@@ -214,7 +231,6 @@ export interface ApiErrorBody {
 /** 회차 설정 수정 (운영자). 넘긴 항목만 바뀐다 */
 export interface EventPatch {
   name?: string;
-  pin?: string;
   code?: string;
   config?: EventConfig;
 }

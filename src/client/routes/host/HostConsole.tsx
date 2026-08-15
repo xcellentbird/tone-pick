@@ -52,10 +52,15 @@ export default function HostConsole() {
     <Overlays>
       <div className="screen">
         <header>
+          {/* 회차 하나에 갇히지 않는다. 파티가 여러 개면 오가는 게 기본 동작이다 */}
+          <button className="btn ghost" onClick={() => navigate("/host/events")}>
+            {HOST_UI.openEvents}
+          </button>
           <div className="grow">
             <h1 className="ellipsis">{loaded.data.meta.name}</h1>
             <div className="sub">
-              {loaded.data.meta.code} · {PHASE_LABEL[loaded.data.meta.phase]}
+              {loaded.data.meta.code} · {PHASE_LABEL[loaded.data.meta.phase]} ·{" "}
+              <span>{HOST_UI.dash.registered(loaded.data.players.length)}</span>
             </div>
           </div>
           <button className="btn ghost" onClick={leave}>

@@ -1,49 +1,17 @@
 import type { AuthScope } from "../shared/types.ts";
 
 /**
- * PIN 검사 순서가 보안 경계다. (ADR-3)
+ * 운영자 PIN 은 하나뿐이다. (ADR-12)
  *
- * 회차 화면에서는 반드시 **회차 PIN 을 먼저** 본다.
- * 공통 PIN 을 먼저 보면, 두 값이 같을 때 회차 담당자가 전체 관리자 권한을 얻는다.
- * 실제로 겪은 사고: {"회차PIN":"0000","공통PIN":"0000","획득권한":"master"}
+ * 예전에는 회차마다 PIN 을 따로 두고, 회차 화면에서는 회차 PIN 을 **먼저** 봐야 했다.
+ * 순서를 지키지 않으면 두 PIN 이 같을 때 회차 담당자가 전체 권한을 얻었기 때문이다 —
+ * 실제로 겪은 사고: {"회차PIN":"0000","공통PIN":"0000","획득권한":"master"}.
  *
- * 그리고 애초에 두 PIN 이 같아지지 못하게 생성 지점(위저드·회차 설정·기본 설정·
- * 자동 생성기) 모두에서 막는다. 검사 시점 방어와 입력 시점 차단을 둘 다 둔다.
+ * 지금은 권한이 한 종류라 그 순서 자체가 없다. 규칙을 지키는 대신 규칙이 필요 없게 만들었다.
  */
 
-export interface PinRecord {
-  salt: string;
-  hash: string;
-}
-
-export async function resolvePin(
-  input: string,
-  eventId: string | null,
-  eventPin: PinRecord | null,
-  masterPin: string,
-): Promise<AuthScope | null> {
-  if (eventId && (await verifyPin(input, eventPin))) return { kind: "host", eventId };
-  if (timingSafeEqual(input, masterPin)) return { kind: "master" };
-  return null;
-}
-
-export function pinCollides(eventPin: string, masterPin: string): boolean {
-  return eventPin === masterPin;
-}
-
-export async function hash(pin: string, salt: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(salt + pin));
-  return hex(new Uint8Array(buf));
-}
-
-export async function makePinRecord(pin: string): Promise<PinRecord> {
-  const salt = randomHex(8);
-  return { salt, hash: await hash(pin, salt) };
-}
-
-export async function verifyPin(pin: string, rec: PinRecord | null | undefined): Promise<boolean> {
-  if (!rec) return false;
-  return timingSafeEqual(await hash(pin, rec.salt), rec.hash);
+export function resolvePin(input: string, masterPin: string): AuthScope | null {
+  return timingSafeEqual(input, masterPin) ? { kind: "master" } : null;
 }
 
 function timingSafeEqual(a: string, b: string): boolean {
@@ -60,18 +28,6 @@ export function genCode(): string {
   const buf = new Uint8Array(6);
   crypto.getRandomValues(buf);
   return Array.from(buf, (b) => A[b % A.length]).join("");
-}
-
-/** 4자리 회차 PIN. 공통 PIN 과 같은 값은 만들지 않는다 (ADR-3) */
-export function genPin(masterPin: string): string {
-  for (let i = 0; i < 50; i++) {
-    const buf = new Uint32Array(1);
-    crypto.getRandomValues(buf);
-    const pin = String(buf[0] % 10000).padStart(4, "0");
-    if (!pinCollides(pin, masterPin)) return pin;
-  }
-  // 50번 연속 같은 값이 나올 수는 없지만, 못 만들었다면 조용히 넘기지 않는다
-  throw new Error("pin generation failed");
 }
 
 export function randomHex(bytes = 16): string {

@@ -1,10 +1,14 @@
 import type { Defaults } from "./types.ts";
 
+/**
+ * 등록은 파티 **6일 전**에 연다. 한 주 전 주말에 알리고 평일 내내 모으는 리듬이다.
+ * 사전 투표는 파티 **하루 전**에 열어, 참가자가 전날 저녁에 명단을 훑어볼 수 있게 한다.
+ */
 export const DEFAULTS: Defaults = {
   maxPre: 3,
   maxParty: 3,
-  regOpenAfterH: 1,
-  voteWindowH: 24,
+  regOpenBeforeD: 6,
+  prevoteBeforeH: 24,
 };
 
 export const LIMITS = {

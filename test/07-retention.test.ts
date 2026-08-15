@@ -31,7 +31,7 @@ describe("지워도 되는 때", () => {
     const ev = event({
       createdAt: NOW - 10 * DAY,
       fired: { reg: NOW - 9 * DAY, prevote: NOW - 8 * DAY, party: NOW - 8 * DAY, done: NOW - 8 * DAY },
-      schedule: { regOpenAt: NOW - 9 * DAY, voteCloseAt: NOW - 8 * DAY },
+      schedule: { regOpenAt: NOW - 9 * DAY, prevoteAt: NOW - 8 * DAY },
     });
     expect(expired(ev, NOW)).toBe(true);
   });
@@ -54,7 +54,7 @@ describe("지우면 안 되는 것", () => {
     const ev = event({
       createdAt: NOW - 30 * DAY,
       fired: {},
-      schedule: { regOpenAt: NOW + 20 * DAY, voteCloseAt: NOW + 21 * DAY },
+      schedule: { regOpenAt: NOW + 20 * DAY, prevoteAt: NOW + 21 * DAY },
     });
     expect(expired(ev, NOW)).toBe(false);
     // 파티 당일에도 남아 있다
@@ -67,7 +67,7 @@ describe("지우면 안 되는 것", () => {
     const ev = event({
       createdAt: NOW - DAY,
       fired: { reg: NOW - 2 * 3600_000, prevote: NOW - 3600_000 },
-      schedule: { regOpenAt: NOW - 2 * 3600_000, voteCloseAt: NOW + 3600_000 },
+      schedule: { regOpenAt: NOW - 2 * 3600_000, partyAt: NOW + 3600_000 },
     });
     expect(expired(ev, NOW)).toBe(false);
   });
@@ -88,7 +88,7 @@ describe("기준 시각", () => {
     const ev = event({
       createdAt: NOW - 5 * DAY,
       fired: { reg: NOW - 4 * DAY },
-      schedule: { revealAt: NOW - DAY },
+      schedule: { partyAt: NOW - DAY },
     });
     expect(purgeDueAt(ev, RETENTION_DAYS)).toBe(NOW - DAY + RETENTION_DAYS * DAY);
   });

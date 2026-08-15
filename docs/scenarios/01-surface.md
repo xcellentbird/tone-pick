@@ -12,19 +12,19 @@
 세션은 **HttpOnly 쿠키**. 전화번호나 PIN 을 URL·바디에 남기지 않기 위해서다.
 
 ```
-POST /api/host/pin        { pin: string, eventId?: string }  → { scope: AuthScope }
-POST /api/host/logout                                        → { ok: true }
+POST /api/host/pin        { pin: string }   → { scope: AuthScope }
+POST /api/host/logout                       → { ok: true }
 ```
 
-- `eventId` 가 있으면 **그 회차 PIN 을 먼저** 검사하고, 안 맞을 때만 공통 PIN 을 본다 (S-A3)
-- `eventId` 가 없으면 공통 PIN 만 본다
+- 운영자 PIN 은 **하나뿐**이다. 회차별 PIN 은 없다 (ADR-12)
+- `eventId` 를 함께 보내도 **무시한다**. 회차 단위의 뒷문은 없다 (S-A3)
 - 실패는 `401 { error: "unauthorized", message: HOST.pin.wrong }`
 - 응답 어디에도 올바른 PIN 을 실어 보내지 않는다
 
 | scope | 할 수 있는 것 |
 |---|---|
 | `{ kind: "master" }` | 전부 |
-| `{ kind: "host", eventId }` | 그 회차 조회·수정만. 회차 목록·기본 설정·회차 생성은 403 |
+| `{ kind: "player", eventId, playerId }` | 자기 화면만 |
 
 ---
 
@@ -36,52 +36,55 @@ PUT  /api/host/defaults         { ...Defaults, masterPin? }  → Defaults
 POST /api/host/defaults/reset                    → Defaults
 ```
 
-- `PUT` 으로 공통 PIN 을 기존 회차 PIN 과 같게 만들려 하면 `409 pin_collision`
-- `reset` 은 **콕 횟수와 일정 오프셋만** 되돌린다. 공통 PIN·기존 회차는 그대로 (S-B9)
+- `Defaults` 는 `{ maxPre, maxParty, regOpenBeforeD, prevoteBeforeH }` — 일정은 **파티 일시에서 거꾸로** 잰다
+- `reset` 은 **콕 횟수와 일정 오프셋만** 되돌린다. 운영자 PIN·기존 회차는 그대로 (S-B9)
 
 ---
 
-## 회차 (master 전용, 조회는 해당 host 도 가능)
+## 회차 (운영자 전용)
 
 ```
 GET  /api/host/events                → EventSummary[]
 POST /api/host/events                CreateEventInput → EventMeta
 GET  /api/host/events/:id            → EventMeta
-PUT  /api/host/events/:id/schedule   { regOpenAt?, voteCloseAt?, revealAt? } → EventMeta
+PUT  /api/host/events/:id/schedule   { partyAt?, regOpenAt?, prevoteAt? } → EventMeta
 POST /api/host/events/:id/phase      { to: Phase } → EventMeta
 ```
 
 `phase` 전환은 수동 진행이다. 전환하면 `fired[to]` 에 **실제 전환 시각**이 기록되고,
 그 단계의 예약은 다시 울리지 않는다. 예약 값 자체는 지우지 않는다 — 기록으로 남는다.
 
-`EventSummary` 와 `EventMeta` 에 **PIN 은 들어가지 않는다.**
+예약이 걸리는 전환은 `reg` 와 `prevote` **둘뿐**이다. 사전 투표 마감(`party`)·발표(`done`)는
+운영자가 누를 때만 일어난다 (ADR-14). `partyAt` 은 전환을 울리지 않는 기준점이다.
 
 ### 생성 규칙
 
 | 상황 | 응답 |
 |---|---|
-| 회차 PIN == 공통 PIN | `409 { error: "pin_collision", message: HOST.pin.sameAsMaster(masterPin) }` |
 | `code` 를 지정했는데 이미 쓰는 코드 | `409 { error: "code_taken", message: HOST.pin.codeTaken }` |
 | `code` 생략 | 서버가 생성. 기존 코드와 겹치지 않을 때까지 다시 뽑는다 |
-| 자동 생성 PIN | 공통 PIN 을 피해서 뽑는다 |
-| `voteCloseAt <= regOpenAt` | `400 { error: "schedule_order" }` |
+| `prevoteAt <= regOpenAt` | `400 { error: "schedule_order" }` |
 | `regOpenAt: "now"` | 그 자리에서 `phase: "reg"`, `fired.reg` 기록 |
 | 예약 | `phase: "prep"`, `fired` 비어 있음 |
 | 같은 `requestId` 로 재요청 | 새로 만들지 않고 **같은 회차**를 200 으로 돌려준다 (S-B7) |
 
 ---
 
-## 입장 코드 (인증 없음)
+## 회차 미리보기 (인증 없음)
 
 ```
-GET /api/events/by-code/:code   → PublicEvent | 404
+GET /api/events/by-id/:id       → PublicEvent | 404     참가 링크가 여는 화면
+GET /api/events/by-code/:code   → PublicEvent | 404     코드만 아는 사람의 입장
 ```
+
+**두 응답 모두 입장 코드를 담지 않는다** (S-C2b). 참가 링크는 `/j/<회차id>` 이고,
+문을 여는 건 운영자가 따로 알려준 6자리다 (ADR-13) — 응답에 코드가 실리면 그 문이 그대로 열린다.
 
 - 코드는 **대소문자를 가리지 않는다** (서버에서 대문자로 정규화)
 - 없으면 `404 { error: "not_found", message: ENTRY.notFound }`
 - `phase: "prep"` → `canRegister: false`, `message: ENTRY.notOpenYet(...)`
 - `phase: "done"` → `canRegister: false`, `message: ENTRY.finished`
-- **응답에 PIN·참가자 개인정보·콕 기록이 없다** (S-C2). `PublicEvent` 타입 밖의 필드를 넣지 마라
+- **응답에 입장 코드·PIN·참가자 개인정보·콕 기록이 없다** (S-C2). `PublicEvent` 타입 밖의 필드를 넣지 마라
 
 ---
 
@@ -117,7 +120,7 @@ POST /api/__test__/now   { at: number }   → { now: number }
 | `unauthorized` | 401 |
 | `forbidden` | 403 |
 | `not_found` | 404 |
-| `pin_collision` · `code_taken` | 409 |
+| `code_taken` | 409 |
 | `schedule_order` · `bad_request` | 400 |
 
 ---

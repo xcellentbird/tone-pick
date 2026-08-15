@@ -1,9 +1,7 @@
 /**
  * 운영자 API. 인증은 여기서 끝내고, 상태 변경은 전부 EventDO 안에서 한다.
  *
- * 권한은 두 종류뿐이다.
- *   master — 전부. 회차 목록·기본 설정·회차 생성은 여기만
- *   host   — 그 회차 하나. 다른 회차는 403
+ * 권한은 **한 종류뿐**이다 — 운영자 PIN 을 통과했는가. 회차마다 PIN 을 두지 않는다 (ADR-12).
  */
 import { Hono } from "hono";
 import type {
@@ -18,10 +16,9 @@ import type {
 import { HOST } from "../../shared/copy.ts";
 import { LIMITS } from "../../shared/constants.ts";
 import { PHASE_ORDER } from "../../shared/phase.ts";
-import { HOST_COOKIE, clearCookie, pinCollides, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
+import { HOST_COOKIE, clearCookie, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
 import {
   apiError,
-  canOpenEvent,
   eventStub,
   hostScope,
   isMaster,
@@ -39,15 +36,9 @@ export const hostRoutes = new Hono<{ Bindings: Env }>();
 // ─────────────────────────────────── 인증
 
 hostRoutes.post("/pin", async (c) => {
-  const body = await json<{ pin?: string; eventId?: string }>(c);
-  const pin = String(body.pin ?? "");
-  const eventId = body.eventId ? String(body.eventId) : null;
-  const reg = registry(c.env);
-
-  const masterPin = await reg.getMasterPin(c.env.MASTER_PIN);
-  // 회차 PIN 을 **먼저** 본다. 두 값이 같을 때 회차 담당자가 master 를 얻으면 안 된다 (ADR-3)
-  const eventPin = eventId ? await reg.pinOf(eventId) : null;
-  const scope = await resolvePin(pin, eventId, eventPin, masterPin);
+  const body = await json<{ pin?: string }>(c);
+  const masterPin = await registry(c.env).getMasterPin(c.env.MASTER_PIN);
+  const scope = resolvePin(String(body.pin ?? ""), masterPin);
   // 응답 어디에도 올바른 PIN 을 싣지 않는다
   if (!scope) return apiError(c, "unauthorized", HOST.pin.wrong);
 
@@ -67,7 +58,7 @@ hostRoutes.get("/session", async (c) => {
   return c.json({ scope });
 });
 
-// ─────────────────────────────────── 기본 설정 (공통 PIN 전용)
+// ─────────────────────────────────── 기본 설정
 
 hostRoutes.get("/defaults", async (c) => {
   if (!isMaster(await hostScope(c))) return denied(c);
@@ -79,18 +70,17 @@ hostRoutes.put("/defaults", async (c) => {
   const body = await json<Defaults & { masterPin?: string }>(c);
   if (!validDefaults(body)) return apiError(c, "bad_request");
 
-  const next = await registry(c.env).putDefaults(
-    {
-      maxPre: body.maxPre,
-      maxParty: body.maxParty,
-      regOpenAfterH: body.regOpenAfterH,
-      voteWindowH: body.voteWindowH,
-    },
-    body.masterPin,
+  return c.json(
+    await registry(c.env).putDefaults(
+      {
+        maxPre: body.maxPre,
+        maxParty: body.maxParty,
+        regOpenBeforeD: body.regOpenBeforeD,
+        prevoteBeforeH: body.prevoteBeforeH,
+      },
+      body.masterPin,
+    ),
   );
-  // 공통 PIN 을 기존 회차 PIN 과 같게 만드는 것도 막는다 (입력 시점 차단, ADR-3)
-  if (next === "pin_collision") return apiError(c, "pin_collision", HOST.pin.usedByEvent);
-  return c.json(next);
 });
 
 hostRoutes.post("/defaults/reset", async (c) => {
@@ -98,7 +88,7 @@ hostRoutes.post("/defaults/reset", async (c) => {
   return c.json(await registry(c.env).resetDefaults());
 });
 
-// ─────────────────────────────────── 회차 목록·생성 (공통 PIN 전용)
+// ─────────────────────────────────── 회차 목록·생성
 
 hostRoutes.get("/events", async (c) => {
   if (!isMaster(await hostScope(c))) return denied(c);
@@ -120,34 +110,23 @@ hostRoutes.post("/events", async (c) => {
   if (!body.name?.trim() || !body.requestId) return apiError(c, "bad_request");
   if (!validConfig(body.config)) return apiError(c, "bad_request");
 
-  const reg = registry(c.env);
-  const masterPin = await reg.getMasterPin(c.env.MASTER_PIN);
-  if (body.pin && pinCollides(String(body.pin), masterPin)) {
-    return apiError(c, "pin_collision", HOST.pin.sameAsMaster(masterPin));
-  }
-
   // 'now' 는 시각이 아니라 리터럴로 받는다 — datetime-local 이 초를 버리기 때문 (UI.md)
   const openNow = body.regOpenAt === "now";
   const regOpenAt = openNow ? now : Number(body.regOpenAt);
-  const voteCloseAt = Number(body.voteCloseAt);
-  if (!Number.isFinite(regOpenAt) || !Number.isFinite(voteCloseAt)) return apiError(c, "bad_request");
+  const partyAt = Number(body.partyAt);
+  const prevoteAt = Number(body.prevoteAt);
+  if (![regOpenAt, partyAt, prevoteAt].every(Number.isFinite)) return apiError(c, "bad_request");
   // 순서 검증은 **운영자가 고른 두 시각** 사이에서만 한다.
-  // '지금 바로'는 고른 시각이 아니라 버튼이라서, 마감이 이미 지났더라도 회차는 만들어진다 —
-  // 그 상황은 사전 투표 시작 확인창의 ⚠️ 경고(PREVOTE_ALREADY_CLOSED)가 맡는다.
-  if (!openNow && voteCloseAt <= regOpenAt) return apiError(c, "schedule_order");
+  // '지금 바로'는 고른 시각이 아니라 버튼이라서, 사전 투표 시작이 이미 지났더라도 회차는 만들어진다 —
+  // 그때는 등록과 사전 투표가 곧바로 이어서 열린다.
+  if (!openNow && prevoteAt <= regOpenAt) return apiError(c, "schedule_order");
 
-  const reserved = await reg.reserve({
+  const reserved = await registry(c.env).reserve({
     code: body.code,
-    pin: body.pin,
     requestId: String(body.requestId),
-    masterPin,
     now,
   });
-  if (!reserved.ok) {
-    return reserved.error === "code_taken"
-      ? apiError(c, "code_taken", HOST.pin.codeTaken)
-      : apiError(c, "pin_collision", HOST.pin.sameAsMaster(masterPin));
-  }
+  if (!reserved.ok) return apiError(c, "code_taken", HOST.pin.codeTaken);
 
   const meta = await eventStub(c.env, reserved.id).init({
     id: reserved.id,
@@ -155,7 +134,7 @@ hostRoutes.post("/events", async (c) => {
     code: reserved.code,
     phase: openNow ? "reg" : "prep",
     fired: openNow ? { reg: now } : {},
-    schedule: { regOpenAt, voteCloseAt },
+    schedule: { partyAt, regOpenAt, prevoteAt },
     // 켰을 때만 적는다. 끈 상태를 굳이 써 넣으면 설정의 모양이 회차마다 달라진다
     config: {
       maxPre: body.config.maxPre,
@@ -183,23 +162,17 @@ hostRoutes.get("/events/:id/state", async (c) => {
   return response ?? c.json(value);
 });
 
-/** 이름·PIN·입장 코드·콕 횟수. 코드와 PIN 의 유일성은 레지스트리가 판정한다 */
+/** 이름·입장 코드·콕 횟수. 코드의 유일성은 레지스트리가 판정한다 */
 hostRoutes.put("/events/:id", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const body = await json<EventPatch>(c);
   if (body.config && !validConfig(body.config)) return apiError(c, "bad_request");
 
-  const reg = registry(c.env);
-  if (body.pin || body.code) {
-    const masterPin = await reg.getMasterPin(c.env.MASTER_PIN);
-    const res = await reg.updateIdentity(gate.id, { code: body.code, pin: body.pin }, masterPin);
+  if (body.code) {
+    const res = await registry(c.env).updateCode(gate.id, body.code);
     if (!res.ok) {
-      if (res.error === "code_taken") return apiError(c, "code_taken", HOST.pin.codeTaken);
-      if (res.error === "pin_collision") {
-        return apiError(c, "pin_collision", HOST.pin.sameAsMaster(masterPin));
-      }
-      return apiError(c, "not_found");
+      return res.error === "code_taken" ? apiError(c, "code_taken", HOST.pin.codeTaken) : apiError(c, "not_found");
     }
   }
 
@@ -323,12 +296,10 @@ hostRoutes.post("/events/:id/as/:pid/seat/ack", async (c) => {
 
 // ─────────────────────────────────── 잡다한 것
 
-/** 그 회차를 열 수 있는지 확인하고 손잡이를 준다. 없는 회차는 404, 남의 회차는 403 */
+/** 그 회차를 열 수 있는지 확인하고 손잡이를 준다. 로그인 없으면 401, 없는 회차는 404 */
 async function openEvent(c: Ctx) {
   const id = c.req.param("id")!;
-  const scope = await hostScope(c);
-  if (!scope) return { response: apiError(c, "unauthorized"), id, stub: null as never };
-  if (!canOpenEvent(scope, id)) return { response: apiError(c, "forbidden"), id, stub: null as never };
+  if (!isMaster(await hostScope(c))) return { response: apiError(c, "unauthorized"), id, stub: null as never };
   if (!(await registry(c.env).hasEvent(id))) {
     return { response: apiError(c, "not_found"), id, stub: null as never };
   }
@@ -336,8 +307,7 @@ async function openEvent(c: Ctx) {
 }
 
 function denied(c: Ctx) {
-  // 로그인 자체가 없으면 401, 회차 PIN 으로 목록에 손대면 403
-  return hostScope(c).then((scope) => (scope ? apiError(c, "forbidden") : apiError(c, "unauthorized")));
+  return apiError(c, "unauthorized");
 }
 
 async function json<T>(c: Ctx): Promise<T> {
@@ -360,9 +330,9 @@ function validConfig(config: EventConfig | undefined): boolean {
 function validDefaults(d: Defaults): boolean {
   return (
     validConfig(d) &&
-    Number.isFinite(d.regOpenAfterH) &&
-    d.regOpenAfterH >= 0 &&
-    Number.isFinite(d.voteWindowH) &&
-    d.voteWindowH > 0
+    Number.isFinite(d.regOpenBeforeD) &&
+    d.regOpenBeforeD >= 0 &&
+    Number.isFinite(d.prevoteBeforeH) &&
+    d.prevoteBeforeH >= 0
   );
 }

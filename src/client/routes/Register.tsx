@@ -8,12 +8,13 @@
  *  · 토글을 눌러도 입력값을 날리지 않는다 (폼 전체를 다시 그리지 않는다)
  *  · MBTI 는 16지선다가 아니라 4문항 토글 — 모르는 사람도 답할 수 있어야 한다
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared/copy.ts";
 import type { RegisterInput, RegisterResult } from "../../shared/types.ts";
 import { LIMITS, RETENTION_DAYS } from "../../shared/constants.ts";
 import { ApiError, post } from "../lib/api.ts";
+import { codeFor } from "../lib/entry.ts";
 import { useDraftGuard } from "../lib/history.ts";
 
 interface Draft {
@@ -39,11 +40,17 @@ const EMPTY: Draft = {
 };
 
 export default function Register() {
-  const { code = "", step = "1" } = useParams();
+  const { id = "", step = "1" } = useParams();
   const navigate = useNavigate();
+  // 코드는 앞 화면에서 맞춘 것이다. 없이 이 주소로 바로 오면 문 앞으로 돌려보낸다
+  const code = codeFor(id);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<{ field: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!code) navigate(`/j/${id}`, { replace: true });
+  }, [code, id, navigate]);
 
   const at = Math.min(3, Math.max(1, Number(step) || 1));
   const dirty = JSON.stringify(draft) !== JSON.stringify(EMPTY);
@@ -57,7 +64,7 @@ export default function Register() {
   function next() {
     const bad = validate(draft, at);
     if (bad) return setError(bad);
-    if (at < 3) return navigate(`/j/${code}/register/${at + 1}`);
+    if (at < 3) return navigate(`/j/${id}/register/${at + 1}`);
     submit();
   }
 
@@ -76,7 +83,7 @@ export default function Register() {
       };
       const done = await post<RegisterResult>(`/events/${code}/register`, body);
       // 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
-      navigate(`/e/${code}`, {
+      navigate(`/e/${done.state.event.code}`, {
         replace: true,
         state: done.resumed ? { welcome: REGISTER.welcomeBack(done.state.me.nickname) } : undefined,
       });
@@ -85,7 +92,7 @@ export default function Register() {
       if (e instanceof ApiError && e.code === "nick_taken") {
         // 닉네임 칸이 있는 1스텝으로 되돌린 뒤 띄운다. 입력값은 그대로 둔다
         setError({ field: "nickname", text: e.userMessage ?? REGISTER.err.nick });
-        navigate(`/j/${code}/register/1`);
+        navigate(`/j/${id}/register/1`);
         return;
       }
       setError({ field: "form", text: e instanceof ApiError ? (e.userMessage ?? REGISTER.err.nick) : REGISTER.err.nick });

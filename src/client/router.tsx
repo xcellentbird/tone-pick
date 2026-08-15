@@ -40,8 +40,9 @@ export const router = createBrowserRouter([
   { path: "/", element: plain(<Entry />) },
 
   // 참가자
-  { path: "/j/:code", element: plain(<Join />) },
-  { path: "/j/:code/register/:step", element: plain(<Register />) },
+  // 참가 링크는 **회차 아이디**를 가리킨다. 입장 코드는 링크에 담지 않는다 (ADR-13)
+  { path: "/j/:id", element: plain(<Join />) },
+  { path: "/j/:id/register/:step", element: plain(<Register />) },
   { path: "/e/:code", element: <Participant /> },
   { path: "/e/:code/people", element: <Participant /> },
   // 알림 탭은 홈으로 합쳤다. 폰에 열어둔 옛 주소가 막다른 길이 되지 않게 남겨둔다
