@@ -633,6 +633,64 @@ describe("명단 공개 범위", () => {
   });
 });
 
+// ─────────────────────────────────────────── 콕 상한
+
+describe("콕 상한", () => {
+  it("★ 이미 쓴 횟수보다 낮게 내릴 수 없다", async () => {
+    const ev = await freshEvent();   // maxPre 2
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F" });
+    const other = await join(ev, { gender: "F" });
+    await setPhase(ev.id, "prevote");
+
+    await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
+    await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: other.id } });
+
+    // 2회 쓴 사람이 있는데 1회로 내리면, 그 사람의 남은 횟수가 음수가 된다
+    const res = await api<{ error: string; message: string }>(`/api/host/events/${ev.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { config: { maxPre: 1, maxParty: 3 } },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toContain("2");
+
+    // 같은 횟수나 그 위로는 된다
+    const ok = await api(`/api/host/events/${ev.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { config: { maxPre: 2, maxParty: 3 } },
+    });
+    expect(ok.status).toBe(200);
+  });
+
+  it("★ 입장 코드는 바꿀 수 없다 — 보내와도 무시한다", async () => {
+    const ev = await freshEvent();
+    const res = await api<EventMeta>(`/api/host/events/${ev.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { name: "이름만 바뀐다", code: "ZZZZZZ", config: { maxPre: 2, maxParty: 3 } },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe("이름만 바뀐다");
+    expect(res.body.code).toBe(ev.code);
+  });
+
+  it("★ 운영자 응답에 받은 콕이 없다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F" });
+    await setPhase(ev.id, "prevote");
+    await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
+
+    const state = await api<Record<string, unknown>>(`/api/host/events/${ev.id}/state`, { cookie: master });
+    // 화면에서 감추는 게 아니라 응답에 없다 (ADR-22)
+    expect(Object.keys(state.body)).not.toContain("received");
+    // 사전 투표 1위는 그대로 나온다 — 그건 운영에 쓴다
+    expect(state.body.prevoteRank).toBeTruthy();
+  });
+});
+
 // ─────────────────────────────────────────── 오늘의 연애운
 
 describe("오늘의 연애운", () => {

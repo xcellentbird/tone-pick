@@ -51,11 +51,7 @@ export default function Players() {
         title: DELETE_PLAYER.title,
         danger: true,
         note: DELETE_PLAYER.note,
-        facts: DELETE_PLAYER.facts({
-          sent: state.sent[playerId] ?? 0,
-          received: state.received[playerId] ?? 0,
-          rounds,
-        }),
+        facts: DELETE_PLAYER.facts({ sent: state.sent[playerId] ?? 0, rounds }),
       },
       async () => {
         await del(`/host/events/${state.meta.id}/players/${playerId}`);
@@ -100,10 +96,8 @@ export default function Players() {
             <span className="name ellipsis">
               {p.nickname} · {UNIT.age(p.age)} · {p.mbti}
             </span>
-            <span className="charm ellipsis">
-              {HOST_UI.players.received(state.received[p.id] ?? 0)} ·{" "}
-              {HOST_UI.players.sent(state.sent[p.id] ?? 0)}
-            </span>
+            {/* 받은 콕은 보여주지 않는다 — 알면 그 사람을 다르게 대하게 된다 (ADR-22) */}
+            <span className="charm ellipsis">{HOST_UI.players.sent(state.sent[p.id] ?? 0)}</span>
           </span>
         </button>
       ))}
@@ -118,7 +112,6 @@ export default function Players() {
               <Row label={ME.labels.mbti} value={picked.mbti} />
               <Row label={ME.labels.phone} value={picked.phone} />
               {picked.instagram && <Row label={ME.labels.instagram} value={picked.instagram} />}
-              <Row label={HOST_UI.players.received(state.received[picked.id] ?? 0)} value="" />
               <Row label={HOST_UI.players.sent(state.sent[picked.id] ?? 0)} value="" />
             </div>
 

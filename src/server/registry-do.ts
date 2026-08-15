@@ -153,24 +153,6 @@ export class RegistryDO extends DurableObject {
     return { ok: true, id, code, reused: false };
   }
 
-  /** 회차 설정에서 입장 코드를 바꾼다. 유일성은 여기서만 판정한다 */
-  async updateCode(
-    eventId: string,
-    code: string,
-  ): Promise<{ ok: true; code: string } | { ok: false; error: "code_taken" | "not_found" }> {
-    const snap = await this.load();
-    const entry = snap.events.find((e) => e.id === eventId);
-    if (!entry) return { ok: false, error: "not_found" };
-
-    const upper = code.toUpperCase();
-    if (snap.events.some((e) => e.code === upper && e.id !== eventId)) {
-      return { ok: false, error: "code_taken" };
-    }
-    entry.code = upper;
-    await this.save(snap);
-    return { ok: true, code: entry.code };
-  }
-
   async removeEvent(eventId: string): Promise<void> {
     const snap = await this.load();
     snap.events = snap.events.filter((e) => e.id !== eventId);

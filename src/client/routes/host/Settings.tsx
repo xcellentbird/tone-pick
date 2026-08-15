@@ -6,11 +6,11 @@
  */
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { BTN, DELETE_EVENT, HOST_UI } from "../../../shared/copy.ts";
+import { BTN, DELETE_EVENT, HOST_UI, UNIT } from "../../../shared/copy.ts";
 import type { EventMeta, EventSchedule } from "../../../shared/types.ts";
 import { LIMITS, RETENTION_DAYS } from "../../../shared/constants.ts";
 import { schedLocked } from "../../../shared/phase.ts";
-import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
+import { SCHEDULE_STEP_MIN, formatWhen, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, del, put } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import { Num } from "./HostDefaults.tsx";
@@ -23,7 +23,6 @@ export default function Settings() {
   const meta = state.meta;
 
   const [name, setName] = useState(meta.name);
-  const [code, setCode] = useState(meta.code);
   const [maxPre, setMaxPre] = useState(meta.config.maxPre);
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
   const [allowSameGender, setAllowSameGender] = useState(meta.config.allowSameGender !== false);
@@ -32,19 +31,43 @@ export default function Settings() {
 
   useEffect(() => {
     setName(meta.name);
-    setCode(meta.code);
     setMaxPre(meta.config.maxPre);
     setMaxParty(meta.config.maxParty);
     setAllowSameGender(meta.config.allowSameGender !== false);
     setSchedule(meta.schedule);
   }, [meta]);
 
+  /**
+   * 무엇이 어떻게 바뀌는지 항목으로 보여준다 (CLAUDE.md 규칙 4).
+   * 여기서 저장하면 **참가자 전원의 화면**이 바뀐다 — 콕 횟수도, 일정도.
+   */
+  function askSave() {
+    const facts: Array<[string, string]> = [];
+    const changed = (label: string, before: string, after: string) => {
+      if (before !== after) facts.push([label, `${before} → ${after}`]);
+    };
+    changed(HOST_UI.fields.name, meta.name, name);
+    changed(HOST_UI.fields.maxPre, UNIT.times(meta.config.maxPre), UNIT.times(maxPre));
+    changed(HOST_UI.fields.maxParty, UNIT.times(meta.config.maxParty), UNIT.times(maxParty));
+    changed(
+      HOST_UI.fields.pokeTarget,
+      meta.config.allowSameGender === false ? HOST_UI.fields.pokeTargetOpposite : HOST_UI.fields.pokeTargetAll,
+      allowSameGender ? HOST_UI.fields.pokeTargetAll : HOST_UI.fields.pokeTargetOpposite,
+    );
+    for (const key of ["partyAt", "regOpenAt", "prevoteAt"] as const) {
+      changed(HOST_UI.fields[key], formatWhen(meta.schedule[key]) || "—", formatWhen(schedule[key]) || "—");
+    }
+
+    // 아무것도 안 바꾸고 누른 경우. 빈 확인창을 띄우느니 그렇다고 말한다
+    if (facts.length === 0) return toast(HOST_UI.applyNothing);
+    confirm({ btn: HOST_UI.applySettings, title: HOST_UI.applyTitle, facts }, save);
+  }
+
   async function save() {
     setError(null);
     try {
       await put<EventMeta>(`/host/events/${meta.id}`, {
         name,
-        code: code !== meta.code ? code : undefined,
         config: { maxPre, maxParty, allowSameGender },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
@@ -82,28 +105,31 @@ export default function Settings() {
         <label htmlFor="sname">{HOST_UI.fields.name}</label>
         <input id="sname" value={name} onChange={(e) => setName(e.target.value)} />
       </div>
+      {/* 입장 코드는 만든 뒤에 바꾸지 않는다 (ADR-22) — 이미 나간 안내와 어긋난다 */}
       <div className="field">
-        <label htmlFor="scode">{HOST_UI.fields.code}</label>
-        <input
-          id="scode"
-          value={code}
-          maxLength={6}
-          autoCapitalize="characters"
-          onChange={(e) => setCode(e.target.value.toUpperCase())}
-        />
+        <label>{HOST_UI.fields.code}</label>
+        <div className="fact">
+          <span className="grow">{meta.code}</span>
+        </div>
+        <span className="tiny dim">{HOST_UI.codeFixed}</span>
       </div>
       <div className="kicker">{HOST_UI.settings.rules}</div>
+      {/*
+        이미 그만큼 찌른 사람이 있으면 그 아래로는 내려가지 않는다 —
+        내리면 그 사람의 남은 횟수가 음수가 되고, 이미 보낸 콕은 되물릴 수 없다.
+        서버도 같은 규칙으로 거절한다. 여기서는 애초에 고를 수 없게 한다
+      */}
       <Num
         label={HOST_UI.fields.maxPre}
         value={maxPre}
-        min={LIMITS.maxPre.min}
+        min={Math.max(LIMITS.maxPre.min, state.pokeUsedMax.pre)}
         max={LIMITS.maxPre.max}
         onChange={setMaxPre}
       />
       <Num
         label={HOST_UI.fields.maxParty}
         value={maxParty}
-        min={LIMITS.maxParty.min}
+        min={Math.max(LIMITS.maxParty.min, state.pokeUsedMax.party)}
         max={LIMITS.maxParty.max}
         onChange={setMaxParty}
       />
@@ -152,8 +178,9 @@ export default function Settings() {
       <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
 
       {error && <p className="err danger">{error}</p>}
-      <button className="btn primary block" onClick={save}>
-        {BTN.save}
+      {/* 누르면 바로 저장되지 않는다. 무엇이 바뀌는지 보고 한 번 더 확인한다 */}
+      <button className="btn primary block" onClick={askSave}>
+        {HOST_UI.applySettings}
       </button>
 
       <p className="tiny dim">{HOST_UI.retention(RETENTION_DAYS)}</p>

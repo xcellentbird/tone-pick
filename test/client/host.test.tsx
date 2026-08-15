@@ -13,6 +13,7 @@ import type { HostState } from "../../src/shared/types.ts";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
 import Dash from "../../src/client/routes/host/Dash.tsx";
 import Players from "../../src/client/routes/host/Players.tsx";
+import Settings from "../../src/client/routes/host/Settings.tsx";
 
 afterEach(cleanup);
 
@@ -55,11 +56,11 @@ function hostState(over: Partial<HostState["meta"]> = {}): HostState & { seating
         createdAt: 2,
       },
     ],
-    received: { p1: 0, p2: 1 },
     sent: { p1: 1, p2: 0 },
     prevoteRank: [{ id: "p2", count: 1 }, { id: "p1", count: 0 }],
     mutual: [],
     pokeCount: { pre: 1, party: 0 },
+    pokeUsedMax: { pre: 1, party: 0 },
     seatings: [],
     invites: [],
     seatingClosed: false,
@@ -91,6 +92,7 @@ function renderConsole(at = "/host/e1") {
         children: [
           { index: true, element: <Dash /> },
           { path: "players", element: <Players /> },
+          { path: "settings", element: <Settings /> },
         ],
       },
     ],
@@ -149,6 +151,44 @@ describe("운영자 콘솔", () => {
     expect(label(HOST_UI.players.filterAll)).toContain("2");
     expect(label(GENDER.M)).toContain("1");
     expect(label(GENDER.F)).toContain("1");
+  });
+
+  it("★ 운영자에게도 받은 콕은 보여주지 않는다", async () => {
+    // 알면 그 사람을 다르게 대하게 된다. 이 앱이 없애려던 경험이다 (ADR-22)
+    stubFetch(hostState());
+    renderConsole("/host/e1/players");
+    await screen.findByText(HOST_UI.invites.title);
+
+    expect(screen.getAllByText(HOST_UI.players.sent(1)).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("받은 콕");
+  });
+
+  it("★ 설정은 확인을 거쳐야 적용된다", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/settings");
+
+    const name = await screen.findByLabelText(HOST_UI.fields.name);
+    fireEvent.change(name, { target: { value: "바꾼 이름" } });
+    fireEvent.click(screen.getByText(HOST_UI.applySettings));
+
+    // 무엇이 어떻게 바뀌는지 항목으로 보여준다. 아직 저장되지 않았다
+    await screen.findByText(HOST_UI.applyTitle);
+    expect(screen.getByText("테스트 회차 → 바꾼 이름")).toBeTruthy();
+    expect(calls.some((c) => c.url.includes("/host/events/e1") && c.body)).toBe(false);
+
+    fireEvent.click(screen.getAllByText(HOST_UI.applySettings)[1]);
+    await waitFor(() =>
+      expect(calls.find((c) => c.url.endsWith("/host/events/e1"))?.body).toMatchObject({ name: "바꾼 이름" }),
+    );
+  });
+
+  it("★ 입장 코드는 바꿀 수 없다", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/settings");
+    await screen.findByText(HOST_UI.codeFixed);
+    // 코드는 글자로만 있다. 입력 칸이 아니다
+    expect(screen.queryByLabelText(HOST_UI.fields.code)).toBeNull();
+    expect(screen.getByText("ABCDEF")).toBeTruthy();
   });
 
   it("★ 예약보다 일찍 넘기면 얼마나 이른지 확인창에 적는다", async () => {
