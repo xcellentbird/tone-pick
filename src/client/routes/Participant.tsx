@@ -198,18 +198,29 @@ function Greeting({ text }: { text: string }) {
  * 세션이 없거나 만료됐다. 참가자 식별은 쿠키뿐이라 여기서 할 수 있는 건 다시 입장하는 것이다.
  * 회차 확인 화면으로 보낸다 — 전화번호를 다시 넣으면 그 회차의 기존 참가자로 돌아온다.
  */
+/**
+ * 참가자 화면이 열리지 않는 세 경우.
+ *
+ *   401  세션이 없다 → 문 앞으로 돌려보낸다
+ *   404  회차는 있는데 **내가 없다** — 운영자가 지웠다. 그렇다고 말한다
+ *   그 밖  서버가 준 문장을 그대로
+ *
+ * 404 를 "그런 회차가 없어요" 로 뭉뚱그리면 참가자는 링크를 의심하고 운영자에게
+ * 엉뚱한 걸 묻는다. 지워진 사람은 명단에 남아 있으면 다시 들어올 수 있으니 그 길을 준다.
+ */
 function Failed({ error, code }: { error: ApiError; code?: string }) {
   const navigate = useNavigate();
   useEffect(() => {
     if (code && error.status === 401) navigate(`/j/${code}`, { replace: true });
   }, [code, error.status, navigate]);
 
+  const removed = error.status === 404;
   return (
     <div className="screen">
       <div className="body stack center" style={{ justifyContent: "center" }}>
         <p className="dim pre">{error.userMessage ?? ENTRY.notFound}</p>
         <button className="btn primary" onClick={() => navigate("/")}>
-          {BTN.home}
+          {removed ? ENTRY.reenter : BTN.home}
         </button>
       </div>
     </div>

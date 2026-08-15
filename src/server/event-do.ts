@@ -426,6 +426,8 @@ export class EventDO extends DurableObject {
     if (!row) return fail("not_found");
     this.ctx.storage.sql.exec("DELETE FROM players WHERE id = ?", playerId);
     this.ctx.storage.sql.exec("DELETE FROM pokes WHERE from_id = ? OR to_id = ?", playerId, playerId);
+    // 운세 문장에는 닉네임이 들어 있다. 사람을 지웠는데 그 문장이 남으면 지운 게 아니다
+    this.ctx.storage.sql.exec("DELETE FROM fortunes WHERE player_id = ?", playerId);
     // 이미 발행한 자리에서도 빠진다
     for (const s of this.seatings()) {
       const seats = s.seats.filter((x) => x.playerId !== playerId);

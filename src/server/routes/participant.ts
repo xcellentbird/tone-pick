@@ -127,7 +127,9 @@ participantRoutes.post("/register", async (c) => {
 participantRoutes.get("/me", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");
-  const { value, response } = unwrap(c, await seat.stub.participantState(seat.playerId, serverNow()));
+  // 회차는 멀쩡한데 **내가** 없는 경우가 있다 — 운영자가 참가자를 지웠을 때.
+  // 여기서 아무 말도 안 하면 화면이 "그런 회차가 없어요" 라고 거짓말한다
+  const { value, response } = unwrap(c, await seat.stub.participantState(seat.playerId, serverNow()), () => ENTRY.removed);
   if (response) return response;
 
   // 화면은 코드로도(참가자 탭), 회차 아이디로도(참가 링크) 물어볼 수 있다
