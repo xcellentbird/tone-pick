@@ -38,7 +38,7 @@ import type {
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
 import { rosterOpen, toPublic } from "../shared/types.ts";
-import { ENTRY } from "../shared/copy.ts";
+import { DEMO_UI, ENTRY } from "../shared/copy.ts";
 import { ENTRY_TRIES, LIMITS, normalizeNickname, normalizePhone } from "../shared/constants.ts";
 import { PHASE_ORDER, canPoke, dueTransition, purgeDueAt } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
@@ -446,6 +446,91 @@ export class EventDO extends DurableObject {
     return ok(true);
   }
 
+  /**
+   * 시연용 가짜 참가자. **연습용 환경에서만** 부를 수 있다 (Worker 가 막는다).
+   *
+   * 명단·등록을 한 번에 끝낸다. 시연은 "이 단계에서 화면이 어떻게 보이나" 를 보는 일이라,
+   * 사람을 넣는 데 시간을 쓰면 정작 볼 것을 못 본다.
+   */
+  async seedPlayers(count: number, now: number): Promise<Result<number>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (!Number.isInteger(count) || count < 1 || count > LIMITS.demoSeedMax) return fail("bad_request");
+
+    const start = this.playerCount();
+    for (let i = 0; i < count; i++) {
+      const n = start + i;
+      const gender: Gender = n % 2 === 0 ? "M" : "F";
+      const phone = `010${String(now).slice(-4)}${String(n).padStart(4, "0")}`;
+      const pick = <T,>(list: readonly T[]) => list[(n * 7 + list.length) % list.length];
+      const made = await this.register(
+        {
+          nickname: `${pick(DEMO_UI.seed.nicknames)}${n}`,
+          realName: `${pick(DEMO_UI.seed.surnames)}${pick(DEMO_UI.seed.givenNames)}`,
+          age: 24 + (n * 3) % 18,
+          gender,
+          mbti: pick(DEMO_UI.seed.mbti),
+          charms: [pick(DEMO_UI.seed.charms), pick(DEMO_UI.seed.charms.slice(1)), pick(DEMO_UI.seed.charms.slice(2))],
+        },
+        phone,
+        now,
+      );
+      // 닉네임이 겹치면 그 한 명만 건너뛴다. 시연이 멈출 이유는 아니다
+      if (made.ok) this.ctx.storage.sql.exec("INSERT OR IGNORE INTO invites (phone, added_at) VALUES (?,?)", phone, now);
+    }
+    return ok(this.playerCount() - start);
+  }
+
+  /**
+   * 시연용 무작위 콕. **연습용 환경에서만.**
+   *
+   * 매칭이 생긴 상태를 손으로 만들려면 여러 번 찔러야 한다 —
+   * 발표 화면과 커플 자리는 그 상태여야 볼 수 있는데, 거기까지 가는 데 시연 시간을 다 쓴다.
+   */
+  async seedPokes(now: number): Promise<Result<number>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (!canPoke(meta.phase)) return fail("closed");
+
+    const players = this.players();
+    const round = roundOf(meta.phase);
+    const max = round === "pre" ? meta.config.maxPre : meta.config.maxParty;
+    let made = 0;
+
+    for (const me of players) {
+      const targets = players.filter(
+        (p) => p.id !== me.id && (meta.config.allowSameGender !== false || p.gender !== me.gender),
+      );
+      if (targets.length === 0) continue;
+      const budget = max - this.sentCount(me.id, round);
+      // 예산을 다 쓰지는 않는다. 매칭이 골고루 갈리게 절반쯤만
+      for (let i = 0; i < Math.ceil(budget / 2); i++) {
+        const to = targets[Math.floor(Math.random() * targets.length)];
+        this.ctx.storage.sql.exec(
+          "INSERT INTO pokes (id, from_id, to_id, round, at) VALUES (?,?,?,?,?)",
+          randomHex(8),
+          me.id,
+          to.id,
+          round,
+          now,
+        );
+        made++;
+      }
+    }
+    this.broadcast({ type: "roster", count: this.playerCount() });
+    return ok(made);
+  }
+
+  /** 시연을 처음부터. 참가자·콕·자리·명단·운세를 비운다. 회차 설정과 단계는 그대로 */
+  async resetDemo(): Promise<Result<true>> {
+    for (const table of ["players", "pokes", "seatings", "invites", "fortunes", "entry_tries"]) {
+      this.ctx.storage.sql.exec(`DELETE FROM ${table}`);
+    }
+    await this.setFlags({ seatingClosed: false });
+    this.broadcast({ type: "roster", count: 0 });
+    return ok(true);
+  }
+
   // ─────────────────────────── 콕
 
   async poke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
@@ -510,6 +595,27 @@ export class EventDO extends DurableObject {
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
       ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),
     });
+  }
+
+  /**
+   * 매력 세 줄을 고친다. **사전 투표가 열리기 전까지만** (ADR-27).
+   *
+   * 사전 투표가 시작되면 사람들이 그 세 줄을 보고 콕을 찌른다.
+   * 그 뒤에 바꾸면 누군가 나를 고른 근거가 조용히 사라진다 —
+   * 등록할 때 급히 쓴 걸 다듬을 시간은 주되, 남이 읽은 뒤로는 그대로 둔다.
+   */
+  async editCharms(playerId: string, charms: string[], now: number): Promise<Result<Player>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (meta.phase !== "reg") return fail("closed");
+
+    const me = this.player(playerId);
+    if (!me) return fail("not_found");
+    const clean = charms.map((c) => String(c ?? "").trim());
+    if (clean.length !== LIMITS.charms || clean.some((c) => !c)) return fail("bad_request");
+
+    this.ctx.storage.sql.exec("UPDATE players SET charms = ? WHERE id = ?", JSON.stringify(clean), playerId);
+    return ok({ ...me, charms: clean as [string, string, string] });
   }
 
   async ackSeat(playerId: string, round: number): Promise<Result<true>> {
