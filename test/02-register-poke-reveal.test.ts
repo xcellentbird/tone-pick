@@ -633,6 +633,52 @@ describe("명단 공개 범위", () => {
   });
 });
 
+// ─────────────────────────────────────────── 자리 섞기
+
+describe("자리 섞기", () => {
+  it("★ 남녀 비율은 그대로 두고 사람만 바뀐다", async () => {
+    const ev = await freshEvent();
+    const ids: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    }
+    const made = await api<{ seats: Array<{ playerId: string; table: number }> }>(
+      `/api/host/events/${ev.id}/seating`,
+      { method: "POST", cookie: master, body: { tableCount: 2, final: false } },
+    );
+    expect(made.status).toBe(200);
+
+    const shaped = (seats: Array<{ playerId: string; table: number }>, byGender: Map<string, string>) => {
+      const out = new Map<number, { m: number; f: number }>();
+      for (const s of seats) {
+        const cell = out.get(s.table) ?? { m: 0, f: 0 };
+        byGender.get(s.playerId) === "M" ? cell.m++ : cell.f++;
+        out.set(s.table, cell);
+      }
+      return [...out.entries()].sort().map(([t, c]) => `${t}:${c.m}/${c.f}`).join(" ");
+    };
+    const genders = new Map(ids.map((id, i) => [id, i % 2 === 0 ? "M" : "F"]));
+    const before = shaped(made.body.seats, genders);
+
+    const after = await api<{ seats: Array<{ playerId: string; table: number }> }>(
+      `/api/host/events/${ev.id}/seating/shuffle`,
+      { method: "POST", cookie: master },
+    );
+    expect(after.status).toBe(200);
+
+    // 테이블마다 남 몇·여 몇인지가 그대로다
+    expect(shaped(after.body.seats, genders)).toBe(before);
+    // 사람이 사라지거나 늘지 않는다
+    expect(after.body.seats.map((s) => s.playerId).sort()).toEqual(ids.slice().sort());
+  });
+
+  it("만든 자리가 없으면 섞을 것도 없다", async () => {
+    const ev = await freshEvent();
+    const res = await api(`/api/host/events/${ev.id}/seating/shuffle`, { method: "POST", cookie: master });
+    expect(res.status).toBe(404);
+  });
+});
+
 // ─────────────────────────────────────────── 콕 상한
 
 describe("콕 상한", () => {

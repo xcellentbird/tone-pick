@@ -665,6 +665,30 @@ export class EventDO extends DurableObject {
     return ok(draft);
   }
 
+  /**
+   * 남녀 비율을 **그대로 두고** 사람만 다시 섞는다.
+   *
+   * 테이블마다 남 몇·여 몇인지는 손대지 않고, 그 자리에 누가 앉는지만 바꾼다.
+   * 나이차·재회·콕 보너스는 보지 않는다 — 운영자가 "그냥 다시 섞어줘" 라고 할 때 쓰는 손잡이다.
+   * 다시 계산하고 싶으면 자리 재배정을 누르면 된다.
+   */
+  async shuffleSeating(): Promise<Result<SeatingRound>> {
+    const draft = this.seatings().find((s) => s.status === "draft");
+    if (!draft) return fail("not_found");
+
+    const gender = new Map(
+      this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
+    );
+    for (const g of ["M", "F"] as const) {
+      // 이 성별이 앉아 있던 자리들과 사람들을 따로 모아, 사람 쪽만 섞어 도로 앉힌다
+      const mine = draft.seats.filter((s) => gender.get(s.playerId) === g);
+      const ids = shuffle(mine.map((s) => s.playerId));
+      mine.forEach((seat, i) => (seat.playerId = ids[i]));
+    }
+    this.writeSeating(draft);
+    return ok(draft);
+  }
+
   async discardSeating(): Promise<Result<true>> {
     const draft = this.seatings().find((s) => s.status === "draft");
     if (!draft) return fail("not_found");
@@ -995,6 +1019,18 @@ function toPlayer(r: PlayerRow): Player {
     noShow: !!r.no_show,
     createdAt: r.created_at,
   };
+}
+
+/** Fisher–Yates. `Math.random` 대신 crypto 를 쓴다 — 같은 밀리초에 두 번 눌러도 다르게 나오게 */
+function shuffle<T>(list: T[]): T[] {
+  const out = [...list];
+  const rnd = new Uint32Array(out.length);
+  crypto.getRandomValues(rnd);
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = rnd[i] % (i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 function roundOf(phase: Phase): PokeRound {

@@ -517,15 +517,17 @@ export const DELETE_EVENT = {
 
 export const HOST = {
   seating: {
-    draftOnly: "초안은 참가자에게 보이지 않아요. 알림을 보내야 자리가 뜹니다.",
-    publish: "📣 알림 발송",
+    draftOnly: "지금 자리는 참가자에게 보이지 않아요. 확정해야 자리가 뜹니다.",
+    /** 이 버튼이 하는 일은 둘이다 — 자리를 확정하고, 전원에게 알린다. 순서대로 읽히게 */
+    publish: "📣 자리 확정하고 알리기",
     makeFinal: "🏁 마지막 자리 배정",
     reopen: "배정 다시 열기",
     published: (round: number, final: boolean) =>
       final
         ? "🏁 마지막 자리를 참가자 전원에게 알렸어요"
         : `${round}라운드 자리를 참가자 전원에게 알렸어요 📣`,
-    discarded: "초안을 삭제했어요",
+    discarded: "자리를 되돌렸어요",
+    shuffled: "남녀 비율은 그대로 두고 다시 섞었어요",
     tooFewPerTable: "테이블당 2명이 안 됩니다. 테이블 수를 줄여주세요.",
     tooManyPerTable: "테이블당 8명이 넘습니다. 테이블을 늘리는 편이 좋아요.",
     closed: "마지막 자리까지 끝났어요. 배정을 재개하려면 아래에서 다시 열어주세요.",
@@ -654,8 +656,12 @@ export const HOST_UI = {
 
   seats: {
     tableCount: "테이블 수",
-    make: "자리 초안 만들기",
-    discard: "초안 삭제",
+    /** 누를 때마다 처음부터 다시 계산한다 — '초안'은 운영자 말이 아니다 */
+    make: "자리 재배정",
+    /** 만든 자리를 버리고 없던 일로 되돌린다 */
+    discard: "취소",
+    /** 계산은 그대로, 사람만 다시 섞는다 */
+    shuffle: "자리 섞기",
     swapHint: "두 명을 고르면 자리를 맞바꿔요. 남녀도 바꿀 수 있어요 — 한 명만 옮기는 건 없습니다.",
     tableTitle: (n: number) => `${n}번 테이블`,
     /** 테이블 성비. 색과 같은 정보를 글자로도 준다 */
@@ -665,8 +671,8 @@ export const HOST_UI = {
     noRounds: "아직 배정한 자리가 없어요",
     /** 자리를 발행한 뒤 등록한 사람. 다음 배정에서 들어간다 */
     unassigned: (names: string) => `이 라운드에 자리가 없는 사람: ${names}`,
-    publishTitle: "이 자리를 참가자 전원에게 알릴까요?",
-    publishBtn: "알림 발송",
+    publishTitle: "이 자리로 확정하고 전원에게 알릴까요?",
+    publishBtn: "자리 확정하고 알리기",
   },
 
   deleteEvent: "이 회차 삭제하기",

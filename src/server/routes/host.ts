@@ -257,6 +257,14 @@ hostRoutes.post("/events/:id/seating/swap", async (c) => {
   return response ?? c.json(value);
 });
 
+/** 남녀 비율은 그대로 두고 사람만 다시 섞는다 */
+hostRoutes.post("/events/:id/seating/shuffle", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { value, response } = unwrap(c, await gate.stub.shuffleSeating());
+  return response ?? c.json(value);
+});
+
 hostRoutes.delete("/events/:id/seating", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
