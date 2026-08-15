@@ -240,6 +240,31 @@ describe("발표 후 참가자 탭", () => {
     expect(screen.getByText(new RegExp(REVEAL.matchBadge))).toBeTruthy();
   });
 
+  it("★ 서로 찌른 사람이 목록 맨 위로 온다", async () => {
+    // 스무 명 목록에서 그 사람을 찾아 내려가게 두면, 다른 탭에 숨긴 것과 다를 게 없다
+    const two = participantState().roster.concat({
+      id: "him",
+      nickname: "그남",
+      age: 31,
+      gender: "M",
+      mbti: "ESTJ",
+      charms: ["ㄱ", "ㄴ", "ㄷ"],
+    });
+    const source = fakeSource({
+      load: async () =>
+        participantState({
+          event: { ...participantState().event, phase: "done" },
+          poke: { ...matched, matches: matched.matches },
+          roster: [two[1], two[0]],   // 매칭된 '그녀'가 뒤에 있는 상태에서 시작한다
+        }),
+    });
+    renderParticipant(source);
+
+    await screen.findByText(/그녀/);
+    const names = screen.getAllByText(/그녀|그남/).map((el) => el.textContent);
+    expect(names[0]).toMatch(/그녀/);
+  });
+
   it("★ 발표 전에는 목록에 아무 표시도 없다", async () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);

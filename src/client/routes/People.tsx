@@ -35,7 +35,6 @@ export default function People({ state, source, reload, profileId, onProfile, co
   const round = state.event.phase === "prevote" ? "pre" : "party";
   const budget = state.poke.budget[round];
   const open = canPoke(state.event.phase);
-  const list = state.roster.filter((p) => !onlyOpposite || p.gender !== state.me.gender);
   const profile = state.roster.find((p) => p.id === profileId);
   /**
    * 발표 후에만 채워진다. 서로 찌른 사람은 **목록에서** 눈에 띄어야 한다 —
@@ -43,6 +42,16 @@ export default function People({ state, source, reload, profileId, onProfile, co
    * 발표 전에는 비어 있으므로 목록에 아무 표시도 생기지 않는다.
    */
   const matched = new Map(state.poke.matches.map((m) => [m.player.id, m]));
+
+  /**
+   * 발표 후에는 서로 찌른 사람이 **맨 위**로 온다.
+   * 스무 명 목록에서 그 사람을 찾아 내려가게 두면, 결과를 다른 탭에 숨긴 것과 다를 게 없다.
+   * 발표 전에는 `matched` 가 비어 있어 순서가 그대로다 — 그 자체로 힌트가 되면 안 된다.
+   */
+  const list = state.roster
+    .filter((p) => !onlyOpposite || p.gender !== state.me.gender)
+    .slice()
+    .sort((a, b) => Number(matched.has(b.id)) - Number(matched.has(a.id)));
 
   async function send(target: PublicPlayer) {
     const already = state.poke.sentTo[target.id] ?? 0;

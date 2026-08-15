@@ -3,12 +3,12 @@
  *
  * 실명과 전화번호는 기본으로 가린다 — 파티장에서 어깨너머로 보인다.
  *
- * **매칭 상대는 참가자 탭에서 본다.** 여기에는 숫자만 남긴다 —
- * 결과를 이 탭에 숨겨두면 파티장에서 그 사람을 앞에 두고 화면을 뒤지게 된다.
- * 매칭돼도 연락처는 주지 않는다 (ADR-1): 앱이 만드는 건 "같은 테이블"까지다.
+ * **결과는 여기 없다.** 서로 찌른 사람도, 익명으로 남은 콕도 참가자 탭에서 본다 (ADR-18) —
+ * 같은 것을 두 곳에 두면 어느 쪽이 맞는지 눈이 한 번 더 확인하게 된다.
+ * 이 탭이 답하는 질문은 하나다: **내가 낸 것이 무엇인가.**
  */
 import { useState } from "react";
-import { GENDER, HOME, ME, PEOPLE, REVEAL, UNIT } from "../../shared/copy.ts";
+import { GENDER, ME, PEOPLE, UNIT } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
 
@@ -16,34 +16,14 @@ export default function Me({ state }: { state: ParticipantState }) {
   const [shown, setShown] = useState(false);
   const { me, poke, event } = state;
   const budget = poke.budget[event.phase === "prevote" ? "pre" : "party"];
-  const revealed = event.phase === "done";
-  const anonymous = Math.max(0, poke.receivedCount - poke.matches.length);
 
-  // 자리와 남은 콕은 홈 탭에 있다. 같은 숫자를 두 곳에 두지 않는다
+  // 자리·남은 콕은 홈 탭에, 결과는 참가자 탭에 있다. 같은 것을 두 곳에 두지 않는다
   return (
     <div className="stack">
-      {revealed ? (
-        <div className="card stack">
-          <div className="kicker">{REVEAL.mutualTitle}</div>
-          {poke.matches.length === 0 ? (
-            <p className="pre">{REVEAL.noMutual(poke.receivedCount)}</p>
-          ) : (
-            /* 이름과 힌트는 참가자 탭에 있다. 같은 것을 두 곳에 두지 않는다 */
-            <p className="small">{HOME.matched(poke.matches.length)}</p>
-          )}
-          {anonymous > 0 && (
-            <>
-              <div className="kicker">{REVEAL.anonTitle(anonymous)}</div>
-              <p className="small dim pre">{REVEAL.anonNote}</p>
-            </>
-          )}
+      {canPoke(event.phase) && (
+        <div className="card">
+          <div className="kicker">{PEOPLE.sentSoFar(budget.used)}</div>
         </div>
-      ) : (
-        canPoke(event.phase) && (
-          <div className="card">
-            <div className="kicker">{PEOPLE.sentSoFar(budget.used)}</div>
-          </div>
-        )
       )}
 
       <div className="card stack">
