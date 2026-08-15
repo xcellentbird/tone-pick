@@ -55,24 +55,24 @@
   --on-gold: #241a00;
 
   /*
-   * 성별 — **자리 배정 화면 전용**이다. 다른 곳에서 사람을 이 색으로 칠하지 마라.
-   * 운영자가 어두운 파티장에서 테이블 성비를 한눈에 보려면 색이 가장 빠르다.
-   * 색만으로 구분하지 않는다 — ♂/♀ 기호를 함께 남긴다 (색각 이상).
-   * 단계 색(앰버·청록)과 겹치지 않는 한 쌍으로 골랐다.
+   * 성별 색 계열 — 파랑=남, 분홍=여. 아바타 배경(--av-m/--av-f)과 같은 뜻이다.
+   * 자리 탭의 띠·숫자는 이 단색을, 아바타는 그라데이션을 쓴다.
+   * 색만으로 구분하지 않는다 — 자리 탭에는 ♂/♀ 기호를 함께 남긴다 (색각 이상).
+   * 단계 색(앰버·청록)과 겹치지 않는 계열로 골랐다.
    */
   --male: #5b9dff;
   --female: #ff7eb6;
 
   /*
-   * 아바타 색. **사람을 구분하는 것**이 목적이라 성별이 아니라 닉네임 해시로 고른다.
-   * 목록·프로필·자리·현황이 같은 색을 쓰므로, 한 사람은 어디서든 같은 색이다.
+   * 아바타 배경 — **성별**을 말한다 (ADR-30 보완). 사람 구분은 동물이 맡는다.
+   * 자리 탭의 성별 색(--male/--female)과 같은 계열이다. 화면이 달라도 파랑=남, 분홍=여.
+   *
+   * 프로토타입 그라데이션(파랑→보라, 분홍→주황)을 그대로 가져왔다가 물렀다 —
+   * 보라 끝은 주 색(--accent, 매칭 강조)과 색각 이상에서 완전히 겹치고,
+   * 주황 끝은 경고(--warn)·파티 앰버(--gold) 계열로 넘어간다. 성별은 성별 계열 안에 머문다.
    */
-  --av-1: linear-gradient(140deg, #ff6b9d, #ff9a5c);
-  --av-2: linear-gradient(140deg, #5b9dff, #8b5cf6);
-  --av-3: linear-gradient(140deg, #34d399, #0ea5e9);
-  --av-4: linear-gradient(140deg, #ffb400, #fb7185);
-  --av-5: linear-gradient(140deg, #a78bfa, #f472b6);
-  --av-6: linear-gradient(140deg, #22d3ee, #6366f1);
+  --av-m: linear-gradient(140deg, #6ab0ff, #3b82f6);
+  --av-f: linear-gradient(140deg, #ff4d8d, #ff7eb6);
 
   --radius: 16px;
   --radius-sm: 8px;
@@ -428,16 +428,22 @@ button {
 }
 .choice button[aria-pressed="true"] .filterCount { opacity: 0.85; }
 
+/* 아바타 — 동물 한 마리가 성별 색 원 안에. 동물은 사람을, 색은 남녀를 말한다 (ADR-30) */
 .avatar {
   width: 42px;
   height: 42px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--card-2);
-  font-size: 18px;
+  font-size: 21px;
+  line-height: 1;
   flex: none;
 }
+.avatar.sm { width: 30px; height: 30px; font-size: 15px; }
+.avatar.lg { width: 62px; height: 62px; font-size: 31px; }
+
+.avatar.m { background: var(--av-m); }
+.avatar.f { background: var(--av-f); }
 
 .pokeBtn {
   border: 1px solid var(--line);

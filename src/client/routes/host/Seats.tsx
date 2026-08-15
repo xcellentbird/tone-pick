@@ -368,7 +368,7 @@ function Tables({
                 key={person.id}
                 onClick={() => onPick(person.id)}
               >
-                <Avatar nickname={person.nickname} size="sm" />
+                <Avatar nickname={person.nickname} gender={person.gender} size="sm" />
                 <span className="grow" style={{ minWidth: 0 }}>
                   <span className="row between">
                     <span className="ellipsis">

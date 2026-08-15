@@ -92,7 +92,7 @@ export default function Players() {
 
       {shown.map((p) => (
         <button className="person" key={p.id} onClick={() => navigate(`${base}/${p.id}`)}>
-          <Avatar nickname={p.nickname} />
+          <Avatar nickname={p.nickname} gender={p.gender} />
           <span className="meta">
             <span className="name ellipsis">
               {p.nickname} · {UNIT.age(p.age)} · {p.mbti}
