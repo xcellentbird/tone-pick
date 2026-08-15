@@ -8,7 +8,7 @@
  *   나이차 10살+ 쌍 · 마지막 라운드 상호 매칭 동석률 ≥90%
  */
 import { describe, expect, it } from "vitest";
-import { buildSeating, tableCaps } from "../src/server/seating.ts";
+import { buildSeating, pairWeight, tableCaps } from "../src/server/seating.ts";
 import type { Player, Seat } from "../src/shared/types.ts";
 import { AGE_GAP } from "../src/shared/constants.ts";
 
@@ -239,5 +239,68 @@ describe("무료 플랜 CPU 10ms", () => {
     }
     times.sort((a, b) => a - b);
     expect(times[2]).toBeLessThan(10);
+  });
+});
+
+// ─────────────────────────────────────────── 한 사람이 여러 명과 이어질 때
+
+/**
+ * A–B 와 A–C 가 동시에 성립하고, 정원 때문에 하나만 붙일 수 있다 (ADR-24·25).
+ * 그때는 **주고받은 콕이 많은 쪽**이 자리를 가져간다.
+ */
+describe("여러 쌍 중 무엇을 먼저 붙이나", () => {
+  /** 2테이블 · 남2 여2 → 테이블마다 남1 여1. A 는 한 명하고만 앉을 수 있다 */
+  function triangle(strength: Record<string, number>) {
+    const players: Player[] = [
+      { ...makePlayers(1, 0)[0], id: "A", gender: "M", age: 30 },
+      { ...makePlayers(1, 0)[0], id: "D", gender: "M", age: 30 },
+      { ...makePlayers(0, 1, 7)[0], id: "B", gender: "F", age: 30 },
+      { ...makePlayers(0, 1, 9)[0], id: "C", gender: "F", age: 30 },
+    ];
+    return buildSeating({
+      players,
+      tableCount: 2,
+      round: 1,
+      final: true,
+      history: [],
+      // 목록 순서는 일부러 약한 쌍을 앞에 둔다 — 세기로 정렬되는지 보려고
+      mutual: [["A", "C"], ["A", "B"]],
+      strength,
+      oneWay: [],
+    });
+  }
+
+  const tableOf = (seats: Seat[], id: string) => seats.find((s) => s.playerId === id)?.table;
+
+  it("★ 콕을 더 많이 주고받은 쪽이 같은 테이블에 앉는다", () => {
+    const seats = triangle({ "A|B": 6, "A|C": 2 });
+    expect(tableOf(seats, "A")).toBe(tableOf(seats, "B"));
+    expect(tableOf(seats, "A")).not.toBe(tableOf(seats, "C"));
+  });
+
+  it("★ 반대로 기울면 반대쪽이 앉는다 — 목록 순서가 아니라 세기로 정한다", () => {
+    const seats = triangle({ "A|B": 2, "A|C": 6 });
+    expect(tableOf(seats, "A")).toBe(tableOf(seats, "C"));
+    expect(tableOf(seats, "A")).not.toBe(tableOf(seats, "B"));
+  });
+
+  it("아무도 앉지 못하고 남는 사람은 없다", () => {
+    const seats = triangle({ "A|B": 6, "A|C": 2 });
+    expect(seats.map((s) => s.playerId).sort()).toEqual(["A", "B", "C", "D"]);
+  });
+});
+
+describe("붙여 앉히는 힘", () => {
+  it("주고받을수록 세지되 상한이 있다", () => {
+    // 상한이 없으면 한 쌍이 나이차 벌점을 통째로 밀어낸다 (ADR-11 에서 겪은 일)
+    expect(pairWeight(2)).toBe(1);
+    expect(pairWeight(4)).toBeCloseTo(1.4);
+    expect(pairWeight(7)).toBe(2);
+    expect(pairWeight(30)).toBe(2);
+  });
+
+  it("쌍이 아닌 값이 와도 1 아래로 내려가지 않는다", () => {
+    expect(pairWeight(0)).toBe(1);
+    expect(pairWeight(1)).toBe(1);
   });
 });

@@ -622,7 +622,7 @@ export class EventDO extends DurableObject {
 
     const published = this.seatings().filter((s) => s.status === "published");
     const round = (published.at(-1)?.round ?? 0) + 1;
-    const { mutual, oneWay } = this.pairs();
+    const { mutual, oneWay, strength } = this.pairs();
 
     const seats = buildSeating({
       players,
@@ -631,6 +631,7 @@ export class EventDO extends DurableObject {
       final,
       history: published.map((s) => s.seats),
       mutual,
+      strength,
       oneWay,
     });
 
@@ -917,20 +918,32 @@ export class EventDO extends DurableObject {
     };
   }
 
+  /**
+   * 서로 찌른 쌍과 한쪽만 찌른 쌍.
+   *
+   * 상호 매칭은 **주고받은 콕이 많은 순**으로 준다 (ADR-25). 한 사람이 여러 명과 이어졌는데
+   * 정원이 모자라면 앞의 쌍이 자리를 가져가고, 화면의 커플 목록도 같은 순서로 읽힌다.
+   */
   private pairs() {
-    const set = new Set<string>();
-    for (const k of this.pokes()) set.add(`${k.fromId}>${k.toId}`);
+    const sent = new Map<string, number>();
+    for (const k of this.pokes()) sent.set(`${k.fromId}>${k.toId}`, (sent.get(`${k.fromId}>${k.toId}`) ?? 0) + 1);
+
     const mutual: Array<[string, string]> = [];
     const oneWay: Array<[string, string]> = [];
-    for (const key of set) {
+    const strength: Record<string, number> = {};
+    for (const key of sent.keys()) {
       const [a, b] = key.split(">");
-      if (set.has(`${b}>${a}`)) {
-        if (a < b) mutual.push([a, b]);
+      if (sent.has(`${b}>${a}`)) {
+        if (a < b) {
+          mutual.push([a, b]);
+          strength[`${a}|${b}`] = (sent.get(key) ?? 0) + (sent.get(`${b}>${a}`) ?? 0);
+        }
       } else {
         oneWay.push([a, b]);
       }
     }
-    return { mutual, oneWay };
+    mutual.sort((x, y) => strength[`${y[0]}|${y[1]}`] - strength[`${x[0]}|${x[1]}`]);
+    return { mutual, oneWay, strength };
   }
 
   private seatings(): SeatingRound[] {
