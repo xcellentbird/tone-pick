@@ -158,27 +158,33 @@ function Tables({
   const tables = Array.from({ length: round.tableCount }, (_, i) => i + 1);
   return (
     <div className="tableGrid">
-      {tables.map((t) => (
-        <div className="stack" key={t}>
-          <div className="tiny dim">{HOST_UI.seats.tableTitle(t)}</div>
-          {round.seats
-            .filter((s) => s.table === t)
-            .map((s) => {
-              const person = state.players.find((p) => p.id === s.playerId);
-              if (!person) return null;
-              return (
-                <button
-                  className={`seatChip ${picked === s.playerId ? "picked" : ""}`}
-                  key={s.playerId}
-                  onClick={() => onPick(s.playerId)}
-                >
-                  <span className="ellipsis">{person.nickname}</span>
-                  <span className="dim">{person.gender === "M" ? "♂" : "♀"}</span>
-                </button>
-              );
-            })}
-        </div>
-      ))}
+      {tables.map((t) => {
+        const here = round.seats
+          .map((s) => (s.table === t ? state.players.find((p) => p.id === s.playerId) : null))
+          .filter((p): p is NonNullable<typeof p> => !!p);
+        const men = here.filter((p) => p.gender === "M").length;
+        return (
+          <div className="stack" key={t}>
+            <div className="tiny dim">{HOST_UI.seats.tableTitle(t)}</div>
+            {/* 테이블마다 남녀가 몇인지 — 맞교환할지 판단하는 숫자다 */}
+            <div className="tiny tableMix">
+              <span className="men">{HOST_UI.seats.men(men)}</span>
+              <span className="women">{HOST_UI.seats.women(here.length - men)}</span>
+            </div>
+            {here.map((person) => (
+              <button
+                className={`seatChip ${person.gender === "M" ? "m" : "f"} ${picked === person.id ? "picked" : ""}`}
+                key={person.id}
+                onClick={() => onPick(person.id)}
+              >
+                <span className="ellipsis">{person.nickname}</span>
+                {/* 색만으로 구분하지 않는다 */}
+                <span className="sex">{person.gender === "M" ? "♂" : "♀"}</span>
+              </button>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -47,6 +47,15 @@
 
   --on-gold: #241a00;
 
+  /*
+   * 성별 — **자리 배정 화면 전용**이다. 다른 곳에서 사람을 이 색으로 칠하지 마라.
+   * 운영자가 어두운 파티장에서 테이블 성비를 한눈에 보려면 색이 가장 빠르다.
+   * 색만으로 구분하지 않는다 — ♂/♀ 기호를 함께 남긴다 (색각 이상).
+   * 단계 색(앰버·청록)과 겹치지 않는 한 쌍으로 골랐다.
+   */
+  --male: #5b9dff;
+  --female: #ff7eb6;
+
   --radius: 16px;
   --radius-sm: 8px;
   --radius-pill: 999px;
@@ -494,6 +503,21 @@ button {
 }
 
 .seatChip.picked { border-color: var(--accent); }
+
+/*
+ * 테이블 성비를 색으로 읽는다. 왼쪽 띠 + 기호 + 이름 색 세 겹이라
+ * 색을 구분하기 어려운 사람도 ♂/♀ 로 같은 정보를 얻는다.
+ * 고른 칩(.picked)의 보라 테두리는 성별 색보다 세다 — 지금 하는 일이 맞교환이라서.
+ */
+.seatChip.m { border-left: 3px solid var(--male); }
+.seatChip.f { border-left: 3px solid var(--female); }
+.seatChip.m .sex { color: var(--male); }
+.seatChip.f .sex { color: var(--female); }
+.seatChip .sex { font-weight: 700; }
+
+.tableMix { display: flex; gap: 6px; }
+.tableMix .men { color: var(--male); }
+.tableMix .women { color: var(--female); }
 
 /* ─────────────────────────── 연습용 환경 표시 */
 
