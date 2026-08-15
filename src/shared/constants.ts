@@ -36,6 +36,8 @@ export const LIMITS = {
   charms: 3,
   nicknameMax: 12,
   tableMax: 12,
+  /** 한 회차 초대 명단 상한. 붙여넣기 사고로 수만 줄이 들어오는 걸 막는다 */
+  inviteMax: 500,
   /** 테이블당 인원이 이 범위를 벗어나면 운영자에게 경고 */
   seatPerTable: { warnBelow: 2, warnAbove: 8 },
 } as const;
@@ -60,6 +62,30 @@ export const RETENTION_DAYS = 7;
 export const AGE_GAP = 10;
 export const REP_CAP_RATIO = 0.75;
 export const FINAL_MUTUAL_BOOST = 2.5;
+
+/**
+ * 입장 문을 두드리는 횟수 제한.
+ *
+ * 명단 확인은 인증 없이 열리는 문이라 **"이 번호가 이 파티에 있나"를 되묻는 창구**가 된다.
+ * 참가 링크를 손에 넣은 사람이 주소록을 통째로 넣어보면 누가 소개팅 파티에 갔는지 알아낼 수 있다 —
+ * 이 앱이 가장 막아야 하는 종류의 유출이다.
+ *
+ * 그래서 회차마다, 접속지마다 실패 횟수를 센다. 사람이 자기 번호를 잘못 치는 건 두세 번이다.
+ */
+export const ENTRY_TRIES = { max: 8, windowMs: 10 * 60_000 } as const;
+
+/** 초대 확인은 통과했지만 아직 등록하지 않은 상태의 수명. 등록 폼을 채울 시간이면 충분하다 */
+export const INVITE_TTL = 60 * 60_000;
+
+/**
+ * 전화번호 정규화 — 숫자만 남긴다.
+ *
+ * 운영자는 `010-1234-5678` 로 붙여넣고 참가자는 `01012345678` 로 친다.
+ * 같은 번호가 다른 값으로 저장되면 명단에 있는 사람이 문 앞에서 막힌다.
+ */
+export function normalizePhone(s: string): string {
+  return String(s ?? "").replace(/[^0-9]/g, "");
+}
 
 /** 닉네임 비교용 정규화 — 공백 제거 + 소문자 */
 export function normalizeNickname(s: string): string {

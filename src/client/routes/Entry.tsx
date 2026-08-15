@@ -1,8 +1,8 @@
 /**
- * 링크 없이 코드만 아는 사람이 들어오는 문.
+ * 링크 없이 회차를 찾아 들어오는 문.
  *
- * 코드를 맞추면 곧바로 그 회차의 확인 화면으로 넘어간다 — 링크로 들어온 사람이
- * 거기서 코드를 넣는 것과 같은 자리에 도착한다. 코드를 두 번 묻지 않는다.
+ * **입장 코드는 회차를 가리킬 뿐 문을 열지 않는다.** 코드를 맞추면 링크로 들어온 사람과
+ * 같은 자리(회차 확인 화면)에 도착하고, 거기서 전화번호를 넣어야 들어간다 (ADR-15).
  * 코드가 틀려도 **입력값을 지우지 않는다** — 여섯 자리를 다시 치게 하는 건 벌이다 (UI.md).
  */
 import { useState } from "react";
@@ -10,7 +10,6 @@ import { useNavigate } from "react-router";
 import { ENTRY, SCREEN_TITLE } from "../../shared/copy.ts";
 import type { PublicEvent } from "../../shared/types.ts";
 import { ApiError, api } from "../lib/api.ts";
-import { rememberCode } from "../lib/entry.ts";
 
 export default function Entry() {
   const [code, setCode] = useState("");
@@ -23,9 +22,7 @@ export default function Entry() {
     setBusy(true);
     setError(null);
     try {
-      const typed = code.trim().toUpperCase();
-      const found = await api<PublicEvent>(`/events/by-code/${typed}`);
-      rememberCode(found.id, typed);
+      const found = await api<PublicEvent>(`/events/by-code/${code.trim().toUpperCase()}`);
       navigate(`/j/${found.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? (err.userMessage ?? ENTRY.notFound) : ENTRY.notFound);

@@ -1,4 +1,5 @@
 import type { AuthScope } from "../shared/types.ts";
+import { INVITE_TTL } from "../shared/constants.ts";
 
 /**
  * 운영자 PIN 은 하나뿐이다. (ADR-12)
@@ -49,6 +50,8 @@ function hex(buf: Uint8Array): string {
 /** 운영자 세션과 참가자 세션은 쿠키가 다르다. 한 브라우저에서 둘 다 가능해야 한다 */
 export const HOST_COOKIE = "tp_host";
 export const PLAYER_COOKIE = "tp_play";
+/** 명단 확인을 통과했지만 아직 등록하지 않은 상태. 등록 폼 하나만 연다 */
+export const INVITE_COOKIE = "tp_inv";
 
 /**
  * 참가자 세션은 길게, 운영자 세션은 짧게.
@@ -60,7 +63,10 @@ export const PLAYER_COOKIE = "tp_play";
 const TTL = { player: 7 * 24 * 3600_000, host: 12 * 3600_000 } as const;
 
 export function sessionTtl(scope: AuthScope): number {
-  return scope.kind === "player" ? TTL.player : TTL.host;
+  if (scope.kind === "player") return TTL.player;
+  // 초대는 등록 폼을 채울 시간이면 된다. 확인한 번호를 오래 들고 있을 이유가 없다
+  if (scope.kind === "invited") return INVITE_TTL;
+  return TTL.host;
 }
 
 interface SessionPayload {

@@ -114,21 +114,34 @@ if (made.status !== 200) {
 const { id: eventId, code } = made.body;
 console.log(`회차 ${code} (${eventId})\n`);
 
-// ② 등록 — 회차 DO 가 요청을 순차 처리하는 구간이다
+// ② 초대 명단 — 파티의 문이다. 명단에 없으면 아무도 못 들어온다 (ADR-15)
+const phones = Array.from(
+  { length: PEOPLE },
+  (_, i) => `010${String(stamp).slice(-4)}${String(i).padStart(4, "0")}`,
+);
+const invited = await host(`/host/events/${eventId}/invites`, { method: "PUT", body: { phones } });
+if (invited.status !== 200) {
+  console.error("❌ 초대 명단을 넣지 못했습니다:", invited.body);
+  process.exit(1);
+}
+console.log(`초대 명단 ${phones.length}명\n`);
+
+// ③ 등록 — 회차 DO 가 요청을 순차 처리하는 구간이다
 console.log("① 등록");
 const players = [];
 const regTimes = [];
 let regFailed = 0;
 await pool([...Array(PEOPLE).keys()], WIDTH, async (i) => {
   const c = client();
-  const res = await c(`/events/${code}/register`, {
+  // 문을 먼저 지난다. 통과하면 쿠키가 붙고, 등록은 그 번호로 이뤄진다
+  await c(`/events/${eventId}/enter`, { method: "POST", body: { phone: phones[i] } });
+  const res = await c("/register", {
     method: "POST",
     body: {
       nickname: `손님${i}`,
       realName: `가짜${i}`,
       age: 24 + (i % 21),
       gender: i % 2 === 0 ? "M" : "F",
-      phone: `010${String(stamp).slice(-4)}${String(i).padStart(4, "0")}`,
       mbti: i % 3 === 0 ? "ISTJ" : "ENFP",
       charms: ["리허설용 매력 하나", "둘", "셋"],
     },
@@ -139,7 +152,7 @@ await pool([...Array(PEOPLE).keys()], WIDTH, async (i) => {
 });
 report("등록", regTimes, regFailed ? `실패 ${regFailed}건` : "실패 0");
 
-// ③ 소켓 — 브로드캐스트가 몇 개에 닿는지
+// ④ 소켓 — 브로드캐스트가 몇 개에 닿는지
 console.log("\n② 실시간 연결");
 const sockets = [];
 let opened = 0;
@@ -171,7 +184,7 @@ await Promise.all(
 );
 console.log(`  연결 ${opened}/${SOCKETS}`);
 
-// ④ 콕 — 사람마다 3회씩
+// ⑤ 콕 — 사람마다 3회씩
 console.log("\n③ 콕");
 await host(`/host/events/${eventId}/phase`, { method: "POST", body: { to: "prevote" } });
 const men = players.filter((p) => p.gender === "M");

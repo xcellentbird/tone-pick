@@ -5,7 +5,7 @@
  */
 import type { Context } from "hono";
 import type { AuthScope, ErrorCode } from "../shared/types.ts";
-import { HOST_COOKIE, PLAYER_COOKIE, readCookie, readSession } from "./auth.ts";
+import { HOST_COOKIE, INVITE_COOKIE, PLAYER_COOKIE, readCookie, readSession } from "./auth.ts";
 import type { EventDO, Result } from "./event-do.ts";
 import type { RegistryDO } from "./registry-do.ts";
 
@@ -76,6 +76,8 @@ const STATUS: Record<ErrorCode, number> = {
   unauthorized: 401,
   forbidden: 403,
   not_found: 404,
+  not_invited: 403,
+  too_many: 429,
   code_taken: 409,
   nick_taken: 409,
   closed: 409,
@@ -114,10 +116,29 @@ export async function hostScope(c: Ctx): Promise<AuthScope | null> {
   return readSession(token, c.env.SESSION_SECRET, serverNow());
 }
 
+/**
+ * 접속지 해시. 입장 시도 횟수를 세는 열쇠다.
+ *
+ * 원본 IP 를 저장하지 않는다 — 참가자 개인정보를 회차 DO 밖으로도, 안으로도
+ * 필요 이상 들이지 않는다. 회차마다 다른 해시가 나오도록 회차 아이디를 섞는다.
+ */
+export async function ipHash(c: Ctx, eventId: string): Promise<string> {
+  const ip = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${eventId}:${ip}`));
+  return [...new Uint8Array(buf).slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export async function playerScope(c: Ctx): Promise<AuthScope | null> {
   const token = readCookie(c.req.header("cookie") ?? null, PLAYER_COOKIE);
   const scope = await readSession(token, c.env.SESSION_SECRET, serverNow());
   return scope?.kind === "player" ? scope : null;
+}
+
+/** 명단 확인은 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다 */
+export async function inviteScope(c: Ctx): Promise<{ eventId: string; phone: string } | null> {
+  const token = readCookie(c.req.header("cookie") ?? null, INVITE_COOKIE);
+  const scope = await readSession(token, c.env.SESSION_SECRET, serverNow());
+  return scope?.kind === "invited" ? { eventId: scope.eventId, phone: scope.phone } : null;
 }
 
 /** 운영자 권한은 한 종류뿐이다 — 운영자 PIN 을 통과했는가 (ADR-12) */

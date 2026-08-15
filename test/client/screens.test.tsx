@@ -210,6 +210,7 @@ describe("참가 링크", () => {
     const router = createMemoryRouter(
       [
         { path: "/j/:id", element: <Join /> },
+        { path: "/j/:id/register/:step", element: <div>{SCREEN_TITLE.register}</div> },
         { path: "/e/:code", element: <div>참가자 화면</div> },
       ],
       { initialEntries: ["/j/e1"] },
@@ -235,15 +236,14 @@ describe("참가 링크", () => {
   });
 
   /**
-   * ★ 링크만으로는 들어올 수 없다 (ADR-13).
+   * ★ 링크만으로는 들어올 수 없다 (ADR-15).
    *
    * 참가 링크는 단톡방에 돌고, 스크린샷으로도 퍼진다. 그 링크가 곧 입장이면
-   * 운영자가 부르지 않은 사람이 명단에 들어온다 — 코드가 그 문이다.
+   * 운영자가 부르지 않은 사람이 명단에 들어온다 —
+   * 문을 여는 건 **운영자가 미리 받아둔 전화번호**다. 코드는 옮겨 적을 수 있지만
+   * 남의 번호로는 들어올 수 없다.
    */
-  // 맞춘 코드는 탭이 살아 있는 동안 기억된다. 테스트끼리 그 기억을 물려받지 않게 지운다
-  beforeEach(() => sessionStorage.clear());
-
-  function stubGate(byCode: unknown = { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true }) {
+  function stubGate(enter: { status: number; body: unknown }) {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
@@ -253,19 +253,22 @@ describe("참가 링크", () => {
             headers: { "content-type": "application/json" },
           });
         }
-        const body = url.includes("/by-code/")
-          ? byCode
-          : { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true };
-        return new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        if (url.includes("/enter")) {
+          return new Response(JSON.stringify(enter.body), {
+            status: enter.status,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(
+          JSON.stringify({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
       }),
     );
   }
 
-  it("★ 링크만 열면 회차만 보이고, 코드를 넣어야 등록으로 간다", async () => {
-    stubGate();
+  it("★ 링크만 열면 회차만 보이고, 번호를 넣어야 등록으로 간다", async () => {
+    stubGate({ status: 200, body: { registered: false } });
     renderJoin();
 
     // 방은 보인다
@@ -274,23 +277,36 @@ describe("참가 링크", () => {
     expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
     expect(screen.getByText(ENTRY.gateNote)).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText(ENTRY.codeLabel), { target: { value: "ABCDEF" } });
+    fireEvent.change(screen.getByLabelText(ENTRY.phoneLabel), { target: { value: "010-1234-5678" } });
     fireEvent.click(screen.getByText(ENTRY.submit));
 
     expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
   });
 
-  it("★ 다른 회차의 유효한 코드로는 열리지 않는다", async () => {
-    // 코드 자체는 실재하지만 다른 회차의 것이다
-    stubGate({ id: "다른회차", name: "다른 파티", phase: "reg", canRegister: true });
+  it("★ 명단에 없는 번호는 문 앞에서 막히고, 입력값은 남는다", async () => {
+    stubGate({ status: 403, body: { error: "not_invited", message: ENTRY.notInvited } });
     renderJoin();
     await screen.findByText("테스트 파티");
 
-    fireEvent.change(screen.getByLabelText(ENTRY.codeLabel), { target: { value: "ZZZZZZ" } });
+    const input = screen.getByLabelText(ENTRY.phoneLabel) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "01099998888" } });
     fireEvent.click(screen.getByText(ENTRY.submit));
 
-    expect(await screen.findByText(ENTRY.wrongCode)).toBeTruthy();
+    expect(await screen.findByText(ENTRY.notInvited)).toBeTruthy();
     expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
+    // 번호를 다시 치게 하지 않는다
+    expect(input.value).toBe("01099998888");
+  });
+
+  it("이미 등록한 사람은 등록 폼을 건너뛴다", async () => {
+    stubGate({ status: 200, body: { registered: true, code: "ABCDEF" } });
+    renderJoin();
+    await screen.findByText("테스트 파티");
+
+    fireEvent.change(screen.getByLabelText(ENTRY.phoneLabel), { target: { value: "01012345678" } });
+    fireEvent.click(screen.getByText(ENTRY.submit));
+
+    expect(await screen.findByText("참가자 화면")).toBeTruthy();
   });
 });
 
@@ -396,11 +412,17 @@ describe("탭 역할 분담", () => {
   });
 
   it("★ 소식은 홈에 있다 — 알림 탭을 따로 두지 않는다", async () => {
-    // 파티 한 번에 많아야 네 개다. 탭 하나를 상시 내줄 양이 아니다
+    // 파티 한 번에 많아야 몇 개다. 탭 하나를 상시 내줄 양이 아니다
     renderTab("home", { poke: { ...POKE_STATE, receivedCount: 2 } });
     await screen.findByText(HOME.news);
-    expect(screen.getByText(POKE.received)).toBeTruthy();
     expect(screen.getByText(NOTICE.prevote(3).title)).toBeTruthy();
+  });
+
+  it("★ 받은 콕은 한 번에 하나씩 쌓인다 — 합쳐서 세지 않는다", async () => {
+    renderTab("home", { poke: { ...POKE_STATE, receivedCount: 3 } });
+    await screen.findByText(HOME.news);
+    // 세 번 받았으면 세 줄이다. "지금까지 3회" 한 줄이 아니다
+    expect(screen.getAllByText(POKE.received)).toHaveLength(3);
 
     // 탭은 셋뿐이다
     expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me"]);

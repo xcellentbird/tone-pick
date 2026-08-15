@@ -80,7 +80,19 @@ GET /api/events/by-code/:code   → PublicEvent | 404     코드만 아는 사�
 ```
 
 **두 응답 모두 입장 코드를 담지 않는다** (S-C2b). 참가 링크는 `/j/<회차id>` 이고,
-문을 여는 건 운영자가 따로 알려준 6자리다 (ADR-13) — 응답에 코드가 실리면 그 문이 그대로 열린다.
+문을 여는 건 **초대 명단의 전화번호**다 (ADR-15).
+
+```
+POST /api/events/:id/enter   { phone }  → { registered, code? }   인증 없음
+POST /api/register           RegisterInput → RegisterResult        초대 쿠키 필요
+PUT    /api/host/events/:id/invites       { phones: string[] } → Invite[]
+DELETE /api/host/events/:id/invites/:phone                     → Invite[]
+```
+
+- 명단에 없으면 `403 not_invited`, 너무 여러 번이면 `429 too_many`. **문구는 하나뿐이다**
+- 통과하면 서명한 초대 쿠키가 나간다. 이미 등록한 사람에게는 참가자 세션이 곧바로 나간다
+- `RegisterInput` 에 **전화번호가 없다.** 폼에서 받으면 명단에 없는 번호로 바꿔 낼 수 있다
+- `invites` 는 `HostState` 에만 실린다. 참가자 응답에는 절대 없다
 
 - 코드는 **대소문자를 가리지 않는다** (서버에서 대문자로 정규화)
 - 없으면 `404 { error: "not_found", message: ENTRY.notFound }`

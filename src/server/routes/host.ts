@@ -13,7 +13,7 @@ import type {
   EventSummary,
   Phase,
 } from "../../shared/types.ts";
-import { HOST } from "../../shared/copy.ts";
+import { HOST, HOST_UI } from "../../shared/copy.ts";
 import { LIMITS } from "../../shared/constants.ts";
 import { PHASE_ORDER } from "../../shared/phase.ts";
 import { HOST_COOKIE, clearCookie, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
@@ -203,6 +203,28 @@ hostRoutes.delete("/events/:id", async (c) => {
   await eventStub(c.env, id).destroy();
   await registry(c.env).removeEvent(id);
   return c.json({ ok: true });
+});
+
+// ─────────────────────────────────── 입장 명단 (ADR-15)
+
+hostRoutes.put("/events/:id/invites", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const body = await json<{ phones?: unknown }>(c);
+  if (!Array.isArray(body.phones)) return apiError(c, "bad_request");
+  const { value, response } = unwrap(
+    c,
+    await gate.stub.setInvites(body.phones.map(String), serverNow()),
+    () => HOST_UI.invites.tooMany(LIMITS.inviteMax),
+  );
+  return response ?? c.json(value);
+});
+
+hostRoutes.delete("/events/:id/invites/:phone", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { value, response } = unwrap(c, await gate.stub.removeInvite(c.req.param("phone")));
+  return response ?? c.json(value);
 });
 
 // ─────────────────────────────────── 참가자 (운영자 시점)

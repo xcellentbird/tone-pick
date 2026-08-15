@@ -11,7 +11,8 @@
  */
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { POKE, REGISTER } from "../src/shared/copy.ts";
+import { ENTRY, POKE, REGISTER } from "../src/shared/copy.ts";
+import { ENTRY_TRIES } from "../src/shared/constants.ts";
 import type { EventMeta, ParticipantState, RegisterInput, RegisterResult } from "../src/shared/types.ts";
 
 const MASTER_PIN = "1234";
@@ -71,14 +72,14 @@ async function freshEvent(): Promise<EventMeta> {
 }
 
 let phoneSeq = 0;
+const nextPhone = () => `0101234${String(1000 + ++phoneSeq)}`;
+
 function person(over: Partial<RegisterInput> = {}): RegisterInput {
-  phoneSeq++;
   return {
     nickname: `사람${phoneSeq}`,
     realName: `김실명${phoneSeq}`,
     age: 28,
     gender: "M",
-    phone: `0101234${String(1000 + phoneSeq)}`,
     instagram: `insta_${phoneSeq}`,
     mbti: "ENFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
@@ -86,11 +87,46 @@ function person(over: Partial<RegisterInput> = {}): RegisterInput {
   };
 }
 
-async function join(code: string, over: Partial<RegisterInput> = {}) {
+/**
+ * 초대 명단은 **통째로 교체**된다 (운영자 화면이 붙여넣기 한 판이라서).
+ * 테스트에서는 회차별로 쌓아 두고 매번 전체를 다시 보낸다.
+ */
+const invited = new Map<string, string[]>();
+async function invite(eventId: string, phone: string) {
+  const phones = [...(invited.get(eventId) ?? []), phone];
+  invited.set(eventId, phones);
+  const res = await api(`/api/host/events/${eventId}/invites`, {
+    method: "PUT",
+    cookie: master,
+    body: { phones },
+  });
+  expect(res.status).toBe(200);
+}
+
+/** 문을 두드려 통과한다. 통과하면 서버가 쿠키를 준다 */
+async function enter(eventId: string, phone: string) {
+  return api<{ registered: boolean; code?: string }>(`/api/events/${eventId}/enter`, {
+    method: "POST",
+    body: { phone },
+  });
+}
+
+/** 명단에 넣고 → 입장하고 → 등록한다. 실제 참가자가 지나는 길 그대로다 */
+async function join(ev: EventMeta, over: Partial<RegisterInput> = {}) {
+  const phone = nextPhone();
   const input = person(over);
-  const res = await api<RegisterResult>(`/api/events/${code}/register`, { method: "POST", body: input });
+  await invite(ev.id, phone);
+
+  const gate = await enter(ev.id, phone);
+  expect(gate.status, JSON.stringify(gate.body)).toBe(200);
+
+  const res = await api<RegisterResult>("/api/register", {
+    method: "POST",
+    cookie: gate.cookie,
+    body: input,
+  });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
-  return { cookie: res.cookie, id: res.body.state.me.id, input, resumed: res.body.resumed };
+  return { cookie: res.cookie, id: res.body.state.me.id, input, phone, resumed: res.body.resumed };
 }
 
 async function setPhase(id: string, to: string) {
@@ -103,9 +139,13 @@ async function setPhase(id: string, to: string) {
 describe("등록", () => {
   it("닉네임은 회차 안에서 유일하다", async () => {
     const ev = await freshEvent();
-    await join(ev.code, { nickname: "겹치는닉" });
-    const res = await api<{ error: string; message: string }>(`/api/events/${ev.code}/register`, {
+    await join(ev, { nickname: "겹치는닉" });
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+    const gate = await enter(ev.id, phone);
+    const res = await api<{ error: string; message: string }>("/api/register", {
       method: "POST",
+      cookie: gate.cookie,
       body: person({ nickname: "겹치는닉", gender: "F" }),
     });
     expect(res.status).toBe(409);
@@ -117,23 +157,140 @@ describe("등록", () => {
   it("다른 회차의 같은 닉네임은 상관없다", async () => {
     const a = await freshEvent();
     const b = await freshEvent();
-    await join(a.code, { nickname: "같은닉" });
-    const second = await join(b.code, { nickname: "같은닉" });
+    await join(a, { nickname: "같은닉" });
+    const second = await join(b, { nickname: "같은닉" });
     expect(second.id).toBeTruthy();
   });
 
   it("같은 전화번호로 다시 오면 그 사람으로 재접속한다", async () => {
     const ev = await freshEvent();
-    const first = await join(ev.code, { nickname: "처음닉" });
-    const again = await api<RegisterResult>(`/api/events/${ev.code}/register`, {
-      method: "POST",
-      body: { ...first.input, nickname: "바꾼닉" },
-    });
+    const first = await join(ev, { nickname: "처음닉" });
+    // 같은 번호로 문을 다시 두드리면 곧바로 참가자 세션이 나온다 — 등록 폼을 다시 채우지 않는다
+    const back = await enter(ev.id, first.phone);
+    expect(back.status).toBe(200);
+    expect(back.body.registered).toBe(true);
+    expect(back.body.code).toBe(ev.code);
+
+    const again = await api<ParticipantState>("/api/me", { cookie: back.cookie });
     expect(again.status).toBe(200);
-    expect(again.body.resumed).toBe(true);
-    expect(again.body.state.me.id).toBe(first.id);
+    expect(again.body.me.id).toBe(first.id);
+    expect(again.body.me.nickname).toBe("처음닉");
     // 인원이 늘지 않는다
-    expect(again.body.state.event.playerCount).toBe(1);
+    expect(again.body.event.playerCount).toBe(1);
+  });
+});
+
+// ─────────────────────────────────────────── 입장 명단
+
+/**
+ * 파티에 들어오는 문은 **운영자가 미리 넣어둔 전화번호**다 (ADR-15).
+ *
+ * 코드 여섯 자리는 옮겨 적을 수 있지만 남의 번호로는 들어올 수 없다.
+ * 그리고 이 문은 인증 없이 열려 있어서, 제한이 없으면
+ * "이 번호가 이 파티에 있나"를 되묻는 창구가 된다.
+ */
+describe("입장 명단", () => {
+  it("★ 명단에 없는 번호는 들어올 수 없다", async () => {
+    const ev = await freshEvent();
+    await invite(ev.id, "01011112222");
+
+    const res = await enter(ev.id, "01099998888");
+    expect(res.status).toBe(403);
+    expect(res.cookie).toBeNull();
+    expect((res.body as unknown as { message: string }).message).toBe(ENTRY.notInvited);
+
+    // 쿠키가 없으니 등록도 되지 않는다
+    const reg = await api("/api/register", { method: "POST", body: person() });
+    expect(reg.status).toBe(401);
+  });
+
+  it("★ 명단에 있으면 통과하고, 등록 폼은 번호를 다시 묻지 않는다", async () => {
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+
+    const gate = await enter(ev.id, phone);
+    expect(gate.status).toBe(200);
+    expect(gate.body.registered).toBe(false);
+
+    // 폼에 번호가 없어도 등록된다 — 서버가 통과한 번호를 들고 있다
+    const reg = await api<RegisterResult>("/api/register", {
+      method: "POST",
+      cookie: gate.cookie,
+      body: person({ nickname: "번호없이" }),
+    });
+    expect(reg.status, JSON.stringify(reg.body)).toBe(200);
+    expect(reg.body.state.me.nickname).toBe("번호없이");
+  });
+
+  it("★ 폼으로 다른 번호를 밀어 넣어도 통과한 번호로 등록된다", async () => {
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+    const gate = await enter(ev.id, phone);
+
+    await api("/api/register", {
+      method: "POST",
+      cookie: gate.cookie,
+      // 명단에 없는 번호를 폼에 실어 보낸다
+      body: { ...person({ nickname: "바꿔치기" }), phone: "01099998888" },
+    });
+
+    // 운영자 눈에는 통과한 번호로 보인다
+    const state = await api<{ players: Array<{ nickname: string; phone: string }> }>(
+      `/api/host/events/${ev.id}/state`,
+      { cookie: master },
+    );
+    const made = state.body.players.find((p) => p.nickname === "바꿔치기");
+    expect(made?.phone).toBe(phone);
+  });
+
+  it("★ 이미 등록한 사람은 명단에서 빠져도 다시 들어온다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    // 운영자가 명단을 통째로 비운다
+    await api(`/api/host/events/${ev.id}/invites`, { method: "PUT", cookie: master, body: { phones: [] } });
+
+    const back = await enter(ev.id, me.phone);
+    expect(back.status).toBe(200);
+    expect(back.body.registered).toBe(true);
+  });
+
+  it("★ 문을 계속 두드리면 막힌다 — 주소록을 넣어보는 창구가 되면 안 된다", async () => {
+    const ev = await freshEvent();
+    await invite(ev.id, nextPhone());
+
+    let blocked = 0;
+    for (let i = 0; i < ENTRY_TRIES.max + 2; i++) {
+      const res = await enter(ev.id, `0102000${String(1000 + i)}`);
+      if (res.status === 429) blocked++;
+    }
+    expect(blocked).toBeGreaterThan(0);
+  });
+
+  it("★ 명단은 참가자 응답 어디에도 없다", async () => {
+    const ev = await freshEvent();
+    const secret = "01077776666";
+    await invite(ev.id, secret);
+    const me = await join(ev);
+
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.status).toBe(200);
+    expect(JSON.stringify(state.body)).not.toContain(secret);
+    expect(Object.keys(state.body)).not.toContain("invites");
+  });
+
+  it("명단 조회·수정은 운영자만 한다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    for (const cookie of [null, me.cookie]) {
+      const res = await api(`/api/host/events/${ev.id}/invites`, {
+        method: "PUT",
+        cookie,
+        body: { phones: ["01011112222"] },
+      });
+      expect(res.status).toBe(401);
+    }
   });
 });
 
@@ -142,8 +299,8 @@ describe("등록", () => {
 describe("공개 범위", () => {
   it("★ 참가자 명단에 실명·전화번호·인스타가 없다", async () => {
     const ev = await freshEvent();
-    const me = await join(ev.code);
-    await join(ev.code, { gender: "F", realName: "박비밀", phone: "01099998888", instagram: "secret_gram" });
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F", realName: "박비밀", instagram: "secret_gram" });
 
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
     expect(state.status).toBe(200);
@@ -151,7 +308,7 @@ describe("공개 범위", () => {
 
     const raw = JSON.stringify(state.body.roster);
     expect(raw).not.toContain("박비밀");
-    expect(raw).not.toContain("01099998888");
+    expect(raw).not.toContain(her.phone);
     expect(raw).not.toContain("secret_gram");
     for (const leak of ["realName", "phone", "instagram"]) {
       expect(Object.keys(state.body.roster[0])).not.toContain(leak);
@@ -160,8 +317,8 @@ describe("공개 범위", () => {
 
   it("★ 발표 전에는 누가 찔렀는지 응답에 없다", async () => {
     const ev = await freshEvent();
-    const me = await join(ev.code);
-    const her = await join(ev.code, { gender: "F" });
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F" });
     await setPhase(ev.id, "prevote");
 
     await api("/api/poke", { method: "POST", cookie: her.cookie, body: { toId: me.id } });
@@ -178,9 +335,9 @@ describe("공개 범위", () => {
 
   it("★ 발표 후에도 일방적인 콕은 익명이다", async () => {
     const ev = await freshEvent();
-    const me = await join(ev.code);
-    const her = await join(ev.code, { gender: "F" });
-    const other = await join(ev.code, { gender: "F" });
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F" });
+    const other = await join(ev, { gender: "F" });
     await setPhase(ev.id, "prevote");
 
     // her → me 만. 나는 아무도 찌르지 않았다
@@ -198,8 +355,8 @@ describe("공개 범위", () => {
 
   it("★ 발표 후 상호 매칭만 닉네임까지 공개된다 (연락처는 여전히 아니다)", async () => {
     const ev = await freshEvent();
-    const me = await join(ev.code, { nickname: "나야나" });
-    const her = await join(ev.code, { gender: "F", nickname: "그녀", realName: "이실명", instagram: "her_gram" });
+    const me = await join(ev, { nickname: "나야나" });
+    const her = await join(ev, { gender: "F", nickname: "그녀", realName: "이실명", instagram: "her_gram" });
     await setPhase(ev.id, "prevote");
 
     await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
@@ -220,8 +377,8 @@ describe("공개 범위", () => {
     // 그때 앞 회차 주소를 열면 **다른 회차 자료가 그 주소로** 보이면 안 된다
     const first = await freshEvent();
     const second = await freshEvent();
-    await join(first.code, { nickname: "앞회차" });
-    const later = await join(second.code, { nickname: "뒷회차" });
+    await join(first, { nickname: "앞회차" });
+    const later = await join(second, { nickname: "뒷회차" });
 
     const wrong = await api(`/api/me?code=${first.code}`, { cookie: later.cookie });
     expect(wrong.status).toBe(401);
@@ -233,7 +390,7 @@ describe("공개 범위", () => {
 
   it("세션 없이는 참가자 API 에 닿을 수 없다", async () => {
     const ev = await freshEvent();
-    const her = await join(ev.code, { gender: "F" });
+    const her = await join(ev, { gender: "F" });
     expect((await api("/api/me")).status).toBe(401);
     expect((await api("/api/poke", { method: "POST", body: { toId: her.id } })).status).toBe(401);
   });
@@ -244,8 +401,8 @@ describe("공개 범위", () => {
 describe("콕", () => {
   it("예산은 라운드별로 나뉘고, 같은 사람에게 중복해서 찌를 수 있다", async () => {
     const ev = await freshEvent();   // maxPre 2 · maxParty 3
-    const me = await join(ev.code);
-    const her = await join(ev.code, { gender: "F" });
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F" });
     await setPhase(ev.id, "prevote");
 
     const first = await api<{ budget: Record<string, { max: number; used: number }> }>("/api/poke", {
@@ -281,8 +438,8 @@ describe("콕", () => {
 
   it("기본은 이성에게만 찌를 수 있다", async () => {
     const ev = await freshEvent();
-    const me = await join(ev.code);
-    const him = await join(ev.code);
+    const me = await join(ev);
+    const him = await join(ev);
     await setPhase(ev.id, "prevote");
 
     const res = await api<{ error: string; message: string }>("/api/poke", {
@@ -296,8 +453,8 @@ describe("콕", () => {
 
   it("★ 운영자가 열어두면 동성에게도 찌를 수 있다", async () => {
     const ev = await freshEvent();
-    const me = await join(ev.code);
-    const him = await join(ev.code);
+    const me = await join(ev);
+    const him = await join(ev);
 
     const opened = await api(`/api/host/events/${ev.id}`, {
       method: "PUT",
@@ -313,8 +470,8 @@ describe("콕", () => {
 
   it("★ 열어둬도 자기 자신은 찌를 수 없다", async () => {
     const ev = await freshEvent();
-    const me = await join(ev.code);
-    await join(ev.code, { gender: "F" });
+    const me = await join(ev);
+    await join(ev, { gender: "F" });
     await api(`/api/host/events/${ev.id}`, {
       method: "PUT",
       cookie: master,
@@ -328,8 +485,8 @@ describe("콕", () => {
 
   it("등록 중에는 아직, 발표 후에는 더 이상 찌를 수 없다", async () => {
     const ev = await freshEvent();
-    const me = await join(ev.code);
-    const her = await join(ev.code, { gender: "F" });
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F" });
 
     const early = await api<{ message: string }>("/api/poke", {
       method: "POST",
