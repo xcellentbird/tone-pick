@@ -87,18 +87,12 @@ function person(over: Partial<RegisterInput> = {}): RegisterInput {
   };
 }
 
-/**
- * 초대 명단은 **통째로 교체**된다 (운영자 화면이 붙여넣기 한 판이라서).
- * 테스트에서는 회차별로 쌓아 두고 매번 전체를 다시 보낸다.
- */
-const invited = new Map<string, string[]>();
+/** 초대 명단은 **더하고 빼기만** 있다. 통째로 갈아치우는 길은 두지 않았다 */
 async function invite(eventId: string, phone: string) {
-  const phones = [...(invited.get(eventId) ?? []), phone];
-  invited.set(eventId, phones);
   const res = await api(`/api/host/events/${eventId}/invites`, {
-    method: "PUT",
+    method: "POST",
     cookie: master,
-    body: { phones },
+    body: { phones: [phone] },
   });
   expect(res.status).toBe(200);
 }
@@ -248,8 +242,9 @@ describe("입장 명단", () => {
   it("★ 이미 등록한 사람은 명단에서 빠져도 다시 들어온다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
-    // 운영자가 명단을 통째로 비운다
-    await api(`/api/host/events/${ev.id}/invites`, { method: "PUT", cookie: master, body: { phones: [] } });
+    // 운영자가 명단에서 그 사람을 뺀다
+    const out = await api(`/api/host/events/${ev.id}/invites/${me.phone}`, { method: "DELETE", cookie: master });
+    expect(out.status).toBe(200);
 
     const back = await enter(ev.id, me.phone);
     expect(back.status).toBe(200);
@@ -280,12 +275,35 @@ describe("입장 명단", () => {
     expect(Object.keys(state.body)).not.toContain("invites");
   });
 
+  it("★ 명단을 통째로 갈아치우는 길은 없다 — 더하기만 있다", async () => {
+    const ev = await freshEvent();
+    await invite(ev.id, "01011112222");
+    await invite(ev.id, "01033334444");
+
+    // 한 명을 더해도 앞의 둘이 남아 있어야 한다
+    const res = await api<Array<{ phone: string }>>(`/api/host/events/${ev.id}/invites`, {
+      method: "POST",
+      cookie: master,
+      body: { phones: ["01055556666"] },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.map((i) => i.phone).sort()).toEqual(["01011112222", "01033334444", "01055556666"]);
+
+    // 같은 번호를 다시 넣어도 늘지 않는다
+    const again = await api<Array<{ phone: string }>>(`/api/host/events/${ev.id}/invites`, {
+      method: "POST",
+      cookie: master,
+      body: { phones: ["01011112222"] },
+    });
+    expect(again.body.length).toBe(3);
+  });
+
   it("명단 조회·수정은 운영자만 한다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
     for (const cookie of [null, me.cookie]) {
       const res = await api(`/api/host/events/${ev.id}/invites`, {
-        method: "PUT",
+        method: "POST",
         cookie,
         body: { phones: ["01011112222"] },
       });

@@ -513,13 +513,20 @@ export const HOST_UI = {
     count: (invited: number, joined: number) => `초대 ${invited}명 · 등록 ${joined}명`,
     empty: "명단이 비어 있어요 — 지금은 아무도 들어올 수 없어요",
     emptyNote: "여기에 번호를 넣은 사람만 파티에 들어옵니다.",
-    pasteLabel: "전화번호",
-    pasteHint: "한 줄에 하나씩 붙여넣으세요. 하이픈이 있어도 괜찮아요.",
-    save: "명단 저장",
-    saved: (n: number) => `${n}명을 명단에 넣었어요`,
+    /** 한 명씩 — 늦게 합류하겠다는 연락이 오는 자리 */
+    addLabel: "전화번호 한 명",
+    addOne: "추가",
+    /** 여러 명 — 처음 명단을 만들 때 */
+    pasteLabel: "여러 명 붙여넣기",
+    pasteHint: "한 줄에 하나씩. 하이픈이 있어도 괜찮아요. 있는 명단에 **더해집니다**.",
+    save: "명단에 더하기",
+    saved: (n: number) => `${n}명을 명단에 더했어요`,
+    /** 이미 있는 번호를 다시 넣은 경우 */
+    already: "이미 명단에 있는 번호예요",
     joined: "등록함",
     waiting: "아직 안 옴",
     remove: "명단에서 빼기",
+    removed: "명단에서 뺐어요",
     tooMany: (max: number) => `한 회차에 최대 ${max}명까지 넣을 수 있어요.`,
     /** 명단에서 빼도 이미 등록한 사람은 그대로 남는다 — 지우는 건 참가자 삭제다 */
     removeNote: "이미 등록한 사람은 명단에서 빼도 파티에 남아 있어요.",

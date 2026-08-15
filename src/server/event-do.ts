@@ -254,12 +254,21 @@ export class EventDO extends DurableObject {
     return ok(this.invites());
   }
 
-  /** 명단을 통째로 바꾼다. 붙여넣기 한 번이 운영자가 실제로 하는 일이다 */
-  async setInvites(phones: string[], now: number): Promise<Result<Invite[]>> {
+  /**
+   * 명단에 **더한다**. 한 명이든 붙여넣은 백 명이든 같은 문이다.
+   *
+   * 통째로 갈아치우는 길은 두지 않는다 — 한 명 추가하려다 손이 미끄러지면
+   * 그 파티의 명단 전체가 날아간다. 빼는 건 한 번에 하나씩이다.
+   */
+  async addInvites(phones: string[], now: number): Promise<Result<Invite[]>> {
     const clean = [...new Set(phones.map(normalizePhone).filter((p) => p.length >= 9))];
-    if (clean.length > LIMITS.inviteMax) return fail("bad_request");
-    this.ctx.storage.sql.exec("DELETE FROM invites");
-    for (const phone of clean) {
+    if (!clean.length) return fail("bad_request");
+
+    const already = new Set(this.rows<{ phone: string }>("SELECT phone FROM invites").map((r) => r.phone));
+    const fresh = clean.filter((p) => !already.has(p));
+    if (already.size + fresh.length > LIMITS.inviteMax) return fail("bad_request");
+
+    for (const phone of fresh) {
       this.ctx.storage.sql.exec("INSERT INTO invites (phone, added_at) VALUES (?,?)", phone, now);
     }
     return ok(this.invites());

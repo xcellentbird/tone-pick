@@ -119,7 +119,7 @@ const phones = Array.from(
   { length: PEOPLE },
   (_, i) => `010${String(stamp).slice(-4)}${String(i).padStart(4, "0")}`,
 );
-const invited = await host(`/host/events/${eventId}/invites`, { method: "PUT", body: { phones } });
+const invited = await host(`/host/events/${eventId}/invites`, { method: "POST", body: { phones } });
 if (invited.status !== 200) {
   console.error("❌ 초대 명단을 넣지 못했습니다:", invited.body);
   process.exit(1);

@@ -207,14 +207,15 @@ hostRoutes.delete("/events/:id", async (c) => {
 
 // ─────────────────────────────────── 입장 명단 (ADR-15)
 
-hostRoutes.put("/events/:id/invites", async (c) => {
+/** 명단에 더한다. 통째로 갈아치우는 길은 두지 않는다 — 실수 한 번이 파티를 날린다 */
+hostRoutes.post("/events/:id/invites", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const body = await json<{ phones?: unknown }>(c);
   if (!Array.isArray(body.phones)) return apiError(c, "bad_request");
   const { value, response } = unwrap(
     c,
-    await gate.stub.setInvites(body.phones.map(String), serverNow()),
+    await gate.stub.addInvites(body.phones.map(String), serverNow()),
     () => HOST_UI.invites.tooMany(LIMITS.inviteMax),
   );
   return response ?? c.json(value);
