@@ -10,7 +10,6 @@
  * 성비는 참가자 탭 명단에 있고, '콕을 못 받은 사람'은 일부러 두지 않는다 —
  * 알면 그 사람을 다르게 대하게 되고, 그건 이 앱이 없애려던 경험이다.
  */
-import { useNavigate } from "react-router";
 import {
   HOST,
   HOST_UI,
@@ -31,7 +30,6 @@ import { useConsole } from "./HostConsole.tsx";
 export default function Dash() {
   const { state, reload } = useConsole();
   const { confirm, toast } = useOverlay();
-  const navigate = useNavigate();
   const { meta, players, prevoteRank, mutual, seatings } = state;
 
   const nextPhase = PHASE_ORDER[PHASE_ORDER.indexOf(meta.phase) + 1] as Phase | undefined;
@@ -86,20 +84,16 @@ export default function Dash() {
         </button>
       )}
 
-      <div className="row">
-        <button className="btn ghost wide" onClick={() => navigate(`/demo/${meta.id}`)}>
-          {HOST_UI.openDemo}
-        </button>
-        <button
-          className="btn ghost wide"
-          onClick={() => {
-            void navigator.clipboard?.writeText(`${location.origin}/j/${meta.id}`);
-            toast(HOST_UI.copied);
-          }}
-        >
-          {HOST_UI.entryLink}
-        </button>
-      </div>
+      {/* 데모 뷰는 헤더로 옮겼다 — 어느 탭에 있든 바로 열 수 있어야 한다 */}
+      <button
+        className="btn ghost block"
+        onClick={() => {
+          void navigator.clipboard?.writeText(`${location.origin}/j/${meta.id}`);
+          toast(HOST_UI.copied);
+        }}
+      >
+        {HOST_UI.entryLink}
+      </button>
       {/* 링크만 보내면 참가자가 문 앞에서 막힌다. 코드를 따로 알려야 한다는 걸 여기서 못 박는다 */}
       <p className="tiny dim">{HOST_UI.entryLinkNote}</p>
 

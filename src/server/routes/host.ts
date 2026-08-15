@@ -286,6 +286,37 @@ hostRoutes.post("/events/:id/seating/reopen", async (c) => {
   return response ?? c.json({ ok: true });
 });
 
+// ─────────────────────────────────── 시연 도구 (연습용 환경 전용)
+//
+// **프로덕션에는 존재하지 않는다.** `ENV_LABEL` 이 있는 환경(연습용)에서만 라우트가 산다 —
+// 런타임에 403 을 주는 게 아니라 없는 길로 흘려보낸다. 진짜 회차에 가짜 100명을 넣었다
+// 지우는 일이 없어야 한다 (CLAUDE.md).
+
+hostRoutes.post("/events/:id/demo/players", async (c) => {
+  if (!c.env.ENV_LABEL) return apiError(c, "not_found");
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const body = await json<{ count?: number }>(c);
+  const { value, response } = unwrap(c, await gate.stub.seedPlayers(Number(body.count ?? 8), serverNow()));
+  return response ?? c.json({ added: value });
+});
+
+hostRoutes.post("/events/:id/demo/pokes", async (c) => {
+  if (!c.env.ENV_LABEL) return apiError(c, "not_found");
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { value, response } = unwrap(c, await gate.stub.seedPokes(serverNow()), pokeMessage);
+  return response ?? c.json({ added: value });
+});
+
+hostRoutes.post("/events/:id/demo/reset", async (c) => {
+  if (!c.env.ENV_LABEL) return apiError(c, "not_found");
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { response } = unwrap(c, await gate.stub.resetDemo());
+  return response ?? c.json({ ok: true });
+});
+
 // ─────────────────────────────────── 데모 뷰 (ADR-7)
 //
 // 참가자 화면을 한 벌만 유지하기 위해, 데모는 같은 컴포넌트에 "운영자가 대신 본다"는

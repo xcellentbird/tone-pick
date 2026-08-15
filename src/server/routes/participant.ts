@@ -10,7 +10,7 @@
  */
 import { Hono } from "hono";
 import type { EnterResult, RegisterInput } from "../../shared/types.ts";
-import { ENTRY, FORTUNE } from "../../shared/copy.ts";
+import { ENTRY, FORTUNE, ME } from "../../shared/copy.ts";
 import { canOpenFortune } from "../../shared/phase.ts";
 import { fortuneInput } from "../../shared/fortune.ts";
 import { makeFortune } from "../fortune.ts";
@@ -171,6 +171,20 @@ participantRoutes.post("/fortune", async (c) => {
 
   const made = await makeFortune(c.env, fortuneInput(state.value.me), serverNow());
   const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, made));
+  return response ?? c.json(value);
+});
+
+/** 매력 세 줄 고치기. 사전 투표가 열리기 전까지만 열려 있다 (ADR-27) */
+participantRoutes.put("/me/charms", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const body = (await c.req.json().catch(() => ({}))) as { charms?: unknown };
+  if (!Array.isArray(body.charms)) return apiError(c, "bad_request");
+  const { value, response } = unwrap(
+    c,
+    await seat.stub.editCharms(seat.playerId, body.charms.map(String), serverNow()),
+    (error) => (error === "closed" ? ME.charmsLocked : undefined),
+  );
   return response ?? c.json(value);
 });
 

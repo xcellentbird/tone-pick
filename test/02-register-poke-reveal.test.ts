@@ -11,9 +11,9 @@
  */
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { ENTRY, POKE, REGISTER } from "../src/shared/copy.ts";
+import { ENTRY, ME, POKE, REGISTER } from "../src/shared/copy.ts";
 import { ENTRY_TRIES } from "../src/shared/constants.ts";
-import type { EventMeta, ParticipantState, RegisterInput, RegisterResult } from "../src/shared/types.ts";
+import type { EventMeta, ParticipantState, Player, RegisterInput, RegisterResult } from "../src/shared/types.ts";
 
 const MASTER_PIN = "1234";
 const HOUR = 3600_000;
@@ -630,6 +630,62 @@ describe("명단 공개 범위", () => {
       expect(raw).not.toContain("secret_gram");
       expect(raw).not.toContain(her.phone);
     }
+  });
+});
+
+// ─────────────────────────────────────────── 매력 고치기
+
+/**
+ * 등록 폼에서 급히 쓴 세 줄을 다듬을 시간은 준다.
+ * 다만 **사전 투표가 열리면 닫힌다** (ADR-27) — 그 뒤에는 사람들이 이 세 줄을 보고 콕을 찌르고,
+ * 바꾸면 누군가 나를 고른 근거가 조용히 사라진다.
+ */
+describe("나의 매력", () => {
+  it("★ 등록 중에는 고칠 수 있다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+
+    const res = await api<Player>("/api/me/charms", {
+      method: "PUT",
+      cookie: me.cookie,
+      body: { charms: ["새 매력 하나", "새 매력 둘", "새 매력 셋"] },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.charms).toEqual(["새 매력 하나", "새 매력 둘", "새 매력 셋"]);
+
+    // 다시 읽어도 바뀐 채로 온다
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.me.charms[0]).toBe("새 매력 하나");
+  });
+
+  it("★ 사전 투표가 시작되면 닫힌다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await setPhase(ev.id, "prevote");
+
+    const res = await api<{ message: string }>("/api/me/charms", {
+      method: "PUT",
+      cookie: me.cookie,
+      body: { charms: ["가", "나", "다"] },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toBe(ME.charmsLocked);
+  });
+
+  it("빈 줄로는 저장되지 않는다 — 세 가지 모두 필요하다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    for (const charms of [["가", "나"], ["가", "나", "  "], ["가", "나", "다", "라"]]) {
+      const res = await api("/api/me/charms", { method: "PUT", cookie: me.cookie, body: { charms } });
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("남의 매력은 고칠 수 없다", async () => {
+    const ev = await freshEvent();
+    await join(ev);
+    const res = await api("/api/me/charms", { method: "PUT", body: { charms: ["가", "나", "다"] } });
+    expect(res.status).toBe(401);
   });
 });
 

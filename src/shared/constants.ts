@@ -38,6 +38,8 @@ export const LIMITS = {
   tableMax: 12,
   /** 한 회차 초대 명단 상한. 붙여넣기 사고로 수만 줄이 들어오는 걸 막는다 */
   inviteMax: 500,
+  /** 시연에서 한 번에 넣을 수 있는 가짜 참가자 수 */
+  demoSeedMax: 40,
   /** 테이블당 인원이 이 범위를 벗어나면 운영자에게 경고 */
   seatPerTable: { warnBelow: 2, warnAbove: 8 },
 } as const;

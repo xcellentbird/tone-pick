@@ -63,6 +63,10 @@ export default function HostConsole() {
               <span>{HOST_UI.dash.registered(loaded.data.players.length)}</span>
             </div>
           </div>
+          {/* 시연은 화면 어디에 있든 바로 열 수 있어야 한다 — 현황 탭까지 가서 찾을 일이 아니다 */}
+          <button className="btn ghost" onClick={() => navigate(`/demo/${id}`)}>
+            {HOST_UI.openDemo}
+          </button>
           <button className="btn ghost" onClick={leave}>
             {HOST_UI.logout}
           </button>
