@@ -20,9 +20,11 @@ import People from "./People.tsx";
 import Me from "./Me.tsx";
 import Home from "./Home.tsx";
 import SeatTakeover from "../ui/SeatTakeover.tsx";
+import { canOpenFortune } from "../../shared/phase.ts";
+import FortuneTab from "./Fortune.tsx";
 import StatusBar from "../ui/StatusBar.tsx";
 
-export type Tab = "home" | "people" | "me";
+export type Tab = "home" | "fortune" | "people" | "me";
 
 interface ViewProps {
   source: ParticipantSource;
@@ -52,9 +54,11 @@ export default function Participant() {
   // 프로필 시트(/p/:id)는 참가자 탭 위에 뜬 것이다 — 탭 표시도 참가자로 둔다
   const tab: Tab = location.pathname.endsWith("/me")
     ? "me"
-    : location.pathname.endsWith("/people") || location.pathname.includes("/p/")
-      ? "people"
-      : "home";
+    : location.pathname.endsWith("/fortune")
+      ? "fortune"
+      : location.pathname.endsWith("/people") || location.pathname.includes("/p/")
+        ? "people"
+        : "home";
   const profileId = location.pathname.includes("/p/")
     ? decodeURIComponent(location.pathname.split("/p/")[1])
     : undefined;
@@ -155,11 +159,13 @@ function Loaded({
               container={container}
             />
           )}
+          {tab === "fortune" && <FortuneTab state={state} reload={reload} />}
           {tab === "me" && <Me state={state} />}
         </div>
 
         <nav className="tabbar">
-          {TABS_PARTICIPANT.map((t) => (
+          {/* '오늘' 은 파티가 시작돼야 생긴다. 그 전에는 빈 탭을 보여줄 이유가 없다 */}
+          {TABS_PARTICIPANT.filter((t) => t.key !== "fortune" || canOpenFortune(state.event.phase)).map((t) => (
             <button
               key={t.key}
               className={tab === t.key ? "active" : ""}

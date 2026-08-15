@@ -19,6 +19,13 @@ export interface Env {
   ALLOW_TEST_ENDPOINTS?: string;
   /** 연습용 환경에만 있다. 있으면 화면 위에 띠가 떠서 진짜 파티와 헷갈리지 않게 한다 */
   ENV_LABEL?: string;
+  /**
+   * 오늘의 연애운을 쓰는 모델. **없어도 앱은 돈다** — 규칙 문구로 떨어진다 (ADR-20).
+   * 모델과 주소를 설정으로 둬서 제공자가 바뀌어도 코드가 아니라 변수가 바뀐다.
+   */
+  LLM_API_KEY?: string;
+  LLM_MODEL?: string;
+  LLM_BASE_URL?: string;
 }
 
 export type Ctx = Context<{ Bindings: Env }>;

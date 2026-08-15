@@ -567,6 +567,73 @@ describe("콕", () => {
   });
 });
 
+// ─────────────────────────────────────────── 오늘의 연애운
+
+describe("오늘의 연애운", () => {
+  it("★ 파티가 시작돼야 열린다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+
+    const early = await api("/api/fortune", { method: "POST", cookie: me.cookie });
+    expect(early.status).toBe(409);
+
+    await setPhase(ev.id, "prevote");
+    expect((await api("/api/fortune", { method: "POST", cookie: me.cookie })).status).toBe(409);
+
+    await setPhase(ev.id, "party");
+    expect((await api("/api/fortune", { method: "POST", cookie: me.cookie })).status).toBe(200);
+  });
+
+  it("★ 한 번 연 운세는 다시 열어도 그대로다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+
+    const first = await api<{ headline: string; step: string; color: string }>("/api/fortune", {
+      method: "POST",
+      cookie: me.cookie,
+    });
+    const again = await api<{ headline: string; step: string; color: string }>("/api/fortune", {
+      method: "POST",
+      cookie: me.cookie,
+    });
+    expect(again.body).toEqual(first.body);
+
+    // 화면을 새로 열어도 같은 것이 실려 온다
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.fortune?.headline).toBe(first.body.headline);
+  });
+
+  it("★ 키가 없어도 화면에 들어갈 것이 다 온다", async () => {
+    // 테스트 환경에는 LLM_API_KEY 가 없다. 규칙 문구로 떨어져야 한다
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+
+    const res = await api<{ headline: string; body: string; step: string; fallback?: boolean }>(
+      "/api/fortune",
+      { method: "POST", cookie: me.cookie },
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.fallback).toBe(true);
+    for (const line of [res.body.headline, res.body.body, res.body.step]) {
+      expect(line.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("남의 운세는 볼 수 없다", async () => {
+    const ev = await freshEvent();
+    await join(ev);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+
+    const res = await api("/api/fortune", { method: "POST" });
+    expect(res.status).toBe(401);
+  });
+});
+
 // ─────────────────────────────────────────── 되돌리기
 
 describe("되돌리기", () => {

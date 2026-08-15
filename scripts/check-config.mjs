@@ -42,7 +42,7 @@ const config = JSON.parse(stripComments(RAW));
 const problems = [];
 
 // ① 프로덕션 비밀값은 저장소에 두지 않는다
-for (const key of ["MASTER_PIN", "SESSION_SECRET"]) {
+for (const key of ["MASTER_PIN", "SESSION_SECRET", "LLM_API_KEY"]) {
   if (config.vars && key in config.vars) {
     problems.push(`프로덕션 vars 에 ${key} 가 있습니다. 시크릿으로만 넣으세요 (wrangler secret put ${key})`);
   }

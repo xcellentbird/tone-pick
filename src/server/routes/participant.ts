@@ -10,7 +10,10 @@
  */
 import { Hono } from "hono";
 import type { EnterResult, RegisterInput } from "../../shared/types.ts";
-import { ENTRY } from "../../shared/copy.ts";
+import { ENTRY, FORTUNE } from "../../shared/copy.ts";
+import { canOpenFortune } from "../../shared/phase.ts";
+import { fortuneInput } from "../../shared/fortune.ts";
+import { makeFortune } from "../fortune.ts";
 import { normalizePhone } from "../../shared/constants.ts";
 import {
   INVITE_COOKIE,
@@ -147,6 +150,27 @@ participantRoutes.post("/poke", async (c) => {
     await seat.stub.poke(seat.playerId, body.toId, serverNow()),
     pokeMessage,
   );
+  return response ?? c.json(value);
+});
+
+/**
+ * 오늘의 연애운을 연다 (ADR-20).
+ *
+ * 이미 연 사람에게는 저장된 것을 그대로 준다 — 열 때마다 달라지면 전부 거짓말이 된다.
+ * LLM 호출은 **Worker 에서** 한다. DO 안에서 기다리면 그 회차 전체가 멈춘다.
+ */
+participantRoutes.post("/fortune", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+
+  const state = await seat.stub.participantState(seat.playerId, serverNow());
+  if (!state.ok) return apiError(c, "not_found");
+  // 파티가 시작돼야 열린다. 그 전에는 탭도 없다
+  if (!canOpenFortune(state.value.event.phase)) return apiError(c, "closed", FORTUNE.closed);
+  if (state.value.fortune) return c.json(state.value.fortune);
+
+  const made = await makeFortune(c.env, fortuneInput(state.value.me), serverNow());
+  const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, made));
   return response ?? c.json(value);
 });
 

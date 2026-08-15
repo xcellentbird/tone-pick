@@ -12,7 +12,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
-import { ENTRY, ENV_BANNER, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
+import { ENTRY, ENV_BANNER, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
@@ -196,6 +196,76 @@ describe("참가자 화면 · 자리", () => {
     renderParticipant(source);
     await screen.findByText(/그녀/);
     expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────── 오늘의 연애운
+
+describe("오늘 탭", () => {
+  /**
+   * 이 앱에서 유일하게 기능이 아니라 재미인 자리다. 그래도 규칙은 같다 —
+   * 열기 전에는 뒷면이고, 한 번 열면 그대로 남는다.
+   */
+  const party = (over: Partial<ParticipantState> = {}) =>
+    fakeSource({
+      load: async () =>
+        participantState({ event: { ...participantState().event, phase: "party" }, ...over }),
+    });
+
+  function renderFortune(source: ParticipantSource) {
+    return render(
+      <MemoryRouter>
+        <ParticipantView source={source} tab="fortune" onTab={() => {}} onProfile={() => {}} />
+      </MemoryRouter>,
+    );
+  }
+
+  it("★ 파티가 시작되면 탭이 생긴다", async () => {
+    renderFortune(party());
+    expect(await screen.findByText(FORTUNE.tab)).toBeTruthy();
+  });
+
+  it("★ 열기 전에는 뒷면이다 — 운세가 미리 보이지 않는다", async () => {
+    renderFortune(party());
+    expect(await screen.findByText(FORTUNE.open)).toBeTruthy();
+    expect(screen.queryByText(FORTUNE.stepTitle)).toBeNull();
+  });
+
+  it("★ 이미 연 사람에게는 뒤집기 없이 바로 보인다", async () => {
+    const opened = party({
+      fortune: {
+        headline: "천천히 말하는 밤이에요",
+        body: "오늘의 당신은 이런 결이에요.",
+        step: "요즘 자주 듣는 노래를 물어보세요",
+        color: "violet",
+        matchTypes: ["ENFP", "ENTJ"],
+        at: 1,
+      },
+    });
+    renderFortune(opened);
+
+    await screen.findByText("천천히 말하는 밤이에요");
+    expect(screen.queryByText(FORTUNE.open)).toBeNull();
+    // 다시 열어도 같은 운세라는 걸 미리 말해둔다
+    expect(screen.getByText(FORTUNE.again)).toBeTruthy();
+  });
+
+  it("★ 점수를 보여주지 않는다", async () => {
+    renderFortune(
+      party({
+        fortune: {
+          headline: "h",
+          body: "b",
+          step: "s",
+          color: "gold",
+          matchTypes: ["ENFP", "ENTJ"],
+          at: 1,
+        },
+      }),
+    );
+    await screen.findByText("h");
+    // 점·score·% 어느 것도 화면에 없다. 비교하는 순간을 만들지 않는다
+    expect(document.body.textContent).not.toMatch(/\d+\s*점|score|%/i);
   });
 });
 
@@ -511,8 +581,9 @@ describe("탭 역할 분담", () => {
     // 세 번 받았으면 세 줄이다. "지금까지 3회" 한 줄이 아니다
     expect(screen.getAllByText(POKE.received)).toHaveLength(3);
 
-    // 탭은 셋뿐이다
-    expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me"]);
+    // '오늘' 은 파티가 시작돼야 생긴다. 사전 투표 중에는 세 개다
+    expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "fortune", "people", "me"]);
+    expect(screen.queryByText(FORTUNE.tab)).toBeNull();
   });
 });
 

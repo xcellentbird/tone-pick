@@ -35,6 +35,7 @@ import type {
   HostState,
   MySeat,
 } from "../shared/types.ts";
+import type { Fortune } from "../shared/fortune.ts";
 import { toPublic } from "../shared/types.ts";
 import { ENTRY } from "../shared/copy.ts";
 import { ENTRY_TRIES, LIMITS, normalizeNickname, normalizePhone } from "../shared/constants.ts";
@@ -77,6 +78,10 @@ CREATE TABLE IF NOT EXISTS entry_tries (
   at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS entry_tries_ip ON entry_tries(ip_hash);
+CREATE TABLE IF NOT EXISTS fortunes (
+  player_id TEXT PRIMARY KEY,   -- 1인 1회. 다시 열어도 같은 운세가 나온다
+  json      TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS seatings (
   round        INTEGER PRIMARY KEY,
   table_count  INTEGER NOT NULL,
@@ -464,6 +469,7 @@ export class EventDO extends DurableObject {
     if (!meta) return fail("not_found");
     const me = this.player(playerId);
     if (!me) return fail("not_found");
+    const saved = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
 
     return ok({
       event: {
@@ -482,6 +488,8 @@ export class EventDO extends DurableObject {
         .map(toPublic),
       poke: await this.pokeState(playerId, meta),
       seat: this.mySeat(playerId),
+      // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
+      ...(saved ? { fortune: JSON.parse(saved.json) as Fortune } : {}),
     });
   }
 
@@ -544,6 +552,34 @@ export class EventDO extends DurableObject {
       invites: this.invites(),
       seatingClosed: (await this.flags()).seatingClosed,
     });
+  }
+
+  // ─────────────────────────── 오늘의 연애운 (ADR-20)
+
+  /**
+   * 저장된 운세를 준다. 없으면 null — 만드는 건 Worker 가 한다.
+   *
+   * LLM 호출을 여기서 하지 않는 이유: DO 는 요청을 한 줄로 처리한다.
+   * 응답을 1~3초 기다리는 동안 그 회차의 모든 요청이 뒤에 선다.
+   */
+  async fortuneOf(playerId: string): Promise<Result<Fortune | null>> {
+    const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
+    return ok(row ? (JSON.parse(row.json) as Fortune) : null);
+  }
+
+  /**
+   * 처음 저장한 것만 남는다. 두 번 눌러 두 번 만들어졌더라도 **먼저 온 하나**가 오늘의 운세다 —
+   * 열 때마다 달라지면 그 순간 전부 거짓말이 된다.
+   */
+  async saveFortune(playerId: string, fortune: Fortune): Promise<Result<Fortune>> {
+    if (!this.player(playerId)) return fail("not_found");
+    this.ctx.storage.sql.exec(
+      "INSERT INTO fortunes (player_id, json) VALUES (?,?) ON CONFLICT(player_id) DO NOTHING",
+      playerId,
+      JSON.stringify(fortune),
+    );
+    const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
+    return ok(JSON.parse(row.json) as Fortune);
   }
 
   // ─────────────────────────── 자리

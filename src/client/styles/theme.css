@@ -539,6 +539,82 @@ button {
 .tableMix .men { color: var(--male); }
 .tableMix .women { color: var(--female); }
 
+/* ─────────────────────────── 오늘의 연애운 (ADR-20)
+ *
+ * 이 앱에서 유일하게 장식이 허용된 자리다. 그래도 색은 전부 토큰에서 온다 —
+ * 어떤 결과가 나와도 화면이 깨지지 않는다.
+ */
+
+.fortuneBack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 320px;
+  padding: 32px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--dim);
+  background:
+    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+    var(--card);
+  box-shadow: var(--shadow-lg);
+}
+
+.fortuneBack .orb { font-size: 64px; line-height: 1; }
+.fortuneBack .sparkles { color: var(--accent); letter-spacing: 6px; }
+
+/* 여는 동안 구슬이 천천히 숨 쉰다. 기다리는 중이라는 걸 글자 없이 말한다 */
+.fortuneBack.opening .orb { animation: fortunePulse 1.6s ease-in-out infinite; }
+@keyframes fortunePulse {
+  50% { transform: scale(1.12); opacity: 0.75; }
+}
+
+/* 뒤집혀 나온 카드. 한 번만 돈다 */
+.fortuneCard {
+  animation: fortuneFlip 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: center;
+  border: 1px solid var(--tone);
+  background:
+    radial-gradient(140% 90% at 50% 0%, color-mix(in srgb, var(--tone) 20%, transparent), transparent 72%),
+    var(--card);
+}
+
+@keyframes fortuneFlip {
+  from { transform: rotateY(-90deg); opacity: 0; }
+  to   { transform: rotateY(0deg); opacity: 1; }
+}
+
+/* 오늘의 색. 카드 한 장이 통째로 이 색으로 물든다 */
+.tone-violet { --tone: var(--accent); }
+.tone-gold   { --tone: var(--gold); }
+.tone-teal   { --tone: var(--ok); }
+.tone-coral  { --tone: var(--warn); }
+
+.fortuneHeadline {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.4;
+  font-weight: 800;
+  text-wrap: balance;
+}
+
+.fortuneStep {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 움직임을 원치 않는 사람에게는 돌지 않고 그대로 나온다 */
+@media (prefers-reduced-motion: reduce) {
+  .fortuneCard { animation: none; }
+  .fortuneBack.opening .orb { animation: none; }
+}
+
 /* ─────────────────────────── 연습용 환경 표시 */
 
 .envBadge {
