@@ -116,7 +116,7 @@ export default function People({ state, source, reload, profileId, onProfile, co
           return (
             <div className="row" key={p.id}>
               <button className={`person grow ${match ? "matched" : ""}`} onClick={() => onProfile(p.id)}>
-                <Avatar nickname={p.nickname} />
+                <Avatar nickname={p.nickname} gender={p.gender} />
                 <span className="meta">
                   <span className="name">
                     <span className="who">{p.nickname}</span>
@@ -172,7 +172,7 @@ export default function People({ state, source, reload, profileId, onProfile, co
               </div>
             )}
             <div className="row">
-              <Avatar nickname={profile.nickname} size="lg" />
+              <Avatar nickname={profile.nickname} gender={profile.gender} size="lg" />
               <div className="grow">
                 <div className="name">{profile.nickname}</div>
                 {(profile.age || profile.mbti) && (

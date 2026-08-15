@@ -35,7 +35,7 @@ export default function Dash() {
 
   const nextPhase = PHASE_ORDER[PHASE_ORDER.indexOf(meta.phase) + 1] as Phase | undefined;
   const lastSeating = seatings.filter((s) => s.status === "published").at(-1);
-  const nick = (id: string) => players.find((p) => p.id === id)?.nickname ?? "";
+  const who = (id: string) => players.find((p) => p.id === id);
 
   async function go(to: Phase) {
     await post(`/host/events/${meta.id}/phase`, { to });
@@ -122,7 +122,7 @@ export default function Dash() {
             {tops.map((p) => (
               <div className="row" key={p!.id}>
                 <span className="ico">👑</span>
-                <Avatar nickname={p!.nickname} />
+                <Avatar nickname={p!.nickname} gender={p!.gender} />
                 <span className="grow">
                   <span className="name">{p!.nickname}</span>
                   <div className="small dim">
@@ -141,17 +141,22 @@ export default function Dash() {
         {mutual.length === 0 ? (
           <span className="small dim">{HOST_UI.dash.mutualNone}</span>
         ) : (
-          mutual.map(([a, b]) => (
-            <div className="row pairRow" key={`${a}>${b}`}>
-              <Avatar nickname={nick(a)} size="sm" />
-              <span className="grow ellipsis">{nick(a)}</span>
-              <span>💘</span>
-              <span className="grow ellipsis" style={{ textAlign: "right" }}>
-                {nick(b)}
-              </span>
-              <Avatar nickname={nick(b)} size="sm" />
-            </div>
-          ))
+          mutual.flatMap(([a, b]) => {
+            // 두 사람이 다 있어야 그린다. 없는 사람의 성별을 지어내 칠하면 색이 거짓말을 한다
+            const [pa, pb] = [who(a), who(b)];
+            if (!pa || !pb) return [];
+            return (
+              <div className="row pairRow" key={`${a}>${b}`}>
+                <Avatar nickname={pa.nickname} gender={pa.gender} size="sm" />
+                <span className="grow ellipsis">{pa.nickname}</span>
+                <span>💘</span>
+                <span className="grow ellipsis" style={{ textAlign: "right" }}>
+                  {pb.nickname}
+                </span>
+                <Avatar nickname={pb.nickname} gender={pb.gender} size="sm" />
+              </div>
+            );
+          })
         )}
       </div>
 
@@ -196,7 +201,7 @@ function Ranking({
       {rows.map((r, i) => (
         <div className="rank" key={r.p.id}>
           <span className={`no ${i === 0 && r.n > 0 ? "top" : ""}`}>{i + 1}</span>
-          <Avatar nickname={r.p.nickname} size="sm" />
+          <Avatar nickname={r.p.nickname} gender={r.p.gender} size="sm" />
           <span className="who">
             <span className="name">{r.p.nickname}</span>
             <span className="small dim"> {r.p.realName}</span>
