@@ -310,6 +310,14 @@ button {
 .person .charm.matchLine { color: var(--accent); font-weight: 700; }
 .matchCard { border: 1px solid var(--accent); }
 
+/* 필터 버튼 안의 인원 수. 라벨보다 한 톤 죽여 라벨을 먼저 읽게 한다 */
+.choice .filterCount {
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+  margin-left: 2px;
+}
+.choice button[aria-pressed="true"] .filterCount { opacity: 0.85; }
+
 .avatar {
   width: 42px;
   height: 42px;

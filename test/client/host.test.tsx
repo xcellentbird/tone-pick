@@ -7,11 +7,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { HOST_UI, phaseAction, schedDiff } from "../../src/shared/copy.ts";
+import { GENDER, HOST_UI, phaseAction, schedDiff } from "../../src/shared/copy.ts";
 import { formatGap, formatWhen } from "../../src/shared/time.ts";
 import type { HostState } from "../../src/shared/types.ts";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
 import Dash from "../../src/client/routes/host/Dash.tsx";
+import Players from "../../src/client/routes/host/Players.tsx";
 
 afterEach(cleanup);
 
@@ -81,10 +82,19 @@ function stubFetch(state: ReturnType<typeof hostState>) {
   );
 }
 
-function renderConsole() {
+function renderConsole(at = "/host/e1") {
   const router = createMemoryRouter(
-    [{ path: "/host/:id", element: <HostConsole />, children: [{ index: true, element: <Dash /> }] }],
-    { initialEntries: ["/host/e1"] },
+    [
+      {
+        path: "/host/:id",
+        element: <HostConsole />,
+        children: [
+          { index: true, element: <Dash /> },
+          { path: "players", element: <Players /> },
+        ],
+      },
+    ],
+    { initialEntries: [at] },
   );
   return render(<RouterProvider router={router} />);
 }
@@ -124,6 +134,21 @@ describe("운영자 콘솔", () => {
 
     fireEvent.click(screen.getAllByText(copy.btn)[1]);
     await waitFor(() => expect(calls.find((c) => c.url.includes("/phase"))?.body).toEqual({ to: "prevote" }));
+  });
+
+  it("참가자 탭 필터에 인원 수가 함께 보인다", async () => {
+    // 현황 탭에서 뺀 성비가 실제로 필요한 자리는 명단 앞이다. 세 숫자를 한 번에 본다
+    stubFetch(hostState());
+    renderConsole("/host/e1/players");
+
+    // 라벨과 숫자가 다른 요소라 버튼 전체의 글자로 본다
+    const label = (text: string) =>
+      screen.getAllByRole("button").find((b) => b.textContent?.startsWith(text))?.textContent;
+
+    await screen.findByText(HOST_UI.invites.title);
+    expect(label(HOST_UI.players.filterAll)).toContain("2");
+    expect(label(GENDER.M)).toContain("1");
+    expect(label(GENDER.F)).toContain("1");
   });
 
   it("★ 예약보다 일찍 넘기면 얼마나 이른지 확인창에 적는다", async () => {
