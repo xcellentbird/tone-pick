@@ -156,6 +156,23 @@ describe("등록", () => {
     expect(second.id).toBeTruthy();
   });
 
+  it("★ 인스타 없이는 등록되지 않는다", async () => {
+    // 매칭되면 서로에게 공개되는 연락 수단이라 (ADR-19) 없이는 매칭이 반쪽이 된다
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+    const gate = await enter(ev.id, phone);
+
+    for (const instagram of [undefined, "", "  ", "한글아이디", "no spaces!"]) {
+      const res = await api("/api/register", {
+        method: "POST",
+        cookie: gate.cookie,
+        body: { ...person(), instagram },
+      });
+      expect(res.status, `instagram=${JSON.stringify(instagram)}`).toBe(400);
+    }
+  });
+
   it("같은 전화번호로 다시 오면 그 사람으로 재접속한다", async () => {
     const ev = await freshEvent();
     const first = await join(ev, { nickname: "처음닉" });

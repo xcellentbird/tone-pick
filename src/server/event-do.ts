@@ -361,7 +361,9 @@ export class EventDO extends DurableObject {
     if (input.charms.length !== LIMITS.charms || input.charms.some((c) => !c.trim())) {
       return fail("bad_request");
     }
-    if (input.instagram && !/^[A-Za-z0-9._]+$/.test(input.instagram)) return fail("bad_request");
+    // 인스타는 필수다. 매칭되면 서로에게 공개되는 연락 수단이라 없이는 매칭이 반쪽이 된다
+    const instagram = String(input.instagram ?? "").trim();
+    if (!/^[A-Za-z0-9._]{1,30}$/.test(instagram)) return fail("bad_request");
 
     const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone)[0];
     const clash = this.rows<PlayerRow>("SELECT * FROM players WHERE nick_norm = ?", nickNorm)[0];
@@ -374,7 +376,7 @@ export class EventDO extends DurableObject {
       age: input.age,
       gender: input.gender,
       phone,
-      instagram: input.instagram?.trim() || undefined,
+      instagram,
       mbti: input.mbti,
       charms: input.charms.map((c) => c.trim()) as [string, string, string],
       createdAt: mine?.created_at ?? now,
@@ -475,6 +477,7 @@ export class EventDO extends DurableObject {
         {
           nickname: `${pick(DEMO_UI.seed.nicknames)}${n}`,
           realName: `${pick(DEMO_UI.seed.surnames)}${pick(DEMO_UI.seed.givenNames)}`,
+          instagram: `tone_pick_${n}`,
           age: 24 + (n * 3) % 18,
           gender,
           mbti: pick(DEMO_UI.seed.mbti),
