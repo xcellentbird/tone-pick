@@ -74,6 +74,28 @@
   --av-m: linear-gradient(140deg, #6ab0ff, #3b82f6);
   --av-f: linear-gradient(140deg, #ff4d8d, #ff7eb6);
 
+  /*
+   * 하트 — **콕(보낸 마음)의 색.** 매칭은 참가자·운영자 모두 주 색(--accent) 하나다 —
+   * 화면마다 매칭 색이 다르면 색이 뜻을 잃는다. 여성 색과 같은 분홍 시작점이지만
+   * 뜻이 다르다: 성별이 아니라 마음이 오간 일을 말한다.
+   */
+  --heart: #ff4d8d;
+  /* 순위 바 — 하트(콕)에서 주 색(매칭)으로. 받은 콕이 쌓여 매칭으로 향한다는 걸 색으로도 */
+  --meter: linear-gradient(90deg, var(--heart), var(--accent));
+
+  /*
+   * MBTI 네 기질 계열 (16personalities 관행) — **배지 안에서만** 쓴다 (글씨·테두리·바탕 틴트).
+   * NT 보라 · NF 초록 · SJ 파랑 · SP 노랑.
+   *
+   * NT 보라가 주 색과 같은 계열인 건 **알고 허용했다** — 배지는 글자(INTJ)가 정보를
+   * 다 나르고 색은 보조라, 아바타 그라데이션(색이 곧 정보)과는 기준이 다르다.
+   * 16personalities 관행을 깨고 NT 를 딴 색으로 옮기는 비용이 더 크다.
+   */
+  --mbti-nt: #bd93f9;
+  --mbti-nf: #50c987;
+  --mbti-sj: #5eb4f7;
+  --mbti-sp: #eec35c;
+
   --radius: 16px;
   --radius-sm: 8px;
   --radius-pill: 999px;
@@ -227,13 +249,28 @@ button {
 .field .err { color: var(--danger); font-size: 13px; }
 .field input:focus, .field textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.choice { display: flex; gap: 8px; flex-wrap: wrap; }
+/*
+ * 하나만 켜지는 선택 — **세그먼트 토글.**
+ *
+ * 알약 버튼이 뿔뿔이 떨어져 있으면 "여러 개 중 하나" 라는 구조가 안 읽힌다.
+ * 한 컨테이너 안에서 채워진 칸이 움직이면 그게 형태로 보인다.
+ * 켜진 칸은 색이 아니라 **채움과 굵기**로 말한다 — 색은 이미 다른 뜻을 나르고 있다.
+ */
+.choice {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+}
 
 .choice button {
   flex: 1;
-  min-width: 88px;
+  min-width: 0;
+  min-height: 40px; /* 컨테이너 패딩까지 합치면 48px — 탭 타겟은 지킨다 */
   border-radius: var(--radius-pill);
-  border: 1px solid var(--line);
+  border: none;
   background: transparent;
   color: var(--dim);
   font-size: 15px;
@@ -241,10 +278,10 @@ button {
 }
 
 .choice button[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--fg);
   background: var(--card-2);
-  font-weight: 600;
+  color: var(--fg);
+  font-weight: 700;
+  box-shadow: var(--shadow);
 }
 
 /* ─────────────────────────── 탭바 */
@@ -337,6 +374,12 @@ button {
   color: var(--dim);
 }
 
+/* MBTI 기질 계열색. 색만 다르고 모양은 같다 — 배지가 스스로를 외치면 이름이 안 읽힌다 */
+.badge.mbti-nt { color: var(--mbti-nt); border-color: color-mix(in srgb, var(--mbti-nt) 35%, transparent); background: color-mix(in srgb, var(--mbti-nt) 10%, transparent); }
+.badge.mbti-nf { color: var(--mbti-nf); border-color: color-mix(in srgb, var(--mbti-nf) 35%, transparent); background: color-mix(in srgb, var(--mbti-nf) 10%, transparent); }
+.badge.mbti-sj { color: var(--mbti-sj); border-color: color-mix(in srgb, var(--mbti-sj) 35%, transparent); background: color-mix(in srgb, var(--mbti-sj) 10%, transparent); }
+.badge.mbti-sp { color: var(--mbti-sp); border-color: color-mix(in srgb, var(--mbti-sp) 35%, transparent); background: color-mix(in srgb, var(--mbti-sp) 10%, transparent); }
+
 /*
  * 매력 칩. **한 줄에서 자른다** — 등록 폼이 "문장으로 써도 좋아요" 라고 권하므로
  * 세 개를 다 펼치면 카드 키가 제각각이 되고 목록이 들썩인다.
@@ -389,6 +432,11 @@ button {
 .crown .name { font-weight: 800; font-size: 16px; }
 
 /* 💘 상호 매칭. 양쪽 아바타 사이에 하트 — 누구와 누구인지가 한눈에 */
+/* 매칭의 색은 참가자·운영자 모두 **주 색 하나**다. 화면마다 다르면 색이 뜻을 잃는다 */
+.mutualCard {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: linear-gradient(100deg, color-mix(in srgb, var(--accent) 9%, var(--card)), var(--card));
+}
 .pairRow { gap: 8px; }
 .pairRow .grow { min-width: 0; }
 
@@ -417,7 +465,7 @@ button {
   background: var(--card-2);
   overflow: hidden;
 }
-.rank .bar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.rank .bar i { display: block; height: 100%; border-radius: 3px; background: var(--meter); }
 .rank .ct { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; width: 22px; text-align: right; flex: none; }
 
 /* 필터 버튼 안의 인원 수. 라벨보다 한 톤 죽여 라벨을 먼저 읽게 한다 */

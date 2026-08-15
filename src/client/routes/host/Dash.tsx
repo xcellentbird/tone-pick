@@ -11,7 +11,6 @@
  * 알면 그 사람을 다르게 대하게 되고, 그건 이 앱이 없애려던 경험이다.
  */
 import {
-  HOST,
   HOST_UI,
   UNIT,
   UNREVEAL,
@@ -31,10 +30,9 @@ import { useConsole, type ConsoleState } from "./HostConsole.tsx";
 export default function Dash() {
   const { state, reload } = useConsole();
   const { confirm, toast } = useOverlay();
-  const { meta, players, prevoteRank, mutual, received, seatings } = state;
+  const { meta, players, prevoteRank, mutual, received } = state;
 
   const nextPhase = PHASE_ORDER[PHASE_ORDER.indexOf(meta.phase) + 1] as Phase | undefined;
-  const lastSeating = seatings.filter((s) => s.status === "published").at(-1);
   const who = (id: string) => players.find((p) => p.id === id);
 
   async function go(to: Phase) {
@@ -136,7 +134,7 @@ export default function Dash() {
       })}
 
       {/* 💘 상호 매칭 — 자리를 붙일지 판단하는 자리 */}
-      <div className="card stack">
+      <div className="card stack mutualCard">
         <div className="kicker">{HOST_UI.dash.mutualTitle(mutual.length)}</div>
         {mutual.length === 0 ? (
           <span className="small dim">{HOST_UI.dash.mutualNone}</span>
@@ -169,12 +167,7 @@ export default function Dash() {
         <span className="tiny dim">{HOST_UI.dash.rankNote}</span>
       </div>
       <Ranking players={players} received={received} />
-
-      {lastSeating && (
-        <div className="card stack">
-          <div className="kicker">{HOST.ack.progress(lastSeating.acks.length, lastSeating.seats.length)}</div>
-        </div>
-      )}
+      {/* 자리 이동 확인율은 여기 두지 않는다 — 자리를 보낸 직후에 보는 숫자라 자리 탭 라운드 카드에 있다 */}
     </div>
   );
 }
@@ -200,7 +193,8 @@ function Ranking({
     <div className="stack">
       {rows.map((r, i) => (
         <div className="rank" key={r.p.id}>
-          <span className={`no ${i === 0 && r.n > 0 ? "top" : ""}`}>{i + 1}</span>
+          {/* 상위 셋만 금색 — 전부 칠하면 아무도 돋보이지 않는다 */}
+          <span className={`no ${i < 3 && r.n > 0 ? "top" : ""}`}>{i + 1}</span>
           <Avatar nickname={r.p.nickname} gender={r.p.gender} size="sm" />
           <span className="who">
             <span className="name">{r.p.nickname}</span>
