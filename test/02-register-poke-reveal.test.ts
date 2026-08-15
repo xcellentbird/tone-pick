@@ -633,6 +633,77 @@ describe("명단 공개 범위", () => {
   });
 });
 
+// ─────────────────────────────────────────── 한 사람이 여러 명과 이어질 때
+
+/**
+ * 콕은 1인당 여러 번이라 A–B, A–C 가 동시에 성립한다 (ADR-24).
+ * 여기서 지켜야 할 건 둘이다.
+ *   · B 는 A 와 이어졌다는 것만 안다. **A 가 C 와도 이어진 건 모른다**
+ *   · 쌍은 사라지지 않는다 — 짝을 하나만 들고 있으면 나중 것이 앞의 것을 덮는다
+ */
+describe("한 사람이 여러 명과 이어질 때", () => {
+  async function triangle() {
+    const ev = await freshEvent();
+    const a = await join(ev, { gender: "M", nickname: "에이" });
+    const b = await join(ev, { gender: "F", nickname: "비이", realName: "박비이" });
+    const c = await join(ev, { gender: "F", nickname: "씨이", realName: "박씨이" });
+    await setPhase(ev.id, "prevote");
+
+    // A 가 둘을 찌르고, 둘 다 A 를 찌른다
+    for (const target of [b, c]) {
+      await api("/api/poke", { method: "POST", cookie: a.cookie, body: { toId: target.id } });
+      await api("/api/poke", { method: "POST", cookie: target.cookie, body: { toId: a.id } });
+    }
+    return { ev, a, b, c };
+  }
+
+  it("★ 쌍이 둘 다 남는다 — 하나가 다른 하나를 덮지 않는다", async () => {
+    const { ev, a, b, c } = await triangle();
+    const state = await api<{ mutual: Array<[string, string]> }>(`/api/host/events/${ev.id}/state`, {
+      cookie: master,
+    });
+    const pairs = state.body.mutual.map(([x, y]) => [x, y].sort().join("+")).sort();
+    expect(pairs).toEqual([[a.id, b.id].sort().join("+"), [a.id, c.id].sort().join("+")].sort());
+  });
+
+  it("★ B 는 A 가 C 와도 이어진 걸 모른다", async () => {
+    const { ev, a, b, c } = await triangle();
+    await setPhase(ev.id, "party");
+    await setPhase(ev.id, "done");
+
+    const mine = await api<ParticipantState>("/api/me", { cookie: b.cookie });
+    expect(mine.body.poke.matches.length).toBe(1);
+    expect(mine.body.poke.matches[0].player.id).toBe(a.id);
+    // C 의 흔적이 응답 어디에도 없다
+    const raw = JSON.stringify(mine.body.poke);
+    expect(raw).not.toContain(c.id);
+    expect(raw).not.toContain("박씨이");
+  });
+
+  it("A 에게는 둘 다 보이고, 각자의 연락처가 온다", async () => {
+    const { ev, a, b, c } = await triangle();
+    await setPhase(ev.id, "party");
+    await setPhase(ev.id, "done");
+
+    const mine = await api<ParticipantState>("/api/me", { cookie: a.cookie });
+    expect(mine.body.poke.matches.map((m) => m.player.id).sort()).toEqual([b.id, c.id].sort());
+    for (const m of mine.body.poke.matches) expect(m.contact.phone.length).toBeGreaterThan(0);
+  });
+
+  it("★ 커플 자리에서 셋이 같은 테이블이면 두 쌍 다 성공이다", async () => {
+    const { ev, a, b, c } = await triangle();
+    // 한 테이블이면 A·B·C 가 모두 함께 앉는다
+    const made = await api<{ seats: Array<{ playerId: string; table: number }> }>(
+      `/api/host/events/${ev.id}/seating`,
+      { method: "POST", cookie: master, body: { tableCount: 1, final: true } },
+    );
+    expect(made.status).toBe(200);
+    const table = new Map(made.body.seats.map((s) => [s.playerId, s.table]));
+    expect(table.get(a.id)).toBe(table.get(b.id));
+    expect(table.get(a.id)).toBe(table.get(c.id));
+  });
+});
+
 // ─────────────────────────────────────────── 자리 섞기
 
 describe("자리 섞기", () => {
