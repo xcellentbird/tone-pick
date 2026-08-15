@@ -8,6 +8,7 @@ import { useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
 import { del } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
+import Sheet from "../../ui/Sheet.tsx";
 import { useConsole } from "./HostConsole.tsx";
 
 export default function Players() {
@@ -59,10 +60,9 @@ export default function Players() {
         </button>
       ))}
 
-      {picked && (
-        <div className="scrim" onClick={() => navigate(-1)} role="presentation">
-          <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <h2 style={{ marginTop: 0 }}>{picked.nickname}</h2>
+      <Sheet open={!!picked} onClose={() => navigate(-1)} title={picked?.nickname ?? ""}>
+        {picked && (
+          <>
             <div className="stack">
               <Row label={ME.labels.realName} value={picked.realName} />
               <Row label={ME.labels.age} value={UNIT.age(picked.age)} />
@@ -93,9 +93,9 @@ export default function Players() {
                 {BTN.delete}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Sheet>
     </div>
   );
 }

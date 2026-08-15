@@ -325,13 +325,16 @@ button {
   position: fixed;
   inset: 0;
   background: rgba(6, 4, 12, 0.6);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
   z-index: 20;
 }
 
+/* 스크림과 형제로 놓이므로 자리는 스스로 잡는다 */
 .sheet {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  z-index: 21;
   width: min(560px, 100%);
   max-height: 88dvh;
   overflow-y: auto;
@@ -344,13 +347,29 @@ button {
 }
 
 .dialog {
-  width: min(420px, 100%);
-  margin: auto;
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 21;
+  width: min(420px, calc(100% - 32px));
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: var(--pad);
   box-shadow: var(--shadow);
+}
+
+.sheetTitle { margin: 0 0 12px; font-size: 17px; font-weight: 700; }
+
+/* 스크린리더에게만 읽히는 제목 — 화면에 이미 보이는 제목이 따로 있을 때 */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .facts { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
@@ -481,4 +500,4 @@ body:has(.envBadge) .screen > header {
 }
 
 .phone .screen { height: 100%; }
-.phone .scrim, .phone .takeover, .phone .toasts { position: absolute; }
+.phone .scrim, .phone .takeover, .phone .toasts, .phone .sheet, .phone .dialog { position: absolute; }

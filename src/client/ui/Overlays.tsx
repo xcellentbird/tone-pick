@@ -13,6 +13,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { BTN, type ActionCopy } from "../../shared/copy.ts";
+import Sheet from "./Sheet.tsx";
 
 interface Pending {
   copy: ActionCopy & { note?: string };
@@ -32,7 +33,16 @@ export function useOverlay(): Overlay {
   return ctx;
 }
 
-export function Overlays({ children, history = true }: { children: ReactNode; history?: boolean }) {
+export function Overlays({
+  children,
+  history = true,
+  container,
+}: {
+  children: ReactNode;
+  history?: boolean;
+  /** 데모 뷰의 폰 안. 기본 포털은 document.body 라 폰 밖으로 새어 나간다 */
+  container?: HTMLElement | null;
+}) {
   const [toasts, setToasts] = useState<Array<{ id: number; text: string }>>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const navigate = useNavigate();
@@ -92,10 +102,15 @@ export function Overlays({ children, history = true }: { children: ReactNode; hi
     <Ctx.Provider value={{ toast, confirm }}>
       {children}
 
-      {pending && (
-        <div className="scrim" onClick={close} role="presentation">
-          <div className="dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>{pending.copy.title}</h2>
+      <Sheet
+        open={!!pending}
+        onClose={close}
+        title={pending?.copy.title ?? ""}
+        variant="dialog"
+        container={container}
+      >
+        {pending && (
+          <>
             <div className="facts">
               {pending.copy.facts.map(([label, text]) => (
                 <div className="fact" key={label + text}>
@@ -116,9 +131,9 @@ export function Overlays({ children, history = true }: { children: ReactNode; hi
                 {pending.copy.btn}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Sheet>
 
       <div className="toasts">
         {toasts.map((t) => (
