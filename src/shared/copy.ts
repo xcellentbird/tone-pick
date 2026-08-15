@@ -653,7 +653,8 @@ export const HOST_UI = {
      * 받은 콕 순위. **현황 탭에서만** 본다 (ADR-30) —
      * 참가자 탭의 개인 행에는 넣지 않는다. 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
      */
-    rankTitle: "🔥 받은 콕 순위",
+    /** N 은 실제로 보여주는 수 — 5위가 동점이면 그만큼 늘어난다 */
+    rankTitle: (n: number) => `🔥 받은 콕 TOP ${n}`,
     rankNote: "전체 라운드 합계 · 운영자만",
     live: "실시간 · 운영자만",
     registered: (n: number) => `등록 ${n}명`,

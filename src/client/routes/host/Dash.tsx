@@ -162,10 +162,6 @@ export default function Dash() {
         🔥 받은 콕 순위. 현황 탭에서만 본다 (ADR-30) —
         참가자 탭의 개인 행에는 넣지 않는다. 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
       */}
-      <div className="row between">
-        <span className="kicker">{HOST_UI.dash.rankTitle}</span>
-        <span className="tiny dim">{HOST_UI.dash.rankNote}</span>
-      </div>
       <Ranking players={players} received={received} />
       {/* 자리 이동 확인율은 여기 두지 않는다 — 자리를 보낸 직후에 보는 숫자라 자리 탭 라운드 카드에 있다 */}
     </div>
@@ -173,10 +169,28 @@ export default function Dash() {
 }
 
 /**
- * 받은 콕 순위. 바 길이는 1위 대비 비율이다 — 절대 수보다 "얼마나 몰렸나" 가 눈에 들어온다.
+ * 받은 콕 순위 — **TOP 5, 동점이면 그만큼 늘어난다.**
  *
- * 0회인 사람도 목록에 남긴다. 빼면 **빠진 사람이 곧 0회**라 감춘 게 감춰지지 않는다.
+ * 5위와 같은 수를 받은 사람을 자르면 순위가 거짓말이 된다. 제목의 N 이 실제 수를 말한다.
+ * 동점자는 같은 번호를 단다 (5,4,2,2,2 → 1·2·3·3·3위).
+ *
+ * 0회는 목록에 없다. 전원을 보여주던 때는 "빠짐 = 0회" 가 드러나는 문제가 있었지만,
+ * TOP 5 로 자르면 빠짐은 "상위권 아님" 만 말한다 — 오히려 하위권이 가려진다.
+ * 바 길이는 1위 대비 비율 — 절대 수보다 "얼마나 몰렸나" 가 눈에 들어온다.
  */
+const TOP_RANKS = 5;
+
+export function topRanks(players: ConsoleState["players"], received: Record<string, number>) {
+  const ranked = players
+    .map((p) => ({ p, n: received[p.id] ?? 0 }))
+    .filter((r) => r.n > 0)
+    .sort((a, b) => b.n - a.n || a.p.nickname.localeCompare(b.p.nickname));
+  const cutoff = ranked[TOP_RANKS - 1]?.n;
+  const rows = cutoff === undefined ? ranked : ranked.filter((r) => r.n >= cutoff);
+  // 공동 순위: 같은 수 = 같은 번호
+  return rows.map((r) => ({ ...r, rank: rows.findIndex((x) => x.n === r.n) + 1 }));
+}
+
 function Ranking({
   players,
   received,
@@ -184,28 +198,37 @@ function Ranking({
   players: ConsoleState["players"];
   received: Record<string, number>;
 }) {
-  const rows = players
-    .map((p) => ({ p, n: received[p.id] ?? 0 }))
-    .sort((a, b) => b.n - a.n || a.p.nickname.localeCompare(b.p.nickname));
+  const rows = topRanks(players, received);
   const top = Math.max(1, rows[0]?.n ?? 0);
 
   return (
-    <div className="stack">
-      {rows.map((r, i) => (
-        <div className="rank" key={r.p.id}>
-          {/* 상위 셋만 금색 — 전부 칠하면 아무도 돋보이지 않는다 */}
-          <span className={`no ${i < 3 && r.n > 0 ? "top" : ""}`}>{i + 1}</span>
-          <Avatar nickname={r.p.nickname} gender={r.p.gender} size="sm" />
-          <span className="who">
-            <span className="name">{r.p.nickname}</span>
-            <span className="small dim"> {r.p.realName}</span>
-            <span className="bar">
-              <i style={{ width: `${(r.n / top) * 100}%` }} />
-            </span>
-          </span>
-          <span className="ct">{r.n}</span>
+    <>
+      <div className="row between">
+        <span className="kicker">{HOST_UI.dash.rankTitle(rows.length)}</span>
+        <span className="tiny dim">{HOST_UI.dash.rankNote}</span>
+      </div>
+      {rows.length === 0 && (
+        <div className="card">
+          <span className="small dim">{HOST_UI.dash.noVotes}</span>
         </div>
-      ))}
-    </div>
+      )}
+      <div className="stack">
+        {rows.map((r) => (
+          <div className="rank" key={r.p.id}>
+            {/* 상위 셋만 금색 — 전부 칠하면 아무도 돋보이지 않는다 */}
+            <span className={`no ${r.rank <= 3 ? "top" : ""}`}>{r.rank}</span>
+            <Avatar nickname={r.p.nickname} gender={r.p.gender} size="sm" />
+            <span className="who">
+              <span className="name">{r.p.nickname}</span>
+              <span className="small dim"> {r.p.realName}</span>
+              <span className="bar">
+                <i style={{ width: `${(r.n / top) * 100}%` }} />
+              </span>
+            </span>
+            <span className="ct">{r.n}</span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

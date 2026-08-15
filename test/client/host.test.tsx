@@ -11,7 +11,7 @@ import { GENDER, HOST_UI, phaseAction, schedDiff } from "../../src/shared/copy.t
 import { formatGap, formatWhen } from "../../src/shared/time.ts";
 import type { HostState } from "../../src/shared/types.ts";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
-import Dash from "../../src/client/routes/host/Dash.tsx";
+import Dash, { topRanks } from "../../src/client/routes/host/Dash.tsx";
 import Players from "../../src/client/routes/host/Players.tsx";
 import Settings from "../../src/client/routes/host/Settings.tsx";
 
@@ -192,6 +192,30 @@ describe("운영자 콘솔", () => {
     // 코드는 글자로만 있다. 입력 칸이 아니다
     expect(screen.queryByLabelText(HOST_UI.fields.code)).toBeNull();
     expect(screen.getByText("ABCDEF")).toBeTruthy();
+  });
+
+  it("★ 받은 콕 순위는 TOP 5 — 5위가 동점이면 그만큼 늘어난다", () => {
+    const mk = (n: number, g: "M" | "F" = "M") => ({
+      id: `x${n}`, nickname: `사람${n}`, realName: `김${n}`, age: 30, gender: g,
+      phone: `0100000000${n}`, mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string],
+      createdAt: n,
+    });
+    const players = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => mk(n));
+    // 5·4·3·2·2·2 — 5위 자리(2회)에 동점 셋. 잘랐다면 순위가 거짓말이 된다
+    const received = { x1: 5, x2: 4, x3: 3, x4: 2, x5: 2, x6: 2, x7: 1, x8: 0 };
+    const rows = topRanks(players, received);
+
+    expect(rows.length).toBe(6);                        // TOP 5 + 동점 확장 = 6
+    expect(rows.map((r) => r.p.id)).not.toContain("x7"); // 잘린 사람
+    expect(rows.map((r) => r.p.id)).not.toContain("x8"); // 0회는 애초에 없다
+    // 공동 순위: 같은 수 = 같은 번호
+    expect(rows.map((r) => r.rank)).toEqual([1, 2, 3, 4, 4, 4]);
+  });
+
+  it("받은 콕이 아무도 없으면 순위도 없다", () => {
+    const players = [{ id: "a", nickname: "가", realName: "김가", age: 30, gender: "M" as const,
+      phone: "01011112222", mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string], createdAt: 1 }];
+    expect(topRanks(players, { a: 0 })).toEqual([]);
   });
 
   it("★ 예약보다 일찍 넘기면 얼마나 이른지 확인창에 적는다", async () => {
