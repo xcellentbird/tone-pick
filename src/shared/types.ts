@@ -6,6 +6,8 @@
  * (기획: 공개 범위 / ADR-1)
  */
 
+import type { Fortune } from "./fortune.ts";
+
 export type Gender = "M" | "F";
 export type Phase = "prep" | "reg" | "prevote" | "party" | "done";
 export type PokeRound = "pre" | "party";
@@ -314,6 +316,8 @@ export interface ParticipantState {
   roster: PublicPlayer[];
   poke: MyPokeState;
   seat?: MySeat;
+  /** 오늘의 연애운. 한 번 열면 그대로 남는다 — 아직 안 열었으면 없다 */
+  fortune?: Fortune;
 }
 
 /** 등록 응답. 같은 번호로 다시 들어온 경우 `resumed` 로 알린다 (REGISTER.welcomeBack) */

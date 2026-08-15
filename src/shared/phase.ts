@@ -39,6 +39,14 @@ export function canPoke(phase: Phase): boolean {
 }
 
 /**
+ * 오늘의 연애운은 **파티가 시작돼야** 열린다 (ADR-20).
+ * 발표 뒤에도 그대로 남는다 — 오늘 하루의 것이라 파티가 끝났다고 사라질 이유가 없다.
+ */
+export function canOpenFortune(phase: Phase): boolean {
+  return phase === "party" || phase === "done";
+}
+
+/**
  * 이 회차를 지워도 되는 시각. 넘으면 회차 DO 를 통째로 버린다.
  *
  * 기준을 **가장 나중 시각**으로 잡는 게 핵심이다. 만든 날만 보면
