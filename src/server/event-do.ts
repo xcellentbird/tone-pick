@@ -116,11 +116,6 @@ export type Result<T> =
 const ok = <T,>(value: T): Result<T> => ({ ok: true, value });
 const fail = <T,>(error: Fail, detail?: number): Result<T> => ({ ok: false, error, detail });
 
-interface Flags {
-  /** 마지막 자리까지 끝났는가. 지각자가 오면 다시 열 수 있어야 한다 */
-  seatingClosed: boolean;
-}
-
 interface Attachment {
   playerId?: string;
 }
@@ -526,7 +521,6 @@ export class EventDO extends DurableObject {
     for (const table of ["players", "pokes", "seatings", "invites", "fortunes", "entry_tries"]) {
       this.ctx.storage.sql.exec(`DELETE FROM ${table}`);
     }
-    await this.setFlags({ seatingClosed: false });
     this.broadcast({ type: "roster", count: 0 });
     return ok(true);
   }
@@ -634,7 +628,7 @@ export class EventDO extends DurableObject {
 
   // ─────────────────────────── 운영자 화면
 
-  async hostState(now: number): Promise<Result<HostState & { seatingClosed: boolean }>> {
+  async hostState(now: number): Promise<Result<HostState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     const players = this.players();
@@ -679,7 +673,6 @@ export class EventDO extends DurableObject {
       pokeUsedMax,
       seatings: this.seatings(),
       invites: this.invites(),
-      seatingClosed: (await this.flags()).seatingClosed,
     });
   }
 
@@ -718,7 +711,6 @@ export class EventDO extends DurableObject {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (meta.phase === "done") return fail("closed");
-    if ((await this.flags()).seatingClosed) return fail("closed");
     if (!Number.isInteger(tableCount) || tableCount < 1 || tableCount > LIMITS.tableMax) {
       return fail("bad_request");
     }
@@ -830,18 +822,11 @@ export class EventDO extends DurableObject {
     draft.publishedAt = now;
     draft.acks = [];
     this.writeSeating(draft);
-    if (draft.final) await this.setFlags({ seatingClosed: true });
 
     for (const seat of draft.seats) {
       this.toPlayer(seat.playerId, { type: "seating", round: draft.round, table: seat.table });
     }
     return ok(draft);
-  }
-
-  /** 마지막 자리까지 끝난 뒤 지각자가 오면 다시 열 수 있어야 한다 */
-  async reopenSeating(): Promise<Result<true>> {
-    await this.setFlags({ seatingClosed: false });
-    return ok(true);
   }
 
   // ─────────────────────────── 예약 알람 (ADR-2)
@@ -1108,13 +1093,6 @@ export class EventDO extends DurableObject {
     );
   }
 
-  private async flags(): Promise<Flags> {
-    return (await this.ctx.storage.get<Flags>("flags")) ?? { seatingClosed: false };
-  }
-
-  private async setFlags(patch: Partial<Flags>) {
-    await this.ctx.storage.put("flags", { ...(await this.flags()), ...patch });
-  }
 }
 
 // ─────────────────────────── 순수 헬퍼

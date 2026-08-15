@@ -8,19 +8,28 @@
  * · 남녀를 맞바꾸는 것도 된다 — 바뀐 성비는 테이블 머리의 `남 N / 여 M` 에 바로 보인다
  */
 import { useState } from "react";
+import { useNavigate, useParams } from "react-router";
 import { HOST, HOST_UI, UNIT } from "../../../shared/copy.ts";
 import type { SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
+import Sheet from "../../ui/Sheet.tsx";
 import { Num } from "./HostDefaults.tsx";
 import { useConsole } from "./HostConsole.tsx";
 
 export default function Seats() {
   const { state, reload } = useConsole();
   const { confirm, toast } = useOverlay();
-  const [tableCount, setTableCount] = useState(() => Math.max(1, Math.round(state.players.length / 6)) || 1);
+  const navigate = useNavigate();
+  // 테이블 수를 고르는 시트도 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md)
+  const { mode } = useParams();
+  const here = `/host/${state.meta.id}/seats`;
   const [picked, setPicked] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // 두 번째 라운드에서는 같은 테이블 수를 다시 고르는 일이 흔하다. 지난번 값에서 시작한다
+  const lastTableCount =
+    state.seatings.at(-1)?.tableCount ?? Math.max(1, Math.round(state.players.length / 6)) ?? 1;
 
   const base = `/host/events/${state.meta.id}/seating`;
   const draft = state.seatings.find((s) => s.status === "draft");
@@ -42,13 +51,17 @@ export default function Seats() {
   const published = state.seatings.filter((s) => s.status === "published");
   const revealed = state.meta.phase === "done";
 
-  async function make(final: boolean) {
+  async function make(final: boolean, tableCount: number) {
+    setBusy(true);
     try {
       await post(base, { tableCount, final });
+      navigate(here, { replace: true });
       reload();
     } catch (e) {
       // 이 화면에서 400 이 나올 이유는 인원 대비 테이블이 많은 것뿐이다
-      toast(e instanceof ApiError && e.status === 400 ? HOST.seating.tooFewPerTable : HOST.seating.closed);
+      toast(e instanceof ApiError && e.status === 400 ? HOST.seating.tooFewPerTable : HOST.seating.afterReveal);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -115,16 +128,13 @@ export default function Seats() {
     confirm(
       {
         btn: HOST.seating.publish,
-        title: round.final ? HOST_UI.seats.publishClosesTitle : HOST_UI.seats.publishTitle,
+        title: HOST_UI.seats.publishTitle,
         facts: [
           [HOST_UI.seats.tableCount, `${round.tableCount}`],
           [HOST_UI.dash.registered(round.seats.length), UNIT.people(Math.round(perTable))],
-          // 커플 자리는 성적표와 '배정이 닫힌다'는 사실을 함께 보여준다
+          // 커플 자리는 성적표를 함께 보여준다. 배정이 닫히지는 않는다 — 한 번 더 할 수 있다
           ...(round.final
-            ? ([
-                [HOST_UI.dash.mutualTitle, HOST_UI.seats.pairSummary(pairs.together, pairs.total)],
-                [HOST_UI.seats.roundTitle(round.round, true), HOST_UI.seats.publishCloses],
-              ] as Array<[string, string]>)
+            ? ([[HOST_UI.dash.mutualTitle, HOST_UI.seats.pairSummary(pairs.together, pairs.total)]] as Array<[string, string]>)
             : ([[HOST_UI.seats.roundTitle(round.round, false), HOST.seating.draftOnly]] as Array<[string, string]>)),
         ],
       },
@@ -140,39 +150,38 @@ export default function Seats() {
 
   return (
     <div className="stack">
-      {state.seatingClosed ? (
-        <div className="card stack">
-          <p className="pre">{HOST.seating.closed}</p>
-          <button
-            className="btn"
-            onClick={async () => {
-              await post(`${base}/reopen`);
-              reload();
-            }}
-          >
-            {HOST.seating.reopen}
-          </button>
-        </div>
-      ) : (
-        <>
-          <Num
-            label={HOST_UI.seats.tableCount}
-            value={tableCount}
-            min={1}
-            max={LIMITS.tableMax}
-            onChange={setTableCount}
-          />
-          <PerTableWarning people={state.players.length} tables={tableCount} />
-          <div className="row">
-            <button className="btn wide" onClick={() => make(false)} disabled={state.players.length < 2}>
-              {HOST_UI.seats.make}
-            </button>
-            <button className="btn wide gold" onClick={() => make(true)} disabled={state.players.length < 2}>
-              {HOST.seating.makeFinal}
-            </button>
-          </div>
-        </>
-      )}
+      {/*
+        테이블 수는 설정이 아니라 **배정 시점의 입력값**이다 (ADR-5).
+        상시 노출된 스테퍼는 설정처럼 보였다 — 누를 때 묻는 게 구조와 화면을 일치시킨다.
+      */}
+      <div className="row">
+        <button
+          className="btn wide"
+          onClick={() => navigate(`${here}/new`)}
+          disabled={state.players.length < 2}
+        >
+          {HOST_UI.seats.make}
+        </button>
+        <button
+          className="btn wide gold"
+          onClick={() => navigate(`${here}/final`)}
+          disabled={state.players.length < 2}
+        >
+          {HOST.seating.makeFinal}
+        </button>
+      </div>
+
+      <Sheet open={!!mode} onClose={() => navigate(-1)} title={HOST_UI.seats.tableCount}>
+        <TablePicker
+          people={state.players.length}
+          men={state.players.filter((p) => p.gender === "M").length}
+          pairs={state.mutual.length}
+          final={mode === "final"}
+          start={lastTableCount}
+          busy={busy}
+          onGo={(count) => make(mode === "final", count)}
+        />
+      </Sheet>
 
       {draft && (
         <div className="card stack">
@@ -215,6 +224,60 @@ export default function Seats() {
           <Unassigned round={round} state={state} />
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * 테이블 수를 고르는 자리. 배정 버튼을 누르면 여기부터 열린다.
+ *
+ * 숫자만 받지 않는다 — 그 숫자가 **어떤 자리를 만드는지** 함께 보여준다.
+ * 테이블당 몇 명이고 남녀가 몇인지 보이지 않으면, 8을 넣어보고 결과를 보고 다시 6으로
+ * 되돌리는 일을 반복하게 된다.
+ */
+function TablePicker({
+  people,
+  men,
+  pairs,
+  final,
+  start,
+  busy,
+  onGo,
+}: {
+  people: number;
+  men: number;
+  pairs: number;
+  final: boolean;
+  start: number;
+  busy: boolean;
+  onGo: (tableCount: number) => void;
+}) {
+  const [count, setCount] = useState(start);
+  const per = count > 0 ? people / count : 0;
+  const perMen = count > 0 ? men / count : 0;
+
+  return (
+    <div className="stack">
+      <Num
+        label={HOST_UI.seats.tableCount}
+        value={count}
+        min={1}
+        max={Math.min(LIMITS.tableMax, Math.max(1, Math.floor(people / 2)))}
+        onChange={setCount}
+      />
+
+      {/* 이 숫자가 만드는 자리를 미리 보여준다 */}
+      <div className="fact">
+        <span className="grow">{HOST_UI.seats.preview(Math.round(per), Math.round(perMen))}</span>
+      </div>
+      <PerTableWarning people={people} tables={count} />
+
+      {/* 커플 자리는 목적이 하나다. 몇 쌍을 붙이려는 참인지 여기서 말한다 */}
+      {final && <p className="small dim">{HOST_UI.seats.finalNote(pairs)}</p>}
+
+      <button className={`btn block ${final ? "gold" : "primary"}`} disabled={busy} onClick={() => onGo(count)}>
+        {final ? HOST.seating.makeFinal : HOST_UI.seats.make}
+      </button>
     </div>
   );
 }

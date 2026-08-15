@@ -831,6 +831,24 @@ describe("자리 섞기", () => {
     }
   });
 
+  it("★ 커플 자리를 확정해도 배정이 닫히지 않는다", async () => {
+    // 한 번 더 자리를 바꿀 일이 있다. '다시 열기' 같은 단계를 사이에 두지 않는다
+    const ev = await freshEvent();
+    for (let i = 0; i < 4; i++) await join(ev, { gender: i % 2 === 0 ? "M" : "F" });
+
+    await api(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, final: true },
+    });
+    const published = await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
+    expect(published.status).toBe(200);
+
+    // 곧바로 다시 배정할 수 있다
+    const again = await api(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, final: false },
+    });
+    expect(again.status).toBe(200);
+  });
+
   it("만든 자리가 없으면 섞을 것도 없다", async () => {
     const ev = await freshEvent();
     const res = await api(`/api/host/events/${ev.id}/seating/shuffle`, { method: "POST", cookie: master });

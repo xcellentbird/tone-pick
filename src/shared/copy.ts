@@ -538,7 +538,6 @@ export const HOST = {
      * 이 버튼이 실제로 하는 일은 **서로 찌른 쌍을 같은 테이블에 앉히는 것**이다 (ADR-23).
      */
     makeFinal: "💘 커플 자리 배정",
-    reopen: "배정 다시 열기",
     published: (round: number, final: boolean) =>
       final
         ? "💘 커플 자리를 참가자 전원에게 알렸어요"
@@ -547,7 +546,6 @@ export const HOST = {
     shuffled: "남녀 비율은 그대로 두고 다시 섞었어요",
     tooFewPerTable: "테이블당 2명이 안 됩니다. 테이블 수를 줄여주세요.",
     tooManyPerTable: "테이블당 8명이 넘습니다. 테이블을 늘리는 편이 좋아요.",
-    closed: "커플 자리까지 끝났어요. 배정을 재개하려면 아래에서 다시 열어주세요.",
     afterReveal: "발표가 끝나 자리를 더 바꾸지 않아요",
   },
 
@@ -679,6 +677,9 @@ export const HOST_UI = {
     discard: "취소",
     /** 계산은 그대로, 사람만 다시 섞는다 */
     shuffle: "자리 섞기",
+    /** 고른 테이블 수가 어떤 자리를 만드는지 미리 */
+    preview: (per: number, men: number) => `테이블당 ${per}명 · 남 ${men} / 여 ${per - men}`,
+    finalNote: (pairs: number) => `서로 찌른 ${pairs}쌍을 같은 테이블에 앉힙니다.`,
     swapHint: "두 명을 고르면 자리를 맞바꿔요. 남녀도 바꿀 수 있어요 — 한 명만 옮기는 건 없습니다.",
     tableTitle: (n: number) => `${n}번 테이블`,
     /** 테이블 성비. 색과 같은 정보를 글자로도 준다 */
@@ -708,9 +709,6 @@ export const HOST_UI = {
     unassigned: (names: string) => `이 라운드에 자리가 없는 사람: ${names}`,
     publishTitle: "이 자리로 확정하고 전원에게 알릴까요?",
     publishBtn: "자리 확정하고 알리기",
-    /** 커플 자리를 확정하면 그 회차의 배정이 닫힌다. 되돌릴 수 있다는 것까지 말한다 */
-    publishClosesTitle: "커플 자리로 확정할까요?",
-    publishCloses: "이 회차의 자리 배정이 닫힙니다 — 다시 배정하려면 '배정 다시 열기'를 누르면 돼요",
   },
 
   deleteEvent: "이 회차 삭제하기",
