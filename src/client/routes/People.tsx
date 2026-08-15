@@ -16,6 +16,7 @@ import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
 import Avatar from "../ui/Avatar.tsx";
+import Mbti from "../ui/Mbti.tsx";
 import Sheet from "../ui/Sheet.tsx";
 
 interface Props {
@@ -122,7 +123,7 @@ export default function People({ state, source, reload, profileId, onProfile, co
                     <span className="who">{p.nickname}</span>
                     {/* 나이·MBTI 는 파티가 시작돼야 온다. 그 전에는 자리가 통째로 빈다 (ADR-21) */}
                     {p.age && <span className="age">{p.age}</span>}
-                    {p.mbti && <span className="badge">{p.mbti}</span>}
+                    {p.mbti && <Mbti value={p.mbti} />}
                   </span>
                   {/* 색만으로 말하지 않는다. 매칭이면 매력 대신 그 사실을 적는다 */}
                   {match ? (
@@ -176,8 +177,9 @@ export default function People({ state, source, reload, profileId, onProfile, co
               <div className="grow">
                 <div className="name">{profile.nickname}</div>
                 {(profile.age || profile.mbti) && (
-                  <div className="small dim">
-                    {[profile.age && UNIT.age(profile.age), profile.mbti].filter(Boolean).join(" · ")}
+                  <div className="row" style={{ gap: 6, marginTop: 4 }}>
+                    {profile.age && <span className="small dim">{UNIT.age(profile.age)}</span>}
+                    {profile.mbti && <Mbti value={profile.mbti} />}
                   </div>
                 )}
               </div>
