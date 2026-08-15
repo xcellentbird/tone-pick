@@ -8,12 +8,12 @@
  *
  * 상세 시트와 명단 시트는 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md).
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Invite } from "../../../shared/types.ts";
 import { LIMITS, normalizePhone } from "../../../shared/constants.ts";
-import { ApiError, del, put } from "../../lib/api.ts";
+import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Sheet from "../../ui/Sheet.tsx";
 import { useConsole } from "./HostConsole.tsx";
@@ -140,8 +140,9 @@ export default function Players() {
         <Invites
           invites={state.invites}
           eventId={state.meta.id}
-          onSaved={(n) => {
-            toast(HOST_UI.invites.saved(n));
+          onDone={(added) => {
+            // 뺀 것과 더한 것, 이미 있어서 아무 일도 없었던 것은 다른 말이다
+            toast(added > 0 ? HOST_UI.invites.saved(added) : added < 0 ? HOST_UI.invites.removed : HOST_UI.invites.already);
             reload();
           }}
         />
@@ -151,35 +152,40 @@ export default function Players() {
 }
 
 /**
- * 명단 편집.
+ * 명단 편집. **더하고 빼기만 있다.**
  *
- * 운영자가 실제로 하는 일은 **붙여넣기 한 번**이다 — 단톡방에서 받은 번호 뭉치를 그대로 넣는다.
- * 한 명씩 추가하는 칸을 만들면 100명을 넣을 방법이 없다.
+ * 통째로 갈아치우는 길은 두지 않는다 — 한 명 추가하려다 손이 미끄러지면
+ * 그 파티의 명단 전체가 날아간다. 되돌릴 방법도 없다.
+ *
+ * 두 가지 일이 실제로 일어난다.
+ *   한 명씩  — "저도 갈게요" 연락이 파티 전날에 온다
+ *   붙여넣기 — 처음 명단을 만들 때. 한 명씩으로는 100명을 넣을 수 없다
  */
 function Invites({
   invites,
   eventId,
-  onSaved,
+  onDone,
 }: {
   invites: Invite[];
   eventId: string;
-  onSaved: (count: number) => void;
+  /** 더한 수. 뺐으면 음수, 이미 있어서 아무 일도 없었으면 0 */
+  onDone: (added: number) => void;
 }) {
+  const [one, setOne] = useState("");
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // 시트를 열 때마다 지금 명단을 그대로 보여준다. 편집이 곧 전체 교체다
-  useEffect(() => setText(invites.map((i) => i.phone).join("\n")), [invites]);
-
   const parsed = [...new Set(text.split(/[\s,;]+/).map(normalizePhone).filter((p) => p.length >= 9))];
+  const known = new Set(invites.map((i) => i.phone));
 
-  async function save() {
+  async function add(phones: string[], clear: () => void) {
     setBusy(true);
     setError(null);
     try {
-      await put<Invite[]>(`/host/events/${eventId}/invites`, { phones: parsed });
-      onSaved(parsed.length);
+      const next = await post<Invite[]>(`/host/events/${eventId}/invites`, { phones });
+      clear();
+      onDone(next.length - invites.length);
     } catch (e) {
       setError(e instanceof ApiError ? (e.userMessage ?? HOST_UI.invites.tooMany(LIMITS.inviteMax)) : "");
     } finally {
@@ -187,23 +193,55 @@ function Invites({
     }
   }
 
+  function addOne(e: React.FormEvent) {
+    e.preventDefault();
+    const phone = normalizePhone(one);
+    // 이미 있는 번호는 서버까지 갈 것도 없다. 조용히 성공하면 넣은 줄 알고 넘어간다
+    if (known.has(phone)) return setError(HOST_UI.invites.already);
+    void add([phone], () => setOne(""));
+  }
+
   async function remove(phone: string) {
     await del(`/host/events/${eventId}/invites/${phone}`);
-    onSaved(invites.length - 1);
+    onDone(-1);
   }
 
   return (
     <div className="stack">
       <p className="small dim">{HOST_UI.invites.emptyNote}</p>
 
+      <form className="field" onSubmit={addOne}>
+        <label htmlFor="oneInvite">{HOST_UI.invites.addLabel}</label>
+        <div className="row">
+          <input
+            id="oneInvite"
+            className="grow"
+            value={one}
+            inputMode="tel"
+            autoComplete="off"
+            onChange={(e) => {
+              setOne(e.target.value);
+              setError(null);
+            }}
+          />
+          <button className="btn primary" disabled={busy || normalizePhone(one).length < 9}>
+            {HOST_UI.invites.addOne}
+          </button>
+        </div>
+      </form>
+
       <div className="field">
         <label htmlFor="invites">{HOST_UI.invites.pasteLabel}</label>
-        <textarea id="invites" rows={6} value={text} onChange={(e) => setText(e.target.value)} />
+        <textarea id="invites" rows={5} value={text} onChange={(e) => setText(e.target.value)} />
         <span className="tiny dim">{HOST_UI.invites.pasteHint}</span>
       </div>
 
       {error && <p className="err danger">{error}</p>}
-      <button className="btn primary block" onClick={save} disabled={busy}>
+      <button
+        className="btn primary block"
+        onClick={() => add(parsed, () => setText(""))}
+        disabled={busy || parsed.length === 0}
+      >
         {HOST_UI.invites.save} · {UNIT.people(parsed.length)}
       </button>
 

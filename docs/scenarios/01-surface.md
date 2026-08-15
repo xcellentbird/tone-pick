@@ -85,7 +85,7 @@ GET /api/events/by-code/:code   → PublicEvent | 404     코드만 아는 사�
 ```
 POST /api/events/:id/enter   { phone }  → { registered, code? }   인증 없음
 POST /api/register           RegisterInput → RegisterResult        초대 쿠키 필요
-PUT    /api/host/events/:id/invites       { phones: string[] } → Invite[]
+POST   /api/host/events/:id/invites       { phones: string[] } → Invite[]   더하기만
 DELETE /api/host/events/:id/invites/:phone                     → Invite[]
 ```
 
