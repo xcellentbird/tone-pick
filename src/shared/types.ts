@@ -145,6 +145,8 @@ export interface Defaults extends EventConfig {
  */
 export type AuthScope =
   | { kind: "player"; eventId: string; playerId: string }
+  /** 명단 확인을 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다 */
+  | { kind: "invited"; eventId: string; phone: string }
   | { kind: "master" };
 
 // ─────────────────────────── 실시간 (WebSocket)
@@ -214,6 +216,8 @@ export type ErrorCode =
   | "schedule_order"
   | "bad_request"
   // 슬라이스 02~05 에서 늘어난 것
+  | "not_invited"    // 403 · 초대 명단에 없는 번호다
+  | "too_many"       // 429 · 번호를 너무 여러 번 넣었다
   | "nick_taken"     // 409 · 회차 안에서 닉네임이 겹쳤다
   | "closed"         // 409 · 지금 단계에서는 할 수 없다
   | "no_budget"      // 409 · 이번 라운드 콕을 다 썼다
@@ -235,16 +239,36 @@ export interface EventPatch {
   config?: EventConfig;
 }
 
-/** 참가자 등록 입력. 전화번호는 재접속 키라서 응답에 되돌려주지 않는다 */
+/**
+ * 참가자 등록 입력.
+ *
+ * **전화번호는 여기 없다.** 입장할 때 이미 확인한 값이라 초대 쿠키에서 꺼내 쓴다 —
+ * 폼에서 다시 받으면 명단에 없는 번호로 바꿔 낼 수 있다.
+ */
 export interface RegisterInput {
   nickname: string;
   realName: string;
   age: number;
   gender: Gender;
-  phone: string;
   instagram?: string;
   mbti: string;
   charms: [string, string, string];
+}
+
+/** 초대 명단 한 줄. 운영자만 본다 */
+export interface Invite {
+  phone: string;
+  addedAt: number;
+  /** 이미 등록한 사람이면 그 닉네임. 운영자가 누가 왔는지 명단에서 바로 본다 */
+  nickname?: string;
+}
+
+/** 입장 확인 결과. 명단에 없으면 이 응답 자체가 오지 않는다 (403) */
+export interface EnterResult {
+  /** 이미 등록을 마친 사람인가. 그러면 등록 폼을 건너뛴다 */
+  registered: boolean;
+  /** 등록을 마친 사람에게만. 자기 화면 주소(`/e/:code`)로 가는 데 쓴다 */
+  code?: string;
 }
 
 /**
@@ -299,6 +323,8 @@ export interface HostState {
   mutual: Array<[string, string]>;
   pokeCount: Record<PokeRound, number>;
   seatings: SeatingRound[];
+  /** 초대 명단. 참가자 응답에는 절대 실리지 않는다 */
+  invites: Invite[];
 }
 
 /** 자리 초안 생성 입력. 테이블 수는 설정이 아니라 이 요청의 값이다 (ADR-5) */

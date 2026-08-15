@@ -1,9 +1,9 @@
 /**
- * 참가 링크가 여는 화면. **방이 보이고, 코드를 맞춰야 들어간다** (ADR-13).
+ * 참가 링크가 여는 화면. **방이 보이고, 전화번호를 맞춰야 들어간다** (ADR-15).
  *
- * 링크에는 입장 코드가 없다. 링크만 받은 사람은 "어느 파티인가"까지만 볼 수 있고,
- * 운영자가 따로 알려준 6자리를 맞춰야 등록으로 넘어간다 —
- * 참가 링크는 한 번 뿌려지면 어디까지 퍼질지 아무도 모르기 때문이다.
+ * 링크만 받은 사람은 "어느 파티인가"까지만 볼 수 있고, 문을 여는 건
+ * **운영자가 미리 받아둔 번호**다. 코드 여섯 자리는 옮겨 적을 수 있지만
+ * 남의 번호로는 들어올 수 없다 — 참가 링크는 한 번 뿌려지면 어디까지 퍼질지 모른다.
  *
  * 등록할 수 있는 상태인지는 서버가 판단해서 문장까지 들려준다 —
  * 준비 중이면 언제 열리는지, 끝났으면 끝났다고.
@@ -14,10 +14,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, PHASE_LABEL, SCREEN_TITLE } from "../../shared/copy.ts";
-import type { ParticipantState, PublicEvent } from "../../shared/types.ts";
+import type { EnterResult, ParticipantState, PublicEvent } from "../../shared/types.ts";
 import { formatWhen } from "../../shared/time.ts";
-import { api } from "../lib/api.ts";
-import { codeFor, rememberCode } from "../lib/entry.ts";
+import { ApiError, api, post } from "../lib/api.ts";
 import { useLoad } from "../lib/useLoad.ts";
 
 export default function Join() {
@@ -26,8 +25,7 @@ export default function Join() {
   const found = useLoad(() => api<PublicEvent>(`/events/by-id/${id}`), [id]);
   // 세션이 이 회차의 것인지 서버가 판정한다. 다른 회차 세션이면 401 이 와서 여기 남는다
   const [checking, setChecking] = useState(true);
-  const [code, setCode] = useState("");
-  const [passed, setPassed] = useState(() => codeFor(id));
+  const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -48,17 +46,15 @@ export default function Join() {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const typed = code.trim().toUpperCase();
     try {
-      // 코드가 정말 **이 회차**의 것인지 본다. 다른 회차의 유효한 코드로는 열리지 않는다
-      const byCode = await api<PublicEvent>(`/events/by-code/${typed}`);
-      if (byCode.id !== id) throw new Error("mismatch");
-      rememberCode(id, typed);
-      setPassed(typed);
-    } catch {
-      // 코드가 틀려도 입력값을 지우지 않는다 — 여섯 자리를 다시 치게 하는 건 벌이다 (UI.md)
-      setError(ENTRY.wrongCode);
-    } finally {
+      // 통과하면 서버가 쿠키를 준다. 이미 등록한 사람은 곧바로 자기 화면으로
+      const res = await post<EnterResult>(`/events/${id}/enter`, { phone });
+      navigate(res.registered && res.code ? `/e/${res.code}` : `/j/${id}/register/1`, {
+        replace: res.registered,
+      });
+    } catch (err) {
+      // 번호가 틀려도 입력값을 지우지 않는다 — 다시 치게 하는 건 벌이다 (UI.md)
+      setError(err instanceof ApiError ? (err.userMessage ?? ENTRY.notInvited) : ENTRY.notInvited);
       setBusy(false);
     }
   }
@@ -90,27 +86,22 @@ export default function Join() {
               <button className="btn ghost block" onClick={() => navigate("/")}>
                 {BTN.home}
               </button>
-            ) : passed ? (
-              <button className="btn primary block" onClick={() => navigate(`/j/${id}/register/1`)}>
-                {SCREEN_TITLE.register}
-              </button>
             ) : (
               <form className="stack" onSubmit={unlock}>
                 <div className="field">
-                  <label htmlFor="code">{ENTRY.codeLabel}</label>
+                  <label htmlFor="phone">{ENTRY.phoneLabel}</label>
                   <input
-                    id="code"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value.toUpperCase())}
-                    autoCapitalize="characters"
-                    autoComplete="off"
-                    maxLength={6}
-                    inputMode="text"
-                    style={{ letterSpacing: "0.4em", fontSize: 22, textAlign: "center" }}
+                    id="phone"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    inputMode="tel"
+                    autoComplete="tel"
+                    maxLength={20}
+                    style={{ fontSize: 20, textAlign: "center" }}
                   />
                   {error ? <span className="err">{error}</span> : <span className="tiny dim">{ENTRY.gateNote}</span>}
                 </div>
-                <button className="btn primary block" disabled={code.trim().length < 6 || busy}>
+                <button className="btn primary block" disabled={phone.replace(/[^0-9]/g, "").length < 9 || busy}>
                   {ENTRY.submit}
                 </button>
               </form>

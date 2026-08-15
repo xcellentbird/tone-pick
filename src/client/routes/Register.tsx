@@ -14,7 +14,6 @@ import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared
 import type { RegisterInput, RegisterResult } from "../../shared/types.ts";
 import { LIMITS, RETENTION_DAYS } from "../../shared/constants.ts";
 import { ApiError, post } from "../lib/api.ts";
-import { codeFor } from "../lib/entry.ts";
 import { useDraftGuard } from "../lib/history.ts";
 
 interface Draft {
@@ -22,7 +21,6 @@ interface Draft {
   realName: string;
   age: string;
   gender: "M" | "F" | "";
-  phone: string;
   instagram: string;
   mbti: Record<number, string>;
   charms: [string, string, string];
@@ -33,7 +31,6 @@ const EMPTY: Draft = {
   realName: "",
   age: "",
   gender: "",
-  phone: "",
   instagram: "",
   mbti: {},
   charms: ["", "", ""],
@@ -42,15 +39,9 @@ const EMPTY: Draft = {
 export default function Register() {
   const { id = "", step = "1" } = useParams();
   const navigate = useNavigate();
-  // 코드는 앞 화면에서 맞춘 것이다. 없이 이 주소로 바로 오면 문 앞으로 돌려보낸다
-  const code = codeFor(id);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<{ field: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!code) navigate(`/j/${id}`, { replace: true });
-  }, [code, id, navigate]);
 
   const at = Math.min(3, Math.max(1, Number(step) || 1));
   const dirty = JSON.stringify(draft) !== JSON.stringify(EMPTY);
@@ -76,12 +67,12 @@ export default function Register() {
         realName: draft.realName.trim(),
         age: Number(draft.age),
         gender: draft.gender as "M" | "F",
-        phone: draft.phone.replace(/[^0-9]/g, ""),
         instagram: draft.instagram.trim() || undefined,
         mbti: MBTI_AXES.map((_, i) => draft.mbti[i]).join(""),
         charms: draft.charms.map((c) => c.trim()) as [string, string, string],
       };
-      const done = await post<RegisterResult>(`/events/${code}/register`, body);
+      // 번호는 입장할 때 확인한 값이다. 서버가 초대 쿠키에서 꺼내 쓴다 (ADR-15)
+      const done = await post<RegisterResult>("/register", body);
       // 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
       navigate(`/e/${done.state.event.code}`, {
         replace: true,
@@ -93,6 +84,11 @@ export default function Register() {
         // 닉네임 칸이 있는 1스텝으로 되돌린 뒤 띄운다. 입력값은 그대로 둔다
         setError({ field: "nickname", text: e.userMessage ?? REGISTER.err.nick });
         navigate(`/j/${id}/register/1`);
+        return;
+      }
+      // 초대 확인이 만료되면 폼을 계속 붙들고 있어봐야 소용없다. 문 앞으로 돌려보낸다
+      if (e instanceof ApiError && e.status === 401) {
+        navigate(`/j/${id}`, { replace: true });
         return;
       }
       setError({ field: "form", text: e instanceof ApiError ? (e.userMessage ?? REGISTER.err.nick) : REGISTER.err.nick });
@@ -164,17 +160,6 @@ export default function Register() {
 
         {at === 2 && (
           <>
-            <div className="field">
-              <label htmlFor="phone">{ME.labels.phone}</label>
-              <input
-                id="phone"
-                value={draft.phone}
-                inputMode="tel"
-                autoComplete="tel"
-                onChange={(e) => set("phone", e.target.value)}
-              />
-              {err("phone")}
-            </div>
             <p className="tiny dim">{REGISTER.retention(RETENTION_DAYS)}</p>
             <div className="field">
               <label htmlFor="insta">{ME.labels.instagram}</label>
@@ -247,7 +232,6 @@ function validate(d: Draft, step: number): { field: string; text: string } | nul
     if (!d.gender) return { field: "gender", text: REGISTER.err.gender };
   }
   if (step === 2) {
-    if (d.phone.replace(/[^0-9]/g, "").length < 9) return { field: "phone", text: REGISTER.err.phone };
     if (d.instagram && !/^[A-Za-z0-9._]+$/.test(d.instagram.trim())) {
       return { field: "instagram", text: REGISTER.err.insta };
     }

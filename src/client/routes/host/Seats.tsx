@@ -4,7 +4,8 @@
  * · 테이블 수는 **배정할 때마다** 고른다. 설정값이 아니다 (ADR-5)
  * · 초안 생성에는 확인을 붙이지 않는다 — 참가자에게 안 보이고 몇 번이든 다시 만들 수 있다
  * · 발송에는 확인을 붙인다 — 참가자 화면을 덮는 확인 화면이 뜬다
- * · 좌석 변경은 **맞교환 하나뿐**이다. 한 명만 옮기는 버튼을 만들면 테이블 성비가 깨진다
+ * · 좌석 변경은 **맞교환 하나뿐**이다. 한 명만 옮기는 버튼을 만들면 테이블 인원이 어긋난다
+ * · 남녀를 맞바꾸는 것도 된다 — 바뀐 성비는 테이블 머리의 `남 N / 여 M` 에 바로 보인다
  */
 import { useState } from "react";
 import { HOST, HOST_UI, UNIT } from "../../../shared/copy.ts";
@@ -39,11 +40,10 @@ export default function Seats() {
   async function swap(playerId: string) {
     if (!picked) return setPicked(playerId);
     if (picked === playerId) return setPicked(null);
-    const a = state.players.find((p) => p.id === picked);
-    const b = state.players.find((p) => p.id === playerId);
+    const first = picked;
     setPicked(null);
-    if (!a || !b || a.gender !== b.gender) return toast(HOST_UI.seats.swapHint);
-    await post(`${base}/swap`, { a: picked, b: playerId });
+    // 남녀를 맞바꿔도 된다. 인원은 그대로고, 바뀐 성비는 테이블 머리의 숫자에 바로 보인다
+    await post(`${base}/swap`, { a: first, b: playerId });
     reload();
   }
 

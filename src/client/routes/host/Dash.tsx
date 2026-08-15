@@ -101,7 +101,7 @@ export default function Dash() {
         </button>
       </div>
       {/* 링크만 보내면 참가자가 문 앞에서 막힌다. 코드를 따로 알려야 한다는 걸 여기서 못 박는다 */}
-      <p className="tiny dim">{HOST_UI.entryLinkNote(meta.code)}</p>
+      <p className="tiny dim">{HOST_UI.entryLinkNote}</p>
 
       <div className="card stack">
         <div className="kicker">{HOST_UI.dash.mutualTitle}</div>
@@ -119,11 +119,14 @@ export default function Dash() {
       <div className="card stack">
         <div className="kicker">{HOST_UI.dash.prevoteTop}</div>
         {(["M", "F"] as const).map((g) => {
-          const top = prevoteRank.find((r) => players.find((p) => p.id === r.id)?.gender === g && r.count > 0);
-          const person = players.find((p) => p.id === top?.id);
+          // 공동 1위는 **함께** 보여준다. 한 명만 집으면 나머지가 조용히 가려진다
+          const mine = prevoteRank.filter((r) => players.find((p) => p.id === r.id)?.gender === g && r.count > 0);
+          const best = mine[0]?.count ?? 0;
+          const tops = mine.filter((r) => r.count === best);
+          const names = tops.map((r) => players.find((p) => p.id === r.id)?.nickname).filter(Boolean);
           return (
             <span className="small" key={g}>
-              {person ? `${person.nickname} · ${UNIT.times(top!.count)}` : HOST_UI.dash.noVotes}
+              {names.length ? `${names.join(", ")} · ${UNIT.times(best)}` : HOST_UI.dash.noVotes}
             </span>
           );
         })}

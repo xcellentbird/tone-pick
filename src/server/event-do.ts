@@ -16,7 +16,9 @@ import type {
   EventMeta,
   EventSchedule,
   EventSummary,
+  EnterResult,
   Gender,
+  Invite,
   MatchInfo,
   MyPokeState,
   ParticipantState,
@@ -35,7 +37,7 @@ import type {
 } from "../shared/types.ts";
 import { toPublic } from "../shared/types.ts";
 import { ENTRY } from "../shared/copy.ts";
-import { LIMITS, normalizeNickname } from "../shared/constants.ts";
+import { ENTRY_TRIES, LIMITS, normalizeNickname, normalizePhone } from "../shared/constants.ts";
 import { PHASE_ORDER, canPoke, dueTransition, purgeDueAt } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
 import { buildSeating } from "./seating.ts";
@@ -66,6 +68,15 @@ CREATE TABLE IF NOT EXISTS pokes (
 );
 CREATE INDEX IF NOT EXISTS pokes_from ON pokes(from_id, round);
 CREATE INDEX IF NOT EXISTS pokes_to   ON pokes(to_id);
+CREATE TABLE IF NOT EXISTS invites (
+  phone    TEXT PRIMARY KEY,      -- 숫자만. 운영자가 미리 넣어두는 초대 명단
+  added_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS entry_tries (
+  ip_hash TEXT NOT NULL,          -- 접속지 해시. 원본 IP 는 저장하지 않는다
+  at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS entry_tries_ip ON entry_tries(ip_hash);
 CREATE TABLE IF NOT EXISTS seatings (
   round        INTEGER PRIMARY KEY,
   table_count  INTEGER NOT NULL,
@@ -80,6 +91,8 @@ CREATE TABLE IF NOT EXISTS seatings (
 
 type Fail =
   | "not_found"
+  | "not_invited"
+  | "too_many"
   | "forbidden"
   | "bad_request"
   | "schedule_order"
@@ -232,18 +245,87 @@ export class EventDO extends DurableObject {
     return true;
   }
 
+  // ─────────────────────────── 입장 명단
+  //
+  // 파티에 들어오는 문은 **운영자가 미리 넣어둔 전화번호**다 (ADR-15).
+  // 코드 여섯 자리는 옮겨 적을 수 있지만 남의 번호로는 들어올 수 없다.
+
+  async listInvites(): Promise<Result<Invite[]>> {
+    return ok(this.invites());
+  }
+
+  /** 명단을 통째로 바꾼다. 붙여넣기 한 번이 운영자가 실제로 하는 일이다 */
+  async setInvites(phones: string[], now: number): Promise<Result<Invite[]>> {
+    const clean = [...new Set(phones.map(normalizePhone).filter((p) => p.length >= 9))];
+    if (clean.length > LIMITS.inviteMax) return fail("bad_request");
+    this.ctx.storage.sql.exec("DELETE FROM invites");
+    for (const phone of clean) {
+      this.ctx.storage.sql.exec("INSERT INTO invites (phone, added_at) VALUES (?,?)", phone, now);
+    }
+    return ok(this.invites());
+  }
+
+  async removeInvite(phone: string): Promise<Result<Invite[]>> {
+    this.ctx.storage.sql.exec("DELETE FROM invites WHERE phone = ?", normalizePhone(phone));
+    return ok(this.invites());
+  }
+
+  /**
+   * 입장 확인. 명단에 있는 번호만 통과한다.
+   *
+   * **이미 등록한 사람은 명단과 무관하게 통과한다.** 명단은 문이지 자격이 아니다 —
+   * 운영자가 명단을 정리하다 이미 등록한 사람을 지웠다고 파티 중에 쫓겨나면 안 된다.
+   *
+   * 실패는 회차·접속지별로 센다. 이 문은 인증 없이 열려서, 제한이 없으면
+   * "이 번호가 이 파티에 있나"를 되묻는 창구가 된다 (constants.ts).
+   */
+  async checkEntry(phone: string, ipHash: string, now: number): Promise<Result<EnterResult>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+
+    this.ctx.storage.sql.exec("DELETE FROM entry_tries WHERE at < ?", now - ENTRY_TRIES.windowMs);
+    const tries =
+      this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM entry_tries WHERE ip_hash = ?", ipHash)[0]?.n ?? 0;
+    if (tries >= ENTRY_TRIES.max) return fail("too_many");
+
+    const clean = normalizePhone(phone);
+    const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", clean)[0];
+    const invited = !!this.rows<{ phone: string }>("SELECT phone FROM invites WHERE phone = ?", clean)[0];
+
+    if (!mine && !invited) {
+      this.ctx.storage.sql.exec("INSERT INTO entry_tries (ip_hash, at) VALUES (?,?)", ipHash, now);
+      return fail("not_invited");
+    }
+    // 들어온 사람의 시도 기록은 남기지 않는다
+    this.ctx.storage.sql.exec("DELETE FROM entry_tries WHERE ip_hash = ?", ipHash);
+    return ok(mine ? { registered: true, code: meta.code } : { registered: false });
+  }
+
+  /** 번호로 그 사람을 찾는다. 입장 확인을 통과한 뒤 세션을 만들 때만 쓴다 */
+  async playerIdByPhone(phone: string): Promise<Result<string | null>> {
+    const row = this.rows<{ id: string }>("SELECT id FROM players WHERE phone = ?", normalizePhone(phone))[0];
+    return ok(row?.id ?? null);
+  }
+
+  private invites(): Invite[] {
+    const byPhone = new Map(this.players().map((p) => [p.phone, p.nickname]));
+    return this.rows<{ phone: string; added_at: number }>(
+      "SELECT * FROM invites ORDER BY added_at, phone",
+    ).map((r) => ({ phone: r.phone, addedAt: r.added_at, nickname: byPhone.get(r.phone) }));
+  }
+
   // ─────────────────────────── 참가자
 
   /**
    * 등록. 같은 전화번호로 다시 오면 새로 만들지 않고 그 사람으로 재접속시킨다.
    * 닉네임 유일성은 회차 안에서만 — 다른 회차의 같은 닉네임은 상관없다.
    */
-  async register(input: RegisterInput, now: number): Promise<Result<Player>> {
+  async register(input: RegisterInput, phone: string, now: number): Promise<Result<Player>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (meta.phase === "prep" || meta.phase === "done") return fail("closed");
 
-    const phone = input.phone.replace(/[^0-9]/g, "");
+    // 번호는 폼이 아니라 입장할 때 확인한 값에서 온다 (ADR-15)
     const nickNorm = normalizeNickname(input.nickname);
     if (!nickNorm || !input.realName.trim() || !phone) return fail("bad_request");
     if (input.nickname.trim().length > LIMITS.nicknameMax) return fail("bad_request");
@@ -302,13 +384,10 @@ export class EventDO extends DurableObject {
    * 예전에는 Worker 가 findByPhone → register → participantState 로 **세 번** 들어왔다.
    * 회차 DO 는 요청을 순차 처리하므로, 등록이 몰리는 순간 그 세 배가 그대로 줄이 된다.
    */
-  async registerAndLoad(input: RegisterInput, now: number): Promise<Result<RegisterResult>> {
-    const before = this.rows<{ id: string }>(
-      "SELECT id FROM players WHERE phone = ?",
-      String(input.phone ?? "").replace(/[^0-9]/g, ""),
-    )[0];
+  async registerAndLoad(input: RegisterInput, phone: string, now: number): Promise<Result<RegisterResult>> {
+    const before = this.rows<{ id: string }>("SELECT id FROM players WHERE phone = ?", phone)[0];
 
-    const made = await this.register(input, now);
+    const made = await this.register(input, phone, now);
     if (!made.ok) return made as Result<RegisterResult>;
 
     const state = await this.participantState(made.value.id, now);
@@ -451,6 +530,7 @@ export class EventDO extends DurableObject {
       mutual,
       pokeCount,
       seatings: this.seatings(),
+      invites: this.invites(),
       seatingClosed: (await this.flags()).seatingClosed,
     });
   }
@@ -497,16 +577,19 @@ export class EventDO extends DurableObject {
     return ok(draft);
   }
 
-  /** 좌석 변경은 맞교환 하나뿐이다. 한 명만 옮기면 테이블 성비가 깨진다 (SEATING.md) */
+  /**
+   * 좌석 변경은 **맞교환 하나뿐**이다. 한 명만 옮기면 그 테이블 인원이 늘고 옆이 준다 (SEATING.md).
+   *
+   * 남녀를 맞바꾸는 것도 허용한다. 두 테이블의 남녀 구성이 바뀌지만 인원은 그대로다 —
+   * 현장에서 운영자가 아는 사정(아는 사이, 자리 요청)은 배정 알고리즘이 모른다.
+   * 바뀐 성비는 자리 화면의 `남 N / 여 M` 에 곧바로 보인다.
+   */
   async swapSeats(a: string, b: string): Promise<Result<SeatingRound>> {
     const draft = this.seatings().find((s) => s.status === "draft");
     if (!draft) return fail("not_found");
     const sa = draft.seats.find((s) => s.playerId === a);
     const sb = draft.seats.find((s) => s.playerId === b);
-    if (!sa || !sb) return fail("not_found");
-    const pa = this.player(a);
-    const pb = this.player(b);
-    if (!pa || !pb || pa.gender !== pb.gender) return fail("forbidden");
+    if (!sa || !sb || sa.playerId === sb.playerId) return fail("not_found");
     [sa.table, sb.table] = [sb.table, sa.table];
     this.writeSeating(draft);
     return ok(draft);

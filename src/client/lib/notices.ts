@@ -37,12 +37,20 @@ export function noticesOf(state: ParticipantState): Notice[] {
     const copy = phase === "done" ? NOTICE.done : NOTICE.unrevealed;
     list.push({ key: `done:${phase}`, ...copy, at: fired.done, bannerable: true });
   }
-  if (state.poke.receivedCount > 0) {
+  /**
+   * 받은 콕은 **한 번에 하나씩** 쌓인다. 합쳐서 "지금까지 N회" 로 세어 주면
+   * 숫자만 늘어날 뿐, 한 사람이 마음을 낸 일이 한 줄로 남지 않는다.
+   *
+   * 시각은 넣지 않는다 (`at: 0`). "21:03에 왔다"를 알면 그때 누가 화면을 보고 있었는지와
+   * 맞춰 발신자를 좁힐 수 있다 — 익명은 이름을 가리는 것만으로는 지켜지지 않는다.
+   * 그래서 배너로도 띄우지 않는다. 배너는 최근 3분을 재는 물건이다.
+   */
+  for (let i = 0; i < state.poke.receivedCount; i++) {
     list.push({
-      key: "poked",
+      key: `poked:${i}`,
       icon: "💘",
       title: POKE.received,
-      body: POKE.receivedTotal(state.poke.receivedCount),
+      body: POKE.receivedNote,
       at: 0,
       bannerable: false,
     });
