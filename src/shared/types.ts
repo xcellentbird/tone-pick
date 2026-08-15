@@ -28,15 +28,31 @@ export interface Player {
   createdAt: number;
 }
 
-/** 참가자에게 내려가는 형태. 이 타입 밖의 필드를 참가자 응답에 넣지 말 것. */
-export type PublicPlayer = Pick<
-  Player,
-  "id" | "nickname" | "age" | "gender" | "mbti" | "charms"
->;
+/**
+ * 참가자에게 내려가는 형태. 이 타입 밖의 필드를 참가자 응답에 넣지 말 것.
+ *
+ * **나이와 MBTI 는 단계에 따라 없을 수 있다** (ADR-21). 화면은 없는 경우를 그려야 한다.
+ */
+export type PublicPlayer = Pick<Player, "id" | "nickname" | "gender" | "charms"> &
+  Partial<Pick<Player, "age" | "mbti">>;
 
-export function toPublic(p: Player): PublicPlayer {
-  const { id, nickname, age, gender, mbti, charms } = p;
-  return { id, nickname, age, gender, mbti, charms };
+/**
+ * 참가자 명단이 **한 번에 다 열리지 않는다** (ADR-21).
+ *
+ *   등록 중       명단 자체가 없다 — 몇 명이 왔는지만 안다
+ *   사전 투표     닉네임과 매력. 사람을 고를 때 필요한 건 그 둘이다
+ *   파티 시작 후  나이와 MBTI 까지. 눈앞에 있는 사람이라 이제 숨길 이유가 없다
+ *
+ * 성별은 내내 있다 — 이성만 보기와 아바타가 이걸로 그려진다.
+ */
+export function rosterOpen(phase: Phase): boolean {
+  return phase !== "prep" && phase !== "reg";
+}
+
+export function toPublic(p: Player, phase: Phase): PublicPlayer {
+  const { id, nickname, gender, charms } = p;
+  const base = { id, nickname, gender, charms };
+  return phase === "prevote" ? base : { ...base, age: p.age, mbti: p.mbti };
 }
 
 // ─────────────────────────── 콕

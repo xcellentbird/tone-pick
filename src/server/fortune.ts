@@ -19,7 +19,7 @@ import type { Env } from "./http.ts";
 const TIMEOUT_MS = 6000;
 
 export async function makeFortune(env: Env, input: FortuneInput, now: number): Promise<Fortune> {
-  const key = env.LLM_API_KEY;
+  const key = env.OPENAI_API_KEY;
   if (!key) return fallbackFortune(input, now, FORTUNE.fallback);
 
   try {

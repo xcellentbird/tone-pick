@@ -36,7 +36,7 @@ import type {
   MySeat,
 } from "../shared/types.ts";
 import type { Fortune } from "../shared/fortune.ts";
-import { toPublic } from "../shared/types.ts";
+import { rosterOpen, toPublic } from "../shared/types.ts";
 import { ENTRY } from "../shared/copy.ts";
 import { ENTRY_TRIES, LIMITS, normalizeNickname, normalizePhone } from "../shared/constants.ts";
 import { PHASE_ORDER, canPoke, dueTransition, purgeDueAt } from "../shared/phase.ts";
@@ -483,9 +483,12 @@ export class EventDO extends DurableObject {
         playerCount: this.playerCount(),
       },
       me,
-      roster: this.players()
-        .filter((p) => p.id !== playerId)
-        .map(toPublic),
+      // 명단은 사전 투표부터 열린다. 그 전에는 몇 명이 왔는지만 안다 (ADR-21)
+      roster: rosterOpen(meta.phase)
+        ? this.players()
+            .filter((p) => p.id !== playerId)
+            .map((p) => toPublic(p, meta.phase))
+        : [],
       poke: await this.pokeState(playerId, meta),
       seat: this.mySeat(playerId),
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
@@ -826,7 +829,7 @@ export class EventDO extends DurableObject {
         if (!other) continue;
         const theirTable = last?.seats.find((s) => s.playerId === otherId)?.table;
         matches.push({
-          player: toPublic(other),
+          player: toPublic(other, meta.phase),
           sameTable: mySeat && theirTable === mySeat.table ? mySeat.table : undefined,
           // 연락처가 참가자에게 나가는 유일한 자리다 (ADR-19).
           // 이 블록은 `meta.phase === "done"` 안이고, `mutual` 에 든 쌍만 지난다

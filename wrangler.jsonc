@@ -67,7 +67,7 @@
         "ENV_LABEL": "QA",
         "MASTER_PIN": "0000",
         "SESSION_SECRET": "qa-not-a-secret",
-        // 오늘의 연애운. 키(LLM_API_KEY)는 시크릿으로만 넣는다 — 여기 적으면 그대로 공개된다
+        // 오늘의 연애운. 키(OPENAI_API_KEY)는 시크릿으로만 넣는다 — 여기 적으면 그대로 공개된다
         "LLM_MODEL": "gpt-5.6-luna"
       },
       "assets": {
