@@ -33,6 +33,15 @@ export default function Players() {
   const [filter, setFilter] = useState<Filter>("all");
   const shown = state.players.filter((p) => filter === "all" || p.gender === filter);
   const joined = state.invites.filter((i) => i.nickname).length;
+  /**
+   * 세 숫자를 한 번에 보여준다 — 고른 쪽만 세면 성비를 보려고 버튼을 두 번 눌러야 한다.
+   * 현황 탭에서 뺀 성비가 실제로 필요한 자리는 명단 앞이다.
+   */
+  const count: Record<Filter, number> = {
+    all: state.players.length,
+    M: state.players.filter((p) => p.gender === "M").length,
+    F: state.players.filter((p) => p.gender === "F").length,
+  };
 
   function askDelete(playerId: string) {
     const rounds = state.seatings.filter((s) => s.seats.some((x) => x.playerId === playerId)).length;
@@ -74,7 +83,7 @@ export default function Players() {
       <div className="choice">
         {([["all", HOST_UI.players.filterAll], ["M", GENDER.M], ["F", GENDER.F]] as const).map(([key, label]) => (
           <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>
-            {label}
+            {label} <span className="filterCount">{count[key]}</span>
           </button>
         ))}
       </div>
