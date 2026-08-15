@@ -503,14 +503,15 @@ button {
 
 .tableGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  /* 칩이 두 줄(닉네임 / 실명·나이·MBTI)이라 칸을 조금 넓게 잡는다 */
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: var(--gap);
 }
 
 .seatChip {
   box-shadow: var(--shadow);
   display: flex;
-  justify-content: space-between;
+  align-items: stretch;
   gap: 8px;
   background: var(--card-2);
   border: 1px solid var(--line);

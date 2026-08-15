@@ -37,6 +37,13 @@ export default function Seats() {
     }
   }
 
+  async function shuffle() {
+    await post(`${base}/shuffle`);
+    toast(HOST.seating.shuffled);
+    setPicked(null);
+    reload();
+  }
+
   async function swap(playerId: string) {
     if (!picked) return setPicked(playerId);
     if (picked === playerId) return setPicked(null);
@@ -121,10 +128,14 @@ export default function Seats() {
             >
               {HOST_UI.seats.discard}
             </button>
-            <button className="btn wide primary" onClick={() => askPublish(draft)}>
-              {HOST.seating.publish}
+            {/* 계산은 그대로, 사람만 다시 섞는다. 테이블마다 남 몇·여 몇인지는 그대로다 */}
+            <button className="btn wide" onClick={shuffle}>
+              🔀 {HOST_UI.seats.shuffle}
             </button>
           </div>
+          <button className="btn primary block" onClick={() => askPublish(draft)}>
+            {HOST.seating.publish}
+          </button>
         </div>
       )}
 
@@ -177,9 +188,17 @@ function Tables({
                 key={person.id}
                 onClick={() => onPick(person.id)}
               >
-                <span className="ellipsis">{person.nickname}</span>
-                {/* 색만으로 구분하지 않는다 */}
-                <span className="sex">{person.gender === "M" ? "♂" : "♀"}</span>
+                <span className="grow" style={{ minWidth: 0 }}>
+                  <span className="row between">
+                    <span className="ellipsis">{person.nickname}</span>
+                    {/* 색만으로 구분하지 않는다 */}
+                    <span className="sex">{person.gender === "M" ? "♂" : "♀"}</span>
+                  </span>
+                  {/* 운영자만 전체를 본다 — 자리에서 사람을 찾으려면 실명이 필요하다 */}
+                  <span className="tiny dim ellipsis" style={{ display: "block" }}>
+                    {person.realName} · {UNIT.age(person.age)} · {person.mbti}
+                  </span>
+                </span>
               </button>
             ))}
           </div>
