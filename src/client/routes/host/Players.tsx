@@ -15,6 +15,7 @@ import type { Gender, Invite } from "../../../shared/types.ts";
 import { LIMITS, normalizePhone } from "../../../shared/constants.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
+import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
 import { useConsole } from "./HostConsole.tsx";
 
@@ -91,7 +92,7 @@ export default function Players() {
 
       {shown.map((p) => (
         <button className="person" key={p.id} onClick={() => navigate(`${base}/${p.id}`)}>
-          <span className="avatar">{p.gender === "M" ? "🙋‍♂️" : "🙋‍♀️"}</span>
+          <Avatar nickname={p.nickname} />
           <span className="meta">
             <span className="name ellipsis">
               {p.nickname} · {UNIT.age(p.age)} · {p.mbti}

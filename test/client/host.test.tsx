@@ -19,7 +19,7 @@ afterEach(cleanup);
 
 const HOUR = 3600_000;
 
-function hostState(over: Partial<HostState["meta"]> = {}): HostState & { seatingClosed: boolean } {
+function hostState(over: Partial<HostState["meta"]> = {}): HostState {
   return {
     meta: {
       id: "e1",
@@ -57,13 +57,13 @@ function hostState(over: Partial<HostState["meta"]> = {}): HostState & { seating
       },
     ],
     sent: { p1: 1, p2: 0 },
+    received: { p1: 0, p2: 1 },
     prevoteRank: [{ id: "p2", count: 1 }, { id: "p1", count: 0 }],
     mutual: [],
     pokeCount: { pre: 1, party: 0 },
     pokeUsedMax: { pre: 1, party: 0 },
     seatings: [],
     invites: [],
-    seatingClosed: false,
   };
 }
 
@@ -162,6 +162,7 @@ describe("운영자 콘솔", () => {
     await screen.findByText(HOST_UI.invites.title);
 
     expect(screen.getAllByText(HOST_UI.players.sent(1)).length).toBeGreaterThan(0);
+    // 참가자 탭에는 안 보인다. 현황 탭의 순위와는 자리가 다르다 (ADR-30)
     expect(document.body.textContent).not.toContain("받은 콕");
   });
 

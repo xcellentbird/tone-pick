@@ -28,6 +28,13 @@
 :root {
   /* 바탕 — 순수 검정을 피한다. 파티장 조명 아래서 검정은 화면이 꺼진 것처럼 보인다 */
   --bg: #131316;
+  /*
+   * 화면 위아래 모서리에 아주 옅게 번지는 빛. 파티 앱다운 공기를 만든다.
+   * **아주 옅게** 둔다 — 진하면 목록을 길게 스크롤할 때 카드 대비가 흔들린다.
+   */
+  --aurora:
+    radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--ok) 9%, transparent), transparent 60%);
   --card: #1d1d20;
   --card-2: #26262a;
   --line: #33333a;
@@ -55,6 +62,17 @@
    */
   --male: #5b9dff;
   --female: #ff7eb6;
+
+  /*
+   * 아바타 색. **사람을 구분하는 것**이 목적이라 성별이 아니라 닉네임 해시로 고른다.
+   * 목록·프로필·자리·현황이 같은 색을 쓰므로, 한 사람은 어디서든 같은 색이다.
+   */
+  --av-1: linear-gradient(140deg, #ff6b9d, #ff9a5c);
+  --av-2: linear-gradient(140deg, #5b9dff, #8b5cf6);
+  --av-3: linear-gradient(140deg, #34d399, #0ea5e9);
+  --av-4: linear-gradient(140deg, #ffb400, #fb7185);
+  --av-5: linear-gradient(140deg, #a78bfa, #f472b6);
+  --av-6: linear-gradient(140deg, #22d3ee, #6366f1);
 
   --radius: 16px;
   --radius-sm: 8px;
@@ -100,6 +118,9 @@ button {
   flex-direction: column;
   height: 100dvh;
   overflow: hidden;
+  /* 오로라는 화면에 고정이다. 목록과 함께 흐르면 스크롤이 어지럽다 */
+  background: var(--aurora), var(--bg);
+  background-attachment: local, local;
 }
 
 .screen > header {
@@ -295,8 +316,52 @@ button {
  * 말줄임(.ellipsis)도 인라인에서는 걸리지 않는다 — 폭을 가진 블록이어야 한다.
  */
 .person .meta { min-width: 0; flex: 1; display: block; }
-.person .name { display: block; font-weight: 700; font-size: 15px; }
-.person .charm { display: block; color: var(--dim); font-size: 13px; }
+.person .name { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 15px; min-width: 0; }
+.person .name .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 나이는 이름보다 한 단계 물러난다. 이름이 먼저 읽혀야 한다 */
+.person .age { font-weight: 500; font-size: 13px; color: var(--dim); flex: none; }
+
+/*
+ * MBTI 배지. 이름 줄에 `· 28세 · ENFP` 로 붙어 있으면 한 덩어리로 뭉개진다.
+ * 사전 투표 단계에는 나이·MBTI 가 응답에 없어서(ADR-21) 이 자리가 통째로 비어야 한다.
+ */
+.badge {
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--dim);
+}
+
+/*
+ * 매력 칩. **한 줄에서 자른다** — 등록 폼이 "문장으로 써도 좋아요" 라고 권하므로
+ * 세 개를 다 펼치면 카드 키가 제각각이 되고 목록이 들썩인다.
+ * 짧으면 셋 다 보이고, 길면 하나둘 + 페이드. 전문은 프로필 시트에서 본다.
+ */
+.charms {
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
+  height: 22px;
+  position: relative;
+  mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+}
+.charms .chip {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--dim);
+  white-space: nowrap;
+}
 
 /*
  * 발표 후 서로 찌른 사람. 목록에서 **바로 눈에 띄어야** 한다 —
@@ -309,6 +374,51 @@ button {
 }
 .person .charm.matchLine { color: var(--accent); font-weight: 700; }
 .matchCard { border: 1px solid var(--accent); }
+
+/* ── 현황 탭 (ADR-30) */
+
+/* 👑 사전 투표 1위. 진행 멘트에 쓰는 정보라 이름이 크게 읽혀야 한다 */
+.crown {
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent);
+  background: linear-gradient(100deg, color-mix(in srgb, var(--gold) 16%, transparent), transparent);
+  box-shadow: var(--shadow);
+}
+.crown .ico { font-size: 24px; flex: none; }
+.crown .name { font-weight: 800; font-size: 16px; }
+
+/* 💘 상호 매칭. 양쪽 아바타 사이에 하트 — 누구와 누구인지가 한눈에 */
+.pairRow { gap: 8px; }
+.pairRow .grow { min-width: 0; }
+
+/*
+ * 🔥 받은 콕 순위. 바 길이는 1위 대비 비율이다 — 절대 수보다 "얼마나 몰렸나" 가 눈에 들어온다.
+ * 0회인 사람도 남긴다. 빼면 빠진 사람이 곧 0회라 감춘 게 감춰지지 않는다.
+ */
+.rank {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.rank .no { width: 18px; font-weight: 800; font-size: 13px; color: var(--dim); text-align: center; flex: none; }
+.rank .no.top { color: var(--gold); }
+.rank .who { flex: 1; min-width: 0; }
+.rank .name { font-weight: 700; font-size: 14px; }
+.rank .bar {
+  display: block;
+  margin-top: 5px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--card-2);
+  overflow: hidden;
+}
+.rank .bar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.rank .ct { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; width: 22px; text-align: right; flex: none; }
 
 /* 필터 버튼 안의 인원 수. 라벨보다 한 톤 죽여 라벨을 먼저 읽게 한다 */
 .choice .filterCount {
@@ -341,7 +451,19 @@ button {
 }
 
 .pokeBtn.on { border-color: var(--accent-solid); background: var(--accent-solid); color: var(--on-accent); }
-.pokeCount { font-size: 12px; color: var(--accent); min-width: 18px; text-align: center; }
+/*
+ * 찌른 횟수는 버튼 **오른쪽**에 둔다. 왼쪽에 두면 찌른 카드만 폭이 좁아져 목록이 들쭉날쭉해진다.
+ * 자리는 0회일 때도 비워두므로 폭이 흔들리지 않는다.
+ */
+.pokeCell { display: flex; align-items: center; gap: 4px; flex: none; }
+.pokeCount {
+  width: 14px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
 
 /* ─────────────────────────── 상태 셀 · 배너 */
 

@@ -14,6 +14,7 @@ import type { SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
+import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
 import { Num } from "./HostDefaults.tsx";
 import { useConsole } from "./HostConsole.tsx";
@@ -114,7 +115,7 @@ export default function Seats() {
           danger: true,
           note: HOST_UI.seats.breakNote,
           // 떨어지는 쌍을 전부 이름으로 보여준다. 한 번에 여럿이 깨질 수 있다
-          facts: broken.map(([x, y]) => [HOST_UI.dash.mutualTitle, HOST_UI.dash.mutualPair(name(x), name(y))]),
+          facts: broken.map(([x, y]) => [HOST_UI.seats.pairLabel, HOST_UI.dash.mutualPair(name(x), name(y))]),
         },
         run,
       );
@@ -134,7 +135,7 @@ export default function Seats() {
           [HOST_UI.dash.registered(round.seats.length), UNIT.people(Math.round(perTable))],
           // 커플 자리는 성적표를 함께 보여준다. 배정이 닫히지는 않는다 — 한 번 더 할 수 있다
           ...(round.final
-            ? ([[HOST_UI.dash.mutualTitle, HOST_UI.seats.pairSummary(pairs.together, pairs.total)]] as Array<[string, string]>)
+            ? ([[HOST_UI.seats.pairLabel, HOST_UI.seats.pairSummary(pairs.together, pairs.total)]] as Array<[string, string]>)
             : ([[HOST_UI.seats.roundTitle(round.round, false), HOST.seating.draftOnly]] as Array<[string, string]>)),
         ],
       },
@@ -367,6 +368,7 @@ function Tables({
                 key={person.id}
                 onClick={() => onPick(person.id)}
               >
+                <Avatar nickname={person.nickname} size="sm" />
                 <span className="grow" style={{ minWidth: 0 }}>
                   <span className="row between">
                     <span className="ellipsis">

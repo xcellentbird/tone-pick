@@ -15,6 +15,7 @@ import { rosterOpen } from "../../shared/types.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
+import Avatar from "../ui/Avatar.tsx";
 import Sheet from "../ui/Sheet.tsx";
 
 interface Props {
@@ -115,16 +116,29 @@ export default function People({ state, source, reload, profileId, onProfile, co
           return (
             <div className="row" key={p.id}>
               <button className={`person grow ${match ? "matched" : ""}`} onClick={() => onProfile(p.id)}>
-                <span className="avatar">{p.gender === "M" ? "🙋‍♂️" : "🙋‍♀️"}</span>
+                <Avatar nickname={p.nickname} />
                 <span className="meta">
-                  {/* 나이·MBTI 는 파티가 시작돼야 온다. 없으면 닉네임만 (ADR-21) */}
-                  <span className="name ellipsis">{[p.nickname, p.age && UNIT.age(p.age), p.mbti].filter(Boolean).join(" · ")}</span>
-                  {/* 색만으로 말하지 않는다. 매칭이면 매력 대신 그 사실을 적는다 */}
-                  <span className={`charm ellipsis ${match ? "matchLine" : ""}`}>
-                    {match
-                      ? `${REVEAL.matchBadge}${match.sameTable ? ` · ${SEAT.banner(match.sameTable)}` : ""}`
-                      : p.charms[0]}
+                  <span className="name">
+                    <span className="who">{p.nickname}</span>
+                    {/* 나이·MBTI 는 파티가 시작돼야 온다. 그 전에는 자리가 통째로 빈다 (ADR-21) */}
+                    {p.age && <span className="age">{p.age}</span>}
+                    {p.mbti && <span className="badge">{p.mbti}</span>}
                   </span>
+                  {/* 색만으로 말하지 않는다. 매칭이면 매력 대신 그 사실을 적는다 */}
+                  {match ? (
+                    <span className="charm matchLine ellipsis">
+                      {REVEAL.matchBadge}
+                      {match.sameTable ? ` · ${SEAT.banner(match.sameTable)}` : ""}
+                    </span>
+                  ) : (
+                    <span className="charms">
+                      {p.charms.map((c, i) => (
+                        <span className="chip" key={i}>
+                          {c}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </span>
               </button>
               <PokeControls count={state.poke.sentTo[p.id] ?? 0} disabled={!open} onSend={() => send(p)} />
@@ -158,7 +172,7 @@ export default function People({ state, source, reload, profileId, onProfile, co
               </div>
             )}
             <div className="row">
-              <span className="avatar">{profile.gender === "M" ? "🙋‍♂️" : "🙋‍♀️"}</span>
+              <Avatar nickname={profile.nickname} size="lg" />
               <div className="grow">
                 <div className="name">{profile.nickname}</div>
                 {(profile.age || profile.mbti) && (
@@ -196,7 +210,6 @@ export default function People({ state, source, reload, profileId, onProfile, co
   );
 }
 
-/** 보낸 횟수와 찌르기 버튼. 되돌리기는 지금 화면에 없다 */
 /**
  * 서로 찌른 상대의 연락처.
  *
@@ -236,9 +249,13 @@ function PokeControls({
   disabled: boolean;
   onSend: () => void;
 }) {
+  /**
+   * 숫자는 버튼 **오른쪽**에 둔다.
+   * 왼쪽에 두면 찌른 사람과 안 찌른 사람의 카드 폭이 달라져 목록이 들쭉날쭉해진다.
+   * 오른쪽 끝은 어차피 비어 있는 자리고, 자리를 늘 비워두면 폭도 흔들리지 않는다.
+   */
   return (
-    <div className="row" style={{ gap: 6 }}>
-      {count > 0 && <span className="pokeCount">{POKE.confirm.count(count)}</span>}
+    <div className="pokeCell">
       <button
         className={`pokeBtn ${count > 0 ? "on" : ""}`}
         disabled={disabled}
@@ -247,6 +264,7 @@ function PokeControls({
       >
         👉
       </button>
+      <span className="pokeCount">{count > 0 ? count : ""}</span>
     </div>
   );
 }
