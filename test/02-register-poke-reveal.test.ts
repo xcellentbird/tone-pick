@@ -689,16 +689,44 @@ describe("참가자를 지웠을 때", () => {
     expect((await enter(ev.id, b.phone)).status).toBe(403);
   });
 
-  it("남은 사람의 받은 콕이 그만큼 줄어든다", async () => {
+  it("★ 남은 사람의 받은 콕이 줄지 않는다 — 줄면 누가 찔렀는지 드러난다", async () => {
+    // 참가자 탭에서 누가 사라졌는지가 동시에 보인다.
+    // 받은 콕이 함께 줄면 그 둘을 맞춰 발신자를 특정할 수 있다 (ADR-29)
     const { ev, a, b } = await pair();
     const before = await api<ParticipantState>("/api/me", { cookie: a.cookie });
     expect(before.body.poke.receivedCount).toBe(1);
 
     await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
     const after = await api<ParticipantState>("/api/me", { cookie: a.cookie });
-    // 지운 사람이 찌른 콕도 함께 사라진다. 확인창이 그 사실을 말해야 하는 이유다
-    expect(after.body.poke.receivedCount).toBe(0);
+    expect(after.body.poke.receivedCount).toBe(1);
+    // 명단에서는 사라진다. 남는 건 아무것도 가리키지 않는 숫자뿐이다
     expect(after.body.roster).toEqual([]);
+    expect(JSON.stringify(after.body.poke)).not.toContain(b.id);
+  });
+
+  it("★ 지운 사람에게 쓴 콕은 예산이 돌아온다", async () => {
+    const { ev, a, b } = await pair();
+    const before = await api<ParticipantState>("/api/me", { cookie: a.cookie });
+    expect(before.body.poke.budget.pre.used).toBe(1);
+
+    await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
+    const after = await api<ParticipantState>("/api/me", { cookie: a.cookie });
+    // 없는 사람에게 쓴 횟수를 물릴 이유가 없다
+    expect(after.body.poke.budget.pre.used).toBe(0);
+  });
+
+  it("★ 운영자 화면에는 지워진 사람이 남지 않는다", async () => {
+    const { ev, a, b } = await pair();
+    await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
+
+    const state = await api<{ mutual: Array<[string, string]>; sent: Record<string, number>; pokeUsedMax: Record<string, number> }>(
+      `/api/host/events/${ev.id}/state`,
+      { cookie: master },
+    );
+    // 빈 이름의 커플이 뜨거나, 없는 사람 때문에 콕 상한이 묶이면 안 된다
+    expect(state.body.mutual).toEqual([]);
+    expect(Object.keys(state.body.sent)).toEqual([a.id]);
+    expect(state.body.pokeUsedMax.pre).toBe(0);
   });
 
   it("★ 발행한 자리에서도 빠진다", async () => {
