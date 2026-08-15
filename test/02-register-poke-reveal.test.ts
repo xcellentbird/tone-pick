@@ -319,6 +319,7 @@ describe("공개 범위", () => {
     const ev = await freshEvent();
     const me = await join(ev);
     const her = await join(ev, { gender: "F", realName: "박비밀", instagram: "secret_gram" });
+    await setPhase(ev.id, "prevote");   // 명단은 사전 투표부터 열린다 (ADR-21)
 
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
     expect(state.status).toBe(200);
@@ -564,6 +565,71 @@ describe("콕", () => {
     // 결과를 보고 나서 뒤늦게 찌르는 일이 없어야 한다
     const late = await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
     expect(late.status).toBe(409);
+  });
+});
+
+// ─────────────────────────────────────────── 명단 공개 범위
+
+/**
+ * 명단은 **한 번에 다 열리지 않는다** (ADR-21).
+ *
+ *   등록 중       명단 자체가 없다 — 몇 명이 왔는지만 안다
+ *   사전 투표     닉네임과 매력. 사람을 고를 때 필요한 건 그 둘이다
+ *   파티 시작 후  나이와 MBTI 까지
+ */
+describe("명단 공개 범위", () => {
+  it("★ 등록 중에는 명단이 없다 — 인원 수만 안다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await join(ev, { gender: "F" });
+
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.roster).toEqual([]);
+    // 몇 명이 모였는지는 보인다. 기다리는 사람에게 그건 필요한 정보다
+    expect(state.body.event.playerCount).toBe(2);
+  });
+
+  it("★ 사전 투표에서는 닉네임과 매력만 — 나이·MBTI 는 아직이다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await join(ev, { gender: "F", nickname: "그녀" });
+    await setPhase(ev.id, "prevote");
+
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    const her = state.body.roster[0];
+    expect(her.nickname).toBe("그녀");
+    expect(her.charms.length).toBe(3);
+    expect(her.age).toBeUndefined();
+    expect(her.mbti).toBeUndefined();
+    // 나이가 응답 어디에도 없다 — 화면에서만 감추는 게 아니다
+    expect(Object.keys(her)).not.toContain("age");
+    expect(Object.keys(her)).not.toContain("mbti");
+  });
+
+  it("★ 파티가 시작되면 나이와 MBTI 가 열린다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await join(ev, { gender: "F", nickname: "그녀" });
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+
+    const her = (await api<ParticipantState>("/api/me", { cookie: me.cookie })).body.roster[0];
+    expect(her.age).toBe(28);
+    expect(her.mbti).toBe("ENFP");
+  });
+
+  it("어느 단계에서도 실명·전화번호·인스타는 없다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F", realName: "박비밀", instagram: "secret_gram" });
+
+    for (const to of ["prevote", "party"]) {
+      await setPhase(ev.id, to);
+      const raw = JSON.stringify((await api<ParticipantState>("/api/me", { cookie: me.cookie })).body.roster);
+      expect(raw).not.toContain("박비밀");
+      expect(raw).not.toContain("secret_gram");
+      expect(raw).not.toContain(her.phone);
+    }
   });
 });
 

@@ -23,7 +23,7 @@ export interface Env {
    * 오늘의 연애운을 쓰는 모델. **없어도 앱은 돈다** — 규칙 문구로 떨어진다 (ADR-20).
    * 모델과 주소를 설정으로 둬서 제공자가 바뀌어도 코드가 아니라 변수가 바뀐다.
    */
-  LLM_API_KEY?: string;
+  OPENAI_API_KEY?: string;
   LLM_MODEL?: string;
   LLM_BASE_URL?: string;
 }

@@ -11,6 +11,7 @@ import { useState } from "react";
 import { BTN, ME, PEOPLE, POKE, REVEAL, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
 import type { MatchInfo, ParticipantState, PublicPlayer } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
+import { rosterOpen } from "../../shared/types.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
@@ -104,7 +105,9 @@ export default function People({ state, source, reload, profileId, onProfile, co
         {open && <span className="small dim">{STATUS.roundLeft(round, budget.max - budget.used)}</span>}
       </div>
 
-      {list.length === 0 && <p className="dim center">{PEOPLE.empty}</p>}
+      {list.length === 0 && (
+        <p className="dim center pre">{rosterOpen(state.event.phase) ? PEOPLE.empty : PEOPLE.notOpenYet}</p>
+      )}
 
       <div className="stack">
         {list.map((p) => {
@@ -114,9 +117,8 @@ export default function People({ state, source, reload, profileId, onProfile, co
               <button className={`person grow ${match ? "matched" : ""}`} onClick={() => onProfile(p.id)}>
                 <span className="avatar">{p.gender === "M" ? "🙋‍♂️" : "🙋‍♀️"}</span>
                 <span className="meta">
-                  <span className="name ellipsis">
-                    {p.nickname} · {UNIT.age(p.age)} · {p.mbti}
-                  </span>
+                  {/* 나이·MBTI 는 파티가 시작돼야 온다. 없으면 닉네임만 (ADR-21) */}
+                  <span className="name ellipsis">{[p.nickname, p.age && UNIT.age(p.age), p.mbti].filter(Boolean).join(" · ")}</span>
                   {/* 색만으로 말하지 않는다. 매칭이면 매력 대신 그 사실을 적는다 */}
                   <span className={`charm ellipsis ${match ? "matchLine" : ""}`}>
                     {match
@@ -159,9 +161,11 @@ export default function People({ state, source, reload, profileId, onProfile, co
               <span className="avatar">{profile.gender === "M" ? "🙋‍♂️" : "🙋‍♀️"}</span>
               <div className="grow">
                 <div className="name">{profile.nickname}</div>
-                <div className="small dim">
-                  {UNIT.age(profile.age)} · {profile.mbti}
-                </div>
+                {(profile.age || profile.mbti) && (
+                  <div className="small dim">
+                    {[profile.age && UNIT.age(profile.age), profile.mbti].filter(Boolean).join(" · ")}
+                  </div>
+                )}
               </div>
               <PokeControls
                 count={state.poke.sentTo[profile.id] ?? 0}

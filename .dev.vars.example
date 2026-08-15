@@ -4,4 +4,4 @@ MASTER_PIN=0000
 SESSION_SECRET=change-me-please
 
 # 오늘의 연애운 (없어도 앱은 돈다 — 규칙 문구로 떨어진다)
-LLM_API_KEY=
+OPENAI_API_KEY=
