@@ -12,7 +12,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
-import { ENTRY, ENV_BANNER, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
+import { ENTRY, ENV_BANNER, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
@@ -134,8 +134,8 @@ describe("참가자 화면 · 콕", () => {
     await screen.findByText(POKE.confirm.title(1));
     expect(screen.getByText(POKE.confirm.rowTarget)).toBeTruthy();
     // 보낸 콕 2회 · 남은 횟수 1회 — 무엇이 어떻게 바뀌는지 숫자로
-    expect(screen.getAllByText(POKE.confirm.count(2)).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(POKE.confirm.count(1)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(UNIT.times(2)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(UNIT.times(1)).length).toBeGreaterThan(0);
     expect(source.calls.poke).toEqual([]);   // 아직 보내지 않았다
 
     fireEvent.click(screen.getByText(POKE.confirm.submit));

@@ -69,15 +69,14 @@ export default function People({ state, source, reload, profileId, onProfile, co
         title: POKE.confirm.title(already),
         note: POKE.confirm.note,
         facts: [
-          [POKE.confirm.rowTarget, POKE.confirm.count(already + 1)],
-          [POKE.confirm.rowBudget(round), POKE.confirm.count(budget.max - budget.used - 1)],
+          [POKE.confirm.rowTarget, UNIT.times(already + 1)],
+          [POKE.confirm.rowBudget(round), UNIT.times(budget.max - budget.used - 1)],
         ],
       },
       async () => {
         try {
-          const next = await source.poke(target.id);
-          const left = next.budget[round].max - next.budget[round].used;
-          toast(POKE.sent(target.nickname, next.sentTo[target.id] ?? 1, left));
+          await source.poke(target.id);
+          toast(POKE.sent(target.nickname));
           reload();
         } catch (e) {
           toast(e instanceof ApiError && e.userMessage ? e.userMessage : POKE.blocked.closed);

@@ -74,10 +74,13 @@ async function freshEvent(): Promise<EventMeta> {
 let phoneSeq = 0;
 const nextPhone = () => `0101234${String(1000 + ++phoneSeq)}`;
 
+/** 닉네임에 숫자를 쓸 수 없어서 일련번호를 한글로 읽는다 — `사람7` 대신 `사람칠` */
+const hangulSeq = (n: number) => String(n).replace(/[0-9]/g, (d) => "영일이삼사오육칠팔구"[Number(d)]);
+
 function person(over: Partial<RegisterInput> = {}): RegisterInput {
   return {
-    nickname: `사람${phoneSeq}`,
-    realName: `김실명${phoneSeq}`,
+    nickname: `사람${hangulSeq(phoneSeq)}`,
+    realName: "김실명",
     age: 28,
     gender: "M",
     instagram: `insta_${phoneSeq}`,
@@ -171,6 +174,44 @@ describe("등록", () => {
       });
       expect(res.status, `instagram=${JSON.stringify(instagram)}`).toBe(400);
     }
+  });
+
+  it("닉네임은 2글자 이상, 한글·영문만 받는다", async () => {
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+    const gate = await enter(ev.id, phone);
+
+    for (const nickname of ["나", "닉!네임", "닉 네임", "nick_name", "★별빛", "달빛3", "2세"]) {
+      const res = await api("/api/register", {
+        method: "POST",
+        cookie: gate.cookie,
+        body: person({ nickname }),
+      });
+      expect(res.status, `nickname=${JSON.stringify(nickname)}`).toBe(400);
+    }
+
+    // 한글·영문을 섞은 건 통과한다
+    const ok = await api("/api/register", {
+      method: "POST",
+      cookie: gate.cookie,
+      body: person({ nickname: "달빛moon" }),
+    });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+  });
+
+  it("실명에는 숫자를 넣을 수 없다", async () => {
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+    const gate = await enter(ev.id, phone);
+
+    const res = await api("/api/register", {
+      method: "POST",
+      cookie: gate.cookie,
+      body: person({ realName: "김실명2" }),
+    });
+    expect(res.status).toBe(400);
   });
 
   it("같은 전화번호로 다시 오면 그 사람으로 재접속한다", async () => {
@@ -421,7 +462,7 @@ describe("공개 범위", () => {
 
   it("★ 발표 전에는 서로 찔렀어도 연락처가 없다", async () => {
     const ev = await freshEvent();
-    const me = await join(ev, { nickname: "나" });
+    const me = await join(ev, { nickname: "나야" });
     const her = await join(ev, { gender: "F", realName: "박비밀", instagram: "her_gram" });
     await setPhase(ev.id, "prevote");
 
@@ -438,7 +479,7 @@ describe("공개 범위", () => {
 
   it("★ 한쪽만 찌른 상대의 연락처는 발표 뒤에도 나가지 않는다", async () => {
     const ev = await freshEvent();
-    const me = await join(ev, { nickname: "나" });
+    const me = await join(ev, { nickname: "나야" });
     const her = await join(ev, { gender: "F", realName: "박비밀", instagram: "one_way" });
     await setPhase(ev.id, "prevote");
 

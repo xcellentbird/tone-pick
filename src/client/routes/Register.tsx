@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared/copy.ts";
 import type { RegisterInput, RegisterResult } from "../../shared/types.ts";
-import { LIMITS, RETENTION_DAYS } from "../../shared/constants.ts";
+import { LIMITS, RETENTION_DAYS, nicknameProblem, realNameProblem } from "../../shared/constants.ts";
 import { ApiError, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
 
@@ -160,7 +160,7 @@ export default function Register() {
 
         {at === 2 && (
           <>
-            <p className="tiny dim">{REGISTER.retention(RETENTION_DAYS)}</p>
+            <p className="tiny dim pre">{REGISTER.retention(RETENTION_DAYS)}</p>
             <div className="field">
               <label htmlFor="insta">{ME.labels.instagram}</label>
               <input id="insta" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} />
@@ -225,8 +225,15 @@ export default function Register() {
 /** 검증은 화면 순서대로. 서버도 같은 규칙을 다시 본다 — 여기는 사람이 고치기 쉬우라고 있는 것 */
 function validate(d: Draft, step: number): { field: string; text: string } | null {
   if (step === 1) {
-    if (!d.nickname.trim()) return { field: "nickname", text: REGISTER.err.nick };
-    if (!d.realName.trim()) return { field: "realName", text: REGISTER.err.name };
+    const nick = nicknameProblem(d.nickname);
+    if (nick === "empty") return { field: "nickname", text: REGISTER.err.nick };
+    if (nick === "short" || nick === "long") {
+      return { field: "nickname", text: REGISTER.err.nickLen(LIMITS.nicknameMin, LIMITS.nicknameMax) };
+    }
+    if (nick) return { field: "nickname", text: REGISTER.err.nickChars };
+    const name = realNameProblem(d.realName);
+    if (name === "empty") return { field: "realName", text: REGISTER.err.name };
+    if (name) return { field: "realName", text: REGISTER.err.nameDigit };
     const age = Number(d.age);
     if (!Number.isInteger(age) || age < 18 || age > 99) return { field: "age", text: REGISTER.err.age };
     if (!d.gender) return { field: "gender", text: REGISTER.err.gender };

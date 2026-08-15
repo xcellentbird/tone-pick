@@ -63,10 +63,10 @@ Then   401 이다
 
 ### S-B1 기본 설정을 물려받는다
 ```
-Given  기본값이 { maxPre: 3, maxParty: 3, regOpenBeforeD: 6, prevoteBeforeH: 24 } 다
+Given  기본값이 { maxPre: 1, maxParty: 2, regOpenBeforeD: 6, prevoteBeforeH: 20 } 다
 When   위저드를 연다
-Then   maxPre=3, maxParty=3 이 채워져 있다
-And    등록 시작은 **파티 6일 전**, 사전 투표 시작은 **파티 24시간 전**으로 채워져 있다
+Then   maxPre=1, maxParty=2 가 채워져 있다
+And    등록 시작은 **파티 6일 전**, 사전 투표 시작은 **파티 20시간 전**으로 채워져 있다
 And    입장 코드가 자동으로 채워져 있다
 ```
 > 일정 기본값은 전부 **파티 일시에서 거꾸로** 잰다. 운영자가 실제로 아는 건 "언제 모이나" 하나뿐이다.

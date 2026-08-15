@@ -48,7 +48,6 @@ export default function StatusBar({ state }: { state: ParticipantState }) {
           )}
         </>
       )}
-      {phase === "done" && <span className="small">{STATUS.done}</span>}
     </div>
   );
 }
