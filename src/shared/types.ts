@@ -261,10 +261,14 @@ export interface ApiErrorBody {
 
 // ─────────────────────────── 슬라이스 02~06 · API 계약
 
-/** 회차 설정 수정 (운영자). 넘긴 항목만 바뀐다 */
+/**
+ * 회차 설정 수정 (운영자). 넘긴 항목만 바뀐다.
+ *
+ * **입장 코드는 없다** — 한 번 정해지면 바꾸지 않는다 (ADR-22).
+ * 이미 나간 링크와 안내가 어긋나고, 되돌릴 방법이 없다.
+ */
 export interface EventPatch {
   name?: string;
-  code?: string;
   config?: EventConfig;
 }
 
@@ -346,13 +350,19 @@ export interface RegisterResult {
 export interface HostState {
   meta: EventMeta;
   players: Player[];
-  /** playerId -> 받은 콕 / 보낸 콕 */
-  received: Record<string, number>;
+  /**
+   * playerId -> 보낸 콕.
+   *
+   * **받은 콕은 내려가지 않는다** (ADR-22). 운영자가 알면 그 사람을 다르게 대하게 되고,
+   * 그건 이 앱이 없애려던 경험이다. 화면에서 감추는 게 아니라 응답에 없다.
+   */
   sent: Record<string, number>;
   /** 사전 투표에서 받은 콕 순위 (내림차순) */
   prevoteRank: Array<{ id: string; count: number }>;
   mutual: Array<[string, string]>;
   pokeCount: Record<PokeRound, number>;
+  /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다 */
+  pokeUsedMax: Record<PokeRound, number>;
   seatings: SeatingRound[];
   /** 초대 명단. 참가자 응답에는 절대 실리지 않는다 */
   invites: Invite[];

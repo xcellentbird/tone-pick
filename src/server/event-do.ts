@@ -99,6 +99,7 @@ type Fail =
   | "not_found"
   | "not_invited"
   | "too_many"
+  | "conflict"
   | "forbidden"
   | "bad_request"
   | "schedule_order"
@@ -212,7 +213,7 @@ export class EventDO extends DurableObject {
   }
 
   async patchMeta(
-    patch: { name?: string; code?: string; config?: EventConfig },
+    patch: { name?: string; config?: EventConfig },
     now: number,
   ): Promise<Result<EventMeta>> {
     const meta = await this.touch(now);
@@ -221,10 +222,24 @@ export class EventDO extends DurableObject {
       if (!patch.name.trim()) return fail("bad_request");
       meta.name = patch.name.trim();
     }
-    if (patch.code) meta.code = patch.code.toUpperCase();
     if (patch.config) {
       const { maxPre, maxParty, allowSameGender } = patch.config;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
+
+      /**
+       * 이미 쓴 횟수보다 낮게 내릴 수 없다.
+       *
+       * 내리면 그 사람의 남은 횟수가 음수가 되고, 화면은 "−1회 남음" 을 보여준다.
+       * 이미 보낸 콕을 되물릴 방법도 없다 — 그래서 **막는 쪽**이 맞다.
+       * `detail` 에 지금 가장 많이 쓴 횟수를 실어 보낸다. 문장은 Worker 가 만든다
+       */
+      for (const [round, next] of [["pre", maxPre], ["party", maxParty]] as const) {
+        const used = this.rows<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM pokes WHERE round = ? GROUP BY from_id ORDER BY n DESC LIMIT 1",
+          round,
+        )[0]?.n;
+        if (used && next < used) return fail("conflict", used);
+      }
       // 기본이 '모두에게'라, **좁혔을 때만** 적는다. 켠 상태를 굳이 써 넣으면 설정 모양이 회차마다 달라진다
       meta.config = { maxPre, maxParty, ...(allowSameGender === false ? { allowSameGender: false } : {}) };
     }
@@ -519,23 +534,27 @@ export class EventDO extends DurableObject {
     const players = this.players();
     const pokes = this.pokes();
 
-    const received: Record<string, number> = {};
     const sent: Record<string, number> = {};
     const preReceived: Record<string, number> = {};
+    // 상한을 내릴 수 있는지 판단하려면 **한 사람이 라운드마다 몇 번 썼는지**가 필요하다
+    const usedBy: Record<PokeRound, Record<string, number>> = { pre: {}, party: {} };
     for (const p of players) {
-      received[p.id] = 0;
       sent[p.id] = 0;
       preReceived[p.id] = 0;
     }
     const pokeCount: Record<PokeRound, number> = { pre: 0, party: 0 };
     const pairs = new Set<string>();
     for (const k of pokes) {
-      received[k.toId] = (received[k.toId] ?? 0) + 1;
       sent[k.fromId] = (sent[k.fromId] ?? 0) + 1;
       if (k.round === "pre") preReceived[k.toId] = (preReceived[k.toId] ?? 0) + 1;
+      usedBy[k.round][k.fromId] = (usedBy[k.round][k.fromId] ?? 0) + 1;
       pokeCount[k.round]++;
       pairs.add(`${k.fromId}>${k.toId}`);
     }
+    const pokeUsedMax: Record<PokeRound, number> = {
+      pre: Math.max(0, ...Object.values(usedBy.pre)),
+      party: Math.max(0, ...Object.values(usedBy.party)),
+    };
     const mutual: Array<[string, string]> = [];
     for (const key of pairs) {
       const [a, b] = key.split(">");
@@ -545,13 +564,13 @@ export class EventDO extends DurableObject {
     return ok({
       meta,
       players,
-      received,
       sent,
       prevoteRank: Object.entries(preReceived)
         .map(([id, count]) => ({ id, count }))
         .sort((a, b) => b.count - a.count),
       mutual,
       pokeCount,
+      pokeUsedMax,
       seatings: this.seatings(),
       invites: this.invites(),
       seatingClosed: (await this.flags()).seatingClosed,

@@ -29,7 +29,7 @@ import {
   type Ctx,
   type Env,
 } from "../http.ts";
-import { pokeMessage, seatingMessage } from "../messages.ts";
+import { pokeLimitMessage, pokeMessage, seatingMessage } from "../messages.ts";
 
 export const hostRoutes = new Hono<{ Bindings: Env }>();
 
@@ -159,23 +159,20 @@ hostRoutes.get("/events/:id/state", async (c) => {
   return response ?? c.json(value);
 });
 
-/** 이름·입장 코드·콕 횟수. 코드의 유일성은 레지스트리가 판정한다 */
+/**
+ * 이름·콕 횟수. **입장 코드는 바꾸지 않는다** (ADR-22) —
+ * 이미 나간 링크와 안내가 어긋나고 되돌릴 방법이 없다. 코드를 보내와도 무시한다.
+ */
 hostRoutes.put("/events/:id", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const body = await json<EventPatch>(c);
   if (body.config && !validConfig(body.config)) return apiError(c, "bad_request");
 
-  if (body.code) {
-    const res = await registry(c.env).updateCode(gate.id, body.code);
-    if (!res.ok) {
-      return res.error === "code_taken" ? apiError(c, "code_taken", HOST.pin.codeTaken) : apiError(c, "not_found");
-    }
-  }
-
   const { value, response } = unwrap(
     c,
-    await gate.stub.patchMeta({ name: body.name, code: body.code, config: body.config }, serverNow()),
+    await gate.stub.patchMeta({ name: body.name, config: body.config }, serverNow()),
+    pokeLimitMessage,
   );
   return response ?? c.json(value);
 });

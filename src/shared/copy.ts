@@ -495,9 +495,9 @@ export function schedDiff(
 
 export const DELETE_PLAYER = {
   title: "이 참가자를 삭제할까요?",
-  facts: (v: { sent: number; received: number; rounds: number }): Fact[] => [
+  /** 받은 콕은 숫자로도 말하지 않는다 (ADR-22) — 여기서 새면 감춘 의미가 없다 */
+  facts: (v: { sent: number; rounds: number }): Fact[] => [
     ["보낸 콕", `${v.sent}회 → 삭제`],
-    ["받은 콕", `${v.received}회 → 삭제`],
     ["배정된 자리", `${v.rounds}개 라운드 → 해제`],
   ],
   note: "이 참가자가 주고받은 콕 기록이 모두 사라지고 되돌릴 수 없어요.\n이미 발행한 자리에서도 빠집니다.",
@@ -586,6 +586,14 @@ export const HOST_UI = {
     prevoteBeforeH: "파티 몇 시간 전에 사전 투표를 시작할까요",
   },
 
+  /** 이미 그만큼 쓴 참가자가 있어서 상한을 내릴 수 없을 때 */
+  pokeFloor: (used: number) => `이미 ${used}회 찌른 참가자가 있어요. ${used}회보다 적게는 줄일 수 없습니다.`,
+  /** 설정은 확인을 거쳐야 적용된다 — 참가자 전원의 화면이 바뀐다 */
+  applySettings: "설정 적용",
+  applyTitle: "이 설정을 적용할까요?",
+  applyNothing: "바뀐 것이 없어요",
+  codeFixed: "입장 코드는 만든 뒤에 바꾸지 않아요",
+
   /** '지금 바로'는 시각이 아니라 토글이다 — datetime-local 이 초를 버린다 */
   nowToggle: "지금 바로",
   pickTime: "시각 지정",
@@ -610,7 +618,6 @@ export const HOST_UI = {
   players: {
     empty: "아직 등록한 참가자가 없어요",
     emptyFiltered: "이 조건에 맞는 참가자가 없어요",
-    received: (n: number) => `받은 콕 ${n}회`,
     sent: (n: number) => `보낸 콕 ${n}회`,
     contact: "연락처",
     /** 전체 / 남성 / 여성. 지금 어느 쪽인지 항상 하나가 켜져 있다 */

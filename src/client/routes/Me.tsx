@@ -26,9 +26,9 @@ export default function Me({ state }: { state: ParticipantState }) {
         </div>
       )}
 
+      {/* 입장 코드는 보여주지 않는다 — 문을 여는 건 전화번호고, 코드는 참가자가 쓸 일이 없다 */}
       <div className="card stack">
         <Row label={ME.labels.event} value={event.name} />
-        <Row label={ME.labels.code} value={event.code} />
       </div>
 
       <div className="card stack">

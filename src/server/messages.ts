@@ -4,7 +4,7 @@
  * 문장은 전부 `copy.ts` 에서 온다. 여기서 새로 짓지 않는다.
  * 운영자 대리 호출(데모 뷰)과 참가자 호출이 같은 문장을 쓰게 하려고 한 곳에 모았다.
  */
-import { ENTRY, HOST, POKE, REGISTER } from "../shared/copy.ts";
+import { ENTRY, HOST, HOST_UI, POKE, REGISTER } from "../shared/copy.ts";
 
 export function pokeMessage(error: string, detail?: number): string | undefined {
   if (error === "closed") return POKE.blocked.closed;
@@ -27,6 +27,11 @@ export function enterMessage(error: string): string | undefined {
 export function registerMessage(nickname: string) {
   return (error: string): string | undefined =>
     error === "nick_taken" ? REGISTER.err.nickTaken(nickname) : undefined;
+}
+
+/** 이미 쓴 횟수보다 낮게 내리려 할 때. `detail` 은 지금 가장 많이 쓴 횟수다 */
+export function pokeLimitMessage(error: string, detail?: number): string | undefined {
+  return error === "conflict" ? HOST_UI.pokeFloor(detail ?? 0) : undefined;
 }
 
 export function seatingMessage(error: string): string | undefined {
