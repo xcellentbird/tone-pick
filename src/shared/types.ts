@@ -186,7 +186,12 @@ export type ServerEvent =
   | { type: "poke"; receivedCount: number }          // 익명. 발신자 정보 없음
   | { type: "seating"; round: number; table: number }
   | { type: "reveal" }                                // 클라이언트가 다시 fetch 한다
-  | { type: "pong"; serverTime: number };
+  | { type: "pong"; serverTime: number }
+  /**
+   * 서버가 보내는 게 아니라 **연결이 다시 붙었을 때 클라이언트가 스스로 만드는** 신호다.
+   * 끊긴 동안 일어난 일은 서버가 다시 밀어주지 않는다 — 화면이 스스로 따라잡아야 한다.
+   */
+  | { type: "reconnect" };
 
 export type ClientEvent =
   | { type: "ping" }

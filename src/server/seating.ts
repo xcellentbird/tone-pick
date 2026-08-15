@@ -54,8 +54,28 @@ export interface BuildInput {
   final: boolean;
   /** 이전 라운드들의 좌석. 재회 회피에 쓴다. */
   history: Seat[][];
+  /**
+   * 서로 찌른 쌍. **주고받은 콕이 많은 쌍이 앞**이라고 보고 그 순서대로 자리를 잡는다 (ADR-25).
+   * 한 사람이 여러 명과 이어졌는데 정원이 모자라면, 앞의 쌍이 자리를 가져간다.
+   */
   mutual: Array<[string, string]>;
+  /** 쌍이 주고받은 콕 횟수. `"a|b"`(정렬된 두 아이디) → 횟수. 없으면 최소치(2)로 본다 */
+  strength?: Record<string, number>;
   oneWay: Array<[string, string]>;
+}
+
+/** 서로 찌른 쌍의 최소 교환 — 한 번씩 주고받은 것 */
+const MIN_EXCHANGE = 2;
+
+/**
+ * 주고받은 콕이 많을수록 붙여 앉히는 힘이 세진다.
+ *
+ * **상한을 둔다.** 없으면 30번 주고받은 한 쌍이 나이차 벌점을 통째로 밀어내고
+ * 그 테이블만 이상해진다 — 가중치가 다른 가중치의 합을 넘으면 안 된다는 건
+ * 마지막 라운드에서 이미 겪었다 (ADR-11).
+ */
+export function pairWeight(exchanged: number): number {
+  return Math.min(2, 1 + Math.max(0, exchanged - MIN_EXCHANGE) * 0.2);
 }
 
 const MUTUAL = 1;
@@ -83,8 +103,14 @@ export function buildSeating(input: BuildInput): Seat[] {
   };
 
   // ① 서로 찌른 쌍을 먼저 붙여 앉힌다. 한쪽이 이미 앉아 있으면 그 테이블로 데려간다 —
-  //    한 사람이 여러 쌍에 걸쳐 있을 수 있고, 그때 나머지를 버리면 동석률이 그대로 떨어진다
-  for (const [a, b] of w.mutualPairs) {
+  //    한 사람이 여러 쌍에 걸쳐 있을 수 있고, 그때 나머지를 버리면 동석률이 그대로 떨어진다.
+  //
+  //    **순서가 곧 우선순위다** (ADR-25). 정원이 모자라 한 쌍만 앉힐 수 있을 때
+  //    앞에 온 쌍이 자리를 가져가므로, 주고받은 콕이 많은 쌍부터 본다.
+  const byStrength = [...w.mutualPairs].sort(
+    (x, y) => w.exchanged[y[0] * w.n + y[1]] - w.exchanged[x[0] * w.n + x[1]],
+  );
+  for (const [a, b] of byStrength) {
     if (w.male[a] === w.male[b]) continue;
     const known = seatOf[a] >= 0 ? seatOf[a] : seatOf[b];
     if (known >= 0) {
@@ -138,6 +164,8 @@ class World {
   readonly met: Uint8Array;
   readonly partners: number[][];
   readonly mutualPairs: Array<[number, number]> = [];
+  /** i*n+j → 주고받은 콕 횟수. 붙여 앉히는 힘을 여기서 잰다 */
+  readonly exchanged: Uint8Array;
   readonly n: number;
 
   constructor(input: BuildInput) {
@@ -148,6 +176,7 @@ class World {
     this.intro = new Uint8Array(n);
     this.rel = new Uint8Array(n * n);
     this.met = new Uint8Array(n * n);
+    this.exchanged = new Uint8Array(n * n);
     this.partners = players.map(() => []);
 
     const index = new Map<string, number>();
@@ -168,6 +197,8 @@ class World {
       const ij = pair(a, b);
       if (!ij) continue;
       this.set(this.rel, ij[0], ij[1], MUTUAL);
+      const times = input.strength?.[[a, b].sort().join("|")] ?? MIN_EXCHANGE;
+      this.set(this.exchanged, ij[0], ij[1], Math.min(255, times));
       this.partners[ij[0]].push(ij[1]);
       this.partners[ij[1]].push(ij[0]);
       this.mutualPairs.push(ij);
@@ -221,7 +252,8 @@ function pairCost(w: World, i: number, j: number, rep: { opp: number; same: numb
   // 마지막 라운드의 상호 매칭 쌍은 나이차를 묻지 않는다. 이 라운드의 목적이 그들을 모으는 것이다
   if (!(final && mutual) && Math.abs(w.age[i] - w.age[j]) >= AGE_GAP) cost += SEAT_W.AGE;
 
-  if (mutual) cost -= SEAT_W.POKE_MUTUAL * (final ? FINAL_MUTUAL_BOOST : 1);
+  // 주고받은 콕이 많은 쌍일수록 붙여 앉히는 힘이 세다 (ADR-25)
+  if (mutual) cost -= SEAT_W.POKE_MUTUAL * (final ? FINAL_MUTUAL_BOOST : 1) * pairWeight(w.exchanged[k]);
   else if (rel === ONE_WAY) cost -= SEAT_W.POKE_ONE;
 
   // 마지막 라운드는 재회를 막지 않는다. 서로 찌른 쌍도 언제나 면제 — 억지로 떼어놓지 않는다
