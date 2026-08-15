@@ -24,7 +24,7 @@ const STATE: ParticipantState = {
     code: "ABCDEF",
     phase: "prevote",
     fired: { reg: 1, prevote: 2 },
-    schedule: { voteCloseAt: Date.now() + 3600_000 },
+    schedule: { partyAt: Date.now() + 3600_000 },
     config: { maxPre: 3, maxParty: 3 },
     playerCount: 2,
   },

@@ -49,7 +49,7 @@ describe("위저드", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        new Response(JSON.stringify({ maxPre: 3, maxParty: 3, regOpenAfterH: 1, voteWindowH: 24 }), {
+        new Response(JSON.stringify({ maxPre: 3, maxParty: 3, regOpenBeforeD: 6, prevoteBeforeH: 24 }), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),

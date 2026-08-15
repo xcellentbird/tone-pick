@@ -33,14 +33,23 @@ export function formatClock(ts?: number): string {
   return ts ? timeOnly.format(new Date(ts)) : "";
 }
 
+/** 하루 넘게 남았으면 초를 세지 않는다 — `144:00:00` 은 읽는 사람이 다시 나눠야 한다 */
+export const TICK_WINDOW = 24 * 3600_000;
+
+/** "5일 3시간" / "3시간" — 파티가 아직 먼 동안 쓴다 */
+export function formatDayHour(ms: number): string {
+  const h = Math.floor(Math.max(0, ms) / 3600_000);
+  return h >= 24 ? DURATION.dayHour(Math.floor(h / 24), h % 24) : DURATION.hourMin(h, 0);
+}
+
 /**
- * 남은 시간을 `01:10:45` 로. 초가 움직여야 마감이 다가오는 게 눈에 보인다.
+ * 남은 시간을 `01:10:45` 로. 초가 움직여야 다가오는 게 눈에 보인다.
  *
- * "13시간 42분"은 1분에 한 번 바뀌어서 멈춘 화면처럼 보인다. 파티 중에 참가자가
+ * "13시간 42분"은 1분에 한 번 바뀌어서 멈춘 화면처럼 보인다. 파티 당일 참가자가
  * 가장 자주 보는 숫자라 움직이는 편이 낫다.
  *
- * 시간은 24를 넘어도 그대로 쓴다 (37:12:04). 날짜로 접으면 "며칠 남았지" 를
- * 다시 계산하게 만든다.
+ * 시간은 24를 넘어도 그대로 쓴다 (37:12:04). 다만 하루가 넘게 남았을 때는
+ * 이걸 쓰지 않고 `formatDayHour` 로 접는다.
  */
 export function formatCountdown(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));

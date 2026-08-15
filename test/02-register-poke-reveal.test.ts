@@ -60,7 +60,8 @@ async function freshEvent(): Promise<EventMeta> {
       name: `${seq}회차`,
       pin: String(3000 + seq),
       regOpenAt: "now",
-      voteCloseAt: Date.now() + 24 * HOUR,
+      partyAt: Date.now() + 3 * 24 * HOUR,
+      prevoteAt: Date.now() + 24 * HOUR,
       config: { maxPre: 2, maxParty: 3 },
       requestId: `p-${seq}-${Date.now()}`,
     },
@@ -350,26 +351,39 @@ describe("콕", () => {
 
 // ─────────────────────────────────────────── 되돌리기
 
-describe("발표 되돌리기", () => {
-  it("★ 되돌려도 예약 때문에 즉시 다시 발표되지 않는다", async () => {
+describe("되돌리기", () => {
+  it("★ 되돌려도 예약 때문에 즉시 다시 앞으로 밀리지 않는다", async () => {
+    const ev = await freshEvent();
+
+    // 사전 투표 시작을 이미 지난 시각으로 걸어둔 채, 시작했다가 등록으로 되돌린다
+    const past = Date.now() - 60_000;
+    const sched = await api(`/api/host/events/${ev.id}/schedule`, {
+      method: "PUT",
+      cookie: master,
+      body: { regOpenAt: past - 60_000, prevoteAt: past },
+    });
+    expect(sched.status).toBe(200);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "reg");
+
+    const after = await api<EventMeta>(`/api/host/events/${ev.id}`, { cookie: master });
+    // 예약 시각이 지났는데도 다시 사전 투표로 끌려가지 않는다 (ADR-2)
+    expect(after.body.phase).toBe("reg");
+    // 예약 값은 지우지 않는다 — 기록으로 남아야 한다
+    expect(after.body.schedule.prevoteAt).toBe(past);
+    expect(after.body.fired.prevote).toBeGreaterThan(0);
+  });
+
+  it("발표를 되돌리면 파티 진행으로 돌아간다", async () => {
     const ev = await freshEvent();
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
-
-    // 발표 시각을 이미 지난 시점으로 걸어둔 채 발표했다가 되돌린다
-    const past = Date.now() - 60_000;
-    await api(`/api/host/events/${ev.id}/schedule`, {
-      method: "PUT",
-      cookie: master,
-      body: { revealAt: past },
-    });
     await setPhase(ev.id, "done");
     await setPhase(ev.id, "party");
 
     const after = await api<EventMeta>(`/api/host/events/${ev.id}`, { cookie: master });
     expect(after.body.phase).toBe("party");
-    // 예약 값은 지우지 않는다 — 기록으로 남아야 한다
-    expect(after.body.schedule.revealAt).toBe(past);
+    // 되돌려도 "발표했었다"는 사실은 남는다
     expect(after.body.fired.done).toBeGreaterThan(0);
   });
 });

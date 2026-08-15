@@ -5,20 +5,25 @@
 | URL | 화면 |
 |---|---|
 | `/` | 입장 |
-| `/j/:code` | 회차 확인 |
-| `/j/:code/register/1..3` | 등록 3스텝 |
+| `/j/:id` | 회차 확인 + **입장 코드 문** (참가 링크가 여는 곳) |
+| `/j/:id/register/1..3` | 등록 3스텝 |
 | `/e/:code` | 참가자 메인 · **홈 탭** (스택의 바닥) |
 | `/e/:code/people` | 참가자 탭 |
 | `/e/:code/p/:nick` | 프로필 시트 (모달) |
 | `/e/:code/alerts` `/e/:code/me` | 알림 · 내 정보 |
 | `/host` | PIN |
-| `/host/events` `/host/defaults` | 회차 목록 · 기본 설정 (공통 PIN 전용) |
+| `/host/events` `/host/defaults` | 회차 목록 · 기본 설정 |
 | `/host/new/1..3` | 새 회차 위저드 |
 | `/host/:id` `/players` `/seats` `/settings` | 콘솔 4탭 |
 | `/host/:id/players/:pid` | 참가자 상세 시트 (모달) |
 | `/demo/:id` | 데모 뷰 |
 
 **새로고침해도 같은 화면이 나와야 한다.** 참가자 식별은 URL 이 아니라 HttpOnly 세션 쿠키로 한다.
+
+**참가 링크에는 입장 코드가 없다** (ADR-13). `/j/:id` 는 회차만 가리키고, 등록으로 넘어가려면
+운영자가 따로 알려준 6자리를 맞춰야 한다. 맞춘 코드는 `sessionStorage` 에 남아
+등록 스텝을 오가거나 새로고침해도 다시 묻지 않는다 — 탭을 닫으면 사라진다.
+코드 없이 `/j/:id/register/2` 로 바로 들어오면 `/j/:id` 로 되돌린다 (replace).
 
 ## push / replace
 

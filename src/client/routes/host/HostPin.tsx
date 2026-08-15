@@ -1,8 +1,8 @@
 /**
- * 운영자 PIN.
+ * 운영자 PIN. 하나뿐이다 — 회차마다 따로 두지 않는다 (ADR-12).
  *
- * 회차 화면에서 들어오면 `?event=<id>` 가 붙는다. 그러면 서버가 **회차 PIN 을 먼저** 본다 —
- * 두 PIN 이 같아도 회차 담당자가 전체 권한을 얻지 않게 하기 위해서다 (ADR-3).
+ * 회차 화면에서 세션이 끊겨 들어오면 `?event=<id>` 가 붙는다. 보던 회차로 되돌려주기 위한
+ * 표식일 뿐 권한과는 상관없다.
  * 성공하면 replace 로 넘어간다. 뒤로 가서 PIN 화면이 다시 뜨면 로그아웃처럼 보인다.
  */
 import { useState } from "react";
@@ -24,9 +24,8 @@ export default function HostPin() {
     setBusy(true);
     setError(null);
     try {
-      const res = await post<{ scope: AuthScope }>("/host/pin", eventId ? { pin, eventId } : { pin });
-      const to = res.scope.kind === "host" ? `/host/${res.scope.eventId}` : (eventId ?? "").length > 0 ? `/host/${eventId}` : "/host/events";
-      navigate(to, { replace: true });
+      await post<{ scope: AuthScope }>("/host/pin", { pin });
+      navigate(eventId ? `/host/${eventId}` : "/host/events", { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? (err.userMessage ?? HOST.pin.wrong) : HOST.pin.wrong);
       setBusy(false);

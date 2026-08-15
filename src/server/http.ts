@@ -76,7 +76,6 @@ const STATUS: Record<ErrorCode, number> = {
   unauthorized: 401,
   forbidden: 403,
   not_found: 404,
-  pin_collision: 409,
   code_taken: 409,
   nick_taken: 409,
   closed: 409,
@@ -121,16 +120,9 @@ export async function playerScope(c: Ctx): Promise<AuthScope | null> {
   return scope?.kind === "player" ? scope : null;
 }
 
-/** 회차 목록·기본 설정·회차 생성은 공통 PIN 전용이다 */
+/** 운영자 권한은 한 종류뿐이다 — 운영자 PIN 을 통과했는가 (ADR-12) */
 export function isMaster(scope: AuthScope | null): scope is { kind: "master" } {
   return scope?.kind === "master";
-}
-
-/** 회차 PIN 은 그 회차만 연다. 다른 회차는 403 이다 */
-export function canOpenEvent(scope: AuthScope | null, eventId: string): boolean {
-  if (!scope) return false;
-  if (scope.kind === "master") return true;
-  return scope.kind === "host" && scope.eventId === eventId;
 }
 
 export function isSecure(c: Ctx): boolean {

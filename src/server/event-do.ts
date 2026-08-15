@@ -144,12 +144,13 @@ export class EventDO extends DurableObject {
 
   /**
    * 인증 없이 누구나 받는 응답. `PublicEvent` 밖의 필드를 넣지 마라 (S-C2).
-   * 여기에 PIN·참가자·콕이 새면 개발자 도구를 여는 참가자에게 그대로 보인다.
+   * 여기에 **입장 코드**·참가자·콕이 새면 개발자 도구를 여는 참가자에게 그대로 보인다.
+   * 특히 코드는 이 응답의 목적 자체를 무너뜨린다 — 참가 링크 뒤의 문이 코드다 (ADR-13).
    */
   async publicAt(now: number): Promise<Result<PublicEvent>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    const base = { id: meta.id, name: meta.name, phase: meta.phase };
+    const base = { id: meta.id, name: meta.name, phase: meta.phase, partyAt: meta.schedule.partyAt };
     if (meta.phase === "prep") {
       return ok({
         ...base,
@@ -183,7 +184,7 @@ export class EventDO extends DurableObject {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     const next: EventSchedule = { ...meta.schedule, ...patch };
-    if (!validSchedule(next, meta.phase)) return fail("schedule_order");
+    if (!validSchedule(next)) return fail("schedule_order");
     meta.schedule = next;
     await this.ctx.storage.put("meta", meta);
     await this.rearm(meta, now);
@@ -844,23 +845,21 @@ function inRange(n: number, r: { min: number; max: number }): boolean {
   return Number.isInteger(n) && n >= r.min && n <= r.max;
 }
 
-/** 다음에 울릴 예약 시각. fired 가 찬 항목은 이미 울린 것이므로 건너뛴다 */
+/**
+ * 다음에 울릴 예약 시각. fired 가 찬 항목은 이미 울린 것이므로 건너뛴다.
+ * 사전 투표 마감부터는 예약이 없어서 알람도 걸지 않는다.
+ */
 function nextDue(meta: EventMeta): number | null {
   const { phase, fired, schedule } = meta;
   if (phase === "prep" && schedule.regOpenAt && !fired.reg) return schedule.regOpenAt;
-  if (phase === "prevote" && schedule.voteCloseAt && !fired.party) return schedule.voteCloseAt;
-  if (phase === "party" && schedule.revealAt && !fired.done) return schedule.revealAt;
+  if (phase === "reg" && schedule.prevoteAt && !fired.prevote) return schedule.prevoteAt;
   return null;
 }
 
 /**
- * 순서 검증. 발표 시각이 마감보다 앞서는 건 막되,
- * 이미 파티 단계로 넘어왔으면 현장 판단을 막지 않는다 (FLOWS.md)
+ * 순서 검증. 등록보다 먼저 사전 투표가 열리는 것만 막는다.
+ * 파티 일시는 언제든 옮길 수 있다 — 장소가 바뀌면 시각이 바뀌고, 그건 일정이 아니라 사실이다.
  */
-export function validSchedule(s: EventSchedule, phase: Phase): boolean {
-  if (s.regOpenAt && s.voteCloseAt && s.voteCloseAt <= s.regOpenAt) return false;
-  if (s.voteCloseAt && s.revealAt && s.revealAt <= s.voteCloseAt) {
-    return phase === "party" || phase === "done";
-  }
-  return true;
+export function validSchedule(s: EventSchedule): boolean {
+  return !(s.regOpenAt && s.prevoteAt && s.prevoteAt <= s.regOpenAt);
 }

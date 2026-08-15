@@ -100,9 +100,9 @@ const made = await host("/host/events", {
   method: "POST",
   body: {
     name: `리허설 ${new Date(stamp).toISOString().slice(11, 16)}`,
-    pin: String(1000 + (stamp % 8000)),
+    partyAt: stamp + 86400_000,
     regOpenAt: "now",
-    voteCloseAt: stamp + 86400_000,
+    prevoteAt: stamp + 3600_000,
     config: { maxPre: 3, maxParty: 3 },
     requestId: `rehearsal-${stamp}`,
   },

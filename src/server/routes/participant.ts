@@ -27,6 +27,19 @@ import { pokeMessage, registerMessage } from "../messages.ts";
 
 export const participantRoutes = new Hono<{ Bindings: Env }>();
 
+/**
+ * 참가 링크가 여는 화면. 회차 이름과 단계만 준다 — **입장 코드는 주지 않는다**.
+ *
+ * 링크는 "어느 파티인가"까지만 알려주고, 문을 여는 건 운영자가 따로 알려준 코드다 (ADR-13).
+ * 그래서 이 응답에 코드가 실리면 링크 하나로 문이 열려버린다.
+ */
+participantRoutes.get("/events/by-id/:id", async (c) => {
+  const id = c.req.param("id");
+  if (!(await registry(c.env).hasEvent(id))) return apiError(c, "not_found", ENTRY.notFound);
+  const { value, response } = unwrap(c, await eventStub(c.env, id).publicAt(serverNow()), () => ENTRY.notFound);
+  return response ?? c.json(value);
+});
+
 /** 입장 코드 조회. 인증이 없으므로 `PublicEvent` 밖의 필드를 절대 넣지 않는다 */
 participantRoutes.get("/events/by-code/:code", async (c) => {
   const id = await registry(c.env).idByCode(c.req.param("code"));
@@ -62,8 +75,13 @@ participantRoutes.get("/me", async (c) => {
   const { value, response } = unwrap(c, await seat.stub.participantState(seat.playerId, serverNow()));
   if (response) return response;
 
-  const asked = c.req.query("code");
-  if (asked && asked.toUpperCase() !== value!.event.code) return apiError(c, "unauthorized", ENTRY.notFound);
+  // 화면은 코드로도(참가자 탭), 회차 아이디로도(참가 링크) 물어볼 수 있다
+  const askedCode = c.req.query("code");
+  const askedId = c.req.query("event");
+  if (askedCode && askedCode.toUpperCase() !== value!.event.code) {
+    return apiError(c, "unauthorized", ENTRY.notFound);
+  }
+  if (askedId && askedId !== value!.event.id) return apiError(c, "unauthorized", ENTRY.notFound);
   return c.json(value);
 });
 

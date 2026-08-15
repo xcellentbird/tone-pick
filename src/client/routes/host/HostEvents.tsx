@@ -1,5 +1,5 @@
 /**
- * 회차 목록. 공통 PIN 전용이다 — 회차 PIN 으로 들어오면 서버가 403 을 준다.
+ * 회차 목록. 운영자 PIN 하나로 모든 회차가 여기 보인다 (ADR-12).
  */
 import { useNavigate } from "react-router";
 import { HOST_UI, PHASE_LABEL, SCREEN_TITLE, UNIT } from "../../../shared/copy.ts";
@@ -11,7 +11,7 @@ import { useAuthRedirect } from "../../lib/guard.ts";
 export default function HostEvents() {
   const navigate = useNavigate();
   const list = useLoad(() => api<EventSummary[]>("/host/events"));
-  // 회차 PIN 으로 목록에 닿으면 403 이다. PIN 화면으로 되돌린다
+  // 세션이 끊겼으면 PIN 화면으로 되돌린다
   useAuthRedirect(list.error);
 
   // 함수 이름을 DOM 빌트인과 겹치게 짓지 않는다 — createEvent 로 지었다가 버튼이 조용히 죽은 적 있다 (ADR-8)

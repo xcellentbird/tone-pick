@@ -1,7 +1,9 @@
 /**
- * 회차 기본 설정 (공통 PIN 전용).
+ * 회차 기본 설정. 새 회차를 만들 때 위저드가 채워 넣는 값이다.
  *
- * 되돌리기는 **콕 횟수와 일정 오프셋만** 되돌린다. 공통 PIN 과 이미 만든 회차는 그대로다 —
+ * 일정 기본값은 **파티 일시에서 거꾸로** 잰다 — 운영자가 실제로 아는 건 "언제 모이나" 하나뿐이다.
+ *
+ * 되돌리기는 **콕 횟수와 일정 오프셋만** 되돌린다. 운영자 PIN 과 이미 만든 회차는 그대로다 —
  * 확인창에서 그 사실을 숫자와 함께 보여준다.
  */
 import { useEffect, useState } from "react";
@@ -39,7 +41,7 @@ export default function HostDefaults() {
       setMasterPin("");
       toast(BTN.saved);
     } catch (e) {
-      setError(e instanceof ApiError ? (e.userMessage ?? HOST.pin.usedByEvent) : HOST.pin.usedByEvent);
+      setError(e instanceof ApiError ? (e.userMessage ?? HOST.pin.saveFailed) : HOST.pin.saveFailed);
     }
   }
 
@@ -52,8 +54,8 @@ export default function HostDefaults() {
         facts: [
           [HOST_UI.fields.maxPre, `${UNIT.times(form!.maxPre)} → ${UNIT.times(DEFAULTS.maxPre)}`],
           [HOST_UI.fields.maxParty, `${UNIT.times(form!.maxParty)} → ${UNIT.times(DEFAULTS.maxParty)}`],
-          [HOST_UI.fields.regOpenAt, `${form!.regOpenAfterH}h → ${DEFAULTS.regOpenAfterH}h`],
-          [HOST_UI.fields.voteCloseAt, `${form!.voteWindowH}h → ${DEFAULTS.voteWindowH}h`],
+          [HOST_UI.fields.regOpenAt, `${form!.regOpenBeforeD}d → ${DEFAULTS.regOpenBeforeD}d`],
+          [HOST_UI.fields.prevoteAt, `${form!.prevoteBeforeH}h → ${DEFAULTS.prevoteBeforeH}h`],
         ],
       },
       async () => {
@@ -89,18 +91,18 @@ export default function HostDefaults() {
           onChange={(v) => set("maxParty", v)}
         />
         <Num
-          label={HOST_UI.fields.regOpenAfterH}
-          value={form.regOpenAfterH}
+          label={HOST_UI.fields.regOpenBeforeD}
+          value={form.regOpenBeforeD}
           min={0}
-          max={720}
-          onChange={(v) => set("regOpenAfterH", v)}
+          max={60}
+          onChange={(v) => set("regOpenBeforeD", v)}
         />
         <Num
-          label={HOST_UI.fields.voteWindowH}
-          value={form.voteWindowH}
-          min={1}
+          label={HOST_UI.fields.prevoteBeforeH}
+          value={form.prevoteBeforeH}
+          min={0}
           max={720}
-          onChange={(v) => set("voteWindowH", v)}
+          onChange={(v) => set("prevoteBeforeH", v)}
         />
 
         <div className="field">

@@ -62,6 +62,7 @@ const roundName = (r: PokeRound) => (r === "pre" ? "사전 투표" : "파티");
 
 /** 남은 시간·차이 표기. 숫자 계산은 `time.ts` 가 하고 여기서는 조립만 한다 */
 export const DURATION = {
+  dayHour: (d: number, h: number) => (h ? `${d}일 ${h}시간` : `${d}일`),
   hourMin: (h: number, m: number) => (m ? `${h}시간 ${m}분` : `${h}시간`),
   minOnly: (m: number) => `${m}분`,
 } as const;
@@ -73,6 +74,13 @@ export const ENTRY = {
   submit: "입장하기",
   toHost: "운영자로 들어가기",
   notFound: "그런 입장 코드의 회차가 없어요. 다시 확인해주세요.",
+  /**
+   * 링크는 회차까지만 데려다준다. 문을 여는 건 코드다 —
+   * 링크가 단톡방에 돌아도 코드를 아는 사람만 들어온다.
+   */
+  gateNote: "운영자가 알려준 6자리를 넣으면 등록으로 넘어가요.",
+  wrongCode: "이 회차의 코드가 아니에요. 운영자에게 다시 확인해주세요.",
+  partyAt: (when: string) => `파티 ${when}`,
   /** 아직 준비 중인 회차 */
   notOpenYet: (opensAt: string) => `${opensAt}부터 등록이 열립니다.`,
   /** 준비 중인데 등록 시각이 아직 정해지지 않은 경우 */
@@ -233,9 +241,12 @@ export const STATUS = {
   done: "🎊 발표 완료",
   /** 파티 중 참가자가 가장 자주 확인하는 숫자. 상단에 항상 띄운다 */
   pokeLeft: (n: number) => `콕 ${n}회 남음`,
-  untilVoteClose: "투표 마감까지",
-  untilReveal: "발표까지",
-  revealSoon: "곧 발표해요",
+  /**
+   * 카운트다운이 향하는 곳은 **파티 시작**뿐이다.
+   * 투표 마감과 발표는 운영자가 누르는 것이라 셀 수 있는 시각이 없다 —
+   * 없는 마감을 세어 보여주면 참가자가 그 숫자를 믿고 조급해진다.
+   */
+  untilParty: "파티까지",
   peopleHere: "함께하는 사람",
   pokeClosed: "마감했어요",
   pokeSoon: "곧 시작해요",
@@ -280,7 +291,7 @@ export interface ActionCopy {
 /** 단계 전환 확인. 참가자 전원의 화면이 바뀌므로 무엇이 달라지는지 항목별로 보여준다 */
 export function phaseAction(
   to: Phase,
-  v: { code: string; maxPre: number; maxParty: number; voteCloseAtText?: string },
+  v: { code: string; maxPre: number; maxParty: number },
 ): ActionCopy | null {
   switch (to) {
     case "reg":
@@ -299,9 +310,7 @@ export function phaseAction(
         facts: [
           ["참가자", `1인당 ${v.maxPre}회씩 콕을 찌를 수 있게 됩니다`],
           ["등록", "계속 열려 있어요 — 늦게 온 사람도 참가할 수 있습니다"],
-          ...(v.voteCloseAtText
-            ? ([["마감", `${v.voteCloseAtText}이 지나면 자동으로 파티 진행으로 넘어갑니다`]] as Fact[])
-            : []),
+          ["마감", "예약된 마감은 없어요. 파티를 시작할 때 함께 마감됩니다"],
         ],
       };
     case "party":
@@ -341,14 +350,15 @@ export const UNREVEAL: ActionCopy = {
   ],
 };
 
-/** 수동 진행이 예약과 얼마나 어긋나는지 한 줄로. 시간 포맷은 호출부에서 만들어 넘긴다 */
+/**
+ * 수동 진행이 예약과 얼마나 어긋나는지 한 줄로. 시간 포맷은 호출부에서 만들어 넘긴다.
+ * 예약이 있는 전환은 둘뿐이라 나머지는 null 이다.
+ */
 export function schedDiff(
   to: Phase,
   v: { atText: string; gapText: string; direction: "early" | "late" | "same" },
 ): Fact | null {
-  const what = { reg: "등록 시작", party: "사전 투표 마감", done: "발표" }[
-    to as "reg" | "party" | "done"
-  ];
+  const what = { reg: "등록 시작", prevote: "사전 투표 시작" }[to as "reg" | "prevote"];
   if (!what) return null;
   if (v.direction === "early")
     return ["예약과 차이", `예약된 ${what}은 ${v.atText} — ${v.gapText} 일찍 진행됩니다. 남은 예약은 해제돼요.`];
@@ -356,12 +366,6 @@ export function schedDiff(
     return ["예약과 차이", `예약된 ${what}(${v.atText})이 ${v.gapText} 지났어요.`];
   return ["예약", `예약 시각(${v.atText})과 거의 같습니다.`];
 }
-
-/** 사전 투표를 시작하는데 마감이 이미 지난 경우 */
-export const PREVOTE_ALREADY_CLOSED = (closeAtText: string): Fact => [
-  "⚠️ 주의",
-  `사전 투표 마감(${closeAtText})이 이미 지나 시작하자마자 마감됩니다. 설정에서 마감을 늦춰주세요.`,
-];
 
 // ─────────────────────────────────────────── 운영자 · 삭제
 
@@ -388,16 +392,6 @@ export const DELETE_EVENT = {
 // ─────────────────────────────────────────── 운영자 · 현황/자리
 
 export const HOST = {
-  /** 성비는 등록 단계에서 미리 알아야 대응할 수 있다 */
-  balance: {
-    oneSided: (gender: "M" | "F", n: number) =>
-      `${gender === "M" ? "남성" : "여성"}만 ${n}명이에요. 이성이 없으면 콕도 자리 배정도 되지 않아요.`,
-    bad: (m: number, w: number) =>
-      `성비가 ${m}:${w}로 크게 치우쳤어요. 자리를 나누면 테이블마다 한쪽이 몰립니다.`,
-    warn: (m: number, w: number) => `성비가 ${m}:${w}예요. 한쪽이 조금 많습니다.`,
-    ok: (m: number, w: number) => `성비 ${m}:${w} — 균형이 좋아요.`,
-  },
-
   seating: {
     draftOnly: "초안은 참가자에게 보이지 않아요. 알림을 보내야 자리가 뜹니다.",
     publish: "📣 알림 발송",
@@ -421,15 +415,13 @@ export const HOST = {
 
   pin: {
     wrong: "PIN이 맞지 않아요.",
-    sameAsMaster: (masterPin: string) => `공통 PIN(${masterPin})과 다른 번호를 써주세요.`,
-    /** 반대 방향 — 공통 PIN 을 기존 회차 PIN 과 같게 만들려는 경우 */
-    usedByEvent: "이미 어떤 회차가 쓰고 있는 번호예요. 다른 번호를 써주세요.",
     codeTaken: "이미 쓰고 있는 입장 코드예요. 다른 코드를 써주세요.",
+    saveFailed: "저장하지 못했어요. 값을 다시 확인해주세요.",
   },
 
   defaults: {
     resetTitle: "콕·일정 기본값 되돌리기",
-    resetNote: "공통 PIN과 이미 만든 회차는 그대로 둡니다.",
+    resetNote: "운영자 PIN과 이미 만든 회차는 그대로 둡니다.",
   },
 } as const;
 
@@ -444,27 +436,31 @@ export const HOST_UI = {
   newEvent: "새 회차 만들기",
   noEvents: "아직 만든 회차가 없어요. 첫 회차를 만들어보세요.",
   openDefaults: "회차 기본 설정",
+  openEvents: "회차 목록",
   openDemo: "데모 뷰",
   entryLink: "참가 링크",
   copied: "복사했어요",
+  /** 링크에는 코드가 없다. 운영자가 그걸 모르면 참가자가 문 앞에서 막힌다 */
+  entryLinkNote: (code: string) => `링크에는 코드가 없어요. 입장 코드 ${code}를 따로 알려주세요.`,
 
   fields: {
     name: "회차 이름",
-    pin: "회차 PIN",
     code: "입장 코드",
     codeAuto: "비워두면 자동으로 만들어요",
+    partyAt: "파티 일시",
     regOpenAt: "등록 시작",
-    voteCloseAt: "사전 투표 마감",
-    revealAt: "발표 예정",
+    prevoteAt: "사전 투표 시작",
+    /** 예약이 없는 전환을 설정 화면에서 찾지 않도록 그 자리에 이유를 적어둔다 */
+    manualNote: "사전 투표 마감 · 파티 시작 · 발표는 예약하지 않아요. 현황 탭에서 직접 넘깁니다.",
     maxPre: "사전 투표 콕 (1~5)",
     maxParty: "파티 콕 (1~10)",
     pokeTarget: "콕을 찌를 수 있는 대상",
     pokeTargetOpposite: "이성에게만",
     pokeTargetAll: "모두에게",
     pokeTargetNote: "'모두에게'로 두면 동성에게도 찌를 수 있어요. 자리 배정의 남녀 정원은 그대로예요.",
-    masterPin: "공통 PIN",
-    regOpenAfterH: "회차를 만들고 몇 시간 뒤에 등록을 열까요",
-    voteWindowH: "등록 시작 후 몇 시간 뒤에 투표를 마감할까요",
+    masterPin: "운영자 PIN",
+    regOpenBeforeD: "파티 며칠 전에 등록을 열까요",
+    prevoteBeforeH: "파티 몇 시간 전에 사전 투표를 시작할까요",
   },
 
   /** '지금 바로'는 시각이 아니라 토글이다 — datetime-local 이 초를 버린다 */
@@ -472,15 +468,19 @@ export const HOST_UI = {
   pickTime: "시각 지정",
   locked: "이미 지나간 일정이라 바꿀 수 없어요",
 
+  /**
+   * 현황 탭이 보여주는 건 둘뿐이다.
+   *
+   * 성비는 참가자 탭에 명단이 있으니 거기서 보이고, '콕을 못 받은 사람'은
+   * 운영자가 알아봐야 할 일이 아니다 — 알면 그 사람을 다르게 대하게 된다.
+   * 남는 건 **서로 찌른 커플**과 **사전 투표 1위**, 운영에 실제로 쓰는 둘이다.
+   */
   dash: {
-    balance: "성비",
-    notPoked: "아직 콕을 못 받은 사람",
-    notPokedNone: "모두 한 번 이상 받았어요",
-    prevoteTop: "사전 투표 많이 받은 사람",
+    mutualTitle: "서로 찌른 커플",
+    mutualNone: "아직 서로 찌른 쌍이 없어요",
+    mutualPair: (a: string, b: string) => `${a} ↔ ${b}`,
+    prevoteTop: "사전 투표 1위",
     noVotes: "아직 콕이 없어요",
-    pokeStat: "콕 현황",
-    pokeCount: (pre: number, party: number) => `사전 투표 ${pre}회 · 파티 ${party}회`,
-    mutual: (n: number) => `서로 찌른 쌍 ${n}쌍`,
     registered: (n: number) => `등록 ${n}명`,
   },
 
@@ -497,6 +497,9 @@ export const HOST_UI = {
     discard: "초안 삭제",
     swapHint: "같은 성별 두 명을 고르면 자리를 맞바꿔요. 한 명만 옮기는 건 없어요 — 테이블 성비가 깨집니다.",
     tableTitle: (n: number) => `${n}번 테이블`,
+    /** 테이블 성비. 색과 같은 정보를 글자로도 준다 */
+    men: (n: number) => `남 ${n}`,
+    women: (n: number) => `여 ${n}`,
     roundTitle: (round: number, final: boolean) => (final ? "마지막 자리" : `${round}라운드`),
     noRounds: "아직 배정한 자리가 없어요",
     /** 자리를 발행한 뒤 등록한 사람. 다음 배정에서 들어간다 */
@@ -513,7 +516,7 @@ export const HOST_UI = {
   settings: {
     schedule: "일정",
     rules: "콕 횟수",
-    identity: "이름 · PIN · 코드",
+    identity: "이름 · 입장 코드",
     danger: "위험한 작업",
   },
 } as const;
