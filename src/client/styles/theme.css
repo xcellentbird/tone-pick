@@ -6,11 +6,19 @@
  * 컴포넌트에서 색·간격을 직접 쓰지 마라. 여기 없는 값이 필요하면 여기에 변수를 늘린다.
  * 실제로 지켜졌다 — 테마를 통째로 바꿀 때 컴포넌트는 한 줄도 건드리지 않았다.
  *
- * ── 지금 테마: Airbnb 의 색과 형태 언어를 밤으로 옮긴 것
+ * ── 지금 테마: Airbnb 의 형태 언어를 밤으로 옮기고, 주 색만 우리 것으로
  *
- * 색은 Airbnb 가 실제로 쓰는 이름 그대로 가져왔다.
- *   Rausch #FF385C  주 색       Babu #00A699  좋은 상태
- *   Arches #FC642D  주의        Foggy         회색 글씨 (어두운 바탕에 맞게 올려 씀)
+ * 형태와 의미색은 Airbnb 에서 가져왔다.
+ *   Babu #00A699  좋은 상태     Arches #FC642D  주의
+ *   Foggy         회색 글씨 (어두운 바탕에 맞게 올려 씀)
+ *
+ * 주 색은 Airbnb 의 Rausch(자홍) 대신 **자정 보라**다. 세 가지 이유가 있다.
+ *   · Rausch 는 예약 버튼의 색이다. 여기 버튼은 조심스럽게 누르는 콕이라 결이 다르다
+ *   · 소개팅 앱의 분홍·빨강은 가장 예상 가능한 선택이라 기억에 남지 않는다
+ *   · 앰버(파티)·청록(발표)과 색상환에서 가장 멀어 **단계 구분이 제일 또렷하다**
+ *
+ * 이 색은 버튼만이 아니라 **사전 투표 단계의 색**이기도 하다. 콕을 찌르는 시간의 색이라
+ * 경고처럼 튀지 않으면서 온기는 있어야 한다.
  *
  * 형태는 세 가지가 Airbnb 를 Airbnb 로 만든다.
  *   ① 큰 모서리 — 카드 16px, 버튼 8px, 필터는 알약
@@ -27,9 +35,9 @@
   --fg: #f7f7f8;
   --dim: #a8a8b0;
 
-  /* Rausch. 글씨를 얹는 버튼에는 한 톤 짙은 쪽을 써서 흰 글씨 대비를 4.5:1 위로 올린다 */
-  --pink: #ff385c;
-  --accent-solid: #e31c5f;
+  /* 어두운 바탕 위의 글씨·테두리에는 밝은 쪽(5.9:1), 흰 글씨를 얹는 버튼에는 짙은 쪽(5.7:1) */
+  --accent: #9b7cff;
+  --accent-solid: #6d48e5;
   --on-accent: #ffffff;
 
   --gold: #ffb400;   /* 파티 · 축하 */
@@ -187,7 +195,7 @@ button {
 }
 
 .field .err { color: var(--danger); font-size: 13px; }
-.field input:focus, .field textarea:focus { outline: 2px solid var(--pink); outline-offset: 1px; }
+.field input:focus, .field textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .choice { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -203,7 +211,7 @@ button {
 }
 
 .choice button[aria-pressed="true"] {
-  border-color: var(--pink);
+  border-color: var(--accent);
   color: var(--fg);
   background: var(--card-2);
   font-weight: 600;
@@ -233,7 +241,7 @@ button {
   border: none;
 }
 
-.tabbar a.active, .tabbar button.active { color: var(--pink); }
+.tabbar a.active, .tabbar button.active { color: var(--accent); }
 .tabbar .icon { font-size: 18px; }
 
 .tabs {
@@ -304,7 +312,7 @@ button {
 }
 
 .pokeBtn.on { border-color: var(--accent-solid); background: var(--accent-solid); color: var(--on-accent); }
-.pokeCount { font-size: 12px; color: var(--pink); min-width: 18px; text-align: center; }
+.pokeCount { font-size: 12px; color: var(--accent); min-width: 18px; text-align: center; }
 
 /* ─────────────────────────── 상태 셀 · 배너 */
 
@@ -323,7 +331,7 @@ button {
 
 /* 단계를 색으로도 기억하게 한다 — 글자를 읽기 전에 어디쯤인지 안다 */
 .statusbar.phase-reg .phase { color: var(--dim); }
-.statusbar.phase-prevote .phase { color: var(--pink); }
+.statusbar.phase-prevote .phase { color: var(--accent); }
 .statusbar.phase-party .phase { color: var(--gold); }
 .statusbar.phase-done .phase { color: var(--ok); }
 
@@ -344,7 +352,7 @@ button {
   text-align: left;
   background: var(--card-2);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--pink);
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius-sm);
   padding: 12px;
   color: var(--fg);
@@ -485,7 +493,7 @@ button {
   text-align: left;
 }
 
-.seatChip.picked { border-color: var(--pink); }
+.seatChip.picked { border-color: var(--accent); }
 
 /* ─────────────────────────── 연습용 환경 표시 */
 
