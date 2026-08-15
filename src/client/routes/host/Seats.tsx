@@ -24,11 +24,20 @@ export default function Seats() {
 
   const base = `/host/events/${state.meta.id}/seating`;
   const draft = state.seatings.find((s) => s.status === "draft");
-  /** 서로 찌른 사람. 커플 자리에서만 쓴다 — 다른 라운드는 쌍을 붙이려 하지 않는다 */
-  const partner = new Map<string, string>();
+  /**
+   * 서로 찌른 사람들. 커플 자리에서만 쓴다 — 다른 라운드는 쌍을 붙이려 하지 않는다.
+   *
+   * **한 사람이 여러 명과 이어질 수 있다** (A-B, A-C). 콕이 1인당 여러 번이라 당연한 일이다.
+   * 그래서 짝은 하나가 아니라 **집합**이다 — 하나만 들고 있으면 나중 것이 앞의 것을 덮어
+   * A-B 가 화면에서 조용히 사라진다 (ADR-24).
+   */
+  const partners = new Map<string, Set<string>>();
   for (const [a, b] of state.mutual) {
-    partner.set(a, b);
-    partner.set(b, a);
+    for (const [one, other] of [[a, b], [b, a]] as const) {
+      const set = partners.get(one) ?? new Set<string>();
+      set.add(other);
+      partners.set(one, set);
+    }
   }
   const published = state.seatings.filter((s) => s.status === "published");
   const revealed = state.meta.phase === "done";
@@ -51,18 +60,23 @@ export default function Seats() {
     reload();
   }
 
-  /** 이 맞교환이 **붙어 앉은 쌍을 떼어놓는가**. 커플 자리에서만 본다 */
-  function breaksPair(round: SeatingRound, a: string, b: string): boolean {
-    if (!round.final) return false;
+  /**
+   * 이 맞교환으로 **떨어지게 되는 짝**들. 커플 자리에서만 본다.
+   * 여러 명과 이어진 사람이면 여럿이 한꺼번에 떨어질 수 있다.
+   */
+  function pairsBrokenBy(round: SeatingRound, a: string, b: string): Array<[string, string]> {
+    if (!round.final) return [];
     const table = new Map(round.seats.map((s) => [s.playerId, s.table]));
-    return [
-      [a, b],
-      [b, a],
-    ].some(([one, other]) => {
-      const mate = partner.get(one);
-      // 짝과 지금 같은 테이블인데, 상대가 다른 테이블이면 이 교환으로 떨어진다
-      return !!mate && mate !== other && table.get(one) === table.get(mate) && table.get(other) !== table.get(one);
-    });
+    const out: Array<[string, string]> = [];
+    for (const [one, other] of [[a, b], [b, a]] as const) {
+      for (const mate of partners.get(one) ?? []) {
+        // 짝과 지금 같은 테이블인데, 옮겨 갈 자리가 다른 테이블이면 이 교환으로 떨어진다.
+        // 상대가 그 짝 본인이면 둘이 같은 테이블이라 아무 일도 안 난다
+        if (mate === other) continue;
+        if (table.get(one) === table.get(mate) && table.get(other) !== table.get(one)) out.push([one, mate]);
+      }
+    }
+    return out;
   }
 
   async function swap(playerId: string) {
@@ -77,7 +91,8 @@ export default function Seats() {
       await post(`${base}/swap`, { a: first, b: playerId });
       reload();
     };
-    if (draft && breaksPair(draft, first, playerId)) {
+    const broken = draft ? pairsBrokenBy(draft, first, playerId) : [];
+    if (broken.length > 0) {
       const name = (id: string) => state.players.find((p) => p.id === id)?.nickname ?? "";
       return confirm(
         {
@@ -85,7 +100,8 @@ export default function Seats() {
           title: HOST_UI.seats.breakTitle,
           danger: true,
           note: HOST_UI.seats.breakNote,
-          facts: [[HOST_UI.dash.mutualTitle, HOST_UI.dash.mutualPair(name(first), name(partner.get(first) ?? playerId))]],
+          // 떨어지는 쌍을 전부 이름으로 보여준다. 한 번에 여럿이 깨질 수 있다
+          facts: broken.map(([x, y]) => [HOST_UI.dash.mutualTitle, HOST_UI.dash.mutualPair(name(x), name(y))]),
         },
         run,
       );
@@ -95,7 +111,7 @@ export default function Seats() {
 
   function askPublish(round: SeatingRound) {
     const perTable = round.seats.length / round.tableCount;
-    const pairs = pairStats(round, partner);
+    const pairs = pairStats(round, state.mutual);
     confirm(
       {
         btn: HOST.seating.publish,
@@ -162,9 +178,9 @@ export default function Seats() {
         <div className="card stack">
           <div className="kicker">{HOST_UI.seats.roundTitle(draft.round, draft.final)}</div>
           {/* 커플 자리의 성적표. 이 라운드가 제 일을 했는지 여기서 보인다 (ADR-23) */}
-          {draft.final && <PairReport round={draft} partner={partner} state={state} />}
+          {draft.final && <PairReport round={draft} mutual={state.mutual} state={state} />}
           <p className="small dim">{HOST_UI.seats.swapHint}</p>
-          <Tables round={draft} picked={picked} onPick={swap} state={state} partner={draft.final ? partner : undefined} />
+          <Tables round={draft} picked={picked} onPick={swap} state={state} partners={draft.final ? partners : undefined} />
           <div className="row">
             <button
               className="btn wide ghost"
@@ -195,7 +211,7 @@ export default function Seats() {
             <span className="kicker">{HOST_UI.seats.roundTitle(round.round, round.final)}</span>
             <span className="small dim">{HOST.ack.progress(round.acks.length, round.seats.length)}</span>
           </div>
-          <Tables round={round} picked={null} onPick={() => {}} state={state} partner={round.final ? partner : undefined} />
+          <Tables round={round} picked={null} onPick={() => {}} state={state} partners={round.final ? partners : undefined} />
           <Unassigned round={round} state={state} />
         </div>
       ))}
@@ -203,16 +219,17 @@ export default function Seats() {
   );
 }
 
-/** 서로 찌른 쌍이 **같은 테이블에 앉았는가**. 커플 자리의 성적표다 */
-function pairStats(round: SeatingRound, partner: Map<string, string>) {
+/**
+ * 서로 찌른 쌍이 **같은 테이블에 앉았는가**. 커플 자리의 성적표다.
+ *
+ * **쌍 목록을 그대로 센다.** 사람→짝 지도에서 세면 한 사람이 여러 명과 이어졌을 때
+ * 쌍 하나가 통째로 빠진다 (ADR-24).
+ */
+function pairStats(round: SeatingRound, mutual: Array<[string, string]>) {
   const table = new Map(round.seats.map((s) => [s.playerId, s.table]));
-  const seen = new Set<string>();
   let total = 0;
   const split: Array<[string, string]> = [];
-  for (const [a, b] of partner) {
-    if (seen.has(a) || seen.has(b)) continue;
-    seen.add(a);
-    seen.add(b);
+  for (const [a, b] of mutual) {
     // 이 라운드에 자리가 없는 사람(늦게 등록)은 세지 않는다
     if (!table.has(a) || !table.has(b)) continue;
     total++;
@@ -224,14 +241,14 @@ function pairStats(round: SeatingRound, partner: Map<string, string>) {
 /** 이 배정이 제 일을 했는지 한눈에. 못 붙인 쌍은 운영자가 손볼 수 있는 유일한 신호다 */
 function PairReport({
   round,
-  partner,
+  mutual,
   state,
 }: {
   round: SeatingRound;
-  partner: Map<string, string>;
+  mutual: Array<[string, string]>;
   state: ReturnType<typeof useConsole>["state"];
 }) {
-  const { total, together, split } = pairStats(round, partner);
+  const { total, together, split } = pairStats(round, mutual);
   const name = (id: string) => state.players.find((p) => p.id === id)?.nickname ?? "";
   if (total === 0) return <p className="small dim">{HOST_UI.seats.pairNone}</p>;
   return (
@@ -253,13 +270,13 @@ function Tables({
   picked,
   onPick,
   state,
-  partner,
+  partners,
 }: {
   round: SeatingRound;
   picked: string | null;
   onPick: (playerId: string) => void;
-  /** 있으면 같은 테이블에 앉은 쌍에 💘 를 붙인다. 커플 자리에서만 넘어온다 */
-  partner?: Map<string, string>;
+  /** 있으면 같은 테이블에 앉은 짝에 💘 를 붙인다. 커플 자리에서만 넘어온다 */
+  partners?: Map<string, Set<string>>;
   state: ReturnType<typeof useConsole>["state"];
 }) {
   const tables = Array.from({ length: round.tableCount }, (_, i) => i + 1);
@@ -279,9 +296,8 @@ function Tables({
               <span className="women">{HOST_UI.seats.women(here.length - men)}</span>
             </div>
             {here.map((person) => {
-              // 짝이 이 테이블에 함께 앉았는가. 커플 자리에서만 본다
-              const mate = partner?.get(person.id);
-              const withMate = !!mate && here.some((x) => x.id === mate);
+              // 이 테이블에 함께 앉은 짝이 **몇 명인가**. 여러 명과 이어질 수 있다 (ADR-24)
+              const mates = [...(partners?.get(person.id) ?? [])].filter((id) => here.some((x) => x.id === id));
               return (
               <button
                 className={`seatChip ${person.gender === "M" ? "m" : "f"} ${picked === person.id ? "picked" : ""}`}
@@ -291,7 +307,7 @@ function Tables({
                 <span className="grow" style={{ minWidth: 0 }}>
                   <span className="row between">
                     <span className="ellipsis">
-                      {withMate && "💘 "}
+                      {mates.length > 0 && (mates.length > 1 ? `💘×${mates.length} ` : "💘 ")}
                       {person.nickname}
                     </span>
                     {/* 색만으로 구분하지 않는다 */}
