@@ -425,7 +425,18 @@ export class EventDO extends DurableObject {
     const row = this.rows<PlayerRow>("SELECT * FROM players WHERE id = ?", playerId)[0];
     if (!row) return fail("not_found");
     this.ctx.storage.sql.exec("DELETE FROM players WHERE id = ?", playerId);
-    this.ctx.storage.sql.exec("DELETE FROM pokes WHERE from_id = ? OR to_id = ?", playerId, playerId);
+
+    /**
+     * **이 사람이 보낸 콕은 남긴다** (ADR-29).
+     *
+     * 지우면 받은 사람의 숫자가 줄어든다. 참가자 탭에서 누가 사라졌는지가 동시에 보이므로,
+     * 그 둘을 맞추면 **누가 나를 찔렀는지 알아낼 수 있다.** 받은 콕은 끝까지 익명이어야 한다.
+     * 남는 건 아무것도 가리키지 않는 아이디뿐이다 — 이름도 번호도 pokes 테이블에 없다.
+     *
+     * 이 사람이 **받은** 콕은 지운다. 보낸 사람의 예산이 돌아온다 —
+     * 없는 사람에게 쓴 횟수를 물릴 이유가 없다.
+     */
+    this.ctx.storage.sql.exec("DELETE FROM pokes WHERE to_id = ?", playerId);
     // 운세 문장에는 닉네임이 들어 있다. 사람을 지웠는데 그 문장이 남으면 지운 게 아니다
     this.ctx.storage.sql.exec("DELETE FROM fortunes WHERE player_id = ?", playerId);
     // 이미 발행한 자리에서도 빠진다
@@ -634,7 +645,10 @@ export class EventDO extends DurableObject {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     const players = this.players();
-    const pokes = this.pokes();
+    // 지워진 사람이 보낸 콕은 남아 있다 (ADR-29). 집계에서는 **지금 있는 사람만** 센다 —
+    // 없는 사람의 아이디가 화면에 빈 이름으로 뜨거나, 상한을 묶으면 안 된다
+    const here = new Set(players.map((p) => p.id));
+    const pokes = this.pokes().filter((k) => here.has(k.fromId) && here.has(k.toId));
 
     const sent: Record<string, number> = {};
     const preReceived: Record<string, number> = {};
