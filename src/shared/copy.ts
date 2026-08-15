@@ -225,8 +225,12 @@ export const HOME = {
 export const SEAT = {
   /** 자리가 발행되면 전체 화면으로 알리고 확인을 받는다. 발표 후에는 띄우지 않는다 */
   ack: {
-    kicker: (round: number, final: boolean) =>
-      final ? "마지막 자리예요" : `${round}라운드 자리가 정해졌어요`,
+    /**
+     * 참가자에게는 **어느 라운드인지만** 말한다.
+     * "마지막 자리" 는 지킬 수 없는 약속이고, 커플 자리라고 알리면
+     * 같은 테이블에 앉은 사람 중 누가 나를 찔렀는지 짐작하게 된다 (ADR-23).
+     */
+    kicker: (round: number) => `${round}라운드 자리가 정해졌어요`,
     headline: (table: number) => `${table}번 테이블로 이동해주세요`,
     mates: (total: number, men: number) => `같은 테이블 ${total}명 · 남 ${men} / 여 ${total - men}`,
     submit: "자리로 이동했어요",
@@ -520,17 +524,21 @@ export const HOST = {
     draftOnly: "지금 자리는 참가자에게 보이지 않아요. 확정해야 자리가 뜹니다.",
     /** 이 버튼이 하는 일은 둘이다 — 자리를 확정하고, 전원에게 알린다. 순서대로 읽히게 */
     publish: "📣 자리 확정하고 알리기",
-    makeFinal: "🏁 마지막 자리 배정",
+    /**
+     * '마지막' 은 지킬 수 없는 약속이다 — 이 뒤에 한 번 더 배정할 수도 있다.
+     * 이 버튼이 실제로 하는 일은 **서로 찌른 쌍을 같은 테이블에 앉히는 것**이다 (ADR-23).
+     */
+    makeFinal: "💘 커플 자리 배정",
     reopen: "배정 다시 열기",
     published: (round: number, final: boolean) =>
       final
-        ? "🏁 마지막 자리를 참가자 전원에게 알렸어요"
+        ? "💘 커플 자리를 참가자 전원에게 알렸어요"
         : `${round}라운드 자리를 참가자 전원에게 알렸어요 📣`,
     discarded: "자리를 되돌렸어요",
     shuffled: "남녀 비율은 그대로 두고 다시 섞었어요",
     tooFewPerTable: "테이블당 2명이 안 됩니다. 테이블 수를 줄여주세요.",
     tooManyPerTable: "테이블당 8명이 넘습니다. 테이블을 늘리는 편이 좋아요.",
-    closed: "마지막 자리까지 끝났어요. 배정을 재개하려면 아래에서 다시 열어주세요.",
+    closed: "커플 자리까지 끝났어요. 배정을 재개하려면 아래에서 다시 열어주세요.",
     afterReveal: "발표가 끝나 자리를 더 바꾸지 않아요",
   },
 
@@ -667,12 +675,33 @@ export const HOST_UI = {
     /** 테이블 성비. 색과 같은 정보를 글자로도 준다 */
     men: (n: number) => `남 ${n}`,
     women: (n: number) => `여 ${n}`,
-    roundTitle: (round: number, final: boolean) => (final ? "마지막 자리" : `${round}라운드`),
+    roundTitle: (round: number, final: boolean) => (final ? "커플 자리" : `${round}라운드`),
+
+    /**
+     * 커플 자리에서만 보이는 것들 (ADR-23).
+     *
+     * 이 라운드의 목적은 **서로 찌른 쌍을 같은 테이블에 앉히는 것** 하나다.
+     * 이름만 늘어놓으면 그게 됐는지 눈으로 확인할 방법이 없다.
+     */
+    pairSummary: (together: number, total: number) => `서로 찌른 ${total}쌍 중 ${together}쌍을 같은 테이블에`,
+    /** 인원 구성상 100%가 안 될 수 있다. 못 붙인 쌍이 운영자가 손볼 수 있는 유일한 신호다 */
+    pairSplit: (names: string) => `⚠️ 떨어진 쌍: ${names}`,
+    pairAllTogether: "모든 쌍이 같은 테이블에 앉았어요",
+    pairNone: "아직 서로 찌른 쌍이 없어요",
+    /** 붙어 앉은 쌍을 떼는 맞교환. 막지는 않는다 — 현장 사정은 운영자가 안다 */
+    breakTitle: "이 맞교환은 이어진 쌍을 떼어놓습니다",
+    breakNote: "발표 직전에 같은 테이블에 앉히려고 붙여둔 자리예요.\n그래도 바꾸시겠어요?",
+    breakBtn: "그래도 바꾸기",
+    /** 커플 자리에서 섞기를 누르면 쌍은 그대로 둔다 */
+    shuffleKeepsPairs: "이어진 쌍은 자리를 지키고 나머지만 섞여요",
     noRounds: "아직 배정한 자리가 없어요",
     /** 자리를 발행한 뒤 등록한 사람. 다음 배정에서 들어간다 */
     unassigned: (names: string) => `이 라운드에 자리가 없는 사람: ${names}`,
     publishTitle: "이 자리로 확정하고 전원에게 알릴까요?",
     publishBtn: "자리 확정하고 알리기",
+    /** 커플 자리를 확정하면 그 회차의 배정이 닫힌다. 되돌릴 수 있다는 것까지 말한다 */
+    publishClosesTitle: "커플 자리로 확정할까요?",
+    publishCloses: "이 회차의 자리 배정이 닫힙니다 — 다시 배정하려면 '배정 다시 열기'를 누르면 돼요",
   },
 
   deleteEvent: "이 회차 삭제하기",

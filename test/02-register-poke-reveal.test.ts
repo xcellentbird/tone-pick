@@ -672,6 +672,38 @@ describe("자리 섞기", () => {
     expect(after.body.seats.map((s) => s.playerId).sort()).toEqual(ids.slice().sort());
   });
 
+  it("★ 커플 자리에서는 이어진 쌍이 자리를 지킨다", async () => {
+    // 그 배정의 목적이 쌍을 같은 테이블에 앉히는 것인데, 섞기가 흩어놓으면
+    // 버튼 하나로 그 라운드가 무의미해진다 (ADR-23)
+    const ev = await freshEvent();
+    const men = [await join(ev, { gender: "M" }), await join(ev, { gender: "M" })];
+    const women = [await join(ev, { gender: "F" }), await join(ev, { gender: "F" })];
+    await setPhase(ev.id, "prevote");
+
+    // 첫 남자와 첫 여자가 서로 찌른다
+    await api("/api/poke", { method: "POST", cookie: men[0].cookie, body: { toId: women[0].id } });
+    await api("/api/poke", { method: "POST", cookie: women[0].cookie, body: { toId: men[0].id } });
+
+    const made = await api<{ seats: Array<{ playerId: string; table: number }> }>(
+      `/api/host/events/${ev.id}/seating`,
+      { method: "POST", cookie: master, body: { tableCount: 2, final: true } },
+    );
+    expect(made.status).toBe(200);
+    const tableOf = (seats: Array<{ playerId: string; table: number }>, id: string) =>
+      seats.find((s) => s.playerId === id)?.table;
+    // 커플 자리는 쌍을 같은 테이블에 앉힌다
+    expect(tableOf(made.body.seats, men[0].id)).toBe(tableOf(made.body.seats, women[0].id));
+
+    // 열 번을 섞어도 쌍은 붙어 있다
+    for (let i = 0; i < 10; i++) {
+      const after = await api<{ seats: Array<{ playerId: string; table: number }> }>(
+        `/api/host/events/${ev.id}/seating/shuffle`,
+        { method: "POST", cookie: master },
+      );
+      expect(tableOf(after.body.seats, men[0].id)).toBe(tableOf(after.body.seats, women[0].id));
+    }
+  });
+
   it("만든 자리가 없으면 섞을 것도 없다", async () => {
     const ev = await freshEvent();
     const res = await api(`/api/host/events/${ev.id}/seating/shuffle`, { method: "POST", cookie: master });
