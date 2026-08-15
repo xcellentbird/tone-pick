@@ -421,7 +421,7 @@ export const HOST = {
 
   defaults: {
     resetTitle: "콕·일정 기본값 되돌리기",
-    resetNote: "운영자 PIN과 이미 만든 회차는 그대로 둡니다.",
+    resetNote: "이미 만든 회차는 그대로 둡니다.",
   },
 } as const;
 
@@ -458,7 +458,6 @@ export const HOST_UI = {
     pokeTargetOpposite: "이성에게만",
     pokeTargetAll: "모두에게",
     pokeTargetNote: "'모두에게'로 두면 동성에게도 찌를 수 있어요. 자리 배정의 남녀 정원은 그대로예요.",
-    masterPin: "운영자 PIN",
     regOpenBeforeD: "파티 며칠 전에 등록을 열까요",
     prevoteBeforeH: "파티 몇 시간 전에 사전 투표를 시작할까요",
   },

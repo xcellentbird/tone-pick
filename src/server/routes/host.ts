@@ -37,8 +37,7 @@ export const hostRoutes = new Hono<{ Bindings: Env }>();
 
 hostRoutes.post("/pin", async (c) => {
   const body = await json<{ pin?: string }>(c);
-  const masterPin = await registry(c.env).getMasterPin(c.env.MASTER_PIN);
-  const scope = resolvePin(String(body.pin ?? ""), masterPin);
+  const scope = resolvePin(String(body.pin ?? ""), c.env.MASTER_PIN);
   // 응답 어디에도 올바른 PIN 을 싣지 않는다
   if (!scope) return apiError(c, "unauthorized", HOST.pin.wrong);
 
@@ -67,19 +66,17 @@ hostRoutes.get("/defaults", async (c) => {
 
 hostRoutes.put("/defaults", async (c) => {
   if (!isMaster(await hostScope(c))) return denied(c);
-  const body = await json<Defaults & { masterPin?: string }>(c);
+  const body = await json<Defaults>(c);
   if (!validDefaults(body)) return apiError(c, "bad_request");
 
+  // 운영자 PIN 은 여기서 바꾸지 않는다. 배포 시크릿(MASTER_PIN) 하나가 유일한 출처다
   return c.json(
-    await registry(c.env).putDefaults(
-      {
-        maxPre: body.maxPre,
-        maxParty: body.maxParty,
-        regOpenBeforeD: body.regOpenBeforeD,
-        prevoteBeforeH: body.prevoteBeforeH,
-      },
-      body.masterPin,
-    ),
+    await registry(c.env).putDefaults({
+      maxPre: body.maxPre,
+      maxParty: body.maxParty,
+      regOpenBeforeD: body.regOpenBeforeD,
+      prevoteBeforeH: body.prevoteBeforeH,
+    }),
   );
 });
 

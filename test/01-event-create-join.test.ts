@@ -101,8 +101,8 @@ beforeEach(async () => {
 // ─────────────────────────────────────────── A. 운영자 인증
 
 describe("A. 운영자 인증", () => {
-  it("S-A1 공통 PIN 으로 전체 권한을 얻는다", async () => {
-    // Given 공통 PIN 이 "1234" 다
+  it("S-A1 운영자 PIN 으로 전체 권한을 얻는다", async () => {
+    // Given 운영자 PIN 이 "1234" 다
     // When  회차 목록 화면에서 "1234" 를 입력한다
     const res = await login(MASTER_PIN);
     // Then  scope 는 { kind: "master" } 다
@@ -275,7 +275,7 @@ describe("B. 회차 생성", () => {
     expect(after.body.length).toBe(before.body.length + 1);
   });
 
-  it("S-B9 기본값 되돌리기는 운영자 PIN 과 기존 회차를 건드리지 않는다", async () => {
+  it("S-B9 기본값 되돌리기는 기존 회차를 건드리지 않는다", async () => {
     // Given 기본값을 바꾸고 회차를 만들었다
     await api("/api/host/defaults", {
       method: "PUT",
@@ -296,7 +296,7 @@ describe("B. 회차 생성", () => {
     expect(reset.body.maxPre).toBe(3);
     expect(reset.body.maxParty).toBe(3);
 
-    // And   운영자 PIN 은 그대로다 (그대로여야 로그인이 계속 된다)
+    // And   로그인은 그대로 된다 — PIN 은 기본 설정이 아니라 배포 시크릿이다
     const relogin = await login(MASTER_PIN);
     expect(relogin.status).toBe(200);
 

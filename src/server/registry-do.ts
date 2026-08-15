@@ -1,7 +1,7 @@
 /**
  * 회차 목록을 들고 있는 단 하나의 DO.
  *
- * 여기서만 정해지는 것: 입장 코드의 유일성 · 멱등키 · 운영자 PIN · 기본 설정.
+ * 여기서만 정해지는 것: 입장 코드의 유일성 · 멱등키 · 기본 설정.
  * 앞의 둘은 "동시에 두 번 눌렀을 때 하나만 만들어져야" 하므로 강한 일관성이 필요하다.
  * KV 는 쓰기 직후 읽기가 보장되지 않아 코드 중복·회차 중복이 실제로 날 수 있다 — 그래서 DO 다.
  *
@@ -9,7 +9,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import type { Defaults } from "../shared/types.ts";
-import { DEFAULTS } from "../shared/constants.ts";
+import { DEFAULTS, withDefaults } from "../shared/constants.ts";
 import { genCode, randomHex } from "./auth.ts";
 
 export interface EventIndexEntry {
@@ -20,7 +20,6 @@ export interface EventIndexEntry {
 
 interface Snapshot {
   defaults: Defaults;
-  masterPin: string | null;   // null 이면 env.MASTER_PIN 을 쓴다
   events: EventIndexEntry[];
   requests: Record<string, string>;   // requestId -> eventId
   /** 테스트 전용 시간 이동 오프셋. 프로덕션에서는 항상 0 이다 */
@@ -39,7 +38,6 @@ export type ReserveResult =
 
 const EMPTY: Snapshot = {
   defaults: DEFAULTS,
-  masterPin: null,
   events: [],
   requests: {},
   clockOffset: 0,
@@ -50,8 +48,21 @@ const EMPTY: Snapshot = {
  * DO 는 요청을 순차 처리하므로 경쟁이 없고, 캐시가 스토리지와 어긋날 여지를 아예 없앤다.
  */
 export class RegistryDO extends DurableObject {
+  /**
+   * 저장된 자료는 코드보다 오래 산다.
+   *
+   * 항목을 하나씩 골라 읽는다 — 통째로 펼치면 옛 모양이 그대로 올라온다.
+   * 실제로 그래서 기본 설정 화면의 숫자 칸이 NaN 이 됐고, 쓰지 않게 된 운영자 PIN 이
+   * 스토리지에 남아 다음 저장 때 다시 쓰였다. **안 쓰는 비밀은 들고 있지 않는다.**
+   */
   private async load(): Promise<Snapshot> {
-    return { ...EMPTY, ...((await this.ctx.storage.get<Snapshot>("snap")) ?? {}) };
+    const saved = await this.ctx.storage.get<Snapshot>("snap");
+    return {
+      defaults: withDefaults(saved?.defaults),
+      events: saved?.events ?? EMPTY.events,
+      requests: saved?.requests ?? EMPTY.requests,
+      clockOffset: saved?.clockOffset ?? EMPTY.clockOffset,
+    };
   }
 
   private async save(snap: Snapshot) {
@@ -80,13 +91,8 @@ export class RegistryDO extends DurableObject {
     return (await this.load()).defaults;
   }
 
-  async getMasterPin(envPin: string): Promise<string> {
-    return (await this.load()).masterPin ?? envPin;
-  }
-
-  async putDefaults(next: Defaults, masterPin: string | undefined): Promise<Defaults> {
+  async putDefaults(next: Defaults): Promise<Defaults> {
     const snap = await this.load();
-    if (masterPin) snap.masterPin = masterPin;
     snap.defaults = {
       maxPre: next.maxPre,
       maxParty: next.maxParty,
@@ -97,7 +103,7 @@ export class RegistryDO extends DurableObject {
     return snap.defaults;
   }
 
-  /** 콕 횟수와 일정 오프셋만 되돌린다. 운영자 PIN 과 기존 회차는 건드리지 않는다 (S-B9) */
+  /** 콕 횟수와 일정 오프셋만 되돌린다. 이미 만든 회차는 건드리지 않는다 (S-B9) */
   async resetDefaults(): Promise<Defaults> {
     const snap = await this.load();
     snap.defaults = DEFAULTS;

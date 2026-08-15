@@ -11,6 +11,25 @@ export const DEFAULTS: Defaults = {
   prevoteBeforeH: 24,
 };
 
+/**
+ * 저장된 기본값을 지금 모양으로 맞춰 읽는다.
+ *
+ * 저장된 자료는 코드보다 오래 산다. 일정 기준을 "만든 지 N시간 뒤"에서
+ * "파티 N일 전"으로 바꿨을 때, 이미 저장돼 있던 옛 모양이 그대로 화면에 올라와
+ * 숫자 칸이 **NaN** 이 됐다. 없는 항목은 조용히 기본값으로 채운다.
+ *
+ * 모르는 항목은 버린다 — 옛 키를 들고 다니면 다음 사람이 그게 쓰이는 줄 안다.
+ */
+export function withDefaults(saved: Partial<Defaults> | null | undefined): Defaults {
+  const num = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+  return {
+    maxPre: num(saved?.maxPre, DEFAULTS.maxPre),
+    maxParty: num(saved?.maxParty, DEFAULTS.maxParty),
+    regOpenBeforeD: num(saved?.regOpenBeforeD, DEFAULTS.regOpenBeforeD),
+    prevoteBeforeH: num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH),
+  };
+}
+
 export const LIMITS = {
   maxPre: { min: 1, max: 5 },
   maxParty: { min: 1, max: 10 },
