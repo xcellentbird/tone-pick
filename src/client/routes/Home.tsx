@@ -11,7 +11,7 @@
  *     `fired` 에서 파생되는 것뿐이라 파티 한 번에 많아야 네 개고, 읽음 상태도 없다.
  *     받은편지함이 아니라 타임라인이고, 그건 "지금 무슨 일인가"의 과거형이다 (ADR-4)
  */
-import { HOME, POKE, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
+import { HOME, POKE, REVEAL, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
 import { formatWhen } from "../../shared/time.ts";
@@ -44,14 +44,22 @@ export default function Home({ state, onTab }: { state: ParticipantState; onTab:
           </>
         )}
 
-        {revealed && (
-          <>
-            <div className="kicker">{HOME.matched(state.poke.matches.length)}</div>
-            <button className="btn primary block" onClick={() => onTab("me")}>
-              {HOME.goResult}
-            </button>
-          </>
-        )}
+        {revealed &&
+          /**
+           * 서로 찌른 상대가 없으면 **숫자를 꺼내지 않는다.** "0명"은 그 자체로 상처다.
+           * 이 앱이 없애려는 게 거절당하는 경험이라, 결과가 비었을 때의 문장이 가장 중요하다.
+           */
+          (state.poke.matches.length === 0 ? (
+            <p className="small pre">{REVEAL.noMutual(state.poke.receivedCount)}</p>
+          ) : (
+            <>
+              <div className="kicker">{HOME.matched(state.poke.matches.length)}</div>
+              {/* 결과는 그 사람이 있는 자리에 있다 — 참가자 탭 맨 위 (ADR-18) */}
+              <button className="btn primary block" onClick={() => onTab("people")}>
+                {HOME.goResult}
+              </button>
+            </>
+          ))}
       </div>
 
       {/* 자리는 파티장에서 몸을 움직이게 하는 정보다. 숫자를 크게 */}
