@@ -57,6 +57,7 @@ export const UNIT = {
   people: (n: number) => `${n}명`,
   age: (n: number) => `${n}세`,
   times: (n: number) => `${n}회`,
+  days: (n: number) => `${n}일`,
 } as const;
 
 const roundName = (r: PokeRound) => (r === "pre" ? "사전 투표" : "파티");
@@ -126,6 +127,10 @@ export const REGISTER = {
     /** 인스타는 필수다 — 매칭되면 서로에게 공개되는 연락 수단이라, 없으면 매칭이 반쪽이 된다 */
     instaRequired: "인스타 아이디를 입력해주세요.",
     insta: "인스타 아이디는 영문·숫자·마침표·밑줄만 쓸 수 있어요.",
+    instaLen: (max: number) => `인스타 아이디는 ${max}자까지예요.`,
+    nameLen: (max: number) => `이름은 ${max}자까지예요.`,
+    /** 서버가 이유를 말해주지 않은 실패의 폴백 — 특정 칸을 지목하면 그 칸이 멀쩡할 때 거짓말이 된다 */
+    retry: "등록하지 못했어요. 입력을 확인하고 다시 시도해주세요.",
     /** 답 안 한 그 문항 바로 아래에 뜬다 — "네 가지 모두" 라고 멀리서 말하지 않는다 */
     mbti: "이 질문에도 답해주세요.",
     /** i 는 1-based */
@@ -611,6 +616,9 @@ export const HOST_UI = {
     pokeTargetNote: "기본은 '모두에게'예요. '이성에게만'으로 좁힐 수도 있어요 — 자리 배정의 남녀 정원은 어느 쪽이든 그대로입니다.",
     regOpenBeforeD: "파티 며칠 전에 등록을 열까요",
     prevoteBeforeH: "파티 몇 시간 전에 사전 투표를 시작할까요",
+    retentionDays: "파티가 끝나고 며칠 뒤에 지울까요 (1~14)",
+    /** 이미 등록한 사람은 그때의 일수를 안내받았다 — 줄이는 변경은 약속을 깨는 일이라 합니다체로 끊는다 */
+    retentionNote: "이미 등록한 참가자는 등록할 때 안내받은 일수를 봤어요. 줄이면 그 약속과 어긋납니다.",
   },
 
   /** 이미 그만큼 쓴 참가자가 있어서 상한을 내릴 수 없을 때 */
@@ -742,6 +750,7 @@ export const HOST_UI = {
     schedule: "일정",
     rules: "콕 횟수",
     identity: "이름 · 입장 코드",
+    privacy: "개인정보 파기",
     danger: "위험한 작업",
   },
 } as const;
@@ -792,14 +801,24 @@ export const DEMO_UI = {
   },
 } as const;
 
+/**
+ * 일련번호를 한글로 읽는다 — 닉네임에 숫자를 쓸 수 없어서 `달빛3` 대신 `달빛삼`.
+ * 가짜 참가자를 만드는 모든 곳(시연 시딩·테스트)이 이 함수를 쓴다.
+ * scripts/rehearsal.mjs 만 예외다 — 노드 스크립트라 TS 를 못 불러와 같은 표를 복제해 둔다.
+ */
+export function hangulSeq(n: number): string {
+  return String(n).replace(/[0-9]/g, (d) => DEMO_UI.seed.digitNames[Number(d)]);
+}
+
 // ─────────────────────────────────────────── 콕 횟수 안내
 
 /**
  * 1인당 k회일 때 기대 상호 매칭 쌍 수는 파티 규모와 무관하게 k² 에 수렴한다.
  * 운영자가 횟수를 고를 때 이 결과를 미리 보여준다.
  */
+/** '드묾' 문턱은 1% — constants.ts `pokeEstimate` 와 같은 값이다. 바꾸면 둘을 같이 바꾼다 */
 export function pokeEstimateLabel(pct: number): { label: string; tone: "rare" | "good" | "common" } {
-  if (pct < 3) return { label: "매칭이 드물게 나올 수 있어요", tone: "rare" };
+  if (pct < 1) return { label: "매칭이 드물게 나올 수 있어요", tone: "rare" };
   if (pct <= 15) return { label: "적당해요", tone: "good" };
   return { label: "매칭이 흔해져 특별함이 줄어요", tone: "common" };
 }

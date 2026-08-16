@@ -365,7 +365,16 @@ async function json<T>(c: Ctx): Promise<T> {
 
 function validConfig(config: EventConfig | undefined): boolean {
   if (!config) return false;
-  const { maxPre, maxParty } = config;
+  const { maxPre, maxParty, retentionDays } = config;
+  if (retentionDays !== undefined) {
+    if (
+      !Number.isInteger(retentionDays) ||
+      retentionDays < LIMITS.retentionDays.min ||
+      retentionDays > LIMITS.retentionDays.max
+    ) {
+      return false;
+    }
+  }
   return (
     Number.isInteger(maxPre) &&
     Number.isInteger(maxParty) &&
@@ -382,6 +391,8 @@ function validDefaults(d: Defaults): boolean {
     Number.isFinite(d.regOpenBeforeD) &&
     d.regOpenBeforeD >= 0 &&
     Number.isFinite(d.prevoteBeforeH) &&
-    d.prevoteBeforeH >= 0
+    d.prevoteBeforeH >= 0 &&
+    // 사전 투표가 등록보다 먼저 열리는 기본값을 저장하면, 위저더가 채우는 일정이 매번 순서 위반으로 실패한다
+    d.prevoteBeforeH < d.regOpenBeforeD * 24
   );
 }

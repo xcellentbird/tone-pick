@@ -11,7 +11,7 @@
  */
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { ENTRY, ME, POKE, REGISTER } from "../src/shared/copy.ts";
+import { ENTRY, ME, POKE, REGISTER, hangulSeq } from "../src/shared/copy.ts";
 import { ENTRY_TRIES } from "../src/shared/constants.ts";
 import type { EventMeta, ParticipantState, Player, RegisterInput, RegisterResult } from "../src/shared/types.ts";
 
@@ -73,9 +73,6 @@ async function freshEvent(): Promise<EventMeta> {
 
 let phoneSeq = 0;
 const nextPhone = () => `0101234${String(1000 + ++phoneSeq)}`;
-
-/** 닉네임에 숫자를 쓸 수 없어서 일련번호를 한글로 읽는다 — `사람7` 대신 `사람칠` */
-const hangulSeq = (n: number) => String(n).replace(/[0-9]/g, (d) => "영일이삼사오육칠팔구"[Number(d)]);
 
 function person(over: Partial<RegisterInput> = {}): RegisterInput {
   return {
@@ -193,6 +190,48 @@ describe("등록", () => {
     }
   });
 
+  it("★ 게시물·릴스 URL 의 예약 경로는 아이디로 저장되지 않는다", async () => {
+    // instagram.com/p/... 에서 "p" 를 아이디로 저장하면, 발표 때 매칭 상대의
+    // 연락 카드에 존재하지 않는 계정이 뜬다 — 조용히 틀리느니 오류가 낫다
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+    const gate = await enter(ev.id, phone);
+    for (const pasted of [
+      "https://www.instagram.com/p/DAbC123xyz/",
+      "https://www.instagram.com/reel/xyz987/",
+      "instagram.com/stories/my.id/123456",
+    ]) {
+      const res = await api("/api/register", {
+        method: "POST",
+        cookie: gate.cookie,
+        body: { ...person(), instagram: pasted },
+      });
+      expect(res.status, `instagram=${pasted}`).toBe(400);
+    }
+  });
+
+  it("인스타 30자·실명 20자·매력 100자 상한을 서버가 지킨다", async () => {
+    // 화면 검증을 우회해 API 로 바로 쏘는 참가자가 있다
+    const ev = await freshEvent();
+    const over = [
+      { instagram: "a".repeat(31) },
+      { realName: "가".repeat(21) },
+      { charms: ["요리를 잘해요", "잘 웃어요", "가".repeat(101)] as [string, string, string] },
+    ];
+    for (const bad of over) {
+      const phone = nextPhone();
+      await invite(ev.id, phone);
+      const gate = await enter(ev.id, phone);
+      const res = await api("/api/register", {
+        method: "POST",
+        cookie: gate.cookie,
+        body: { ...person(), ...bad },
+      });
+      expect(res.status, JSON.stringify(Object.keys(bad))).toBe(400);
+    }
+  });
+
   it("닉네임은 2글자 이상, 한글·영문만 받는다", async () => {
     const ev = await freshEvent();
     const phone = nextPhone();
@@ -229,6 +268,46 @@ describe("등록", () => {
       body: person({ realName: "김실명2" }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it("자소 분리형(NFD) 한글도 받는다", async () => {
+    // macOS·iOS 의 일부 경로는 한글을 NFD 로 준다 — 눈에는 같은 "달빛"인데 코드포인트가 다르다
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+    const gate = await enter(ev.id, phone);
+
+    const res = await api<RegisterResult>("/api/register", {
+      method: "POST",
+      cookie: gate.cookie,
+      body: person({ nickname: "달빛".normalize("NFD"), realName: "김달빛".normalize("NFD") }),
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    // 저장은 NFC 한 벌로 — 나중에 NFC 로 온 같은 닉네임과 유일성 비교가 어긋나면 안 된다
+    expect(res.body.state.me.nickname).toBe("달빛");
+  });
+
+  it("문자열이 아닌 값을 보내면 500이 아니라 400이다", async () => {
+    // 폼을 우회해 API 로 바로 쏘는 참가자 — 검증이 크래시 통로가 되면 안 된다
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+    const gate = await enter(ev.id, phone);
+
+    for (const bad of [
+      { nickname: ["달빛"] },
+      { realName: true },
+      { charms: "셋 아님" },
+      { charms: ["하나", "둘", 3] },
+      { mbti: ["E", "N", "F", "P"] },
+    ]) {
+      const res = await api("/api/register", {
+        method: "POST",
+        cookie: gate.cookie,
+        body: { ...person(), ...bad },
+      });
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+    }
   });
 
   it("같은 전화번호로 다시 오면 그 사람으로 재접속한다", async () => {

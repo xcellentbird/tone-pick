@@ -90,4 +90,35 @@ describe("파기 Cron", () => {
     await wake();
     expect((await api(`/api/events/by-code/${ev.code}`)).status).toBe(200);
   });
+
+  it("★ 파기 대기 일수는 회차 설정을 따른다", async () => {
+    // 설정 탭에서 회차별로 정한다 — 짧게 정한 회차는 기본값 회차보다 먼저 지워진다
+    const fast = await makeEvent({ name: "하루만 보관" });
+    const slow = await makeEvent({ name: "기본값 보관" });
+    const patched = await api(`/api/host/events/${fast.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { config: { maxPre: 3, maxParty: 3, retentionDays: 1 } },
+    });
+    expect(patched.status).toBe(200);
+
+    // 마지막 일정(파티 +1일) 기준: 1일 보관은 +2일에 만료, 기본값(3일)은 +4일까지 산다
+    await travelTo(Date.now() + 3 * DAY);
+    await wake();
+    await login();
+    expect((await api(`/api/events/by-code/${fast.code}`)).status).toBe(404);
+    expect((await api(`/api/events/by-code/${slow.code}`)).status).toBe(200);
+  });
+
+  it("파기 대기 일수는 정해진 범위 밖이면 거절한다", async () => {
+    const ev = await makeEvent();
+    for (const retentionDays of [0, 15, 1.5]) {
+      const res = await api(`/api/host/events/${ev.id}`, {
+        method: "PUT",
+        cookie: master,
+        body: { config: { maxPre: 3, maxParty: 3, retentionDays } },
+      });
+      expect(res.status, `retentionDays=${retentionDays}`).toBe(400);
+    }
+  });
 });

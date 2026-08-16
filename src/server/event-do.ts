@@ -38,10 +38,12 @@ import type {
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
 import { rosterOpen, toPublic } from "../shared/types.ts";
-import { DEMO_UI, ENTRY } from "../shared/copy.ts";
+import { DEMO_UI, ENTRY, hangulSeq } from "../shared/copy.ts";
 import {
   ENTRY_TRIES,
   LIMITS,
+  RETENTION_DAYS,
+  cleanName,
   nicknameProblem,
   normalizeInstagram,
   normalizeNickname,
@@ -50,6 +52,9 @@ import {
 } from "../shared/constants.ts";
 import { PHASE_ORDER, canPoke, dueTransition, purgeDueAt } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
+
+/** 시딩이 만든 참가자의 표식. `seedPokes` 가 진짜 사람과 가짜를 이걸로 가른다 */
+const DEMO_INSTA = "tone_pick_"; // copy-ok
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
 
@@ -173,7 +178,14 @@ export class EventDO extends DurableObject {
   async publicAt(now: number): Promise<Result<PublicEvent>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    const base = { id: meta.id, name: meta.name, phase: meta.phase, partyAt: meta.schedule.partyAt };
+    const base = {
+      id: meta.id,
+      name: meta.name,
+      phase: meta.phase,
+      partyAt: meta.schedule.partyAt,
+      // 등록 화면의 "N일 뒤에 지워져요" 약속이 읽는다 — 회차 설정과 어긋나면 안 된다
+      retentionDays: meta.config.retentionDays ?? RETENTION_DAYS,
+    };
     if (meta.phase === "prep") {
       return ok({
         ...base,
@@ -229,6 +241,14 @@ export class EventDO extends DurableObject {
       const { maxPre, maxParty, allowSameGender } = patch.config;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
 
+      // 안 보내면 지금 값을 지킨다 — 파기 약속이 다른 설정 저장에 딸려 초기화되면 안 된다
+      const retentionDays = patch.config.retentionDays ?? meta.config.retentionDays;
+      if (retentionDays !== undefined) {
+        if (!Number.isInteger(retentionDays) || !inRange(retentionDays, LIMITS.retentionDays)) {
+          return fail("bad_request");
+        }
+      }
+
       /**
        * 이미 쓴 횟수보다 낮게 내릴 수 없다.
        *
@@ -243,8 +263,13 @@ export class EventDO extends DurableObject {
         )[0]?.n;
         if (used && next < used) return fail("conflict", used);
       }
-      // 기본이 '모두에게'라, **좁혔을 때만** 적는다. 켠 상태를 굳이 써 넣으면 설정 모양이 회차마다 달라진다
-      meta.config = { maxPre, maxParty, ...(allowSameGender === false ? { allowSameGender: false } : {}) };
+      // 기본과 다를 때만 적는다. 기본값을 굳이 써 넣으면 설정 모양이 회차마다 달라진다
+      meta.config = {
+        maxPre,
+        maxParty,
+        ...(allowSameGender === false ? { allowSameGender: false } : {}),
+        ...(retentionDays !== undefined && retentionDays !== RETENTION_DAYS ? { retentionDays } : {}),
+      };
     }
     await this.ctx.storage.put("meta", meta);
     // 콕 횟수가 바뀌면 참가자 화면의 남은 횟수가 그 자리에서 재계산돼야 한다
@@ -262,10 +287,11 @@ export class EventDO extends DurableObject {
    * 개인정보만 골라 지우는 대신 회차째 지운다 — 반쯤 지워진 상태를 만들지 않기 위해서다.
    * "회차 1개 = DO 1개"로 잡은 것이 여기서 값을 한다. 지울 게 한 곳에 다 있다.
    */
-  async purgeIfExpired(now: number, retentionDays: number): Promise<boolean> {
+  async purgeIfExpired(now: number): Promise<boolean> {
     const meta = await this.ctx.storage.get<EventMeta>("meta");
     if (!meta) return false;
-    if (now < purgeDueAt(meta, retentionDays)) return false;
+    // 대기 일수는 회차 설정을 따른다. 등록 화면이 한 약속과 같은 값이다
+    if (now < purgeDueAt(meta, meta.config.retentionDays ?? RETENTION_DAYS)) return false;
     await this.ctx.storage.deleteAll();
     return true;
   }
@@ -360,20 +386,28 @@ export class EventDO extends DurableObject {
     if (meta.phase === "prep" || meta.phase === "done") return fail("closed");
 
     // 번호는 폼이 아니라 입장할 때 확인한 값에서 온다 (ADR-15)
-    // 닉네임·실명 규칙은 화면과 같은 함수를 본다 — 폼을 우회해 API 로 바로 쏘는 참가자가 있다
-    if (nicknameProblem(input.nickname) || realNameProblem(input.realName) || !phone) {
+    // 닉네임·실명 규칙은 화면과 같은 함수를 본다 — 폼을 우회해 API 로 바로 쏘는 참가자가 있다.
+    // 검증을 통과한 정규화본만 아래로 내려보낸다. input 원본은 문자열이 아닐 수도 있다
+    const nickname = cleanName(input.nickname);
+    const realName = cleanName(input.realName);
+    if (nicknameProblem(nickname) || realNameProblem(realName) || !phone) {
       return fail("bad_request");
     }
-    const nickNorm = normalizeNickname(input.nickname);
+    const nickNorm = normalizeNickname(nickname);
     if (!Number.isInteger(input.age) || input.age < 18 || input.age > 99) return fail("bad_request");
     if (input.gender !== "M" && input.gender !== "F") return fail("bad_request");
-    if (!/^[EI][NS][TF][JP]$/.test(input.mbti)) return fail("bad_request");
-    if (input.charms.length !== LIMITS.charms || input.charms.some((c) => !c.trim())) {
+    if (!/^[EI][NS][TF][JP]$/.test(String(input.mbti))) return fail("bad_request");
+    const charms = Array.isArray(input.charms)
+      ? input.charms.map((c) => (typeof c === "string" ? c.trim() : ""))
+      : [];
+    if (charms.length !== LIMITS.charms || charms.some((c) => !c || c.length > LIMITS.charmMax)) {
       return fail("bad_request");
     }
     // 인스타는 필수다. 매칭되면 서로에게 공개되는 연락 수단이라 없이는 매칭이 반쪽이 된다
     const instagram = normalizeInstagram(String(input.instagram ?? ""));
-    if (!/^[A-Za-z0-9._]{1,30}$/.test(instagram)) return fail("bad_request");
+    if (instagram.length > LIMITS.instagramMax || !/^[A-Za-z0-9._]+$/.test(instagram)) {
+      return fail("bad_request");
+    }
 
     const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone)[0];
     const clash = this.rows<PlayerRow>("SELECT * FROM players WHERE nick_norm = ?", nickNorm)[0];
@@ -381,14 +415,14 @@ export class EventDO extends DurableObject {
 
     const player: Player = {
       id: mine?.id ?? randomHex(8),
-      nickname: input.nickname.trim(),
-      realName: input.realName.trim(),
+      nickname,
+      realName,
       age: input.age,
       gender: input.gender,
       phone,
       instagram,
       mbti: input.mbti,
-      charms: input.charms.map((c) => c.trim()) as [string, string, string],
+      charms: charms as [string, string, string],
       createdAt: mine?.created_at ?? now,
     };
 
@@ -484,12 +518,11 @@ export class EventDO extends DurableObject {
       const phone = `010${String(now).slice(-4)}${String(n).padStart(4, "0")}`;
       const pick = <T,>(list: readonly T[]) => list[(n * 7 + list.length) % list.length];
       // 닉네임에 숫자를 쓸 수 없다 — 일련번호도 한글로 읽어 register() 규칙을 그대로 통과시킨다
-      const suffix = String(n).replace(/[0-9]/g, (d) => DEMO_UI.seed.digitNames[Number(d)]);
       const made = await this.register(
         {
-          nickname: `${pick(DEMO_UI.seed.nicknames)}${suffix}`,
+          nickname: `${pick(DEMO_UI.seed.nicknames)}${hangulSeq(n)}`,
           realName: `${pick(DEMO_UI.seed.surnames)}${pick(DEMO_UI.seed.givenNames)}`,
-          instagram: `tone_pick_${n}`,
+          instagram: `${DEMO_INSTA}${n}`,
           age: 24 + (n * 3) % 18,
           gender,
           mbti: pick(DEMO_UI.seed.mbti),
@@ -520,14 +553,38 @@ export class EventDO extends DurableObject {
     const max = round === "pre" ? meta.config.maxPre : meta.config.maxParty;
     let made = 0;
 
-    for (const me of players) {
+    /**
+     * 가짜 참가자만 찌른다 — QA 리허설에 실제로 등록한 사람의 콕을 대신 써 버리면
+     * 그 사람의 유일한 예산이 무작위로 사라진다. 표식은 시딩이 만든 인스타 접두다.
+     *
+     * 네 명 단위로 역할을 나눈다: 앞의 둘은 **서로** 찌른다(콕 1회 기본값에서도 상호 쌍이
+     * 나와야 커플 자리·발표를 시연할 수 있다), 셋째는 무작위로 뿌리고, 넷째는 손대지 않는다 —
+     * 콕 찌르기 자체를 시연할 예산이 남은 사람이 있어야 한다.
+     */
+    const fakes = players.filter((p) => p.instagram?.startsWith(DEMO_INSTA));
+    for (const [idx, me] of fakes.entries()) {
+      if (idx % 4 === 3) continue;
       const targets = players.filter(
         (p) => p.id !== me.id && (meta.config.allowSameGender !== false || p.gender !== me.gender),
       );
       if (targets.length === 0) continue;
-      const budget = max - this.sentCount(me.id, round);
-      // 예산을 다 쓰지는 않는다. 매칭이 골고루 갈리게 절반쯤만
-      for (let i = 0; i < Math.ceil(budget / 2); i++) {
+      let budget = max - this.sentCount(me.id, round);
+
+      const partner = idx % 4 < 2 ? fakes[idx ^ 1] : undefined;
+      if (partner && budget > 0 && targets.some((t) => t.id === partner.id)) {
+        this.ctx.storage.sql.exec(
+          "INSERT INTO pokes (id, from_id, to_id, round, at) VALUES (?,?,?,?,?)",
+          randomHex(8),
+          me.id,
+          partner.id,
+          round,
+          now,
+        );
+        made++;
+        budget--;
+      }
+      // 남은 예산은 절반쯤만 무작위로 — 매칭이 골고루 갈리게
+      for (let i = 0; i < Math.floor(budget / 2); i++) {
         const to = targets[Math.floor(Math.random() * targets.length)];
         this.ctx.storage.sql.exec(
           "INSERT INTO pokes (id, from_id, to_id, round, at) VALUES (?,?,?,?,?)",

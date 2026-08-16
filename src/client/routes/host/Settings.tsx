@@ -26,6 +26,7 @@ export default function Settings() {
   const [maxPre, setMaxPre] = useState(meta.config.maxPre);
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
   const [allowSameGender, setAllowSameGender] = useState(meta.config.allowSameGender !== false);
+  const [retentionDays, setRetentionDays] = useState(meta.config.retentionDays ?? RETENTION_DAYS);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,6 +35,7 @@ export default function Settings() {
     setMaxPre(meta.config.maxPre);
     setMaxParty(meta.config.maxParty);
     setAllowSameGender(meta.config.allowSameGender !== false);
+    setRetentionDays(meta.config.retentionDays ?? RETENTION_DAYS);
     setSchedule(meta.schedule);
   }, [meta]);
 
@@ -54,6 +56,11 @@ export default function Settings() {
       meta.config.allowSameGender === false ? HOST_UI.fields.pokeTargetOpposite : HOST_UI.fields.pokeTargetAll,
       allowSameGender ? HOST_UI.fields.pokeTargetAll : HOST_UI.fields.pokeTargetOpposite,
     );
+    changed(
+      HOST_UI.settings.privacy,
+      UNIT.days(meta.config.retentionDays ?? RETENTION_DAYS),
+      UNIT.days(retentionDays),
+    );
     for (const key of ["partyAt", "regOpenAt", "prevoteAt"] as const) {
       changed(HOST_UI.fields[key], formatWhen(meta.schedule[key]) || "—", formatWhen(schedule[key]) || "—");
     }
@@ -68,7 +75,7 @@ export default function Settings() {
     try {
       await put<EventMeta>(`/host/events/${meta.id}`, {
         name,
-        config: { maxPre, maxParty, allowSameGender },
+        config: { maxPre, maxParty, allowSameGender, retentionDays },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
       toast(BTN.saved);
@@ -177,13 +184,23 @@ export default function Settings() {
       {/* 예약이 없는 전환을 여기서 찾지 않도록, 없는 이유를 그 자리에 적어둔다 */}
       <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
 
+      <div className="kicker">{HOST_UI.settings.privacy}</div>
+      <Num
+        label={HOST_UI.fields.retentionDays}
+        value={retentionDays}
+        min={LIMITS.retentionDays.min}
+        max={LIMITS.retentionDays.max}
+        onChange={setRetentionDays}
+      />
+      <p className="tiny dim">{HOST_UI.retention(retentionDays)}</p>
+      {/* 등록 화면의 "N일 뒤에 지워져요"가 이 값을 읽는다 — 참가자가 이미 있으면 줄이는 건 약속 위반이다 */}
+      {state.players.length > 0 && <p className="tiny dim">{HOST_UI.fields.retentionNote}</p>}
+
       {error && <p className="err danger">{error}</p>}
       {/* 누르면 바로 저장되지 않는다. 무엇이 바뀌는지 보고 한 번 더 확인한다 */}
       <button className="btn primary block" onClick={askSave}>
         {HOST_UI.applySettings}
       </button>
-
-      <p className="tiny dim">{HOST_UI.retention(RETENTION_DAYS)}</p>
 
       <div className="kicker">{HOST_UI.settings.danger}</div>
       <button className="btn danger block" onClick={askDelete}>

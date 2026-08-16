@@ -5,7 +5,6 @@ import { hostRoutes } from "./routes/host.ts";
 import { participantRoutes } from "./routes/participant.ts";
 import { PLAYER_COOKIE, readCookie, readSession } from "./auth.ts";
 import { eventStub, missingSecrets, moveServerClock, registry, serverNow, syncClock, type Env } from "./http.ts";
-import { RETENTION_DAYS } from "../shared/constants.ts";
 
 export { EventDO, RegistryDO };
 export type { Env };
@@ -95,7 +94,8 @@ async function scheduled(_event: ScheduledController, env: Env) {
 
   for (const entry of await reg.listEvents()) {
     try {
-      if (await eventStub(env, entry.id).purgeIfExpired(now, RETENTION_DAYS)) {
+      // 대기 일수는 회차 설정을 따르므로 DO 가 스스로 판단한다
+      if (await eventStub(env, entry.id).purgeIfExpired(now)) {
         await reg.removeEvent(entry.id);
         purged++;
       }
@@ -104,7 +104,7 @@ async function scheduled(_event: ScheduledController, env: Env) {
       console.error("purge failed", entry.id, e);
     }
   }
-  console.log(`purge: ${purged} events removed (retention ${RETENTION_DAYS}d)`);
+  console.log(`purge: ${purged} events removed`);
 }
 
 export default { fetch: app.fetch, scheduled };

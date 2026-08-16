@@ -222,7 +222,7 @@ stateDiagram-v2
     prevote --> party: 예약 알람 또는 수동
     party --> done: 예약 알람 또는 수동
     done --> party: 발표 되돌리기
-    done --> [*]: 발표 후 7일
+    done --> [*]: 발표 후 3일
 ```
 
 **예약은 한 번만 울리는 알람이다** (ADR-2). 실제 전환 시각을 `fired` 에 남기고, 알람은 `fired` 가
