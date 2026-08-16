@@ -89,6 +89,10 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
   return (
     <div className="stack fortuneFill">
       <div className={`card stack fortuneCard tone-${card.color}`}>
+        {/* 운세를 읽어준 사람. 카드가 길어도 글의 머리가 어디인지 한눈에 잡힌다 */}
+        <span className="fortuneMage" aria-hidden>
+          🧙‍♀️
+        </span>
         <div className="kicker">{FORTUNE.title}</div>
         <h2 className="fortuneHeadline">{card.headline}</h2>
         {/* 세 문단. 한 덩어리로 붙여 놓으면 폰에서 읽다가 놓친다 */}
@@ -117,7 +121,7 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
           </div>
         )}
 
-        {/* 본문은 위에서 읽히고 메타가 바닥을 잡는다 — 남는 공간이 디자인된 여백으로 읽히게 */}
+        {/* 색·결 메타. 내용 전체가 카드 세로 중앙에 모인다 — 위아래로 갈라두면 가운데가 휑하다 */}
         <div className="stack fortuneMeta">
           {card.oneLiner && (
             <p className="fortuneOne">
