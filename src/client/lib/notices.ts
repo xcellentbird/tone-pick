@@ -8,6 +8,13 @@
 import { NOTICE, POKE } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 
+/**
+ * 배너를 눌렀을 때 갈 곳. **알림마다 다르다** —
+ * 단계 알림은 소식 목록이 있는 홈이고, 발표는 결과가 실제로 있는 참가자 탭이다 (ADR-18).
+ * 하나로 묶어 홈으로만 보내면 "홈으로 가라 → 참가자 탭으로 가라" 가 서로를 가리킨다.
+ */
+export type NoticeTab = "home" | "people";
+
 export interface Notice {
   key: string;
   icon: string;
@@ -17,6 +24,7 @@ export interface Notice {
   at: number;
   /** 배너로 띄울 수 있는가. 익명 콕 카운터는 시각이 없어 배너로 쓰지 않는다 */
   bannerable: boolean;
+  tab: NoticeTab;
 }
 
 /** 최근 3분 안의 변화만 배너로 띄운다. 그보다 오래된 건 알림 탭에만 (UI.md) */
@@ -27,15 +35,17 @@ export function noticesOf(state: ParticipantState): Notice[] {
   const list: Notice[] = [];
 
   if (fired.prevote) {
-    list.push({ key: "prevote", ...NOTICE.prevote(config.maxPre), at: fired.prevote, bannerable: true });
+    list.push({ key: "prevote", ...NOTICE.prevote(config.maxPre), at: fired.prevote, bannerable: true, tab: "home" });
   }
   if (fired.party) {
-    list.push({ key: "party", ...NOTICE.party(config.maxParty), at: fired.party, bannerable: true });
+    list.push({ key: "party", ...NOTICE.party(config.maxParty), at: fired.party, bannerable: true, tab: "home" });
   }
   if (fired.done) {
     // 되돌렸으면 같은 자리에 다른 문장이 온다. 상태가 하나뿐이라 모순이 없다
     const copy = phase === "done" ? NOTICE.done : NOTICE.unrevealed;
-    list.push({ key: `done:${phase}`, ...copy, at: fired.done, bannerable: true });
+    // 발표됐으면 결과가 있는 참가자 탭으로, 되돌렸으면 볼 게 없으니 홈으로
+    const tab = phase === "done" ? "people" : "home";
+    list.push({ key: `done:${phase}`, ...copy, at: fired.done, bannerable: true, tab });
   }
   /**
    * 받은 콕은 **한 번에 하나씩** 쌓인다. 합쳐서 "지금까지 N회" 로 세어 주면
@@ -53,6 +63,7 @@ export function noticesOf(state: ParticipantState): Notice[] {
       body: POKE.receivedNote,
       at: 0,
       bannerable: false,
+      tab: "home",
     });
   }
 

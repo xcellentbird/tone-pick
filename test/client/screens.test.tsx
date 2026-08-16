@@ -543,7 +543,7 @@ describe("탭 역할 분담", () => {
    */
   const withSeat = { round: 1, table: 2, final: false, mates: 6, men: 3, acked: true };
 
-  const renderTab = (t: "home" | "me", over: Partial<ParticipantState> = {}) =>
+  const renderTab = (t: "home" | "me" | "people", over: Partial<ParticipantState> = {}) =>
     render(
       <MemoryRouter>
         <ParticipantView
@@ -576,6 +576,34 @@ describe("탭 역할 분담", () => {
     renderTab("home", { poke: { ...POKE_STATE, receivedCount: 2 } });
     await screen.findByText(HOME.news);
     expect(screen.getByText(NOTICE.prevote(3).title)).toBeTruthy();
+  });
+
+  it("★ 발표 배너는 결과가 있는 탭에는 뜨지 않는다 — 서로를 가리키면 안 된다", async () => {
+    /*
+     * 배너가 "홈으로 가라" 하고 홈 카드가 "참가자 탭으로 가라" 하면 두 화면이 서로를 가리킨다.
+     * 결과는 참가자 탭에 있으므로 (ADR-18) 거기서는 배너를 띄우지 않는다.
+     */
+    const revealed = {
+      event: { ...participantState().event, phase: "done" as const, fired: { reg: 1, prevote: 2, done: Date.now() } },
+    };
+
+    renderTab("people", revealed);
+    await screen.findByText(PEOPLE.everyone);
+    expect(screen.queryByText(NOTICE.done.title)).toBeNull();
+    cleanup();
+
+    // 결과를 볼 수 없는 탭에서는 그대로 뜬다 — 알림을 없앤 게 아니라 자리를 가린 것이다
+    renderTab("me", revealed);
+    await screen.findByText(NOTICE.done.title);
+  });
+
+  it("★ 콕을 다 쓰면 할 수 없는 일을 시키지 않는다 — 0 도 들이대지 않는다", async () => {
+    renderTab("home", { poke: { ...POKE_STATE, budget: { pre: { max: 1, used: 1 }, party: { max: 2, used: 0 } } } });
+    await screen.findByText(HOME.spent.prevote.title);
+    expect(screen.queryByText(HOME.todo.prevote.title)).toBeNull();
+    expect(screen.queryByText(STATUS.pokeLeft(0))).toBeNull();
+    // 명단 구경은 여전히 된다
+    expect(screen.getByText(HOME.goPeople)).toBeTruthy();
   });
 
   it("★ 받은 콕은 한 번에 하나씩 쌓인다 — 합쳐서 세지 않는다", async () => {
