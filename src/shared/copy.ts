@@ -275,7 +275,7 @@ export const FORTUNE = {
   tab: "오늘",
   title: "오늘의 기운",
   /** 뒤집기 전 카드 */
-  open: "탭해서 오늘 열어보기",
+  open: "오늘의 운세 열기",
   opening: "오늘을 읽는 중",
   closed: "파티가 시작되면 열려요",
   missionTitle: "오늘의 미션",
@@ -292,7 +292,7 @@ export const FORTUNE = {
    * **전송에만 쓰고 저장하지 않는다** — 그 약속을 입력 칸 밑에 적는다 (규칙 5: 약속은 합니다체).
    */
   birthLabel: "생년월일",
-  birthPh: "19960314",
+  birthPh: "1996.03.14",
   birthNote: "운세를 읽는 데만 쓰고, 저장하지 않습니다.",
   birthBad: "생년월일 8자리를 확인해주세요.",
   /** 별자리 이름. 순서는 `zodiacIndex` (0=물병 … 11=염소) 와 맞물린다 */

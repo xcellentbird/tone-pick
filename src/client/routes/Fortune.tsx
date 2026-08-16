@@ -24,6 +24,10 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
   const [birthErr, setBirthErr] = useState(false);
   const { toast } = useOverlay();
 
+  // 표시는 1993.12.07 — 자기가 맞게 쳤는지 한눈에 보인다. 상태와 전송은 숫자 8자리 그대로다
+  const fmtBirth = (b: string) =>
+    b.slice(0, 4) + (b.length > 4 ? `.${b.slice(4, 6)}` : "") + (b.length > 6 ? `.${b.slice(6, 8)}` : "");
+
   // 생년월일은 몸에 실어 보내고 **어디에도 저장하지 않는다** (ADR-20)
   const birthOk =
     /^[0-9]{8}$/.test(birth) &&
@@ -59,10 +63,10 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
               id="birth"
               inputMode="numeric"
               placeholder={FORTUNE.birthPh}
-              maxLength={8}
-              value={birth}
+              maxLength={10}
+              value={fmtBirth(birth)}
               onChange={(e) => {
-                setBirth(e.target.value.replace(/[^0-9]/g, ""));
+                setBirth(e.target.value.replace(/[^0-9]/g, "").slice(0, 8));
                 setBirthErr(false);
               }}
               aria-invalid={birthErr || undefined}
