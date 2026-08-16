@@ -24,9 +24,9 @@ import type {
   ParticipantState,
   Phase,
   Player,
+  Poke,
   PokeRound,
   PublicEvent,
-  PublicPlayer,
   RegisterInput,
   RegisterResult,
   Seat,
@@ -1034,7 +1034,7 @@ export class EventDO extends DurableObject {
     return this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM players")[0]?.n ?? 0;
   }
 
-  private pokes() {
+  private pokes(): Poke[] {
     return this.rows<{ id: string; from_id: string; to_id: string; round: PokeRound; at: number }>(
       "SELECT * FROM pokes",
     ).map((r) => ({ id: r.id, fromId: r.from_id, toId: r.to_id, round: r.round, at: r.at }));

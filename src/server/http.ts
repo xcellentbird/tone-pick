@@ -4,7 +4,7 @@
  * 여기 있는 건 전부 "인증과 라우팅"이다. 상태를 바꾸는 코드는 한 줄도 두지 않는다.
  */
 import type { Context } from "hono";
-import type { AuthScope, ErrorCode } from "../shared/types.ts";
+import type { ApiErrorBody, AuthScope, ErrorCode } from "../shared/types.ts";
 import { HOST_COOKIE, INVITE_COOKIE, PLAYER_COOKIE, readCookie, readSession } from "./auth.ts";
 import type { EventDO, Result } from "./event-do.ts";
 import type { RegistryDO } from "./registry-do.ts";
@@ -99,7 +99,9 @@ export function apiError(c: Ctx, error: ErrorCode, message?: string) {
   // 표에 없는 코드가 오면 200 이 나간다 — 실패가 성공으로 보이는 최악의 조용한 실패다.
   // 그래서 기본값을 400 으로 둔다 (ADR-8)
   const status = (STATUS[error] ?? 400) as 400;
-  return c.json(message ? { error, message } : { error }, status);
+  // 계약(ApiErrorBody)에 맞춰 나간다 — 타입을 달아두면 모양이 어긋날 때 컴파일이 잡는다
+  const body: ApiErrorBody = message ? { error, message } : { error };
+  return c.json(body, status);
 }
 
 /**

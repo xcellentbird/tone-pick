@@ -1,18 +1,6 @@
 import { useEffect } from "react";
-import { useBlocker, useNavigate } from "react-router";
+import { useBlocker } from "react-router";
 import { REGISTER } from "../../shared/copy.ts";
-
-/**
- * 확인 다이얼로그는 실행 **전에** 히스토리를 정리해야 한다.
- * 안 그러면 실행 후 뒤로 가기를 눌렀을 때 이미 처리된 다이얼로그가 다시 뜬다.
- */
-export function useConfirmRunner() {
-  const navigate = useNavigate();
-  return async function confirmAndRun(action: () => Promise<void> | void) {
-    navigate(-1);
-    await action();
-  };
-}
 
 /**
  * 등록 폼에서 뒤로 가면 입력이 전부 날아간다.

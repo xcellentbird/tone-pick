@@ -11,7 +11,7 @@
  *     `fired` 에서 파생되는 것뿐이라 파티 한 번에 많아야 네 개고, 읽음 상태도 없다.
  *     받은편지함이 아니라 타임라인이고, 그건 "지금 무슨 일인가"의 과거형이다 (ADR-4)
  */
-import { HOME, POKE, REVEAL, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
+import { HOME, REVEAL, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
 import { formatWhen } from "../../shared/time.ts";

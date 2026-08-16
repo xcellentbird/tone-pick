@@ -5,17 +5,6 @@ export const PHASE_ORDER: Phase[] = ["prep", "reg", "prevote", "party", "done"];
 // 단계 이름을 포함해 화면에 나가는 모든 문구는 `copy.ts` 에 있다. 이 파일은 로직만 담는다.
 
 /**
- * 어떤 예약 시각이 어떤 전환을 울리는가.
- *
- * **여기 없는 전환은 예약이 없다.** 사전 투표 마감(→party)과 발표(→done)는 운영자가 누른다 —
- * 사람이 다 왔는지, 이야기가 무르익었는지는 시계가 알 수 없다.
- */
-export const SCHED_OF = {
-  reg: "regOpenAt",
-  prevote: "prevoteAt",
-} as const;
-
-/**
  * 예약은 '한 번만 울리는 알람'이다. (ADR-2)
  * 되돌리기를 해도 fired 가 남아 있으므로 즉시 다시 앞으로 밀리지 않는다.
  * 서버(EventDO)에서만 호출할 것 — 클라이언트 시계를 기준으로 단계를 바꾸면 안 된다.

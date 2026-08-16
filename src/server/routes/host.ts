@@ -12,6 +12,7 @@ import type {
   EventSchedule,
   EventSummary,
   Phase,
+  SeatingInput,
 } from "../../shared/types.ts";
 import { HOST, HOST_UI } from "../../shared/copy.ts";
 import { LIMITS } from "../../shared/constants.ts";
@@ -239,7 +240,8 @@ hostRoutes.delete("/events/:id/players/:pid", async (c) => {
 hostRoutes.post("/events/:id/seating", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
-  const body = await json<{ tableCount?: number; final?: boolean }>(c);
+  // 값이 없을 수도 있는 바깥 입력이라 Partial 이다. 모양은 계약(SeatingInput)이 정한다
+  const body = await json<Partial<SeatingInput>>(c);
   const { value, response } = unwrap(
     c,
     await gate.stub.makeSeating(Number(body.tableCount), !!body.final, serverNow()),
