@@ -93,6 +93,18 @@ export function normalizePhone(s: string): string {
   return String(s ?? '').replace(/[^0-9]/g, '')
 }
 
+/**
+ * 인스타 아이디 정규화 — 붙여넣은 껍데기를 벗긴다.
+ *
+ * 가장 흔한 "유효하지 않은 값"은 오타가 아니라 `@아이디` 나 프로필 URL 붙여넣기다.
+ * 의도가 명백한 것을 오류로 돌려주지 않는다 — 오류 문구는 진짜 오타에만 쓴다.
+ */
+export function normalizeInstagram(raw: string): string {
+  const s = String(raw ?? '').trim()
+  const url = s.match(/instagram\.com\/([A-Za-z0-9._]+)/i)
+  return (url ? url[1] : s).replace(/^@+/, '')
+}
+
 /** 닉네임 비교용 정규화 — 공백 제거 + 소문자 */
 export function normalizeNickname(s: string): string {
   return s.replace(/\s+/g, '').toLowerCase()

@@ -176,6 +176,23 @@ describe("등록", () => {
     }
   });
 
+  it("붙여넣은 @아이디·프로필 URL 은 오류가 아니다 — 벗겨서 받는다", async () => {
+    // 가장 흔한 '유효하지 않은 값'은 오타가 아니라 붙여넣기다. 의도가 명백하면 고쳐준다
+    const ev = await freshEvent();
+    for (const pasted of ["@my.id", "https://www.instagram.com/my.id?igsh=abc", "instagram.com/my.id/"]) {
+      const phone = nextPhone();
+      await invite(ev.id, phone);
+      const gate = await enter(ev.id, phone);
+      const res = await api<RegisterResult>("/api/register", {
+        method: "POST",
+        cookie: gate.cookie,
+        body: { ...person(), instagram: pasted },
+      });
+      expect(res.status, `instagram=${pasted} → ${JSON.stringify(res.body)}`).toBe(200);
+      expect(res.body.state.me.instagram).toBe("my.id");
+    }
+  });
+
   it("닉네임은 2글자 이상, 한글·영문만 받는다", async () => {
     const ev = await freshEvent();
     const phone = nextPhone();
