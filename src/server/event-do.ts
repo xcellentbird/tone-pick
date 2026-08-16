@@ -43,6 +43,7 @@ import {
   ENTRY_TRIES,
   LIMITS,
   nicknameProblem,
+  normalizeInstagram,
   normalizeNickname,
   normalizePhone,
   realNameProblem,
@@ -371,7 +372,7 @@ export class EventDO extends DurableObject {
       return fail("bad_request");
     }
     // 인스타는 필수다. 매칭되면 서로에게 공개되는 연락 수단이라 없이는 매칭이 반쪽이 된다
-    const instagram = String(input.instagram ?? "").trim();
+    const instagram = normalizeInstagram(String(input.instagram ?? ""));
     if (!/^[A-Za-z0-9._]{1,30}$/.test(instagram)) return fail("bad_request");
 
     const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone)[0];

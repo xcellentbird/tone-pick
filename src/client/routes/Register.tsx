@@ -5,6 +5,8 @@
  *  · 스텝 이동은 push — 뒤로 가기가 이전 스텝이다
  *  · 등록 완료는 replace — 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
  *  · 에러는 **그 값을 입력한 자리에** 띄운다. 닉네임 중복이면 3스텝이 아니라 1스텝으로 되돌린다
+ *  · 에러가 뜨면 그 칸으로 스크롤·포커스한다 — 3스텝은 길어서 화면 밖에 뜰 수 있다
+ *  · 인스타의 @·URL 껍데기는 오류가 아니라 의도다 — 벗겨서 받는다 (normalizeInstagram)
  *  · 토글을 눌러도 입력값을 날리지 않는다 (폼 전체를 다시 그리지 않는다)
  *  · MBTI 는 16지선다가 아니라 4문항 토글 — 모르는 사람도 답할 수 있어야 한다
  */
@@ -12,7 +14,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared/copy.ts";
 import type { RegisterInput, RegisterResult } from "../../shared/types.ts";
-import { LIMITS, RETENTION_DAYS, nicknameProblem, realNameProblem } from "../../shared/constants.ts";
+import { LIMITS, RETENTION_DAYS, nicknameProblem, normalizeInstagram, realNameProblem } from "../../shared/constants.ts";
 import { ApiError, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
 
@@ -44,6 +46,16 @@ export default function Register() {
   const [busy, setBusy] = useState(false);
 
   const at = Math.min(3, Math.max(1, Number(step) || 1));
+
+  // 오류를 만든 칸으로 데려간다 — 키보드가 올라온 폰에서는 화면 밖 오류가 "아무 일도 없음"으로 보인다.
+  // error.field 가 곧 요소 id 다. 서버 오류로 스텝을 되돌린 경우(nick_taken)도 이 효과가 받는다
+  useEffect(() => {
+    if (!error) return;
+    const el = document.getElementById(error.field);
+    if (!el) return;
+    el.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) el.focus({ preventScroll: true });
+  }, [error]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(EMPTY);
   useDraftGuard(dirty && !busy, "/j/");
 
@@ -53,7 +65,10 @@ export default function Register() {
   };
 
   function next() {
-    const bad = validate(draft, at);
+    // 붙여넣은 @·URL 껍데기는 오류가 아니다 — 벗긴 값으로 검증하고, 화면에도 벗긴 값을 남긴다
+    const d = at === 2 ? { ...draft, instagram: normalizeInstagram(draft.instagram) } : draft;
+    if (d !== draft) setDraft(d);
+    const bad = validate(d, at);
     if (bad) return setError(bad);
     if (at < 3) return navigate(`/j/${id}/register/${at + 1}`);
     submit();
@@ -67,7 +82,7 @@ export default function Register() {
         realName: draft.realName.trim(),
         age: Number(draft.age),
         gender: draft.gender as "M" | "F",
-        instagram: draft.instagram.trim(),
+        instagram: normalizeInstagram(draft.instagram),
         mbti: MBTI_AXES.map((_, i) => draft.mbti[i]).join(""),
         charms: draft.charms.map((c) => c.trim()) as [string, string, string],
       };
@@ -95,7 +110,15 @@ export default function Register() {
     }
   }
 
-  const err = (field: string) => (error?.field === field ? <span className="err">{error.text}</span> : null);
+  // 색과 위치로만 말하지 않는다 — role="alert" 로 보조기기에도 같은 문구가 전달된다
+  const err = (field: string) =>
+    error?.field === field ? (
+      <span className="err" id={`${field}-err`} role="alert">
+        {error.text}
+      </span>
+    ) : null;
+  const invalid = (field: string) =>
+    error?.field === field ? ({ "aria-invalid": true, "aria-describedby": `${field}-err` } as const) : {};
 
   return (
     <div className="screen">
@@ -115,18 +138,19 @@ export default function Register() {
         {at === 1 && (
           <>
             <div className="field">
-              <label htmlFor="nick">{ME.labels.nickname}</label>
+              <label htmlFor="nickname">{ME.labels.nickname}</label>
               <input
-                id="nick"
+                id="nickname"
                 value={draft.nickname}
                 maxLength={LIMITS.nicknameMax}
                 onChange={(e) => set("nickname", e.target.value)}
+                {...invalid("nickname")}
               />
               {err("nickname")}
             </div>
             <div className="field">
-              <label htmlFor="name">{ME.labels.realName}</label>
-              <input id="name" value={draft.realName} onChange={(e) => set("realName", e.target.value)} />
+              <label htmlFor="realName">{ME.labels.realName}</label>
+              <input id="realName" value={draft.realName} onChange={(e) => set("realName", e.target.value)} {...invalid("realName")} />
               {err("realName")}
             </div>
             <div className="field">
@@ -136,10 +160,11 @@ export default function Register() {
                 value={draft.age}
                 inputMode="numeric"
                 onChange={(e) => set("age", e.target.value.replace(/[^0-9]/g, ""))}
+                {...invalid("age")}
               />
               {err("age")}
             </div>
-            <div className="field">
+            <div className="field" id="gender">
               <label>{ME.labels.gender}</label>
               <div className="choice">
                 {(["M", "F"] as const).map((g) => (
@@ -162,8 +187,8 @@ export default function Register() {
           <>
             <p className="tiny dim pre">{REGISTER.retention(RETENTION_DAYS)}</p>
             <div className="field">
-              <label htmlFor="insta">{ME.labels.instagram}</label>
-              <input id="insta" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} />
+              <label htmlFor="instagram">{ME.labels.instagram}</label>
+              <input id="instagram" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} {...invalid("instagram")} />
               {err("instagram")}
             </div>
           </>
@@ -172,7 +197,7 @@ export default function Register() {
         {at === 3 && (
           <>
             {MBTI_AXES.map((axis, i) => (
-              <div className="field" key={axis.q}>
+              <div className="field" key={axis.q} id={`mbti${i}`}>
                 <label>{axis.q}</label>
                 <div className="choice">
                   {axis.opts.map(([letter, text]) => (
@@ -186,9 +211,9 @@ export default function Register() {
                     </button>
                   ))}
                 </div>
+                {err(`mbti${i}`)}
               </div>
             ))}
-            {err("mbti")}
 
             <p className="small dim">{REGISTER.charmHint}</p>
             {draft.charms.map((c, i) => (
@@ -203,10 +228,11 @@ export default function Register() {
                     next[i] = e.target.value;
                     set("charms", next);
                   }}
+                  {...invalid(`charm${i}`)}
                 />
+                {err(`charm${i}`)}
               </div>
             ))}
-            {err("charms")}
           </>
         )}
 
@@ -245,9 +271,11 @@ function validate(d: Draft, step: number): { field: string; text: string } | nul
     }
   }
   if (step === 3) {
-    if (MBTI_AXES.some((_, i) => !d.mbti[i])) return { field: "mbti", text: REGISTER.err.mbti };
+    // 답 안 한 첫 문항·비어 있는 첫 칸을 가리킨다 — field 가 곧 요소 id 라 스크롤·포커스가 따라간다
+    const blank = MBTI_AXES.findIndex((_, i) => !d.mbti[i]);
+    if (blank >= 0) return { field: `mbti${blank}`, text: REGISTER.err.mbti };
     const missing = d.charms.findIndex((c) => !c.trim());
-    if (missing >= 0) return { field: "charms", text: REGISTER.err.charm(missing + 1) };
+    if (missing >= 0) return { field: `charm${missing}`, text: REGISTER.err.charm(missing + 1) };
   }
   return null;
 }
