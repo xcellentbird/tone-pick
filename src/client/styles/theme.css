@@ -114,6 +114,16 @@ input, select, textarea {
   font-family: inherit;
 }
 
+/*
+ * 링크는 **우리 색**이다. 규칙이 없으면 브라우저가 파랑에 밑줄을 그리는데,
+ * 어두운 화면에서 그 파랑은 앱의 어느 색과도 무관해서 내용보다 "링크라는 사실" 이 먼저 눈에 든다.
+ * 색을 직접 정하는 곳(.tabs a · .tabbar a)은 특이도가 높아 그대로 이긴다.
+ */
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
 button {
   min-height: var(--tap);
   min-width: var(--tap);
@@ -600,6 +610,13 @@ button {
   padding: var(--pad);
   padding-bottom: calc(var(--pad) + env(safe-area-inset-bottom));
   box-shadow: var(--shadow-lg);
+  /*
+   * 시트 안에도 세로 리듬이 있어야 한다. 없으면 카드와 그 아래 아바타가 맞닿아
+   * 두 테두리가 겹쳐 보인다 — 자식마다 margin 을 손으로 붙이던 것을 여기서 한 번에 준다.
+   */
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
 }
 
 .dialog {

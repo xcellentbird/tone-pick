@@ -119,9 +119,19 @@ function Loaded({
 
   const ack = useCallback(async () => {
     if (!state.seat) return;
-    setAcked((list) => [...list, state.seat!.round]);
-    await source.ackSeat(state.seat.round);
-    reload();
+    const round = state.seat.round;
+    setAcked((list) => [...list, round]);
+    try {
+      await source.ackSeat(round);
+      reload();
+    } catch {
+      /*
+       * 저장에 실패했으면 **확인을 없던 일로 되돌린다.** 그냥 삼키면 화면에서는 사라지고
+       * 서버에는 미확인으로 남아, 운영자가 보는 이동 확인 수가 조용히 모자란다.
+       * 되돌리면 안내가 그대로 남아 한 번 더 누를 수 있다.
+       */
+      setAcked((list) => list.filter((r) => r !== round));
+    }
   }, [source, state.seat, reload]);
 
   // 발표가 끝났으면 자리 이동 확인을 띄우지 않는다 (FLOWS.md)

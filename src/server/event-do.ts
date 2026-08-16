@@ -915,9 +915,17 @@ export class EventDO extends DurableObject {
     draft.acks = [];
     this.writeSeating(draft);
 
-    for (const seat of draft.seats) {
-      this.toPlayer(seat.playerId, { type: "seating", round: draft.round, table: seat.table });
-    }
+    /*
+     * **전원에게 보낸다.** 자리에 앉은 사람에게만 개인 소켓으로 보내면 두 곳에서 샌다 —
+     * 반쯤 죽은 소켓(폰 잠금·통신망 전환)에는 send 가 성공한 척 사라지고,
+     * 참가자 식별이 붙지 않은 소켓은 영영 매칭되지 않는다. 둘 다 조용해서 알림이
+     * 사라진 게 아니라 **늦게, 엉뚱한 순간에** 뜬다 (다음 리로드 때).
+     *
+     * 클라이언트는 어차피 내용을 읽지 않고 "다시 읽어라" 로만 쓴다 (ADR-26).
+     * 자리 확정은 파티당 서너 번뿐이라 전원에게 보내도 비용이 무시할 수준이다.
+     * 반대로 콕(`poke`)은 받은 횟수가 개인 정보고 빈도도 높아 개인 전송으로 남긴다.
+     */
+    this.broadcast({ type: "seating", round: draft.round });
     return ok(draft);
   }
 
