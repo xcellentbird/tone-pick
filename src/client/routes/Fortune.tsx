@@ -113,25 +113,8 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
           </p>
         </div>
 
-        {/* 옛 저장본에는 없는 항목들 — 있을 때만 그린다. 반쯤 빈 칸을 보여주지 않는다 */}
-        {(card.starters?.length ?? 0) > 0 && (
-          <div className="stack" style={{ gap: 6 }}>
-            <div className="kicker">{FORTUNE.starterTitle}</div>
-            {card.starters!.map((line) => (
-              <p className="fortuneStarter" key={line}>
-                “{line}”
-              </p>
-            ))}
-          </div>
-        )}
-
-        {/* 색·결 메타. 내용 전체가 카드 세로 중앙에 모인다 — 위아래로 갈라두면 가운데가 휑하다 */}
-        <div className="stack fortuneMeta">
-          {card.oneLiner && (
-            <p className="fortuneOne">
-              {FORTUNE.oneTitle} — {card.oneLiner}
-            </p>
-          )}
+        {/* 색·결 메타 — 미션과 같은 내부 카드. 본문(읽는 것)과 정보(찾아보는 것)가 형태로 갈린다 */}
+        <div className="fortuneMeta">
           <div className="row between">
             <span className="small dim">🎨 {FORTUNE.colorTitle}</span>
             <span className="small">{FORTUNE.colorName[card.color]}</span>
@@ -143,9 +126,6 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
           {card.matchNote && <p className="tiny dim" style={{ margin: 0, textAlign: "right" }}>{card.matchNote}</p>}
         </div>
       </div>
-
-      {/* 다시 열어도 같은 운세라는 걸 미리 말해둔다 — 새로고침하며 다른 걸 기대하지 않게 */}
-      <p className="tiny dim center">{FORTUNE.again}</p>
     </div>
   );
 }

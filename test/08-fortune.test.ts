@@ -99,28 +99,21 @@ describe("생년월일", () => {
   });
 });
 
-describe("풍부해진 항목들", () => {
-  it("폴백에도 말 걸기·한 문장·결 이유가 채워진다", () => {
+describe("잘 통할 결의 이유 한 줄", () => {
+  it("폴백에도 채워진다", () => {
     const f = fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback);
-    expect(f.starters!.length).toBeGreaterThan(0);
-    expect(f.oneLiner).toBeTruthy();
     expect(f.matchNote).toBeTruthy();
   });
 
-  it("★ 새 항목이 없어도 운세를 버리지 않는다 — 옛 저장본과 새 코드가 같이 산다", () => {
+  it("★ 없어도 운세를 버리지 않는다 — 옛 저장본과 새 코드가 같이 산다", () => {
     const f = parseFortune('{"headline":"h","body":"b","mission":"m"}', fortuneInput(PLAYER), 1);
     expect(f).not.toBeNull();
-    expect(f!.starters).toBeUndefined();
+    expect(f!.matchNote).toBeUndefined();
   });
 
-  it("모델이 새 항목을 주면 다듬어 통과시킨다", () => {
-    const raw = JSON.stringify({
-      headline: "h", body: "b", mission: "m",
-      starters: [" 첫 문장 ", "", 42, "둘째"], oneLiner: " 한 문장 ", matchNote: "이유",
-    });
-    const f = parseFortune(raw, fortuneInput(PLAYER), 1)!;
-    expect(f.starters).toEqual(["첫 문장", "둘째"]);
-    expect(f.oneLiner).toBe("한 문장");
+  it("모델이 주면 다듬어 통과시킨다", () => {
+    const raw = JSON.stringify({ headline: "h", body: "b", mission: "m", matchNote: " 이유 " });
+    expect(parseFortune(raw, fortuneInput(PLAYER), 1)!.matchNote).toBe("이유");
   });
 });
 

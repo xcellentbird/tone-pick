@@ -767,6 +767,16 @@ button {
 .fortuneFill .fortuneBack,
 .fortuneFill .fortuneCard { flex: 1; justify-content: center; }
 .fortuneMage { font-size: 44px; line-height: 1; text-align: center; }
+/* 색·결 메타 — 미션과 같은 내부 카드 꼴. 본문(읽는 것)과 정보(찾아보는 것)가 형태로 갈린다 */
+.fortuneMeta {
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent);
+  background: color-mix(in srgb, var(--tone) 10%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 /*
  * 생년월일 칸 — 폼이 아니라 **의식**이다. 구슬의 보라 기운이 스며든 부적 모양으로:
  * 반투명 알약, 가운데 정렬, 주문처럼 벌어진 자간. 포커스하면 빛이 조금 번진다.
@@ -795,8 +805,6 @@ button {
 .fortuneBack .birthField input:-webkit-autofill {
   -webkit-box-shadow: 0 0 0 1000px color-mix(in srgb, var(--accent) 12%, var(--bg)) inset;
 }
-.fortuneStarter { margin: 0; font-size: 14px; }
-.fortuneOne { margin: 0; text-align: center; font-weight: 700; font-size: 14px; }
 
 /* 뒤집혀 나온 카드. 한 번만 돈다 */
 .fortuneCard {
