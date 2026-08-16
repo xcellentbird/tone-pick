@@ -794,7 +794,14 @@ button {
     0 0 18px color-mix(in srgb, var(--accent) 18%, transparent),
     inset 0 0 12px color-mix(in srgb, var(--accent) 10%, transparent);
 }
-.fortuneBack .birthField input::placeholder { color: color-mix(in srgb, var(--accent) 45%, var(--dim)); }
+/*
+ * 자리표시자는 **값처럼 보이면 안 된다.** 이 앱에서 보라(accent)는 "의미 있는 내용" 이라는 뜻이라
+ * 힌트에 그 색을 칠하면 정확히 반대 신호가 된다 — 흐린 회색으로 낮춘다.
+ * 자간도 비어 있는 동안만 푼다. 벌어진 채로 밑줄을 그리면 이어진 빈칸이 아니라
+ * 끊긴 조각으로 보인다. 숫자를 치기 시작하면 원래의 주문 같은 자간으로 돌아온다.
+ */
+.fortuneBack .birthField input::placeholder { color: color-mix(in srgb, var(--dim) 60%, transparent); }
+.fortuneBack .birthField input:placeholder-shown { letter-spacing: normal; }
 .fortuneBack .birthField input:focus {
   outline: none;
   border-color: var(--accent);
