@@ -133,9 +133,12 @@ export default function Dash() {
         );
       })}
 
-      {/* 💘 상호 매칭 — 자리를 붙일지 판단하는 자리 */}
+      {/* 💘 상호 매칭 — 자리를 붙일지 판단하는 자리. 제목은 다른 섹션처럼 카드 밖 헤더 행에 */}
+      <div className="row between">
+        <span className="kicker">{HOST_UI.dash.mutualTitle(mutual.length)}</span>
+        <span className="tiny dim">{HOST_UI.dash.live}</span>
+      </div>
       <div className="card stack mutualCard">
-        <div className="kicker">{HOST_UI.dash.mutualTitle(mutual.length)}</div>
         {mutual.length === 0 ? (
           <span className="small dim">{HOST_UI.dash.mutualNone}</span>
         ) : (
@@ -204,7 +207,8 @@ function Ranking({
   return (
     <>
       <div className="row between">
-        <span className="kicker">{HOST_UI.dash.rankTitle(rows.length)}</span>
+        {/* 비어 있을 때 "TOP 0" 이라 쓰지 않는다 — 이 자리가 담을 수 있는 수(5)를 말한다 */}
+        <span className="kicker">{HOST_UI.dash.rankTitle(rows.length || TOP_RANKS)}</span>
         <span className="tiny dim">{HOST_UI.dash.rankNote}</span>
       </div>
       {rows.length === 0 && (
