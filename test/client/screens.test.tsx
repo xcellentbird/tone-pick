@@ -188,6 +188,24 @@ describe("참가자 화면 · 자리", () => {
     await waitFor(() => expect(source.calls.ack).toEqual([1]));
   });
 
+  it("★ 확인 저장이 실패하면 안내가 그대로 남는다 — 조용히 삼키지 않는다", async () => {
+    /*
+     * 삼키면 화면에서는 사라지고 서버에는 미확인으로 남아,
+     * 운영자가 보는 이동 확인 수가 조용히 모자란다.
+     */
+    const source = fakeSource({
+      load: async () => participantState({ seat }),
+      ackSeat: async () => {
+        throw new Error("network");
+      },
+    });
+    renderParticipant(source);
+    await screen.findByText(SEAT.ack.headline(2));
+    fireEvent.click(screen.getByText(SEAT.ack.submit));
+    // 되돌아와서 한 번 더 누를 수 있다
+    await waitFor(() => expect(screen.getByText(SEAT.ack.submit)).toBeTruthy());
+  });
+
   it("★ 발표가 끝났으면 자리 이동 확인을 띄우지 않는다", async () => {
     const source = fakeSource({
       load: async () =>
@@ -306,6 +324,16 @@ describe("발표 후 참가자 탭", () => {
           ...over,
         }),
     });
+
+  it("★ 발표 후에는 콕 버튼이 아예 없다 — 잠긴 버튼도 남기지 않는다", async () => {
+    /*
+     * 아직 안 열린 것(등록 중 = 잠김)과 끝난 것(발표 후 = 없음)은 다르다.
+     * 끝난 뒤의 잠긴 버튼은 "곧 열린다" 는 거짓말이 된다.
+     */
+    renderParticipant(revealed());
+    await screen.findByText(/그녀/);
+    expect(screen.queryAllByLabelText(POKE.confirm.submit)).toHaveLength(0);
+  });
 
   it("★ 서로 찌른 사람은 목록에서 글자로도 구분된다 — 색만으로 말하지 않는다", async () => {
     renderParticipant(revealed());

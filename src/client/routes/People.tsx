@@ -38,6 +38,12 @@ export default function People({ state, source, reload, profileId, onProfile, co
   const round = state.event.phase === "prevote" ? "pre" : "party";
   const budget = state.poke.budget[round];
   const open = canPoke(state.event.phase);
+  /**
+   * **아직 안 열린 것과 끝난 것은 다르다.**
+   * 등록 중에는 잠긴 버튼이 "곧 열린다" 를 말해주지만, 발표가 끝난 뒤에는 그 말이 거짓이다 —
+   * 눌러봐야 "지금은 찌를 수 있는 시간이 아니에요" 뿐이라 아예 그리지 않는다.
+   */
+  const revealed = state.event.phase === "done";
   const profile = state.roster.find((p) => p.id === profileId);
   /**
    * 발표 후에만 채워진다. 서로 찌른 사람은 **목록에서** 눈에 띄어야 한다 —
@@ -141,7 +147,9 @@ export default function People({ state, source, reload, profileId, onProfile, co
                   )}
                 </span>
               </button>
-              <PokeControls count={state.poke.sentTo[p.id] ?? 0} disabled={!open} onSend={() => send(p)} />
+              {!revealed && (
+                <PokeControls count={state.poke.sentTo[p.id] ?? 0} disabled={!open} onSend={() => send(p)} />
+              )}
             </div>
           );
         })}
@@ -166,7 +174,6 @@ export default function People({ state, source, reload, profileId, onProfile, co
                 </span>
 
                 {/* 연락처는 **서로 찌른 사이에게만** 열린다 (ADR-19) */}
-                <div className="kicker">{REVEAL.contactTitle}</div>
                 <Contact match={matched.get(profile.id)!} />
                 <span className="tiny dim">{REVEAL.contactNote}</span>
               </div>
@@ -182,14 +189,16 @@ export default function People({ state, source, reload, profileId, onProfile, co
                   </div>
                 )}
               </div>
-              <PokeControls
-                count={state.poke.sentTo[profile.id] ?? 0}
-                disabled={!open}
-                onSend={() => send(profile)}
-              />
+              {!revealed && (
+                <PokeControls
+                  count={state.poke.sentTo[profile.id] ?? 0}
+                  disabled={!open}
+                  onSend={() => send(profile)}
+                />
+              )}
             </div>
 
-            <p className="kicker" style={{ marginTop: 16 }}>
+            <p className="kicker" style={{ margin: 0 }}>
               {PEOPLE.charmTitle}
             </p>
             <div className="stack">
@@ -201,7 +210,7 @@ export default function People({ state, source, reload, profileId, onProfile, co
               ))}
             </div>
 
-            <button className="btn block ghost" style={{ marginTop: 16 }} onClick={() => onProfile(null)}>
+            <button className="btn block ghost" onClick={() => onProfile(null)}>
               {BTN.close}
             </button>
           </>
@@ -221,10 +230,12 @@ function Contact({ match }: { match: MatchInfo }) {
   const { realName, phone, instagram } = match.contact;
   return (
     <div className="stack">
+      {/* 이름은 신원이지 연락 수단이 아니다 — '연락처' 라벨 밖에 둔다 */}
       <div className="row between">
         <span className="small dim">{ME.labels.realName}</span>
         <span>{realName}</span>
       </div>
+      <div className="kicker">{REVEAL.contactTitle}</div>
       <div className="row between">
         <span className="small dim">{ME.labels.phone}</span>
         <a href={`tel:${phone}`}>{phone}</a>

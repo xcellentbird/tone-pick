@@ -197,7 +197,11 @@ export type ServerEvent =
   | { type: "phase"; phase: Phase; fired: FiredMap }
   | { type: "roster"; count: number }
   | { type: "poke"; receivedCount: number }          // 익명. 발신자 정보 없음
-  | { type: "seating"; round: number; table: number }
+  /**
+   * 자리가 확정됐다. **테이블 번호는 싣지 않는다** — 전원에게 나가는 신호라
+   * 남의 자리가 개발자 도구에 보이게 된다. 받은 쪽은 다시 읽어 자기 자리를 가져간다.
+   */
+  | { type: "seating"; round: number }
   | { type: "reveal" }                                // 클라이언트가 다시 fetch 한다
   | { type: "pong"; serverTime: number }
   /**
