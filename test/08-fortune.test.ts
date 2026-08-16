@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  animalIndex,
   fallbackFortune,
   fortuneInput,
   matchTypes,
@@ -16,6 +17,8 @@ import {
   pickColor,
   readFortune,
   seedOf,
+  validBirth,
+  zodiacIndex,
 } from "../src/shared/fortune.ts";
 import { FORTUNE } from "../src/shared/copy.ts";
 import { canOpenFortune } from "../src/shared/phase.ts";
@@ -58,6 +61,66 @@ describe("LLM 에 보내는 것", () => {
     // '연애운 34점' 은 이 앱이 없애려던 경험을 앱이 직접 만드는 일이다
     expect(FORTUNE.prompt.system).toContain("점수");
     expect(FORTUNE.prompt.system).toContain("외모");
+  });
+});
+
+describe("생년월일", () => {
+  const BIRTH = { year: 1996, month: 3, day: 14 };
+
+  it("★ 프롬프트에는 실리지만 운세 결과에는 어디에도 남지 않는다", () => {
+    const input = fortuneInput(PLAYER, BIRTH);
+    // 보내는 쪽: 별자리·띠로 풀려 전송된다
+    const sent = FORTUNE.prompt.user(input);
+    expect(sent).toContain("1996년 3월 14일");
+    expect(sent).toContain("물고기자리");
+    expect(sent).toContain("쥐띠");
+    // 남는 쪽: 폴백이든 LLM 파싱이든 결과 JSON 에 생년월일이 없다
+    const kept = JSON.stringify(fallbackFortune(input, 1, FORTUNE.fallback));
+    expect(kept).not.toContain("1996");
+    expect(kept).not.toContain("birth");
+    const parsed = parseFortune('{"headline":"h","body":"b","mission":"m"}', input, 1);
+    expect(JSON.stringify(parsed)).not.toContain("1996");
+  });
+
+  it("별자리·띠 경계가 맞다", () => {
+    expect(zodiacIndex(3, 20)).toBe(1); // 3/20 물고기
+    expect(zodiacIndex(3, 21)).toBe(2); // 3/21 양
+    expect(zodiacIndex(12, 25)).toBe(11); // 염소
+    expect(zodiacIndex(1, 19)).toBe(11); // 1/19 도 염소
+    expect(animalIndex(1996)).toBe(0); // 쥐
+    expect(animalIndex(2000)).toBe(4); // 용
+  });
+
+  it("달력에 없는 날은 거른다", () => {
+    expect(validBirth(1996, 3, 14)).toBe(true);
+    expect(validBirth(1996, 2, 30)).toBe(false);
+    expect(validBirth(1899, 1, 1)).toBe(false);
+    expect(validBirth(1996, 13, 1)).toBe(false);
+  });
+});
+
+describe("풍부해진 항목들", () => {
+  it("폴백에도 말 걸기·한 문장·결 이유가 채워진다", () => {
+    const f = fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback);
+    expect(f.starters!.length).toBeGreaterThan(0);
+    expect(f.oneLiner).toBeTruthy();
+    expect(f.matchNote).toBeTruthy();
+  });
+
+  it("★ 새 항목이 없어도 운세를 버리지 않는다 — 옛 저장본과 새 코드가 같이 산다", () => {
+    const f = parseFortune('{"headline":"h","body":"b","mission":"m"}', fortuneInput(PLAYER), 1);
+    expect(f).not.toBeNull();
+    expect(f!.starters).toBeUndefined();
+  });
+
+  it("모델이 새 항목을 주면 다듬어 통과시킨다", () => {
+    const raw = JSON.stringify({
+      headline: "h", body: "b", mission: "m",
+      starters: [" 첫 문장 ", "", 42, "둘째"], oneLiner: " 한 문장 ", matchNote: "이유",
+    });
+    const f = parseFortune(raw, fortuneInput(PLAYER), 1)!;
+    expect(f.starters).toEqual(["첫 문장", "둘째"]);
+    expect(f.oneLiner).toBe("한 문장");
   });
 });
 

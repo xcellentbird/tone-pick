@@ -16,14 +16,14 @@ import { FORTUNE } from "../shared/copy.ts";
 import type { Env } from "./http.ts";
 
 /** 파티 중이다. 오래 기다리느니 규칙 문구가 낫다 — 다만 카드 뒤집기가 앞의 1초를 덮는다 */
-const TIMEOUT_MS = 9000;
+const TIMEOUT_MS = 12000;
 
 /**
  * 한국어 세 문단 + 미션이면 400 토큰으로는 **문장 중간에서 잘린다.**
  * 잘린 JSON 은 파싱에 실패하고, 실패는 조용히 규칙 문구가 된다 —
  * 그래서 "가끔 LLM 이 안 나오네" 로만 보였다. 넉넉히 준다.
  */
-const MAX_TOKENS = 2000;
+const MAX_TOKENS = 3000;
 
 export async function makeFortune(env: Env, input: FortuneInput, now: number): Promise<Fortune> {
   const key = env.OPENAI_API_KEY;
