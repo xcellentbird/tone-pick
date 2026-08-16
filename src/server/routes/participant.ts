@@ -12,7 +12,7 @@ import { Hono } from "hono";
 import type { EnterResult, RegisterInput } from "../../shared/types.ts";
 import { ENTRY, FORTUNE, ME } from "../../shared/copy.ts";
 import { canOpenFortune } from "../../shared/phase.ts";
-import { fortuneInput } from "../../shared/fortune.ts";
+import { fortuneInput, validBirth } from "../../shared/fortune.ts";
 import { makeFortune } from "../fortune.ts";
 import { normalizePhone } from "../../shared/constants.ts";
 import {
@@ -171,7 +171,19 @@ participantRoutes.post("/fortune", async (c) => {
   if (!canOpenFortune(state.value.event.phase)) return apiError(c, "closed", FORTUNE.closed);
   if (state.value.fortune) return c.json(state.value.fortune);
 
-  const made = await makeFortune(c.env, fortuneInput(state.value.me), serverNow());
+  // 생년월일은 여기서 읽고 여기서 버린다 — LLM 전송에만 쓰고 저장하지 않는다 (ADR-20)
+  const body = (await c.req.json().catch(() => ({}))) as { birth?: unknown };
+  let birth: { year: number; month: number; day: number } | undefined;
+  if (body.birth !== undefined) {
+    const t = String(body.birth);
+    const [year, month, day] = [Number(t.slice(0, 4)), Number(t.slice(4, 6)), Number(t.slice(6, 8))];
+    if (!/^[0-9]{8}$/.test(t) || !validBirth(year, month, day)) {
+      return apiError(c, "bad_request", FORTUNE.birthBad);
+    }
+    birth = { year, month, day };
+  }
+
+  const made = await makeFortune(c.env, fortuneInput(state.value.me, birth), serverNow());
   const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, made));
   return response ?? c.json(value);
 });

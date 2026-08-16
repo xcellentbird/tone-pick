@@ -12,7 +12,7 @@
  */
 import { useState } from "react";
 import { FORTUNE } from "../../shared/copy.ts";
-import { paragraphs, type Fortune } from "../../shared/fortune.ts";
+import { paragraphs, validBirth, type Fortune } from "../../shared/fortune.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { ApiError, post } from "../lib/api.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
@@ -20,13 +20,21 @@ import { useOverlay } from "../ui/Overlays.tsx";
 export default function FortuneTab({ state, reload }: { state: ParticipantState; reload: () => void }) {
   const [opening, setOpening] = useState(false);
   const [card, setCard] = useState<Fortune | undefined>(state.fortune);
+  const [birth, setBirth] = useState("");
+  const [birthErr, setBirthErr] = useState(false);
   const { toast } = useOverlay();
+
+  // 생년월일은 몸에 실어 보내고 **어디에도 저장하지 않는다** (ADR-20)
+  const birthOk =
+    /^[0-9]{8}$/.test(birth) &&
+    validBirth(Number(birth.slice(0, 4)), Number(birth.slice(4, 6)), Number(birth.slice(6, 8)));
 
   async function open() {
     if (opening || card) return;
+    if (!birthOk) return setBirthErr(true);
     setOpening(true);
     try {
-      setCard(await post<Fortune>("/fortune"));
+      setCard(await post<Fortune>("/fortune", { birth }));
       // 다음에 이 화면을 열 때는 이미 열린 채로 시작한다
       reload();
     } catch (e) {
@@ -39,13 +47,41 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
   if (!card) {
     return (
       <div className="stack fortuneFill">
-        <button className={`fortuneBack ${opening ? "opening" : ""}`} onClick={open} disabled={opening}>
+        <div className={`fortuneBack ${opening ? "opening" : ""}`}>
           <span className="sparkles" aria-hidden>
             ✦ ✧ ✦
           </span>
           <span className="orb">🔮</span>
-          <span className="small">{opening ? FORTUNE.opening : FORTUNE.open}</span>
-        </button>
+          {/* 진짜 운세 보는 순서다 — 생년월일을 내밀고, 카드를 연다 */}
+          <div className="field birthField">
+            <label htmlFor="birth">{FORTUNE.birthLabel}</label>
+            <input
+              id="birth"
+              inputMode="numeric"
+              placeholder={FORTUNE.birthPh}
+              maxLength={8}
+              value={birth}
+              onChange={(e) => {
+                setBirth(e.target.value.replace(/[^0-9]/g, ""));
+                setBirthErr(false);
+              }}
+              aria-invalid={birthErr || undefined}
+              aria-describedby={birthErr ? "birth-err" : "birth-note"}
+            />
+            {birthErr ? (
+              <span className="err" id="birth-err" role="alert">
+                {FORTUNE.birthBad}
+              </span>
+            ) : (
+              <span className="tiny dim" id="birth-note">
+                {FORTUNE.birthNote}
+              </span>
+            )}
+          </div>
+          <button className="btn primary" onClick={open} disabled={opening}>
+            {opening ? FORTUNE.opening : FORTUNE.open}
+          </button>
+        </div>
       </div>
     );
   }
@@ -69,8 +105,25 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
           </p>
         </div>
 
+        {/* 옛 저장본에는 없는 항목들 — 있을 때만 그린다. 반쯤 빈 칸을 보여주지 않는다 */}
+        {(card.starters?.length ?? 0) > 0 && (
+          <div className="stack" style={{ gap: 6 }}>
+            <div className="kicker">{FORTUNE.starterTitle}</div>
+            {card.starters!.map((line) => (
+              <p className="fortuneStarter" key={line}>
+                “{line}”
+              </p>
+            ))}
+          </div>
+        )}
+
         {/* 본문은 위에서 읽히고 메타가 바닥을 잡는다 — 남는 공간이 디자인된 여백으로 읽히게 */}
         <div className="stack fortuneMeta">
+          {card.oneLiner && (
+            <p className="fortuneOne">
+              {FORTUNE.oneTitle} — {card.oneLiner}
+            </p>
+          )}
           <div className="row between">
             <span className="small dim">🎨 {FORTUNE.colorTitle}</span>
             <span className="small">{FORTUNE.colorName[card.color]}</span>
@@ -79,6 +132,7 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
             <span className="small dim">🤝 {FORTUNE.matchTitle}</span>
             <span className="small">{card.matchTypes.join(" · ")}</span>
           </div>
+          {card.matchNote && <p className="tiny dim" style={{ margin: 0, textAlign: "right" }}>{card.matchNote}</p>}
         </div>
       </div>
 

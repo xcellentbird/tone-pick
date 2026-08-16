@@ -758,6 +758,9 @@ button {
 .fortuneFill .fortuneBack,
 .fortuneFill .fortuneCard { flex: 1; }
 .fortuneMeta { margin-top: auto; }
+.fortuneBack .birthField { width: 100%; max-width: 240px; }
+.fortuneStarter { margin: 0; font-size: 14px; }
+.fortuneOne { margin: 0; text-align: center; font-weight: 700; font-size: 14px; }
 
 /* 뒤집혀 나온 카드. 한 번만 돈다 */
 .fortuneCard {

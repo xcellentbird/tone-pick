@@ -910,6 +910,35 @@ describe("참가자를 지웠을 때", () => {
  * 다만 **사전 투표가 열리면 닫힌다** (ADR-27) — 그 뒤에는 사람들이 이 세 줄을 보고 콕을 찌르고,
  * 바꾸면 누군가 나를 고른 근거가 조용히 사라진다.
  */
+describe("오늘의 연애운", () => {
+  it("★ 생년월일은 운세를 여는 데만 쓰이고 어디에도 저장되지 않는다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await setPhase(ev.id, "party");
+
+    const opened = await api("/api/fortune", { method: "POST", cookie: me.cookie, body: { birth: "19960314" } });
+    expect(opened.status, JSON.stringify(opened.body)).toBe(200);
+    // 응답에도, 이후의 내 상태에도, 운영자 화면에도 생년월일이 없다
+    expect(JSON.stringify(opened.body)).not.toContain("19960314");
+    const mine = await api("/api/me", { cookie: me.cookie });
+    expect(JSON.stringify(mine.body)).not.toContain("19960314");
+    const host = await api(`/api/host/events/${ev.id}`, { cookie: master });
+    expect(JSON.stringify(host.body)).not.toContain("19960314");
+
+    // 한 번 연 운세는 생년월일 없이 다시 물어도 같은 것이 온다
+    const again = await api("/api/fortune", { method: "POST", cookie: me.cookie, body: {} });
+    expect(again.body).toEqual(opened.body);
+  });
+
+  it("달력에 없는 생년월일은 열리지 않는다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await setPhase(ev.id, "party");
+    const res = await api("/api/fortune", { method: "POST", cookie: me.cookie, body: { birth: "19960230" } });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("나의 매력", () => {
   it("★ 등록 중에는 고칠 수 있다", async () => {
     const ev = await freshEvent();
