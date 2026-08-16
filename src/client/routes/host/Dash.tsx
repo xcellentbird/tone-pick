@@ -12,7 +12,6 @@
  */
 import {
   HOST_UI,
-  UNIT,
   UNREVEAL,
   phaseAction,
   schedDiff,

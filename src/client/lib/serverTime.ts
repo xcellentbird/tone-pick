@@ -13,6 +13,3 @@ export function now(): number {
   return Date.now() + offset;
 }
 
-export function remaining(deadline?: number): number {
-  return deadline ? Math.max(0, deadline - now()) : 0;
-}

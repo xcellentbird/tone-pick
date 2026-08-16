@@ -17,20 +17,9 @@ const dateTime = new Intl.DateTimeFormat("ko-KR", {
   minute: "2-digit",
 });
 
-const timeOnly = new Intl.DateTimeFormat("ko-KR", {
-  timeZone: EVENT_TZ,
-  hour: "numeric",
-  minute: "2-digit",
-});
-
 /** "8월 11일 오후 9:00" */
 export function formatWhen(ts?: number): string {
   return ts ? dateTime.format(new Date(ts)) : "";
-}
-
-/** "오후 9:00" */
-export function formatClock(ts?: number): string {
-  return ts ? timeOnly.format(new Date(ts)) : "";
 }
 
 /** 하루 넘게 남았으면 초를 세지 않는다 — `144:00:00` 은 읽는 사람이 다시 나눠야 한다 */

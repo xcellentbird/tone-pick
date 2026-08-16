@@ -196,7 +196,6 @@ button {
   box-shadow: var(--shadow);
 }
 
-.card.flat { padding: 12px; }
 
 .kicker {
   font-size: 12px;
