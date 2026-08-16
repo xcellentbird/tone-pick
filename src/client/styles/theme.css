@@ -752,6 +752,13 @@ button {
   50% { transform: scale(1.12); opacity: 0.75; }
 }
 
+/* 오늘 탭은 화면을 채운다 — 카드 하나뿐인 화면에서 아래가 비면 허전하다.
+   min-height 라서 내용이 화면보다 길면 지금처럼 스크롤된다 */
+.fortuneFill { min-height: 100%; }
+.fortuneFill .fortuneBack,
+.fortuneFill .fortuneCard { flex: 1; }
+.fortuneMeta { margin-top: auto; }
+
 /* 뒤집혀 나온 카드. 한 번만 돈다 */
 .fortuneCard {
   animation: fortuneFlip 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
