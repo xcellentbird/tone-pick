@@ -25,11 +25,7 @@ export interface Fortune {
   /** 오늘 말이 잘 통할 결. 규칙으로 정한다 (LLM 아님) */
   matchTypes: [string, string];
   at: number;
-  /** 파티에서 상대에게 바로 건넬 수 있는 첫 문장 2~3개. 옛 운세에는 없다 — 화면이 조건부로 그린다 */
-  starters?: string[];
-  /** 오늘 하루 지니고 다닐 한 문장 */
-  oneLiner?: string;
-  /** 잘 통할 결 두 MBTI 가 오늘 왜 잘 맞는지 한 줄 */
+  /** 잘 통할 결 두 MBTI 가 오늘 왜 잘 맞는지 한 줄. 옛 저장본에는 없다 — 화면이 조건부로 그린다 */
   matchNote?: string;
   /** 규칙으로 만든 문구인가. 화면에서는 구분하지 않고, 운영자가 원인을 찾을 때 쓴다 */
   fallback?: boolean;
@@ -149,15 +145,11 @@ export function matchTypes(mbti: string): [string, string] {
 export function fallbackFortune(input: FortuneInput, now: number, lines: FallbackLines): Fortune {
   const seed = seedOf(`${input.nickname}:${input.mbti}`);
   const charm = input.charms[seed % input.charms.length] ?? "";
-  const pick = <T,>(list: readonly T[], shift: number) => list[(seed >> shift) % list.length];
   return {
     headline: lines.headline[seed % lines.headline.length],
     body: lines.body(charm, input.mbti[0] === "E"),
     mission: lines.mission[(seed >> 3) % lines.mission.length],
-    // 스타터 둘 — 같은 문장이 두 번 나오지 않게 서로 다른 자리에서 뽑는다
-    starters: [...new Set([pick(lines.starters, 2), pick(lines.starters, 5)])],
-    oneLiner: pick(lines.oneLiner, 4),
-    matchNote: pick(lines.matchNote, 6),
+    matchNote: lines.matchNote[(seed >> 6) % lines.matchNote.length],
     color: pickColor(seed),
     matchTypes: matchTypes(input.mbti),
     at: now,
@@ -169,8 +161,6 @@ export function fallbackFortune(input: FortuneInput, now: number, lines: Fallbac
 export interface FallbackLines {
   headline: readonly string[];
   mission: readonly string[];
-  starters: readonly string[];
-  oneLiner: readonly string[];
   matchNote: readonly string[];
   body: (charm: string, outgoing: boolean) => string;
 }
@@ -199,15 +189,7 @@ export function paragraphs(body: string): string[] {
  */
 export function parseFortune(raw: string, input: FortuneInput, now: number): Fortune | null {
   const text = raw.trim().replace(/^```(?:json)?/, "").replace(/```$/, "");
-  let data: {
-    headline?: unknown;
-    body?: unknown;
-    mission?: unknown;
-    step?: unknown;
-    starters?: unknown;
-    oneLiner?: unknown;
-    matchNote?: unknown;
-  };
+  let data: { headline?: unknown; body?: unknown; mission?: unknown; step?: unknown; matchNote?: unknown };
   try {
     data = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
   } catch {
@@ -223,23 +205,14 @@ export function parseFortune(raw: string, input: FortuneInput, now: number): For
   const mission = str(data.mission, 160) ?? str(data.step, 160);
   if (!headline || !body || !mission) return null;
 
-  // 새로 추가된 항목들은 **없어도 운세를 버리지 않는다** — 화면이 조건부로 그린다.
+  // matchNote 는 **없어도 운세를 버리지 않는다** — 화면이 조건부로 그린다.
   // 옛 저장본과 새 저장본이 같은 코드로 읽혀야 한다
-  const starters = Array.isArray(data.starters)
-    ? data.starters
-        .filter((v): v is string => typeof v === "string" && v.trim().length > 0 && v.length <= 90)
-        .map((v) => v.trim())
-        .slice(0, 3)
-    : [];
-  const oneLiner = str(data.oneLiner, 70);
   const matchNote = str(data.matchNote, 90);
 
   return {
     headline,
     body,
     mission,
-    ...(starters.length ? { starters } : {}),
-    ...(oneLiner ? { oneLiner } : {}),
     ...(matchNote ? { matchNote } : {}),
     color: pickColor(seedOf(`${input.nickname}:${input.mbti}`)),
     matchTypes: matchTypes(input.mbti),

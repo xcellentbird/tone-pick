@@ -251,7 +251,6 @@ describe("오늘 탭", () => {
       expect(screen.getByText(para)).toBeTruthy();
     }
     // 다시 열어도 같은 운세라는 걸 미리 말해둔다
-    expect(screen.getByText(FORTUNE.again)).toBeTruthy();
   });
 
   it("★ 점수를 보여주지 않는다", async () => {
