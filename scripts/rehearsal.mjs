@@ -20,6 +20,12 @@ const SOCKETS = Number(process.env.SOCKETS ?? PEOPLE);
 const WIDTH = Number(process.env.WIDTH ?? 25);
 const KEEP = process.argv.includes("--keep");
 
+/**
+ * 닉네임·실명에 숫자를 쓸 수 없다 (nicknameProblem/realNameProblem) — 일련번호를 한글로 읽는다.
+ * copy.ts `hangulSeq` 와 같은 표다. 노드 스크립트라 TS 를 못 불러와 복제해 둔다 — 바꾸면 둘을 같이 바꾼다.
+ */
+const hangulSeq = (n) => String(n).replace(/[0-9]/g, (d) => "영일이삼사오육칠팔구"[Number(d)]);
+
 if (!BASE || !PIN) {
   console.error("사용법: MASTER_PIN=**** node scripts/rehearsal.mjs <주소> [--keep]");
   process.exit(1);
@@ -138,8 +144,8 @@ await pool([...Array(PEOPLE).keys()], WIDTH, async (i) => {
   const res = await c("/register", {
     method: "POST",
     body: {
-      nickname: `손님${i}`,
-      realName: `가짜${i}`,
+      nickname: `손님${hangulSeq(i)}`,
+      realName: `가짜${hangulSeq(i)}`,
       age: 24 + (i % 21),
       gender: i % 2 === 0 ? "M" : "F",
       instagram: `rehearsal_${i}`,

@@ -13,10 +13,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared/copy.ts";
-import type { RegisterInput, RegisterResult } from "../../shared/types.ts";
+import type { PublicEvent, RegisterInput, RegisterResult } from "../../shared/types.ts";
 import { LIMITS, RETENTION_DAYS, nicknameProblem, normalizeInstagram, realNameProblem } from "../../shared/constants.ts";
-import { ApiError, post } from "../lib/api.ts";
+import { ApiError, api, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
+import { useLoad } from "../lib/useLoad.ts";
 
 interface Draft {
   nickname: string;
@@ -44,6 +45,8 @@ export default function Register() {
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<{ field: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // "N일 뒤에 지워져요" 약속은 회차 설정을 따른다 — 전역 상수는 응답이 오기 전의 대체값일 뿐이다
+  const found = useLoad(() => api<PublicEvent>(`/events/by-id/${id}`), [id]);
 
   const at = Math.min(3, Math.max(1, Number(step) || 1));
 
@@ -106,7 +109,7 @@ export default function Register() {
         navigate(`/j/${id}`, { replace: true });
         return;
       }
-      setError({ field: "form", text: e instanceof ApiError ? (e.userMessage ?? REGISTER.err.nick) : REGISTER.err.nick });
+      setError({ field: "form", text: e instanceof ApiError ? (e.userMessage ?? REGISTER.err.retry) : REGISTER.err.retry });
     }
   }
 
@@ -150,7 +153,7 @@ export default function Register() {
             </div>
             <div className="field">
               <label htmlFor="realName">{ME.labels.realName}</label>
-              <input id="realName" value={draft.realName} onChange={(e) => set("realName", e.target.value)} {...invalid("realName")} />
+              <input id="realName" value={draft.realName} maxLength={LIMITS.realNameMax} onChange={(e) => set("realName", e.target.value)} {...invalid("realName")} />
               {err("realName")}
             </div>
             <div className="field">
@@ -185,7 +188,7 @@ export default function Register() {
 
         {at === 2 && (
           <>
-            <p className="tiny dim pre">{REGISTER.retention(RETENTION_DAYS)}</p>
+            <p className="tiny dim pre">{REGISTER.retention(found.data?.retentionDays ?? RETENTION_DAYS)}</p>
             <div className="field">
               <label htmlFor="instagram">{ME.labels.instagram}</label>
               <input id="instagram" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} {...invalid("instagram")} />
@@ -222,6 +225,7 @@ export default function Register() {
                 <textarea
                   id={`charm${i}`}
                   rows={2}
+                  maxLength={LIMITS.charmMax}
                   value={c}
                   onChange={(e) => {
                     const next = [...draft.charms] as Draft["charms"];
@@ -251,15 +255,34 @@ export default function Register() {
 /** 검증은 화면 순서대로. 서버도 같은 규칙을 다시 본다 — 여기는 사람이 고치기 쉬우라고 있는 것 */
 function validate(d: Draft, step: number): { field: string; text: string } | null {
   if (step === 1) {
+    // switch 는 전수 분기다 — 검증 코드가 늘면 여기가 컴파일 에러로 알려준다
     const nick = nicknameProblem(d.nickname);
-    if (nick === "empty") return { field: "nickname", text: REGISTER.err.nick };
-    if (nick === "short" || nick === "long") {
-      return { field: "nickname", text: REGISTER.err.nickLen(LIMITS.nicknameMin, LIMITS.nicknameMax) };
+    switch (nick) {
+      case null:
+        break;
+      case "empty":
+        return { field: "nickname", text: REGISTER.err.nick };
+      case "short":
+      case "long":
+        return { field: "nickname", text: REGISTER.err.nickLen(LIMITS.nicknameMin, LIMITS.nicknameMax) };
+      case "chars":
+        return { field: "nickname", text: REGISTER.err.nickChars };
+      default:
+        return nick satisfies never;
     }
-    if (nick) return { field: "nickname", text: REGISTER.err.nickChars };
     const name = realNameProblem(d.realName);
-    if (name === "empty") return { field: "realName", text: REGISTER.err.name };
-    if (name) return { field: "realName", text: REGISTER.err.nameDigit };
+    switch (name) {
+      case null:
+        break;
+      case "empty":
+        return { field: "realName", text: REGISTER.err.name };
+      case "digit":
+        return { field: "realName", text: REGISTER.err.nameDigit };
+      case "long":
+        return { field: "realName", text: REGISTER.err.nameLen(LIMITS.realNameMax) };
+      default:
+        return name satisfies never;
+    }
     const age = Number(d.age);
     if (!Number.isInteger(age) || age < 18 || age > 99) return { field: "age", text: REGISTER.err.age };
     if (!d.gender) return { field: "gender", text: REGISTER.err.gender };
@@ -268,6 +291,10 @@ function validate(d: Draft, step: number): { field: string; text: string } | nul
     if (!d.instagram.trim()) return { field: "instagram", text: REGISTER.err.instaRequired };
     if (!/^[A-Za-z0-9._]+$/.test(d.instagram.trim())) {
       return { field: "instagram", text: REGISTER.err.insta };
+    }
+    // 상한은 서버와 같은 상수다 — 여기서 안 막으면 3스텝을 다 쓴 뒤에야 실패를 만난다
+    if (d.instagram.trim().length > LIMITS.instagramMax) {
+      return { field: "instagram", text: REGISTER.err.instaLen(LIMITS.instagramMax) };
     }
   }
   if (step === 3) {
