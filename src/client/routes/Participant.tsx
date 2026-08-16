@@ -138,9 +138,13 @@ function Loaded({
         </header>
 
         <div className="body stack">
-          {banner && tab !== "home" && (
-            // 최근 3분 안의 변화만 배너로. 홈에는 소식 목록이 이미 있으니 띄우지 않는다
-            <button className={`banner ${banner.warn ? "warn" : ""}`} onClick={() => onTab("home")}>
+          {banner && tab !== "home" && tab !== banner.tab && (
+            /*
+             * 최근 3분 안의 변화만 배너로. **이미 볼 수 있는 화면에서는 띄우지 않는다** —
+             * 홈에는 소식 목록이 있고, 목적지 탭에는 소식 그 자체가 있다.
+             * 누르면 그 알림의 목적지로 간다. 발표는 홈이 아니라 참가자 탭이다.
+             */
+            <button className={`banner ${banner.warn ? "warn" : ""}`} onClick={() => onTab(banner.tab)}>
               <span className="icon">{banner.icon}</span>
               <span className="grow">
                 <span className="name">{banner.title}</span>

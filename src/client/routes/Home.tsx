@@ -20,10 +20,16 @@ import type { Tab } from "./Participant.tsx";
 
 export default function Home({ state, onTab }: { state: ParticipantState; onTab: (tab: Tab) => void }) {
   const { phase, playerCount } = state.event;
-  const todo = HOME.todo[phase];
   const seat = state.seat;
   const revealed = phase === "done";
   const budget = state.poke.budget[phase === "prevote" ? "pre" : "party"];
+  const left = budget.max - budget.used;
+  /**
+   * 콕을 다 썼으면 **다른 문장**이다. 남은 게 없는데 "찔러보세요" 라고 하면
+   * 할 수 없는 일을 시키는 것이고, 그 아래 "콕 0회 남음" 은 0을 들이대는 일이다.
+   */
+  const poking = phase === "prevote" || phase === "party";
+  const todo = poking && left === 0 ? HOME.spent[phase] : HOME.todo[phase];
 
   return (
     <div className="stack">
@@ -37,7 +43,9 @@ export default function Home({ state, onTab }: { state: ParticipantState; onTab:
 
         {canPoke(phase) && (
           <>
-            <div className="kicker">{STATUS.pokeLeft(budget.max - budget.used)}</div>
+            {/* 남은 게 있을 때만 센다. 0 은 제목이 이미 말했다 */}
+            {left > 0 && <div className="kicker">{STATUS.pokeLeft(left)}</div>}
+            {/* 다 썼어도 명단 구경은 된다 — 버튼은 그대로 */}
             <button className="btn primary block" onClick={() => onTab("people")}>
               {HOME.goPeople}
             </button>
