@@ -237,6 +237,13 @@ button {
 .field .err { color: var(--danger); font-size: 13px; }
 .field input:focus, .field textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* 브라우저 자동완성이 입력 칸을 형광등처럼 하얗게 칠한다 — 배경을 우리 색으로 되찾는다 */
+.field input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px var(--card) inset;
+  -webkit-text-fill-color: var(--fg);
+  caret-color: var(--fg);
+}
+
 /*
  * 하나만 켜지는 선택 — **세그먼트 토글.**
  *
@@ -760,7 +767,34 @@ button {
 .fortuneFill .fortuneBack,
 .fortuneFill .fortuneCard { flex: 1; justify-content: center; }
 .fortuneMage { font-size: 44px; line-height: 1; text-align: center; }
-.fortuneBack .birthField { width: 100%; max-width: 240px; }
+/*
+ * 생년월일 칸 — 폼이 아니라 **의식**이다. 구슬의 보라 기운이 스며든 부적 모양으로:
+ * 반투명 알약, 가운데 정렬, 주문처럼 벌어진 자간. 포커스하면 빛이 조금 번진다.
+ */
+.fortuneBack .birthField { width: 100%; max-width: 240px; text-align: center; }
+.fortuneBack .birthField input {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  text-align: center;
+  font-size: 18px;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+  box-shadow:
+    0 0 18px color-mix(in srgb, var(--accent) 18%, transparent),
+    inset 0 0 12px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.fortuneBack .birthField input::placeholder { color: color-mix(in srgb, var(--accent) 45%, var(--dim)); }
+.fortuneBack .birthField input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow:
+    0 0 26px color-mix(in srgb, var(--accent) 35%, transparent),
+    inset 0 0 14px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.fortuneBack .birthField input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px color-mix(in srgb, var(--accent) 12%, var(--bg)) inset;
+}
 .fortuneStarter { margin: 0; font-size: 14px; }
 .fortuneOne { margin: 0; text-align: center; font-weight: 700; font-size: 14px; }
 
