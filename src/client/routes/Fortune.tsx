@@ -8,6 +8,7 @@
  *  · 뒤집기는 의식이다 — 여는 동작이 있어야 그 한 줄이 오늘 것처럼 읽힌다.
  *    그리고 그 0.6초가 LLM 을 기다리는 시간을 자연스럽게 덮는다
  *  · 움직임을 원치 않는 사람에게는 뒤집지 않고 바로 보여준다 (prefers-reduced-motion)
+ *  · 카드 하나뿐인 화면이다 — 화면을 채운다 (fortuneFill). 내용이 길면 그대로 스크롤된다
  */
 import { useState } from "react";
 import { FORTUNE } from "../../shared/copy.ts";
@@ -37,7 +38,7 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
 
   if (!card) {
     return (
-      <div className="stack">
+      <div className="stack fortuneFill">
         <button className={`fortuneBack ${opening ? "opening" : ""}`} onClick={open} disabled={opening}>
           <span className="sparkles" aria-hidden>
             ✦ ✧ ✦
@@ -50,7 +51,7 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
   }
 
   return (
-    <div className="stack">
+    <div className="stack fortuneFill">
       <div className={`card stack fortuneCard tone-${card.color}`}>
         <div className="kicker">{FORTUNE.title}</div>
         <h2 className="fortuneHeadline">{card.headline}</h2>
@@ -68,13 +69,16 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
           </p>
         </div>
 
-        <div className="row between">
-          <span className="small dim">🎨 {FORTUNE.colorTitle}</span>
-          <span className="small">{FORTUNE.colorName[card.color]}</span>
-        </div>
-        <div className="row between">
-          <span className="small dim">🤝 {FORTUNE.matchTitle}</span>
-          <span className="small">{card.matchTypes.join(" · ")}</span>
+        {/* 본문은 위에서 읽히고 메타가 바닥을 잡는다 — 남는 공간이 디자인된 여백으로 읽히게 */}
+        <div className="stack fortuneMeta">
+          <div className="row between">
+            <span className="small dim">🎨 {FORTUNE.colorTitle}</span>
+            <span className="small">{FORTUNE.colorName[card.color]}</span>
+          </div>
+          <div className="row between">
+            <span className="small dim">🤝 {FORTUNE.matchTitle}</span>
+            <span className="small">{card.matchTypes.join(" · ")}</span>
+          </div>
         </div>
       </div>
 
