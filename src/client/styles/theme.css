@@ -753,11 +753,13 @@ button {
 }
 
 /* 오늘 탭은 화면을 채운다 — 카드 하나뿐인 화면에서 아래가 비면 허전하다.
-   min-height 라서 내용이 화면보다 길면 지금처럼 스크롤된다 */
+   min-height 라서 내용이 화면보다 길면 지금처럼 스크롤된다.
+   내용은 카드 세로 **중앙**에 모은다 — 위아래로 갈라두면 가운데가 휑하다.
+   (내용이 카드보다 길면 남는 공간이 없어 center 는 그냥 위에서부터 흐른다) */
 .fortuneFill { min-height: 100%; }
 .fortuneFill .fortuneBack,
-.fortuneFill .fortuneCard { flex: 1; }
-.fortuneMeta { margin-top: auto; }
+.fortuneFill .fortuneCard { flex: 1; justify-content: center; }
+.fortuneMage { font-size: 44px; line-height: 1; text-align: center; }
 .fortuneBack .birthField { width: 100%; max-width: 240px; }
 .fortuneStarter { margin: 0; font-size: 14px; }
 .fortuneOne { margin: 0; text-align: center; font-weight: 700; font-size: 14px; }
