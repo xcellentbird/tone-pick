@@ -121,8 +121,6 @@ describe("운영자 콘솔", () => {
     // 등록 중 다음은 사전 투표 시작이다
     expect(screen.getByText(phaseAction("prevote", { code: "ABCDEF", maxPre: 3, maxParty: 3 })!.btn)).toBeTruthy();
     expect(screen.getByText(HOST_UI.dash.registered(2))).toBeTruthy();
-    // 데모 뷰는 어느 탭에 있든 열 수 있어야 한다 — 헤더에 있다
-    expect(screen.getByText(HOST_UI.openDemo)).toBeTruthy();
   });
 
   it("★ 단계 전환은 확인을 거치고, 확인창이 바뀌는 것을 항목으로 보여준다", async () => {

@@ -51,8 +51,6 @@ export const LIMITS = {
    * 파티 규모의 상한이 아니다 — 100명 파티 + 시연·리허설 여유가 들어가는 크기로 둔다.
    */
   inviteMax: 150,
-  /** 시연에서 한 번에 넣을 수 있는 가짜 참가자 수 */
-  demoSeedMax: 40,
   /** 테이블당 인원이 이 범위를 벗어나면 운영자에게 경고 */
   seatPerTable: { warnBelow: 2, warnAbove: 8 },
 } as const;

@@ -7,7 +7,6 @@
  *  2. 확인창은 "정말 하시겠습니까?"가 아니라 무엇이 어떻게 바뀌는지 항목으로 보여준다.
  *     그래서 문구가 아니라 `ActionCopy`(항목 배열)를 받는다
  *
- * 데모 뷰의 폰 안에서는 `history={false}` 로 감싼다. 폰 3대가 히스토리를 공유하면
  * 한 대에서 연 확인창이 다른 대의 뒤로 가기로 닫힌다 (ADR-7).
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -33,32 +32,22 @@ export function useOverlay(): Overlay {
   return ctx;
 }
 
-export function Overlays({
-  children,
-  history = true,
-  container,
-}: {
-  children: ReactNode;
-  history?: boolean;
-  /** 데모 뷰의 폰 안. 기본 포털은 document.body 라 폰 밖으로 새어 나간다 */
-  container?: HTMLElement | null;
-}) {
+export function Overlays({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Array<{ id: number; text: string }>>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
   /**
-   * 뒤로 가기로 확인창이 닫힌다. 히스토리를 안 쓰는 폰 안에서는 이 감시가 필요 없다.
+   * 뒤로 가기로 확인창이 닫힌다.
    *
    * 주의 — "히스토리에 dialog 가 없으면 닫는다"로 두면 안 된다. 여는 순간에는 아직
    * 히스토리가 갱신되기 전이라, 확인창이 뜨자마자 스스로 닫힌다. 그래서 한 번 들어간 걸
    * 본 뒤에만(armed) 사라짐을 닫힘으로 해석한다.
    */
-  const dialogInHistory = history && !!(location.state as { dialog?: boolean } | null)?.dialog;
+  const dialogInHistory = !!(location.state as { dialog?: boolean } | null)?.dialog;
   const armed = useRef(false);
   useEffect(() => {
-    if (!history) return;
     if (dialogInHistory) {
       armed.current = true;
       return;
@@ -67,7 +56,7 @@ export function Overlays({
       armed.current = false;
       setPending(null);
     }
-  }, [dialogInHistory, history]);
+  }, [dialogInHistory]);
 
   const toast = useCallback((text: string) => {
     const id = Date.now() + Math.random();
@@ -78,15 +67,15 @@ export function Overlays({
   const confirm = useCallback<Overlay["confirm"]>(
     (copy, run) => {
       setPending({ copy, run });
-      if (history) navigate(location.pathname + location.search, { state: { dialog: true } });
+      navigate(location.pathname + location.search, { state: { dialog: true } });
     },
-    [history, location.pathname, location.search, navigate],
+    [location.pathname, location.search, navigate],
   );
 
   const close = () => {
     setPending(null);
     armed.current = false;
-    if (history && dialogInHistory) navigate(-1);
+    if (dialogInHistory) navigate(-1);
   };
 
   const accept = async () => {
@@ -94,7 +83,7 @@ export function Overlays({
     setPending(null);
     armed.current = false;
     // 실행 **전에** 히스토리를 정리한다
-    if (history && dialogInHistory) navigate(-1);
+    if (dialogInHistory) navigate(-1);
     await job?.run();
   };
 
@@ -107,7 +96,6 @@ export function Overlays({
         onClose={close}
         title={pending?.copy.title ?? ""}
         variant="dialog"
-        container={container}
       >
         {pending && (
           <>

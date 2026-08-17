@@ -10,7 +10,6 @@
  * 히스토리는 여전히 우리가 쥔다. 뒤로 가기로 닫히고 실행 **전에** 히스토리를 정리하는 규칙은
  * 라이브러리가 모른다 (ROUTES.md) — 그래서 열림 상태를 밖에서 받고, 닫힘 요청만 넘겨받는다.
  *
- * 데모 뷰에서는 폰 안에 그려야 한다. 기본 포털은 document.body 로 나가서 폰 밖으로 새어 나간다.
  */
 import type { ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -23,8 +22,6 @@ interface Props {
   titleHidden?: boolean;
   /** 아래에서 올라오는 시트인가(기본), 가운데 뜨는 확인창인가 */
   variant?: "sheet" | "dialog";
-  /** 데모 뷰의 폰 안에 그릴 때 그 요소 */
-  container?: HTMLElement | null;
   children: ReactNode;
 }
 
@@ -34,12 +31,11 @@ export default function Sheet({
   title,
   titleHidden,
   variant = "sheet",
-  container,
   children,
 }: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
-      <Dialog.Portal container={container ?? undefined}>
+      <Dialog.Portal>
         <Dialog.Overlay className="scrim" />
         <Dialog.Content className={variant} aria-describedby={undefined}>
           {titleHidden ? (

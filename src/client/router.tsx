@@ -10,8 +10,8 @@
  *   · 등록 완료 → 메인, PIN 성공 → 콘솔     → replace
  *   · 단계 전환·자리 발송·발표               → URL 변경 없음 (데이터 변경이지 화면 전환이 아니다)
  *
- * 참가자 탭·프로필 시트는 한 컴포넌트가 URL 을 읽어 그린다. 데모 뷰가 같은 컴포넌트를
- * URL 없이 쓰기 때문이다 (ADR-7) — 그래서 자식 라우트로 쪼개지 않는다.
+ * 참가자 탭·프로필 시트는 **한 컴포넌트가 URL 을 읽어** 그린다 — 자식 라우트로 쪼개지 않는다.
+ * 탭을 옮겨도 상태(연 시트·읽던 자리)가 한 곳에 남아 화면이 튀지 않는다.
  */
 import { createBrowserRouter } from "react-router";
 
@@ -19,7 +19,6 @@ import Entry from "./routes/Entry.tsx";
 import Join from "./routes/Join.tsx";
 import Register from "./routes/Register.tsx";
 import Participant from "./routes/Participant.tsx";
-import Demo from "./routes/Demo.tsx";
 import NotFound from "./routes/NotFound.tsx";
 
 import HostPin from "./routes/host/HostPin.tsx";
@@ -70,10 +69,6 @@ export const router = createBrowserRouter([
       { path: "settings", element: <Settings /> },
     ],
   },
-
-  // 데모 뷰는 폰 3대의 상태를 URL 에 담지 않는다.
-  // 운영자 시연용이라 뒤로 가기로 폰 하나의 탭만 되돌아가면 오히려 혼란스럽다.
-  { path: "/demo/:id", element: plain(<Demo />) },
 
   { path: "*", element: plain(<NotFound />) },
 ]);
