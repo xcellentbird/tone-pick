@@ -18,7 +18,6 @@
 | `/host/:id/players/:pid` | 참가자 상세 시트 (모달) |
 | `/host/:id/players/invites` | 입장 명단 시트 (모달) |
 | `/host/:id/seats/:mode` | 테이블 수 고르기 시트 (모달) — `new` · `final` |
-| `/demo/:id` | 데모 뷰 |
 
 **새로고침해도 같은 화면이 나와야 한다.** 참가자 식별은 URL 이 아니라 HttpOnly 세션 쿠키로 한다.
 
@@ -60,7 +59,3 @@ await confirmAndRun(() => api("/poke", { method: "POST", body }));
 
 등록 폼은 `useDraftGuard(hasDraft, "/j/")`. SPA 내부 이동에는 `beforeunload` 가 안 걸린다.
 
-## 데모 뷰 예외
-
-폰 3대의 상태는 URL 에 담지 않는다. 운영자 시연용이고, 뒤로 가기로 폰 하나의 탭만
-되돌아가면 오히려 혼란스럽다.

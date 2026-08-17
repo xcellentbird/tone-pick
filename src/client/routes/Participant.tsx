@@ -1,9 +1,7 @@
 /**
- * 참가자 화면 한 벌.
+ * 참가자 화면 한 벌. 네 탭(홈·참가자·내 정보·오늘)이 이 컴포넌트 하나를 나눠 쓴다.
  *
- * 라우트가 쓰는 것과 데모 뷰가 쓰는 것이 **같은 컴포넌트**다. 다른 건 자료 통로(source)와
- * 탭 상태를 누가 들고 있는가뿐이다. 데모용 화면을 따로 만들면 두 벌이 갈라져
- * 데모가 거짓말을 하게 된다 (ADR-7).
+ * 자료는 통로(source)로 받는다 — 화면은 세션도 요청 경로도 모른다.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
@@ -32,13 +30,9 @@ interface ViewProps {
   code?: string;
   /** 같은 번호로 다시 들어온 경우의 인사. 한 번만 띄운다 */
   welcome?: string;
-  /** 값이 바뀌면 다시 읽는다. 실시간을 직접 듣지 않는 화면(데모 뷰)이 쓴다 */
-  refreshToken?: number;
-  /** 데모 뷰의 폰 안에 시트를 그릴 때 */
-  container?: HTMLElement | null;
   tab: Tab;
   onTab: (tab: Tab) => void;
-  /** 프로필 시트. 라우트에서는 URL, 데모에서는 폰 안의 상태 */
+  /** 프로필 시트도 라우트다 — 뒤로 가기로 닫힌다 */
   profileId?: string;
   onProfile: (playerId: string | null) => void;
 }
@@ -87,8 +81,8 @@ export default function Participant() {
 }
 
 export function ParticipantView(props: ViewProps) {
-  const { source, refreshToken, code } = props;
-  const state = useLoad(() => source.load(), [source.key, refreshToken]);
+  const { source, code } = props;
+  const state = useLoad(() => source.load(), [source.key]);
 
   /*
    * 실시간은 "다시 읽어라"는 신호로만 쓴다. 부분 갱신을 만들면 화면과 서버가 조용히 어긋난다.
@@ -116,7 +110,6 @@ function Loaded({
   profileId,
   onProfile,
   welcome,
-  container,
   state,
   reload,
 }: ViewProps & { state: ParticipantState; reload: () => void }) {
@@ -145,7 +138,7 @@ function Loaded({
     !!state.seat && !state.seat.acked && !acked.includes(state.seat.round) && state.event.phase !== "done";
 
   return (
-    <Overlays history={!!source.liveCode} container={container}>
+    <Overlays>
       {welcome && <Greeting text={welcome} />}
       <div className="screen">
         {/* 스크롤해도 남는 자리다. 여기엔 반복해서 볼 것만 둔다 */}
@@ -176,7 +169,6 @@ function Loaded({
               reload={reload}
               profileId={profileId}
               onProfile={onProfile}
-              container={container}
             />
           )}
           {tab === "fortune" && <FortuneTab state={state} reload={reload} />}

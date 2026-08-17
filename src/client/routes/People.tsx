@@ -25,11 +25,9 @@ interface Props {
   reload: () => void;
   profileId?: string;
   onProfile: (playerId: string | null) => void;
-  /** 데모 뷰의 폰 안에 그릴 때 */
-  container?: HTMLElement | null;
 }
 
-export default function People({ state, source, reload, profileId, onProfile, container }: Props) {
+export default function People({ state, source, reload, profileId, onProfile }: Props) {
   // 동성에게도 찌를 수 있는 회차라면 처음부터 전체를 보여준다 — 반쪽만 보이면 설정이 무색해진다
   const sameGenderOk = state.event.config.allowSameGender !== false;
   const [onlyOpposite, setOnlyOpposite] = useState(!sameGenderOk);
@@ -160,7 +158,6 @@ export default function People({ state, source, reload, profileId, onProfile, co
         onClose={() => onProfile(null)}
         title={profile?.nickname ?? ""}
         titleHidden
-        container={container}
       >
         {profile && (
           <>

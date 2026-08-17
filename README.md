@@ -118,7 +118,7 @@ src/
     ├── router.tsx     URL 맵. 모달도 라우트다
     ├── lib/           api · realtime · serverTime · history · 알림 파생
     ├── ui/            확인창·토스트 · 상태 셀 · 자리 확인 화면
-    ├── routes/        참가자 3탭 · 운영자 4탭 · 위저드 · 데모 뷰
+    ├── routes/        참가자 4탭 · 운영자 4탭 · 위저드
     └── styles/theme.css   전부 CSS 변수 → 테마 교체의 토대
 
 test/
@@ -163,7 +163,7 @@ test/
 - [x] EventDO 도메인 명령 (register / poke / phase / seating / reveal)
 - [x] 세션 쿠키 (HttpOnly, 전화번호를 URL 에 노출하지 않기)
 - [x] `buildSeating()` + CPU 시간 측정 (100명 12테이블 기준 3ms 안쪽)
-- [x] 화면 — 참가자 3탭 · 운영자 4탭 · 위저드 · 데모 뷰
+- [x] 화면 — 참가자 4탭 · 운영자 4탭 · 위저드
 - [x] 회차 종료 3일 뒤 개인정보 파기 (기본값 — 회차 설정에서 1~14일로 조정) (Cron, 매일 04:00 KST)
 - [x] 100명 동시 접속 리허설 — 실측은 `docs/PLAN.md`
 - [ ] 실기기 점검 (iOS 100dvh·가장자리 스와이프, 안드로이드 백 버튼)
