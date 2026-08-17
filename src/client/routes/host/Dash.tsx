@@ -82,7 +82,6 @@ export default function Dash() {
         </button>
       )}
 
-      {/* 데모 뷰는 헤더로 옮겼다 — 어느 탭에 있든 바로 열 수 있어야 한다 */}
       <button
         className="btn ghost block"
         onClick={() => {

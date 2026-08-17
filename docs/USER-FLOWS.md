@@ -100,7 +100,6 @@ flowchart LR
     end
 
     phaseConfirm{"단계 전환 확인창"}
-    demo["데모 뷰"]
     sheet["참가자 상세"]
     delConfirm{"삭제 확인창"}
     draft["자리 초안"]
