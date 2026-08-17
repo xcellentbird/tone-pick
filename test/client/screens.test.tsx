@@ -18,6 +18,7 @@ import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
+import { ApiError } from "../../src/client/lib/api.ts";
 import { Overlays } from "../../src/client/ui/Overlays.tsx";
 import EnvBadge from "../../src/client/ui/EnvBadge.tsx";
 
@@ -382,6 +383,52 @@ describe("발표 후 참가자 탭", () => {
     expect(screen.getByText("01055556666").getAttribute("href")).toBe("tel:01055556666");
     // 상대에게도 내 연락처가 간다는 걸 그 자리에서 말한다
     expect(screen.getByText(REVEAL.contactNote)).toBeTruthy();
+  });
+});
+
+// ─────────────────────────────────────────── 두 회차
+
+describe("한 폰으로 두 회차", () => {
+  /**
+   * 한 브라우저에 참가자 세션은 하나뿐이다. 다음 회차에 등록하면 앞의 세션이 덮인다.
+   * 그때 앞 회차 주소를 열면 서버가 401 을 주는데(자료 격리는 서버 테스트가 지킨다),
+   * **되돌아가는 길**이 끊기면 안 된다.
+   */
+  it("★ 다른 회차 세션이면 코드가 아니라 회차 아이디로 문 앞에 보낸다", async () => {
+    /*
+     * `/j` 는 아이디 경로다 (ADR-13). 코드를 그대로 넘기면 아이디로 대조하는 서버가
+     * 못 찾아 "그런 회차가 없어요" 로 끝난다 — 회차는 멀쩡한데 없다고 말하는 셈이다.
+     */
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        expect(String(url)).toBe("/api/events/by-code/ABCDEF");
+        return new Response(JSON.stringify({ id: "evt-1234", name: "테스트 파티", code: "ABCDEF", phase: "prevote" }), {
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    const source = fakeSource({
+      load: async () => {
+        throw new ApiError(401, "unauthorized", ENTRY.notFound);
+      },
+    });
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/e/:code",
+          element: (
+            <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} />
+          ),
+        },
+        { path: "/j/:id", element: <div>{SCREEN_TITLE.join}</div> },
+      ],
+      { initialEntries: ["/e/ABCDEF"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    await screen.findByText(SCREEN_TITLE.join);
+    expect(router.state.location.pathname).toBe("/j/evt-1234");
   });
 });
 

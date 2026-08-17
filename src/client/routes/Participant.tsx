@@ -8,13 +8,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, TABS_PARTICIPANT } from "../../shared/copy.ts";
-import type { ParticipantState } from "../../shared/types.ts";
+import type { ParticipantState, PublicEvent } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
 import { sessionSource, type ParticipantSource } from "../lib/participant.ts";
 import { useLoad } from "../lib/useLoad.ts";
-import { ApiError } from "../lib/api.ts";
+import { ApiError, api } from "../lib/api.ts";
 import { Overlays, useOverlay } from "../ui/Overlays.tsx";
 import People from "./People.tsx";
 import Me from "./Me.tsx";
@@ -90,13 +90,19 @@ export function ParticipantView(props: ViewProps) {
   const { source, refreshToken, code } = props;
   const state = useLoad(() => source.load(), [source.key, refreshToken]);
 
-  // 실시간은 "다시 읽어라"는 신호로만 쓴다. 부분 갱신을 만들면 화면과 서버가 조용히 어긋난다
+  /*
+   * 실시간은 "다시 읽어라"는 신호로만 쓴다. 부분 갱신을 만들면 화면과 서버가 조용히 어긋난다.
+   *
+   * 실패한 화면에서는 붙들지 않는다 — 다른 회차 주소를 열어둔 폰이 그 회차 소켓을 쥔 채
+   * 신호가 올 때마다 다시 읽고 또 401 을 받는다. 여기서 다시 읽어봐야 나올 게 없다.
+   */
+  const failed = !!state.error;
   useEffect(() => {
-    if (!source.liveCode) return;
+    if (!source.liveCode || failed) return;
     const socket = connect(source.liveCode, () => state.reload());
     return () => socket.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source.liveCode]);
+  }, [source.liveCode, failed]);
 
   if (state.error) return <Failed error={state.error} code={code} />;
   if (!state.data) return <div className="screen" />;
@@ -224,8 +230,24 @@ function Greeting({ text }: { text: string }) {
  */
 function Failed({ error, code }: { error: ApiError; code?: string }) {
   const navigate = useNavigate();
+  /**
+   * 세션이 이 회차의 것이 아니다 — 다른 회차에 등록했거나 만료됐다.
+   * 문 앞으로 돌려보내되 **코드를 회차 아이디로 바꿔서** 보낸다.
+   *
+   * `/j` 는 아이디 경로다 (ADR-13). 코드를 그대로 넘기면 아이디로 대조하는 서버가
+   * 못 찾아서 "그런 회차가 없어요" 로 끝난다 — 회차는 멀쩡한데 없다고 말하는 셈이다.
+   * 입장 화면(Entry)이 쓰는 순서와 같다: 코드로 회차를 찾고, 아이디로 이동한다.
+   */
   useEffect(() => {
-    if (code && error.status === 401) navigate(`/j/${code}`, { replace: true });
+    if (!code || error.status !== 401) return;
+    let alive = true;
+    api<PublicEvent>(`/events/by-code/${code}`)
+      .then((found) => alive && navigate(`/j/${found.id}`, { replace: true }))
+      // 코드마저 못 찾으면 이 화면의 문구가 비로소 맞는 말이 된다
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, [code, error.status, navigate]);
 
   const removed = error.status === 404;
