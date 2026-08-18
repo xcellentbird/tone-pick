@@ -232,13 +232,13 @@ describe("등록", () => {
     }
   });
 
-  it("닉네임은 2글자 이상, 한글·영문만 받는다", async () => {
+  it("닉네임은 한 글자부터, 한글·영문만 받는다", async () => {
     const ev = await freshEvent();
     const phone = nextPhone();
     await invite(ev.id, phone);
     const gate = await enter(ev.id, phone);
 
-    for (const nickname of ["나", "닉!네임", "닉 네임", "nick_name", "★별빛", "달빛3", "2세"]) {
+    for (const nickname of ["", "닉!네임", "닉 네임", "nick_name", "★별빛", "달빛3", "2세"]) {
       const res = await api("/api/register", {
         method: "POST",
         cookie: gate.cookie,
@@ -246,6 +246,14 @@ describe("등록", () => {
       });
       expect(res.status, `nickname=${JSON.stringify(nickname)}`).toBe(400);
     }
+
+    // 한 글자도 통과한다
+    const one = await api("/api/register", {
+      method: "POST",
+      cookie: gate.cookie,
+      body: person({ nickname: "나" }),
+    });
+    expect(one.status, JSON.stringify(one.body)).toBe(200);
 
     // 한글·영문을 섞은 건 통과한다
     const ok = await api("/api/register", {

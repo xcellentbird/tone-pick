@@ -35,7 +35,7 @@ export const LIMITS = {
   maxPre: { min: 1, max: 5 },
   maxParty: { min: 1, max: 10 },
   charms: 3,
-  nicknameMin: 2,
+  nicknameMin: 1,
   nicknameMax: 15,
   /** 인스타 아이디 실제 상한과 같다. 서버·화면이 같이 본다 */
   instagramMax: 30,
