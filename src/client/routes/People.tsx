@@ -333,9 +333,11 @@ function PokeControls({
   onSend: () => void;
 }) {
   /**
-   * 숫자는 버튼 **오른쪽**에 둔다.
-   * 왼쪽에 두면 찌른 사람과 안 찌른 사람의 카드 폭이 달라져 목록이 들쭉날쭉해진다.
-   * 오른쪽 끝은 어차피 비어 있는 자리고, 자리를 늘 비워두면 폭도 흔들리지 않는다.
+   * 카드와 **같은 키, 같은 모서리**다. 44px 알약이던 시절에는 74px 카드 옆에서
+   * 혼자 작고 동그래서 짝이 안 맞았다 — 지금은 한 줄이 두 덩어리로 읽힌다.
+   *
+   * 찌른 횟수는 **버튼 안**에 있다. 밖에 두면 폭이 흔들리지 않게 자리를 늘 비워둬야 했는데,
+   * 안에 넣으면 그 문제가 없어지고 숫자가 무엇에 대한 것인지도 붙어서 읽힌다.
    */
   return (
     <div className="pokeCell">
@@ -345,9 +347,9 @@ function PokeControls({
         onClick={onSend}
         aria-label={POKE.confirm.submit}
       >
-        👉
+        <span aria-hidden>👉</span>
+        {count > 0 && <span className="n">{count}</span>}
       </button>
-      <span className="pokeCount">{count > 0 ? count : ""}</span>
     </div>
   );
 }
