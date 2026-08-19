@@ -394,7 +394,7 @@ export class EventDO extends DurableObject {
     });
     if (!saved.ok) return saved;
 
-    this.broadcast({ type: "roster", count: this.playerCount() });
+    this.broadcast({ type: "roster" });
     return saved;
   }
 
@@ -431,7 +431,7 @@ export class EventDO extends DurableObject {
      * 똑같은 화면을 다시 읽으려고 줄을 서고, 그 읽기는 쓰기 큐 뒤에 선다.
      * 바뀐 닉네임이 필요한 건 운영자 명단 하나뿐이다.
      */
-    this.toHosts({ type: "roster", count: this.playerCount() });
+    this.toHosts({ type: "roster" });
     return saved;
   }
 
@@ -530,7 +530,7 @@ export class EventDO extends DurableObject {
         s.round,
       );
     }
-    this.broadcast({ type: "roster", count: this.playerCount() });
+    this.broadcast({ type: "roster" });
     return ok(true);
   }
 
@@ -584,7 +584,6 @@ export class EventDO extends DurableObject {
         fired: meta.fired,
         schedule: meta.schedule,
         config: meta.config,
-        playerCount: this.playerCount(),
       },
       me,
       // 명단은 사전 투표부터 열린다. 그 전에는 몇 명이 왔는지만 안다 (ADR-21)

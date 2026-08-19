@@ -11,7 +11,7 @@
  *     `fired` 에서 파생되는 것뿐이라 파티 한 번에 많아야 네 개고, 읽음 상태도 없다.
  *     받은편지함이 아니라 타임라인이고, 그건 "지금 무슨 일인가"의 과거형이다 (ADR-4)
  */
-import { HOME, REVEAL, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
+import { HOME, REVEAL, SEAT, STATUS } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
 import { formatWhen } from "../../shared/time.ts";
@@ -19,7 +19,7 @@ import { noticesOf } from "../lib/notices.ts";
 import type { Tab } from "./Participant.tsx";
 
 export default function Home({ state, onTab }: { state: ParticipantState; onTab: (tab: Tab) => void }) {
-  const { phase, playerCount } = state.event;
+  const { phase } = state.event;
   const seat = state.seat;
   const revealed = phase === "done";
   const budget = state.poke.budget[phase === "prevote" ? "pre" : "party"];
@@ -38,8 +38,6 @@ export default function Home({ state, onTab }: { state: ParticipantState; onTab:
         <p className="dim small pre" style={{ margin: 0 }}>
           {todo.body}
         </p>
-
-        {phase === "reg" && <div className="kicker">{`${STATUS.peopleHere} · ${UNIT.people(playerCount)}`}</div>}
 
         {canPoke(phase) && (
           <>

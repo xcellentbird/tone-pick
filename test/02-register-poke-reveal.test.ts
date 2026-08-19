@@ -331,8 +331,9 @@ describe("등록", () => {
     expect(again.status).toBe(200);
     expect(again.body.me.id).toBe(first.id);
     expect(again.body.me.nickname).toBe("처음닉");
-    // 인원이 늘지 않는다
-    expect(again.body.event.playerCount).toBe(1);
+    // 인원이 늘지 않는다 — 참가자 응답에는 수가 없으므로 운영자 쪽에서 센다
+    const host = await api<{ players: unknown[] }>(`/api/host/events/${ev.id}/state`, { cookie: master });
+    expect(host.body.players.length).toBe(1);
   });
 });
 
@@ -761,20 +762,33 @@ describe("콕", () => {
 /**
  * 명단은 **한 번에 다 열리지 않는다** (ADR-21).
  *
- *   등록 중       명단 자체가 없다 — 몇 명이 왔는지만 안다
+ *   등록 중       명단도 인원 수도 없다
  *   사전 투표     닉네임과 매력. 사람을 고를 때 필요한 건 그 둘이다
  *   파티 시작 후  나이와 MBTI 까지
  */
 describe("명단 공개 범위", () => {
-  it("★ 등록 중에는 명단이 없다 — 인원 수만 안다", async () => {
+  it("★ 등록 중에는 명단도 인원 수도 없다", async () => {
+    /*
+     * 한동안 인원 수는 내려줬다 — "기다리는 사람에게 필요한 정보" 라고 봤다.
+     * 그런데 **인원이 적을수록 그 숫자 하나가 명단만큼 많은 것을 말한다.**
+     * 둘이 등록한 회차에서 `2명` 은 "나 말고 한 명" 이고, 그 한 명이 누구인지는
+     * 단톡방에서 금방 좁혀진다. 명단을 사전 투표까지 닫아두는 이유와 같다 (ADR-21).
+     *
+     * **화면에서 감추는 것으로는 부족하다** — 개발자 도구를 여는 참가자가 있다.
+     */
     const ev = await freshEvent();
     const me = await join(ev);
     await join(ev, { gender: "F" });
 
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
     expect(state.body.roster).toEqual([]);
-    // 몇 명이 모였는지는 보인다. 기다리는 사람에게 그건 필요한 정보다
-    expect(state.body.event.playerCount).toBe(2);
+    // 응답 어디에도 수가 없다. 단계가 지나도 마찬가지다 — 사전 투표부터는 명단이 대신 말한다
+    expect(JSON.stringify(state.body.event)).not.toContain("playerCount");
+
+    await setPhase(ev.id, "prevote");
+    const later = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(JSON.stringify(later.body.event)).not.toContain("playerCount");
+    expect(later.body.roster.length).toBe(1);
   });
 
   it("★ 사전 투표에서는 닉네임과 매력만 — 나이·MBTI 는 아직이다", async () => {
