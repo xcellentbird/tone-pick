@@ -636,12 +636,15 @@ describe("상단 바", () => {
     expect(document.querySelector(".statusbar .until")).toBeTruthy();
   });
 
-  it("★ 인원 수는 상단이 아니라 참가자 탭의 '전체' 옆에 있다", async () => {
-    // 세는 대상이 있는 자리에 숫자가 있어야 한다
+  it("★ 인원 수는 홈 탭에만 있다", async () => {
+    /*
+     * 상단 바에도, 참가자 탭 필터에도 두지 않는다.
+     * 필터가 답하는 건 "누구를 볼까" 하나고, "몇 명 모였나" 는 홈이 맡는다.
+     */
     renderParticipant(fakeSource());
-    const all = await screen.findByText(PEOPLE.everyone);
-    expect(all.querySelector(".filterCount")?.textContent?.trim()).toBe("2");
-    expect(document.querySelector(".statusbar")?.textContent).not.toContain("2명");
+    await screen.findByText(/그녀/);
+    expect(document.querySelector(".statusbar")?.textContent).not.toContain("2");
+    expect(document.querySelector(".choice")?.textContent).not.toContain("2");
   });
 
   it("켜져 있는 쪽이 먼저 읽힌다 — '전체' 가 왼쪽이다", async () => {
