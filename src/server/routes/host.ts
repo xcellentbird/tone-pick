@@ -47,12 +47,6 @@ hostRoutes.post("/pin", async (c) => {
   return c.json({ scope });
 });
 
-hostRoutes.get("/session", async (c) => {
-  const scope = await hostScope(c);
-  if (!scope) return apiError(c, "unauthorized");
-  return c.json({ scope });
-});
-
 // ─────────────────────────────────── 기본 설정
 
 hostRoutes.get("/defaults", async (c) => {

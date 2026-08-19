@@ -1495,6 +1495,26 @@ describe("오늘의 연애운", () => {
     expect(again.body.lead).toBe(first.body.lead);
   });
 
+  it("★ 운세·미션 응답에는 실명이 없다", async () => {
+    /*
+     * 두 경로는 이제 `fortuneContext()` 라는 **좁은 읽기**를 쓴다 (명단·콕을 빚지 않는다).
+     * 그 반환값에는 LLM 입력을 만들 실명이 들어 있다 — 라우트가 그걸 그대로 돌려주면
+     * 참가자 응답에 이름이 실린다. 돌려주는 건 `Fortune` 하나여야 한다 (ADR-20).
+     */
+    const ev = await freshEvent();
+    const me = await join(ev, { realName: "홍길동" });
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+
+    for (const path of ["/api/fortune", "/api/fortune/mission"]) {
+      const res = await api(path, { method: "POST", cookie: me.cookie });
+      const body = JSON.stringify(res.body);
+      expect(body, path).not.toContain("홍길동");
+      expect(body, path).not.toContain(me.phone);
+      expect(Object.keys(res.body as object).sort(), path).not.toContain("me");
+    }
+  });
+
   it("★ 운세를 열기 전에는 미션을 만들 수 없다 — 재료가 그 운세다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
