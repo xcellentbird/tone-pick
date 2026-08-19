@@ -44,7 +44,6 @@ export default function HostWizard() {
   const requestId = useMemo(() => `w-${Date.now()}-${Math.random().toString(36).slice(2)}`, []);
 
   const [name, setName] = useState("");
-  const [code, setCode] = useState("");
   const [openNow, setOpenNow] = useState(false);
   const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
   const [regOpenAt, setRegOpenAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.regOpenBeforeD * DAY);
@@ -92,7 +91,6 @@ export default function HostWizard() {
     try {
       const body: CreateEventInput = {
         name: name.trim(),
-        code: code.trim() ? code.trim().toUpperCase() : undefined,
         partyAt,
         regOpenAt: openNow ? "now" : regOpenAt,
         prevoteAt,
@@ -123,24 +121,17 @@ export default function HostWizard() {
       </header>
 
       <div className="body stack">
+        {/*
+          **회차 코드는 묻지 않는다.** 서버가 겹치지 않는 것으로 붙인다 (`freeCode`).
+          참가자가 코드를 입력하는 화면이 없어진 뒤로 (ADR-15) 이 칸이 답하는 질문이 없어졌다 —
+          운영자가 링크를 돌리고, 문은 초대 명단의 전화번호가 연다.
+          코드는 만들어진 뒤 회차 목록과 콘솔 머리에서 볼 수 있다.
+        */}
         {at === 1 && (
-          <>
-            <div className="field">
-              <label htmlFor="ename">{HOST_UI.fields.name}</label>
-              <input id="ename" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="ecode">{HOST_UI.fields.code}</label>
-              <input
-                id="ecode"
-                value={code}
-                maxLength={6}
-                autoCapitalize="characters"
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-              />
-              <span className="tiny dim">{HOST_UI.fields.codeAuto}</span>
-            </div>
-          </>
+          <div className="field">
+            <label htmlFor="ename">{HOST_UI.fields.name}</label>
+            <input id="ename" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
         )}
 
         {at === 2 && (

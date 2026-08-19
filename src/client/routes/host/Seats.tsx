@@ -195,10 +195,15 @@ export default function Seats() {
     );
   }
 
-  if (revealed) return <p className="dim center">{HOST.seating.afterReveal}</p>;
-
   return (
     <div className="stack">
+      {/*
+        발표가 끝나도 **화면은 그대로 있다.** 운영자는 끝난 뒤에도 누가 어디 앉았는지를 본다 —
+        다음 회차 자리를 짤 때, 사진을 정리할 때. 한동안 이 문장 하나가 탭 전체를 덮고 있었다.
+        잠기는 건 고치는 버튼뿐이고, 서버도 같은 문을 닫아둔다 (ADR-28).
+      */}
+      {revealed && <p className="small dim">{HOST.seating.afterReveal}</p>}
+
       {/*
         테이블 수는 설정이 아니라 **배정 시점의 입력값**이다 (ADR-5).
         상시 노출된 스테퍼는 설정처럼 보였다 — 누를 때 묻는 게 구조와 화면을 일치시킨다.
@@ -207,14 +212,14 @@ export default function Seats() {
         <button
           className="btn wide"
           onClick={() => navigate(`${here}/new`)}
-          disabled={state.players.length < 2}
+          disabled={revealed || state.players.length < 2}
         >
           {HOST_UI.seats.make}
         </button>
         <button
           className="btn wide gold"
           onClick={() => navigate(`${here}/final`)}
-          disabled={state.players.length < 2}
+          disabled={revealed || state.players.length < 2}
         >
           {HOST.seating.makeFinal}
         </button>
@@ -232,7 +237,7 @@ export default function Seats() {
         />
       </Sheet>
 
-      {draft && (
+      {draft && !revealed && (
         <div className="card stack">
           <div className="kicker">{HOST_UI.seats.roundTitle(draft.round, draft.final)}</div>
           {/* 커플 자리의 성적표. 이 라운드가 제 일을 했는지 여기서 보인다 (ADR-23) */}
@@ -270,7 +275,7 @@ export default function Seats() {
         </div>
       )}
 
-      {published.length === 0 && !draft && <p className="dim center">{HOST_UI.seats.noRounds}</p>}
+      {published.length === 0 && (!draft || revealed) && <p className="dim center">{HOST_UI.seats.noRounds}</p>}
 
       {[...published].reverse().map((round) => (
         <div className="card stack" key={round.round}>
@@ -279,16 +284,17 @@ export default function Seats() {
             <span className="small dim">{HOST.ack.progress(round.acks.length, round.seats.length)}</span>
           </div>
           {/* 알림이 가지 않는다는 걸 고치기 전에 말한다 — 앱이 말해주는 줄 알면 그 사람은 옛 자리에 앉아 있다 */}
-          <p className="tiny dim">{HOST_UI.seats.editQuiet}</p>
-          {editBar(round)}
+          {!revealed && <p className="tiny dim">{HOST_UI.seats.editQuiet}</p>}
+          {!revealed && editBar(round)}
           <Tables
             round={round}
             picked={picked?.round === round.round ? picked.playerId : null}
             onPick={(id) => swap(round, id)}
             state={state}
             partners={round.final ? partners : undefined}
+            locked={revealed}
           />
-          <Unassigned round={round} state={state} onSeat={(id) => seat(round, id)} />
+          <Unassigned round={round} state={state} onSeat={revealed ? undefined : (id) => seat(round, id)} />
         </div>
       ))}
     </div>
@@ -401,6 +407,7 @@ function Tables({
   onPick,
   state,
   partners,
+  locked,
 }: {
   round: SeatingRound;
   picked: string | null;
@@ -408,6 +415,8 @@ function Tables({
   /** 있으면 같은 테이블에 앉은 짝에 💘 를 붙인다. 커플 자리에서만 넘어온다 */
   partners?: Map<string, Set<string>>;
   state: ReturnType<typeof useConsole>["state"];
+  /** 발표 후. 자리는 그대로 보이고 **누르는 것만** 잠긴다 */
+  locked?: boolean;
 }) {
   const tables = Array.from({ length: round.tableCount }, (_, i) => i + 1);
   return (
@@ -432,6 +441,7 @@ function Tables({
               <button
                 className={`seatChip ${person.gender === "M" ? "m" : "f"} ${picked === person.id ? "picked" : ""}`}
                 key={person.id}
+                disabled={locked}
                 onClick={() => onPick(person.id)}
               >
                 <Avatar nickname={person.nickname} gender={person.gender} size="sm" />
@@ -472,11 +482,19 @@ function Unassigned({
 }: {
   round: SeatingRound;
   state: ReturnType<typeof useConsole>["state"];
-  onSeat: (playerId: string) => void;
+  /** 없으면 읽기만 한다 — 발표 후에는 앉힐 수 없다 */
+  onSeat?: (playerId: string) => void;
 }) {
   const seated = new Set(round.seats.map((s) => s.playerId));
   const missing = state.players.filter((p) => !seated.has(p.id));
   if (missing.length === 0) return null;
+  if (!onSeat) {
+    return (
+      <p className="small dim">
+        {HOST_UI.seats.unassigned}: {missing.map((p) => p.nickname).join(", ")}
+      </p>
+    );
+  }
   return (
     <div className="stack">
       <span className="small warnText">{HOST_UI.seats.unassigned}</span>

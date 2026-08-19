@@ -4,7 +4,7 @@
 import { useNavigate } from "react-router";
 import { HOST_UI, PHASE_LABEL, SCREEN_TITLE, UNIT } from "../../../shared/copy.ts";
 import type { EventSummary } from "../../../shared/types.ts";
-import { api, post } from "../../lib/api.ts";
+import { api } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
 
@@ -17,28 +17,27 @@ export default function HostEvents() {
   // 함수 이름을 DOM 빌트인과 겹치게 짓지 않는다 — createEvent 로 지었다가 버튼이 조용히 죽은 적 있다 (ADR-8)
   const startWizard = () => navigate("/host/new/1");
 
-  async function leave() {
-    await post("/host/logout");
-    navigate("/host", { replace: true });
-  }
-
   return (
     <div className="screen">
       <header>
         <h1 className="grow">{SCREEN_TITLE.hostEvents}</h1>
-        <button className="btn ghost" onClick={leave}>
-          {HOST_UI.logout}
-        </button>
       </header>
 
-      <div className="body stack">
+      {/*
+        두 버튼은 **스크롤에서 빠진다.** 회차가 쌓이면 `새 회차 만들기` 가 목록과 함께 밀려
+        올라가는데, 그때 운영자가 하려던 일이 바로 그것이다 (지난 회차를 보러 온 게 아니라).
+        `.screen` 이 세로 flex 라 `.body` 만 흐른다 — 그 앞에 두면 제자리에 남는다.
+      */}
+      <div className="pinned stack">
         <button className="btn primary block" onClick={startWizard}>
           {HOST_UI.newEvent}
         </button>
         <button className="btn ghost block" onClick={() => navigate("/host/defaults")}>
           {HOST_UI.openDefaults}
         </button>
+      </div>
 
+      <div className="body stack">
         {list.data?.length === 0 && <p className="dim center">{HOST_UI.noEvents}</p>}
 
         {list.data?.map((ev) => (

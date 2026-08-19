@@ -82,22 +82,6 @@ export default function Dash() {
         </button>
       )}
 
-      <button
-        className="btn ghost block"
-        onClick={() => {
-          void navigator.clipboard?.writeText(`${location.origin}/j/${meta.id}`);
-          toast(HOST_UI.copied);
-        }}
-      >
-        {HOST_UI.entryLink}
-      </button>
-      {/*
-        **링크만 보내면 된다.** 문을 여는 건 초대 명단의 전화번호다 (ADR-15) —
-        입장 코드는 이제 어디에서도 입력받지 않는다. 운영자가 "코드도 알려줘야 하나" 하고
-        헤매지 않도록 그 사실을 여기서 못 박는다.
-      */}
-      <p className="tiny dim">{HOST_UI.entryLinkNote}</p>
-
       {/* 👑 사전 투표 1위 — 진행 멘트에 쓰는 정보라 이름이 크게 읽혀야 한다 */}
       <div className="row between">
         <span className="kicker">{HOST_UI.dash.prevoteTop}</span>
