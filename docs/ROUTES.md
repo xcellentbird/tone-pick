@@ -10,7 +10,7 @@
 | `/e/:code` | 참가자 메인 · **홈 탭** (스택의 바닥) |
 | `/e/:code/people` | 참가자 탭 |
 | `/e/:code/p/:nick` | 프로필 시트 (모달) |
-| `/e/:code/alerts` `/e/:code/me` | 알림 · 내 정보 |
+| `/e/:code/me` | 내 정보 |
 | `/e/:code/me/edit` | 내 정보 고치기 — **등록 중에만.** 잠긴 뒤에 열면 내 정보로 되돌린다 |
 | `/host` | PIN |
 | `/host/events` `/host/defaults` | 회차 목록 · 기본 설정 |

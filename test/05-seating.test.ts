@@ -32,6 +32,7 @@ function makePlayers(men: number, women: number, seed = 42): Player[] {
       id: `p${i}`,
       nickname: `n${i}`,
       realName: `r${i}`,
+      instagram: `g${i}`,
       // 24~44세. 10살 이상 차이 나는 쌍이 자연스럽게 생기는 폭이다
       age: 24 + Math.floor(rand() * 21),
       gender,

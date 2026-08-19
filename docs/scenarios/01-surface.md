@@ -13,7 +13,6 @@
 
 ```
 POST /api/host/pin        { pin: string }   → { scope: AuthScope }
-POST /api/host/logout                       → { ok: true }
 ```
 
 - 운영자 PIN 은 **하나뿐**이다. 회차별 PIN 은 없다 (ADR-12)

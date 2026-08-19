@@ -23,13 +23,13 @@ export interface Player {
   phone: string;             // 운영자 전용 · 재접속 키
   /**
    * 운영자 전용 + 발표 후 서로 찌른 상대에게 (ADR-19).
-   * 등록에서는 **필수**지만 타입은 선택이다 — 저장된 자료는 코드보다 오래 살고,
-   * 필수가 되기 전에 등록한 사람의 행에는 이 값이 없다.
+   * **필수다** — 매칭되면 서로에게 공개되는 연락 수단이라 없으면 매칭이 반쪽이 된다.
+   * (한동안 선택이었다. 필수가 되기 전에 등록한 행이 남아 있었기 때문인데,
+   * 그 자료는 1.0.0 기준선에서 사라졌다.)
    */
-  instagram?: string;
+  instagram: string;
   mbti: string;              // "ENFP"
   charms: [string, string, string];
-  noShow?: boolean;
   createdAt: number;
 }
 
@@ -151,8 +151,8 @@ export interface EventConfig {
    * 파티가 끝나고 며칠 뒤에 이 회차를 파기할 것인가 (1~14).
    *
    * **없으면 `RETENTION_DAYS`** — 기본값과 같으면 적지 않는다 (allowSameGender 와 같은 규칙).
-   * 등록 화면의 "N일 뒤에 지워져요" 약속이 이 값을 읽는다 —
-   * 참가자가 있는 회차에서 줄이는 건 받을 때 한 약속을 깨는 일이다 (ADR-19).
+   * 파기 Cron 이 이 값을 읽는다. 등록 화면에는 이 숫자가 나가지 않는다 —
+   * 그 자리에서 답할 것은 "이 번호가 누구에게 보이나" 하나다.
    */
   retentionDays?: number;
 }

@@ -270,13 +270,18 @@ describe("모델이 뱉은 것을 읽을 때", () => {
   });
 });
 
-describe("저장된 옛 모양", () => {
-  it("★ '오늘의 한 걸음' 시절에 저장된 운세도 미션 자리에 들어온다", () => {
-    // 저장된 자료는 코드보다 오래 산다. 이름이 바뀌었다고 칸이 비면 안 된다
-    const old = { headline: "h", body: "b", step: "옛 문구", color: "gold", matchTypes: ["ENFP", "ENTJ"], at: 1 };
-    const f = readFortune(old);
-    expect(f.mission).toBe("옛 문구");
-    expect(Object.keys(f)).not.toContain("step");
+describe("저장된 운세를 읽는 자리", () => {
+  /*
+   * 읽는 곳을 하나로 둔다. 지금은 1.0.0 이 쓴 모양만 들어 있어 할 일이 없지만,
+   * 다음에 모양이 바뀌면 고칠 곳이 여기 하나다.
+   * ('오늘의 한 걸음'(`step`)이 '오늘의 미션'이 됐을 때 여기가 그 일을 했고,
+   *  그 자료는 1.0.0 기준선에서 사라졌다.)
+   */
+  it("★ 아직 안 연 미션과 빈 미션을 뭉개지 않는다", () => {
+    // 빈 문자열로 채우면 "안 열었다" 가 "열었는데 비었다" 로 읽혀 다시 만들 길이 막힌다
+    expect(readFortune({ headline: "h", body: "b", color: "gold", at: 1 })).not.toHaveProperty("mission");
+    expect(readFortune({ headline: "h", body: "b", color: "gold", at: 1, mission: "" })).not.toHaveProperty("mission");
+    expect(readFortune({ headline: "h", body: "b", color: "gold", at: 1, mission: "한 줄" }).mission).toBe("한 줄");
   });
 });
 

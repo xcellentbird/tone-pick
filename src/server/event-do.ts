@@ -65,10 +65,9 @@ CREATE TABLE IF NOT EXISTS players (
   age        INTEGER NOT NULL,
   gender     TEXT NOT NULL CHECK (gender IN ('M','F')),
   phone      TEXT NOT NULL UNIQUE,   -- 재접속 키
-  instagram  TEXT,
+  instagram  TEXT NOT NULL,
   mbti       TEXT NOT NULL,
   charms     TEXT NOT NULL,          -- JSON string[3]
-  no_show    INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pokes (
@@ -464,8 +463,8 @@ export class EventDO extends DurableObject {
     };
 
     this.ctx.storage.sql.exec(
-      `INSERT INTO players (id, nickname, nick_norm, real_name, age, gender, phone, instagram, mbti, charms, no_show, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,0,?)
+      `INSERT INTO players (id, nickname, nick_norm, real_name, age, gender, phone, instagram, mbti, charms, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET
          nickname=excluded.nickname, nick_norm=excluded.nick_norm, real_name=excluded.real_name,
          age=excluded.age, gender=excluded.gender, instagram=excluded.instagram,
@@ -1249,10 +1248,9 @@ interface PlayerRow {
   age: number;
   gender: Gender;
   phone: string;
-  instagram: string | null;
+  instagram: string;
   mbti: string;
   charms: string;
-  no_show: number;
   created_at: number;
 }
 
@@ -1327,10 +1325,9 @@ function toPlayer(r: PlayerRow): Player {
     age: r.age,
     gender: r.gender,
     phone: r.phone,
-    instagram: r.instagram ?? undefined,
+    instagram: r.instagram,
     mbti: r.mbti,
     charms: JSON.parse(r.charms) as [string, string, string],
-    noShow: !!r.no_show,
     createdAt: r.created_at,
   };
 }
