@@ -598,8 +598,9 @@ describe("상단 바", () => {
   it("★ 남은 콕은 한 곳에만 — 콕을 찌르는 화면", async () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
-    // 어느 라운드의 콕인지 함께 적는다. 숫자만 있으면 마감된 줄 모른다
-    expect(screen.getAllByText(STATUS.roundLeft(2))).toHaveLength(1);
+    // 내 카드 오른쪽 칸 하나뿐이다 (예산 3, 1회 씀 → 2회 남음)
+    expect(screen.getAllByText(PEOPLE.pokeLeftLabel)).toHaveLength(1);
+    expect(screen.getAllByText(UNIT.times(2))).toHaveLength(1);
   });
 
   it("★ 회차 이름은 상단 바 한 곳에만 있다", async () => {
@@ -758,12 +759,23 @@ describe("참가자 탭 · 내 카드", () => {
     expect(screen.queryByText(PEOPLE.agesAtParty)).toBeNull();
   });
 
-  it("★ 목록 머리는 왼쪽 안내 · 오른쪽 남은 콕 한 줄이다", async () => {
-    // 오른쪽 정렬이 성립하는 건 왼쪽에 짝이 있어서다 — 짝이 사라지면 떠 보인다
+  it("★ 내 카드와 남들 카드의 오른쪽 끝이 맞는다", async () => {
+    /*
+     * 남들 줄은 [카드][👉], 내 줄은 [카드][남은 콕] 이라 **오른쪽 칸이 양쪽에 다 있다**.
+     * 내 줄에만 칸이 없으면 내 카드만 넓어져 목록이 들쭉날쭉해 보인다.
+     */
     renderParticipant(fakeSource());
-    const hint = await screen.findByText(PEOPLE.agesAtParty);
-    const left = screen.getByText(STATUS.roundLeft(2));
-    expect(hint.parentElement).toBe(left.parentElement);
+    const mineRow = (await screen.findByText(PEOPLE.mine)).closest(".row");
+    expect(mineRow?.querySelector(".mineCell")).toBeTruthy();
+    expect(mineRow?.querySelector(".person.grow")).toBeTruthy();
+  });
+
+  it("★ '나' 는 아바타에 붙고 이름 줄은 건드리지 않는다", async () => {
+    // 이름 줄은 닉네임·나이·MBTI 로 이미 꽉 차 있다. 동물은 그대로 둔다 (ADR-30)
+    renderParticipant(fakeSource());
+    const tag = await screen.findByText(PEOPLE.mine);
+    expect(tag.closest(".avatarMine")).toBeTruthy();
+    expect(tag.closest(".name")).toBeNull();
   });
 
   it("★ 감출 게 없어지면 안내가 사라진다", async () => {

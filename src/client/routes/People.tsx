@@ -8,7 +8,7 @@
  * 되돌리기는 지금 화면에 두지 않는다. 그래서 확인창이 "되돌릴 수 없다"고 분명히 말한다.
  */
 import { useState } from "react";
-import { BTN, ME, PEOPLE, POKE, REVEAL, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
+import { BTN, ME, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
 import type { MatchInfo, ParticipantState, Phase, Player, PublicPlayer } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
 import { rosterOpen, toPublic } from "../../shared/types.ts";
@@ -116,7 +116,16 @@ export default function People({ state, source, reload, profileId, onProfile }: 
         "남들에게 이렇게 보인다"가 성립한다. 다만 `이성만 보기`에는 걸리지 않는다:
         필터를 바꿨는데 내가 깜빡 사라지면 버그로 읽힌다.
       */}
-      <MyCard me={state.me} phase={state.event.phase} />
+      <div className="row">
+        <MyCard me={state.me} phase={state.event.phase} />
+        {/* 남들 줄의 👉 자리. 같은 폭이라야 카드 오른쪽 끝이 맞는다 */}
+        {open && (
+          <div className="mineCell">
+            <span className="n">{UNIT.times(budget.max - budget.used)}</span>
+            <span className="t">{PEOPLE.pokeLeftLabel}</span>
+          </div>
+        )}
+      </div>
 
       {/* 이 문구는 **남들에 대한 말**이다. 내 카드가 생겼다고 지우지 않는다 */}
       {list.length === 0 && (
@@ -124,21 +133,11 @@ export default function People({ state, source, reload, profileId, onProfile }: 
       )}
 
       {/*
-        목록 머리 한 줄 — 왼쪽은 **아래 사람들에 대한 안내**, 오른쪽은 **남은 콕**.
-        남은 콕은 👉 버튼이 소비하는 예산이라 필터가 아니라 이 목록에 붙는다.
-        오른쪽 정렬이 성립하는 건 왼쪽에 짝이 있기 때문이다 — 짝 없이 오른쪽에만 두면
-        왼쪽에 빈 공간이 남아 떠 보인다 (그게 필터 옆에 있을 때의 문제였다).
-        볼 사람이 없으면 줄 자체가 없다.
+        아래 사람들에 대한 안내. 남은 콕은 **내 카드 오른쪽 칸**으로 옮겼다 —
+        콕을 쓰는 세로줄에 얼마나 남았는지가 함께 있는 게 맞다.
+        볼 사람이 없으면 이 줄도 없다.
       */}
-      {list.length > 0 && (
-        <div className="row between">
-          {/* 둘은 **한 줄**이다. 좁은 폰에서도 접히지 않게 왼쪽이 먼저 줄고, 남은 콕은 제 폭을 지킨다 */}
-          <span className="small dim grow ellipsis">{agesHidden ? PEOPLE.agesAtParty : ""}</span>
-          {open && (
-            <span className="small dim nowrap">{STATUS.roundLeft(budget.max - budget.used)}</span>
-          )}
-        </div>
-      )}
+      {list.length > 0 && agesHidden && <span className="small dim">{PEOPLE.agesAtParty}</span>}
 
       <div className="stack">
         {list.map((p) => {
@@ -261,12 +260,15 @@ function MyCard({ me, phase }: { me: Player; phase: Phase }) {
   const seenAs: Phase = phase === "party" || phase === "done" ? phase : "prevote";
   const shown = toPublic(me, seenAs);
   return (
-    <div className="person">
-      <Avatar nickname={shown.nickname} gender={shown.gender} />
+    <div className="person grow">
+      {/* "나" 는 아바타 위에 얹는다. 이름 줄은 닉네임·나이·MBTI 로 이미 꽉 차 있다 */}
+      <span className="avatarMine">
+        <Avatar nickname={shown.nickname} gender={shown.gender} />
+        <span className="mineTag">{PEOPLE.mine}</span>
+      </span>
       <span className="meta">
         <span className="name">
           <span className="who">{shown.nickname}</span>
-          <span className="mineTag">{PEOPLE.mine}</span>
           {shown.age && <span className="age">{shown.age}</span>}
           {shown.mbti && <Mbti value={shown.mbti} />}
         </span>
