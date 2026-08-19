@@ -573,26 +573,65 @@ button {
 /* 작은 원에서 2px 링은 이모지를 잡아먹는다. border 축약형 **뒤**에 와야 덮이지 않는다 */
 .avatar.sm { border-width: 1.5px; }
 
+/*
+ * 콕 버튼 — **카드와 같은 키, 같은 모서리.**
+ *
+ * 44px 알약이던 시절에는 74px 카드 옆에서 혼자 작고 동그래서 짝이 안 맞았다.
+ * 카드와 같은 높이·같은 모서리로 맞추면 한 줄이 **두 덩어리**로 읽힌다 —
+ * 왼쪽은 사람, 오른쪽은 그 사람에게 하는 일.
+ *
+ * 찌른 횟수는 **버튼 안**으로 들어왔다. 밖에 두면 자리를 늘 비워둬야 폭이 안 흔들렸는데,
+ * 안에 넣으면 그 문제가 없어지고 숫자가 무엇에 대한 것인지도 붙어서 읽힌다.
+ */
 .pokeBtn {
-  border: 1px solid var(--line);
-  background: var(--card-2);
-  color: var(--fg);
-  border-radius: var(--radius-pill);
-  font-size: 18px;
-  width: var(--tap);
-  height: var(--tap);
+  width: 100%;
+  height: var(--card-h);
   flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--fg);
+  font-size: 24px;
+  line-height: 1;
 }
 
-.pokeBtn.on { border-color: var(--accent-solid); background: var(--accent-solid); color: var(--on-accent); }
 /*
- * 찌른 횟수는 버튼 **오른쪽**에 둔다. 왼쪽에 두면 찌른 카드만 폭이 좁아져 목록이 들쭉날쭉해진다.
- * 자리는 0회일 때도 비워두므로 폭이 흔들리지 않는다.
+ * 한 번이라도 찌른 뒤. **하트에서 주 색으로** 흐른다 —
+ * `--heart` 는 콕(보낸 마음)의 색이고 `--accent` 는 매칭의 색이라,
+ * 순위 바(`--meter`)와 같은 방향으로 흐르게 뒀다: 보낸 마음이 매칭으로 향한다.
  */
-.pokeCell { display: flex; align-items: center; gap: 4px; flex: none; }
+.pokeBtn.on {
+  border-color: transparent;
+  background: linear-gradient(160deg, var(--heart), var(--accent-solid));
+  color: var(--on-accent);
+}
+.pokeBtn .n {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.pokeBtn.on .n { color: var(--on-accent); }
+/* 눌리는 느낌은 카드가 살짝 가라앉는 쪽으로 — 색을 바꾸면 `찌른 뒤` 와 헷갈린다 */
+.pokeBtn:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+/*
+ * 아직 열리지 않은 시간(등록 중). **눌러도 되는 것처럼 보이면 안 된다** —
+ * `.btn` 이 아니라서 전역 disabled 규칙이 안 걸린다. 여기서 따로 준다.
+ */
+.pokeBtn:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
+
+/* 셀은 이제 버튼 하나다. 폭은 내 카드의 `.mineCell` 과 같아야 오른쪽 끝이 맞는다 */
+.pokeCell { flex: none; width: 62px; display: flex; }
 
 /*
- * 내 카드 오른쪽 칸. `.pokeCell`(44 + 4 + 14 = 62px)과 **같은 폭**이어야
+ * 내 카드 오른쪽 칸. `.pokeCell`(62px)과 **같은 폭**이어야
  * 내 카드와 남들 카드의 오른쪽 끝이 맞는다. 폭이 다르면 목록이 들쭉날쭉해 보인다.
  *
  * 남들 줄에서 그 칸은 콕을 **쓰는** 자리다. 내 줄에서는 **얼마나 남았는지**를 말한다 —
@@ -608,18 +647,10 @@ button {
 }
 .mineCell .n { font-size: 15px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
 .mineCell .t { font-size: 10px; color: var(--dim); white-space: nowrap; }
-.pokeCount {
-  width: 14px;
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-  text-align: left;
-}
 
 /* ─────────────────────────── 상태 셀 · 배너 */
 
-/* 화면 맨 위 한 줄 — 단계 · 남은 콕 · 카운트다운. 스크롤해도 남는다 */
+/* 화면 맨 위 두 줄 — 회차 이름·단계 · 카운트다운. 스크롤해도 남는다 */
 .screen > header.bar { padding: 10px var(--pad); }
 
 /*

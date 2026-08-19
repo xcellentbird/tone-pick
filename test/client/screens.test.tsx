@@ -200,6 +200,22 @@ describe("참가자 화면 · 콕", () => {
     expect(everyone.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("★ 콕 버튼은 카드와 짝을 이룬다 — 찌른 횟수가 버튼 안에 있다", async () => {
+    /*
+     * 44px 알약이던 시절에는 74px 카드 옆에서 혼자 작고 동그래서 짝이 안 맞았다.
+     * 횟수를 버튼 **밖**에 두면 폭이 흔들리지 않게 자리를 늘 비워둬야 했다 —
+     * 안으로 들어오면서 그 문제도 없어졌다.
+     */
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+    const btn = screen.getAllByLabelText(POKE.confirm.submit)[0];
+    // 이미 1회 보냈다 (sentTo.her = 1). 그 숫자가 버튼 안에 있다
+    expect(btn.querySelector(".n")?.textContent).toBe("1");
+    expect(btn.classList.contains("on")).toBe(true);
+    // 버튼 바깥에 따로 떠 있던 숫자 칸은 없다
+    expect(document.querySelector(".pokeCount")).toBeNull();
+  });
+
   it("등록 중에는 콕 버튼이 잠겨 있다", async () => {
     const source = fakeSource({
       load: async () => participantState({ event: { ...participantState().event, phase: "reg" } }),
