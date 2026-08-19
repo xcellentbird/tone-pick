@@ -94,38 +94,20 @@ export default function People({ state, source, reload, profileId, onProfile }: 
   return (
     <>
       {/*
-        필터는 **전체 폭**을 쓴다. 옆에 글자를 붙이면 알약 컨테이너와 맨 글자가 한 줄에서
-        서로 다른 층위로 읽히고, 늘어난 필터와 오른쪽 글자 사이에 빈 공간이 남는다.
+        내 카드는 **필터 위**에 있다. 한동안 목록 맨 줄에 뒀었는데 — 같은 모양이라야
+        "남들에게 이렇게 보인다" 가 성립한다고 봤다 — 필터가 다스리지 않는 것이
+        필터와 목록 **사이**에 끼어 있는 모양이었다. `이성만` 을 눌러도 내가 남아 있으니
+        필터가 안 먹은 것으로 읽힌다. 거르는 버튼은 **걸러지는 것 바로 위**에 있어야 한다.
 
-        **기본값이 왼쪽이다** — `전체` 가 기본이라(ADR-17) 켜져 있는 쪽이 먼저 읽혀야 한다.
+        옮겨도 "이렇게 보인다" 는 그대로다 — 같은 카드, 같은 `toPublic()` 결과다.
+        잃은 건 목록과 붙어 있음 하나인데, 그 붙어 있음이 오해를 만들고 있었다.
 
-        **인원 수는 여기 없다.** 이 버튼이 답하는 건 "누구를 볼까" 하나이고,
-        "몇 명 모였나" 는 홈 탭이 맡는다 (`HOME` 의 `함께하는 사람`).
-      */}
-      <div className="choice">
-        {[
-          { on: false, label: PEOPLE.everyone },
-          { on: true, label: PEOPLE.onlyOpposite },
-        ].map((opt) => (
-          <button
-            key={opt.label}
-            type="button"
-            aria-pressed={onlyOpposite === opt.on}
-            onClick={() => setOnlyOpposite(opt.on)}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-
-      {/*
-        내 카드는 **필터 위**에 있지 않고 목록 맨 위에 있다 — 다른 카드와 같은 자리, 같은 모양이라야
-        "남들에게 이렇게 보인다"가 성립한다. 다만 `이성만 보기`에는 걸리지 않는다:
-        필터를 바꿨는데 내가 깜빡 사라지면 버그로 읽힌다.
+        덤으로 하나 더 고쳐진다: 오른쪽 `남은 콕` 이 남들 줄의 👉 와 같은 세로줄에 나란히 있으면
+        **눌리지 않는 내 콕 버튼**으로 읽힌다. 사이에 필터 줄이 들어가면 그 오해가 사라진다.
       */}
       <div className="row">
         <MyCard me={state.me} phase={state.event.phase} />
-        {/* 남들 줄의 👉 자리. 같은 폭이라야 카드 오른쪽 끝이 맞는다 */}
+        {/* 폭은 남들 줄의 👉 칸과 같다. 그래야 카드 오른쪽 끝이 아래와 맞는다 */}
         {open && (
           <div className="mineCell">
             <span className="n">{UNIT.times(budget.max - budget.used)}</span>
@@ -133,6 +115,36 @@ export default function People({ state, source, reload, profileId, onProfile }: 
           </div>
         )}
       </div>
+
+      {/*
+        필터는 **전체 폭**을 쓴다. 옆에 글자를 붙이면 알약 컨테이너와 맨 글자가 한 줄에서
+        서로 다른 층위로 읽히고, 늘어난 필터와 오른쪽 글자 사이에 빈 공간이 남는다.
+
+        **기본값이 왼쪽이다** — `전체` 가 기본이라(ADR-17) 켜져 있는 쪽이 먼저 읽혀야 한다.
+
+        **인원 수는 여기 없다.** 이 버튼이 답하는 건 "누구를 볼까" 하나이고,
+        "몇 명 모였나" 는 홈 탭이 맡는다 (`HOME` 의 `함께하는 사람`).
+
+        거를 것이 아예 없으면 그리지 않는다. 다만 판단은 **거르기 전 명단**으로 한다 —
+        `이성만` 이 0명이라고 버튼을 감추면 `전체` 로 돌아갈 길이 사라진다.
+      */}
+      {state.roster.length > 0 && (
+        <div className="choice">
+          {[
+            { on: false, label: PEOPLE.everyone },
+            { on: true, label: PEOPLE.onlyOpposite },
+          ].map((opt) => (
+            <button
+              key={opt.label}
+              type="button"
+              aria-pressed={onlyOpposite === opt.on}
+              onClick={() => setOnlyOpposite(opt.on)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* 이 문구는 **남들에 대한 말**이다. 내 카드가 생겼다고 지우지 않는다 */}
       {list.length === 0 && (
