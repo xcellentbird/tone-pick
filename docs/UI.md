@@ -264,8 +264,13 @@ URL·히스토리 규칙은 `ROUTES.md`, 도메인 규칙은 `DOMAIN.md`.
 
 ## 모바일 체크리스트
 
-- `<meta name="viewport" ... viewport-fit=cover>`
+- `<meta name="viewport" ... viewport-fit=cover, interactive-widget=resizes-content>`
 - 높이는 `100dvh` — iOS 주소창 때문에 `100vh` 는 어긋난다
+- **아래에 붙는 것은 `--kb` 만큼 띄운다** — 시트·확인창·화면 높이·토스트.
+  `position: fixed; bottom: 0` 은 **레이아웃 뷰포트** 기준이라 키보드가 떠도 안 움직인다.
+  안드로이드는 위 메타가 레이아웃을 줄여 알아서 따라오지만 **iOS 사파리는 그 속성을 모른다** —
+  거기서는 `lib/keyboard.ts` 가 시각 뷰포트로 잰 `--kb` 가 유일한 단서다.
+  입력칸만 보이게 사파리가 스크롤해줘도 **눌러야 할 버튼은 여전히 안 보인다**
 - 하단 탭바에 `padding-bottom: env(safe-area-inset-bottom)`
 - 터치 타겟 최소 **44×44px**
 - 입력 폰트 **16px 이상** — 미만이면 iOS 가 자동 확대한다

@@ -2,7 +2,15 @@
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!--
+      interactive-widget=resizes-content — 소프트 키보드가 뜨면 **레이아웃 뷰포트 자체를** 줄인다.
+      그래야 100dvh 와 `bottom: 0` 이 키보드 위로 따라온다 (안드로이드 크롬).
+      iOS 사파리는 이 속성을 모르므로 거기서는 `--kb`(lib/keyboard.ts)가 맡는다.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="theme-color" content="#12101a" />
     <title>tone-pick</title>
   </head>
