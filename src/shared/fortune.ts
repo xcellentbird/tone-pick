@@ -8,8 +8,9 @@
  * ⚠️ **LLM 에 보내는 값은 이 파일의 두 입력 함수가 만드는 것뿐이다.**
  *    전화번호·인스타는 절대 넣지 마라.
  *
- *    실명은 **운세 호출 하나에만** 예외로 들어간다 (ADR-20 개정). 세 가지가 함께 지켜져야 한다.
- *      · 어필 호출에는 넣지 않는다 — 예외는 하나뿐이라야 예외다
+ *    실명은 **오늘의 운세 기능(두 호출)에만** 예외로 들어간다 (ADR-20 개정).
+ *    세 가지가 함께 지켜져야 한다.
+ *      · 이 기능 밖으로 나가지 않는다 — 다른 어떤 기능에도 이름을 넘기지 마라
  *      · **답변에 이름이 나오지 않게** 프롬프트가 막는다. 그래서 저장물에도, 화면에도 없다
  *      · 어디에도 저장하지 않는다. 생년월일과 같다 — 전송에만 쓴다
  */
@@ -23,16 +24,14 @@ export interface Fortune {
   headline: string;
   /** 오늘의 나를 말하는 **3~5문단**. 문단 사이는 빈 줄이다 */
   body: string;
-  /** 오늘의 기운에서 이어지는 작은 미션. 30분 안에 해볼 수 있고 실패해도 티가 나지 않는 것 */
-  mission: string;
   color: FortuneColor;
   at: number;
   /**
-   * 오늘의 어필. **운세를 재료로 두 번째 호출**에서 나온다 —
-   * 두 카드가 따로 놀면 한 화면에 남남인 글 두 개가 된다.
-   * 옛 저장본에는 없다. 화면이 조건부로 그린다.
+   * 오늘의 미션. **운세가 나온 뒤 두 번째 호출**에서 나온다 (`missionInput`).
+   * 한 번에 뽑으면 본문의 마지막 문단을 그대로 옮겨 적는 일이 잦았다 —
+   * 운세를 다 읽고 나서 "그래서 뭘 하지" 를 따로 묻는 편이 겹치지 않는다.
    */
-  appeal?: Appeal;
+  mission: string;
   /** 규칙으로 만든 문구인가. 화면에서는 구분하지 않고, 운영자가 원인을 찾을 때 쓴다 */
   fallback?: boolean;
 }
@@ -55,25 +54,25 @@ export interface FortuneInput {
    * 운세와 함께 남기면 전화번호와 나란히 놓이는 가장 무거운 신원 정보가 된다.
    */
   birth?: { year: number; month: number; day: number };
+  /** 파티가 열리는 지역의 오늘 날짜 (`2026-08-20`). 오늘을 읽는 운세라 오늘이 언제인지 알아야 한다 */
+  today: string;
 }
 
 /**
- * 어필 호출에 보내는 값. **이름은 없다** — 예외는 운세 하나뿐이라야 예외다.
+ * 미션 호출에 보내는 값. **운세가 나온 뒤에** 부른다.
  *
- * 운세 결과를 함께 넘긴다. 두 카드가 한 화면에 나란히 서는데 서로를 모르면
- * 남남인 글 두 개가 된다 — 오늘의 결에서 이어지는 어필이라야 읽을 값어치가 있다.
+ * 한 번에 뽑던 시절에는 미션이 본문 마지막 문단을 그대로 옮겨 적곤 했다 —
+ * 운세를 다 읽고 나서 "그래서 오늘 뭘 하지" 를 따로 묻는 편이 겹치지 않는다.
+ *
+ * 사람을 아는 재료가 운세와 다르다. 운세는 사주(이름·생년월일·성별)를 보고,
+ * 미션은 **오늘 이 자리에서 이 사람이 할 만한 일**을 찾아야 해서 닉네임·MBTI·매력이 온다.
  */
-export interface AppealInput {
-  age: number;
-  gender: "M" | "F";
+export interface MissionInput {
+  realName: string;
+  nickname: string;
+  mbti: string;
   charms: string[];
-  fortune: { headline: string; body: string; mission: string };
-}
-
-/** 오늘의 어필. 매력 3가지에 하나씩 대응하는 팁 */
-export interface Appeal {
-  headline: string;
-  tips: string[];
+  fortune: { headline: string; body: string };
 }
 
 /**
@@ -82,25 +81,28 @@ export interface Appeal {
  */
 export function fortuneInput(
   p: { realName: string; gender: Gender },
+  today: string,
   birth?: { year: number; month: number; day: number },
 ): FortuneInput {
   return {
     realName: p.realName,
     gender: p.gender,
+    today,
     ...(birth ? { birth } : {}),
   };
 }
 
-/** 어필 호출에 보내는 값을 만든다. **이름을 넣지 마라** — 여기가 그 경계다 */
-export function appealInput(
-  p: { age: number; gender: Gender; charms: readonly string[] },
-  fortune: Fortune,
-): AppealInput {
+/** 미션 호출에 보내는 값을 만든다. 운세를 다 읽은 뒤에 부른다 */
+export function missionInput(
+  p: { realName: string; nickname: string; mbti: string; charms: readonly string[] },
+  fortune: { headline: string; body: string },
+): MissionInput {
   return {
-    age: p.age,
-    gender: p.gender,
+    realName: p.realName,
+    nickname: p.nickname,
+    mbti: p.mbti,
     charms: [...p.charms],
-    fortune: { headline: fortune.headline, body: fortune.body, mission: fortune.mission },
+    fortune: { headline: fortune.headline, body: fortune.body },
   };
 }
 
@@ -165,39 +167,33 @@ function fortuneSeed(input: FortuneInput): number {
  * 키가 없을 때만 쓰는 임시 문구가 아니다 — 파티 당일 외부 서비스가 느리거나 죽어도
  * **이 화면은 반드시 뜬다.** 그래서 이쪽 문장도 읽을 만해야 한다.
  */
-export function fallbackFortune(input: FortuneInput, now: number, lines: FallbackLines): Fortune {
+export function fallbackFortune(input: FortuneInput, now: number, lines: FallbackLines): FortuneDraft {
   const seed = fortuneSeed(input);
   return {
     headline: lines.headline[seed % lines.headline.length],
     body: lines.body[(seed >> 2) % lines.body.length],
-    mission: lines.mission[(seed >> 5) % lines.mission.length],
     color: pickColor(seed),
     at: now,
     fallback: true,
   };
 }
 
-/** 어필도 규칙 문구가 있다. 운세만 뜨고 어필 칸이 비면 화면이 반쯤 죽은 것처럼 보인다 */
-export function fallbackAppeal(input: AppealInput, lines: AppealFallbackLines): Appeal {
-  const seed = seedOf(input.charms.join("/"));
-  return {
-    headline: lines.headline[seed % lines.headline.length],
-    tips: input.charms.map((charm, i) => lines.tip(charm, (seed >> (i * 3)) % 3)),
-  };
+/** 미션에도 규칙 문구가 있다. 운세만 뜨고 미션 칸이 비면 화면이 반쯤 죽은 것처럼 보인다 */
+export function fallbackMission(input: MissionInput, lines: readonly string[]): string {
+  return lines[seedOf(`${input.nickname}:${input.mbti}`) % lines.length];
 }
 
 /** 문구는 `copy.ts` 에서 넘겨받는다. 이 파일에는 한국어를 두지 않는다 */
 export interface FallbackLines {
   headline: readonly string[];
   body: readonly string[];
-  mission: readonly string[];
 }
 
-export interface AppealFallbackLines {
-  headline: readonly string[];
-  /** 본인이 쓴 매력을 그대로 안아 쓴다. 남이 지어준 말보다 잘 맞는다 */
-  tip: (charm: string, variant: number) => string;
-}
+/**
+ * 운세 호출이 만드는 것. **미션은 여기 없다** — 두 번째 호출이 만든다.
+ * 타입으로 갈라두면 한 호출에서 둘 다 뽑으려는 시도가 컴파일에서 막힌다.
+ */
+export type FortuneDraft = Omit<Fortune, "mission">;
 
 /**
  * 저장돼 있던 운세를 지금 모양으로 읽는다.
@@ -221,9 +217,9 @@ export function paragraphs(body: string): string[] {
  * LLM 응답을 읽는다. 모델이 무엇을 뱉든 **화면에 들어갈 수 있는 모양**만 통과시킨다.
  * 하나라도 비면 통째로 버리고 규칙 문구를 쓴다 — 반쯤 채워진 운세가 제일 이상하다.
  */
-export function parseFortune(raw: string, input: FortuneInput, now: number): Fortune | null {
+export function parseFortune(raw: string, input: FortuneInput, now: number): FortuneDraft | null {
   const text = raw.trim().replace(/^```(?:json)?/, "").replace(/```$/, "");
-  let data: { headline?: unknown; body?: unknown; mission?: unknown; step?: unknown };
+  let data: { headline?: unknown; body?: unknown };
   try {
     data = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
   } catch {
@@ -235,30 +231,22 @@ export function parseFortune(raw: string, input: FortuneInput, now: number): For
   const headline = str(data.headline, 60);
   // 3~5문단 자유 길이 — 다섯 문단이 넉넉히 들어가는 크기까지
   const body = str(data.body, 2600);
-  // 이름을 바꾸기 전 모델이 `step` 으로 답하는 일이 있다. 뜻이 같으면 받아준다
-  const mission = str(data.mission, 160) ?? str(data.step, 160);
-  if (!headline || !body || !mission) return null;
+  if (!headline || !body) return null;
 
-  return { headline, body, mission, color: pickColor(fortuneSeed(input)), at: now };
+  return { headline, body, color: pickColor(fortuneSeed(input)), at: now };
 }
 
-/**
- * 어필 응답을 읽는다. 팁은 **매력 개수만큼** 와야 한다 —
- * 두 개만 오면 어느 매력이 빠진 건지 화면에서 알 수 없다. 그럴 바엔 규칙 문구가 낫다.
- */
-export function parseAppeal(raw: string, input: AppealInput): Appeal | null {
+/** 미션 응답. 한 문장이라 JSON 한 칸이면 된다 */
+export function parseMission(raw: string): string | null {
   const text = raw.trim().replace(/^```(?:json)?/, "").replace(/```$/, "");
-  let data: { headline?: unknown; tips?: unknown };
   try {
-    data = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+    const data = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as {
+      mission?: unknown;
+    };
+    const m = data.mission;
+    return typeof m === "string" && m.trim() && m.length <= 160 ? m.trim() : null;
   } catch {
     return null;
   }
-  const str = (v: unknown, max: number) =>
-    typeof v === "string" && v.trim().length > 0 && v.length <= max ? v.trim() : null;
-
-  const headline = str(data.headline, 60);
-  const tips = Array.isArray(data.tips) ? data.tips.map((t) => str(t, 200)) : [];
-  if (!headline || tips.length !== input.charms.length || tips.some((t) => !t)) return null;
-  return { headline, tips: tips as string[] };
 }
+

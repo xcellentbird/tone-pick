@@ -19,7 +19,6 @@ import Join from "../../src/client/routes/Join.tsx";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
 import { ApiError } from "../../src/client/lib/api.ts";
-import { APPEAL } from "../../src/shared/copy.ts";
 import EnvBadge from "../../src/client/ui/EnvBadge.tsx";
 import { useKeyboardInset } from "../../src/client/lib/keyboard.ts";
 
@@ -309,7 +308,6 @@ describe("오늘 탭", () => {
         mission: "요즘 자주 듣는 노래를 물어보세요",
         color: "violet",
         at: 1,
-        appeal: { headline: "가진 걸 그대로 꺼내는 밤", tips: ["팁 하나", "팁 둘", "팁 셋"] },
       },
     });
     renderFortune(opened);
@@ -320,20 +318,8 @@ describe("오늘 탭", () => {
     for (const para of ["첫 문단이에요.", "둘째 문단이에요.", "셋째 문단이에요."]) {
       expect(screen.getByText(para)).toBeTruthy();
     }
-    // 오늘의 어필은 **운세와 함께** 뜬다. 매력 3가지에 팁 하나씩
-    expect(screen.getByText(new RegExp(APPEAL.title))).toBeTruthy();
-    for (const tip of ["팁 하나", "팁 둘", "팁 셋"]) {
-      expect(screen.getByText(tip)).toBeTruthy();
-    }
-  });
-
-  it("★ 어필이 없던 옛 운세도 그대로 열린다", async () => {
-    // 저장된 자료는 코드보다 오래 산다 — 어필이 생기기 전에 연 사람의 카드가 깨지면 안 된다
-    renderFortune(
-      party({ fortune: { headline: "옛 운세", body: "본문", mission: "미션", color: "teal", at: 1 } }),
-    );
-    await screen.findByText("옛 운세");
-    expect(screen.queryByText(new RegExp(APPEAL.title))).toBeNull();
+    // 미션은 **운세 카드 안**에 있다. 호출이 둘이라고 카드가 둘일 이유는 없다
+    expect(screen.getByText("요즘 자주 듣는 노래를 물어보세요")).toBeTruthy();
   });
 
   it("★ 점수를 보여주지 않는다", async () => {

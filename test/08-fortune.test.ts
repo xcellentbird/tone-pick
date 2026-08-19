@@ -3,30 +3,32 @@
  *
  * 재미로 붙인 기능이지만 규칙이 있고, 어기면 사고다.
  *   ① 전화번호·인스타는 어느 호출에도 보내지 않는다
- *   ② **실명은 운세 호출 하나에만** 예외로 들어간다 (ADR-20 개정).
- *      어필 호출에는 없고, 답변·저장물·화면 어디에도 남지 않는다
+ *   ② **실명은 오늘의 운세 기능(두 호출)에만** 예외로 들어간다 (ADR-20 개정).
+ *      그 기능 밖으로 나가지 않고, 답변·저장물·화면 어디에도 남지 않는다
  *   ③ 한 번 연 운세는 바뀌지 않는다
  *   ④ 외부 서비스가 없어도 화면은 뜬다
  */
 import { describe, expect, it } from "vitest";
 import {
   animalIndex,
-  appealInput,
-  fallbackAppeal,
   fallbackFortune,
+  fallbackMission,
   fortuneInput,
+  missionInput,
   paragraphs,
-  parseAppeal,
   parseFortune,
+  parseMission,
   pickColor,
   readFortune,
   seedOf,
   validBirth,
   zodiacIndex,
 } from "../src/shared/fortune.ts";
-import { APPEAL, FORTUNE } from "../src/shared/copy.ts";
+import { FORTUNE, MISSION } from "../src/shared/copy.ts";
 import { canOpenFortune } from "../src/shared/phase.ts";
 import type { Player } from "../src/shared/types.ts";
+
+const TODAY = "2026-08-20";
 
 const PLAYER: Player = {
   id: "p1",
@@ -42,50 +44,54 @@ const PLAYER: Player = {
 };
 
 describe("LLM 에 보내는 것", () => {
+  const draft = () => fallbackFortune(fortuneInput(PLAYER, TODAY), 1, FORTUNE.fallback);
+
   it("★ 전화번호·인스타는 어느 호출에도 가지 않는다", () => {
-    const f = fortuneInput(PLAYER);
-    const a = appealInput(PLAYER, fallbackFortune(f, 1, FORTUNE.fallback));
-    const sent = JSON.stringify(f) + FORTUNE.prompt.user(f) + JSON.stringify(a) + APPEAL.prompt.user(a);
+    const f = fortuneInput(PLAYER, TODAY);
+    const m = missionInput(PLAYER, draft());
+    const sent = JSON.stringify(f) + FORTUNE.prompt.user(f) + JSON.stringify(m) + MISSION.prompt.user(m);
 
     expect(sent).not.toContain("01012345678");
     expect(sent).not.toContain("secret_gram");
-    for (const input of [f, a]) {
+    for (const input of [f, m]) {
       for (const leak of ["phone", "instagram", "id"]) {
         expect(Object.keys(input)).not.toContain(leak);
       }
     }
   });
 
-  it("★ 실명은 운세 호출에만 간다 — 어필 호출에는 자리가 없다", () => {
-    /*
-     * 예외는 하나뿐이라야 예외다. 어필까지 이름을 받기 시작하면
-     * "어디까지 보내도 되나" 의 경계가 사라진다 (ADR-20 개정).
-     */
-    const f = fortuneInput(PLAYER);
-    expect(FORTUNE.prompt.user(f)).toContain("김실명");
-
-    const a = appealInput(PLAYER, fallbackFortune(f, 1, FORTUNE.fallback));
-    expect(JSON.stringify(a) + APPEAL.prompt.user(a)).not.toContain("김실명");
-    expect(Object.keys(a)).not.toContain("realName");
-  });
-
-  it("★ 이름을 답변에 쓰지 말라고 모델에게 못 박는다", () => {
+  it("★ 이름을 답변에 쓰지 말라고 두 프롬프트 모두에 못 박는다", () => {
     // 답변에 이름이 나오면 저장물에도 화면에도 남는다 — 보내는 것보다 남는 게 무겁다
     expect(FORTUNE.prompt.system).toContain("이름을 쓰지 마세요");
-    expect(APPEAL.prompt.system).toContain("이름을 지어 부르지 마세요");
+    expect(MISSION.prompt.system).toContain("이름을 지어 부르지 마세요");
   });
 
-  it("운세와 어필은 재료가 갈린다", () => {
-    // 운세는 사주(이름·생년월일·성별), 어필은 사람(나이·성별·매력) + 방금 나온 운세
-    expect(Object.keys(fortuneInput(PLAYER)).sort()).toEqual(["gender", "realName"]);
-    expect(Object.keys(appealInput(PLAYER, fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback))).sort())
-      .toEqual(["age", "charms", "fortune", "gender"]);
+  it("운세와 미션은 재료가 갈린다", () => {
+    // 운세는 사주(이름·생년월일·성별·오늘), 미션은 사람(닉네임·MBTI·매력) + 방금 나온 운세
+    expect(Object.keys(fortuneInput(PLAYER, TODAY)).sort()).toEqual(["gender", "realName", "today"]);
+    expect(Object.keys(missionInput(PLAYER, draft())).sort())
+      .toEqual(["charms", "fortune", "mbti", "nickname", "realName"]);
   });
 
-  it("점수를 매기지 말라고 모델에게 못 박는다", () => {
-    // '연애운 34점' 은 이 앱이 없애려던 경험을 앱이 직접 만드는 일이다
-    expect(FORTUNE.prompt.system).toContain("점수");
-    expect(FORTUNE.prompt.system).toContain("외모");
+  it("★ 오늘이 며칠인지 함께 보낸다", () => {
+    // 오늘을 읽는 운세다. 오늘이 언제인지 모르면 아무 날의 이야기가 된다
+    expect(FORTUNE.prompt.user(fortuneInput(PLAYER, TODAY))).toContain(TODAY);
+  });
+
+  it("★ 파티가 어떤 자리인지 두 프롬프트 모두 안다", () => {
+    // 이걸 모르면 "좋은 인상을 남기세요" 같은 아무 데나 쓰는 말이 나온다
+    for (const system of [FORTUNE.prompt.system, MISSION.prompt.system]) {
+      expect(system).toContain("지인들의 파티");
+      expect(system).toContain("이성을 만날 기회");
+      expect(system).toContain("콕");
+    }
+  });
+
+  it("점수를 매기지 말라고 두 곳 모두에 못 박는다", () => {
+    for (const system of [FORTUNE.prompt.system, MISSION.prompt.system]) {
+      expect(system).toContain("점수");
+      expect(system).toContain("외모");
+    }
   });
 });
 
@@ -93,7 +99,7 @@ describe("생년월일", () => {
   const BIRTH = { year: 1996, month: 3, day: 14 };
 
   it("★ 프롬프트에는 실리지만 운세 결과에는 어디에도 남지 않는다", () => {
-    const input = fortuneInput(PLAYER, BIRTH);
+    const input = fortuneInput(PLAYER, TODAY, BIRTH);
     // 보내는 쪽: 별자리·띠로 풀려 전송된다
     const sent = FORTUNE.prompt.user(input);
     expect(sent).toContain("1996년 3월 14일");
@@ -124,54 +130,50 @@ describe("생년월일", () => {
   });
 });
 
-describe("오늘의 어필", () => {
-  const fortuneOf = () => fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback);
+describe("오늘의 미션", () => {
+  const draft = () => fallbackFortune(fortuneInput(PLAYER, TODAY), 1, FORTUNE.fallback);
 
-  it("★ 운세 결과를 재료로 받는다 — 두 카드가 서로를 모르면 남남인 글이 된다", () => {
-    const f = fortuneOf();
-    const sent = APPEAL.prompt.user(appealInput(PLAYER, f));
+  it("★ 운세가 나온 뒤에 만든다 — 그 결과가 재료다", () => {
+    /*
+     * 한 호출에서 함께 뽑던 시절에는 미션이 본문 마지막 문단을 그대로 옮겨 적곤 했다.
+     * 다 읽고 나서 "그래서 오늘 뭘 하지" 를 따로 물으면 겹치지 않는다.
+     */
+    const f = draft();
+    const sent = MISSION.prompt.user(missionInput(PLAYER, f));
     expect(sent).toContain(f.headline);
-    expect(sent).toContain(f.mission);
+    expect(sent).toContain(f.body);
   });
 
-  it("★ 파티가 어떤 자리인지 모델에게 알려준다", () => {
-    // 이 셋을 모르면 "좋은 인상을 남기세요" 같은 아무 데나 쓰는 말이 나온다
-    expect(APPEAL.prompt.system).toContain("지인들의 파티");
-    expect(APPEAL.prompt.system).toContain("이성을 만날 기회");
-    expect(APPEAL.prompt.system).toContain("콕");
+  it("★ 운세 호출은 미션을 만들지 않는다", () => {
+    // 타입으로 갈라뒀다 — 한 호출에서 둘 다 뽑으려는 시도가 컴파일에서 막힌다
+    const parsed = parseFortune('{"headline":"h","body":"b","mission":"m"}', fortuneInput(PLAYER, TODAY), 1);
+    expect(Object.keys(parsed!)).not.toContain("mission");
   });
 
-  it("팁은 매력 개수만큼 온다 — 모자라면 통째로 버린다", () => {
-    const input = appealInput(PLAYER, fortuneOf());
-    const ok = parseAppeal('{"headline":"h","tips":["a","b","c"]}', input);
-    expect(ok!.tips).toEqual(["a", "b", "c"]);
-    // 두 개만 오면 어느 매력이 빠진 건지 화면에서 알 수 없다
-    expect(parseAppeal('{"headline":"h","tips":["a","b"]}', input)).toBeNull();
-    expect(parseAppeal('{"headline":"h"}', input)).toBeNull();
+  it("본문을 그대로 옮겨 적지 말라고 못 박는다", () => {
+    expect(MISSION.prompt.system).toContain("그대로 옮겨 적지 마세요");
   });
 
-  it("★ 외부 서비스가 없어도 매력마다 한 줄씩 채워진다", () => {
-    const input = appealInput(PLAYER, fortuneOf());
-    const a = fallbackAppeal(input, APPEAL.fallback);
-    expect(a.headline).toBeTruthy();
-    expect(a.tips).toHaveLength(PLAYER.charms.length);
-    // 본인이 쓴 매력을 그대로 안아 쓴다 — 남이 지어준 말보다 잘 맞는다
-    for (const [i, charm] of PLAYER.charms.entries()) expect(a.tips[i]).toContain(charm);
+  it("모델이 뭘 뱉든 한 문장만 통과시킨다", () => {
+    expect(parseMission('{"mission":" 이름을 물어보세요 "}')).toBe("이름을 물어보세요");
+    expect(parseMission('{"mission":""}')).toBeNull();
+    expect(parseMission("그냥 문장")).toBeNull();
   });
 
-  it("점수를 매기지 말라고 여기에도 못 박는다", () => {
-    expect(APPEAL.prompt.system).toContain("점수");
-    expect(APPEAL.prompt.system).toContain("외모");
+  it("★ 외부 서비스가 없어도 미션은 채워진다", () => {
+    expect(fallbackMission(missionInput(PLAYER, draft()), MISSION.fallback).length).toBeGreaterThan(0);
   });
 });
 
 describe("한 번 연 운세는 바뀌지 않는다", () => {
   it("★ 같은 사람에게는 언제나 같은 색과 같은 결이 나온다", () => {
-    const a = fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback);
-    const b = fallbackFortune(fortuneInput(PLAYER), 999, FORTUNE.fallback);
+    const a = fallbackFortune(fortuneInput(PLAYER, TODAY), 1, FORTUNE.fallback);
+    const b = fallbackFortune(fortuneInput(PLAYER, TODAY), 999, FORTUNE.fallback);
     expect(b.headline).toBe(a.headline);
     expect(b.color).toBe(a.color);
-    expect(b.mission).toBe(a.mission);
+    // 미션도 마찬가지다 — 두 번째 호출이 만들지만 규칙 문구는 같은 씨앗을 쓴다
+    const m = (t: number) => fallbackMission(missionInput(PLAYER, fallbackFortune(fortuneInput(PLAYER, TODAY), t, FORTUNE.fallback)), MISSION.fallback);
+    expect(m(999)).toBe(m(1));
   });
 
   it("사람이 다르면 다르게 나온다", () => {
@@ -188,9 +190,8 @@ describe("한 번 연 운세는 바뀌지 않는다", () => {
 
 describe("외부 서비스가 없어도", () => {
   it("★ 규칙 문구만으로 화면에 들어갈 것이 다 채워진다", () => {
-    const f = fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback);
+    const f = fallbackFortune(fortuneInput(PLAYER, TODAY), 1, FORTUNE.fallback);
     expect(f.headline.length).toBeGreaterThan(0);
-    expect(f.mission.length).toBeGreaterThan(0);
     // 오늘의 기운은 세 문단이다
     expect(paragraphs(f.body)).toHaveLength(3);
     expect(f.fallback).toBe(true);
@@ -198,14 +199,14 @@ describe("외부 서비스가 없어도", () => {
 
   it("생년월일이 없어도 문장이 만들어진다", () => {
     // 운세 입력은 이름·성별뿐일 수도 있다. 그때도 화면은 떠야 한다
-    const f = fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback);
+    const f = fallbackFortune(fortuneInput(PLAYER, TODAY), 1, FORTUNE.fallback);
     expect(f.body.length).toBeGreaterThan(0);
     expect(f.headline.length).toBeGreaterThan(0);
   });
 });
 
 describe("모델이 뱉은 것을 읽을 때", () => {
-  const input = fortuneInput(PLAYER);
+  const input = fortuneInput(PLAYER, TODAY);
 
   it("코드 블록으로 감싸 와도 읽는다", () => {
     const raw = '```json\n{"headline":"천천히 걷는 밤","body":"오늘은 이런 날이에요.","mission":"이름을 물어보세요"}\n```';
@@ -214,11 +215,11 @@ describe("모델이 뱉은 것을 읽을 때", () => {
 
   it("★ 하나라도 비면 통째로 버린다 — 반쯤 채워진 운세가 제일 이상하다", () => {
     for (const raw of [
-      '{"headline":"","body":"b","mission":"m"}',
-      '{"headline":"h","body":"b"}',
+      '{"headline":"","body":"b"}',
+      '{"headline":"h"}',
       "그냥 아무 말",
       "",
-      `{"headline":"${"긴".repeat(100)}","body":"b","mission":"m"}`,
+      `{"headline":"${"긴".repeat(100)}","body":"b"}`,
     ]) {
       expect(parseFortune(raw, input, 1)).toBeNull();
     }
@@ -227,7 +228,8 @@ describe("모델이 뱉은 것을 읽을 때", () => {
   it("모델이 뭘 넣어 보내든 화면에 들어가는 항목만 통과한다", () => {
     const raw = '{"headline":"h","body":"b","mission":"m","score":92,"color":"#ff0000"}';
     const f = parseFortune(raw, input, 1)!;
-    expect(Object.keys(f).sort()).toEqual(["at", "body", "color", "headline", "mission"]);
+    // 모델이 미션을 끼워 보내도 받지 않는다 — 미션은 두 번째 호출의 것이다
+    expect(Object.keys(f).sort()).toEqual(["at", "body", "color", "headline"]);
     expect(Object.keys(FORTUNE.colorName)).toContain(f.color);
   });
 });
