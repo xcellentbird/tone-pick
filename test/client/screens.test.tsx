@@ -876,7 +876,7 @@ describe("키보드가 가린 높이", () => {
 // ─────────────────────────────────────────── 참가자 탭의 내 카드
 
 /**
- * 목록 맨 위의 내 카드가 답하는 건 **"내가 남들에게 어떻게 보이나"** 하나다.
+ * 필터 위의 내 카드가 답하는 건 **"내가 남들에게 어떻게 보이나"** 하나다.
  * 그래서 남들이 보는 것보다 더 보여주면 그 순간 답이 틀린다.
  */
 describe("참가자 탭 · 내 카드", () => {
@@ -958,6 +958,56 @@ describe("참가자 탭 · 내 카드", () => {
     // 나는 남성이고 목록의 '그녀'는 여성이다 — 필터를 켜면 그녀만 남아야 하지만 나는 남는다
     fireEvent.click(screen.getByText(PEOPLE.onlyOpposite));
     expect(screen.getByText(PEOPLE.mine)).toBeTruthy();
+  });
+
+  it("★ 필터는 내 카드 아래, 목록 위에 있다", async () => {
+    /*
+     * 필터가 다스리지 않는 것(내 카드)이 필터와 목록 사이에 있으면
+     * `이성만` 을 눌러도 내가 남아 있어 **필터가 안 먹은 것으로** 읽힌다.
+     * 거르는 버튼은 걸러지는 것 바로 위에 있어야 한다.
+     */
+    const { container } = renderParticipant(fakeSource());
+    const mineRow = (await screen.findByText(PEOPLE.mine)).closest(".row")!;
+    const filter = container.querySelector(".choice")!;
+    const others = screen.getByText("그녀").closest(".row")!;
+
+    // DOCUMENT_POSITION_FOLLOWING(4) — 뒤에 온다
+    expect(mineRow.compareDocumentPosition(filter) & 4).toBeTruthy();
+    expect(filter.compareDocumentPosition(others) & 4).toBeTruthy();
+  });
+
+  it("★ 이성이 하나도 없어도 필터는 남는다 — 돌아갈 길이 있어야 한다", async () => {
+    /*
+     * 거를 게 없으면 필터를 감추지만, 판단은 **거르기 전 명단**으로 한다.
+     * 걸러진 결과가 0명이라고 감추면 `전체` 로 돌아갈 버튼째 사라져 화면이 잠긴다.
+     */
+    const { container } = renderParticipant(
+      fakeSource({
+        // 나도 남성, 명단도 남성 하나뿐 — `이성만` 은 0명이 된다
+        load: async () =>
+          participantState({
+            roster: [
+              { id: "him", nickname: "그남", age: 31, gender: "M", mbti: "ISTJ", charms: ["매력가", "매력나", "매력다"] },
+            ],
+          }),
+      }),
+    );
+    await screen.findByText("그남");
+
+    fireEvent.click(screen.getByText(PEOPLE.onlyOpposite));
+    expect(screen.queryByText("그남")).toBeNull();
+    expect(container.querySelector(".choice")).toBeTruthy();
+
+    // 되돌아갈 수 있다
+    fireEvent.click(screen.getByText(PEOPLE.everyone));
+    expect(screen.getByText("그남")).toBeTruthy();
+  });
+
+  it("★ 볼 명단이 아예 없으면 필터도 없다", async () => {
+    // 사전 투표 전에는 명단이 안 내려온다 (ADR-21). 거를 게 없는데 거르는 버튼만 떠 있을 이유가 없다
+    const { container } = at("reg");
+    await screen.findByText(PEOPLE.mine);
+    expect(container.querySelector(".choice")).toBeNull();
   });
 
   it("★ 내 카드에는 콕 버튼이 없다", async () => {
