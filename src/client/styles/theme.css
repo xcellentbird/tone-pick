@@ -586,7 +586,21 @@ button {
   min-width: 0;
 }
 
-.statusbar .phase { font-weight: 800; font-size: 16px; }
+.statusbar .phase { font-weight: 800; font-size: 16px; flex: none; }
+
+/*
+ * 회차 이름. 단계보다 한 단계 물러난다 — 먼저 읽혀야 하는 건 지금 무슨 시간인가다.
+ * **여기만 줄어든다.** 이름이 길어도 단계와 카운트다운을 밀어내지 않게 이쪽이 먼저 잘린다.
+ */
+.statusbar .event {
+  min-width: 0;
+  flex: 0 1 auto;
+  font-size: 13px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* 단계를 색으로도 기억하게 한다 — 글자를 읽기 전에 어디쯤인지 안다 */
 .statusbar.phase-reg .phase { color: var(--dim); }

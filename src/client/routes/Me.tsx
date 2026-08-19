@@ -11,9 +11,8 @@
  * 참가자가 하는 일은 "내가 낸 것을 고친다" 하나고, 잠기는 순간도 하나다.
  */
 import { useEffect, useState } from "react";
-import { BTN, GENDER, MBTI_AXES, ME, PEOPLE, REGISTER, UNIT } from "../../shared/copy.ts";
+import { BTN, GENDER, MBTI_AXES, ME, REGISTER, UNIT } from "../../shared/copy.ts";
 import type { ParticipantState, Player } from "../../shared/types.ts";
-import { canPoke } from "../../shared/phase.ts";
 import { LIMITS, normalizeInstagram } from "../../shared/constants.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
@@ -30,9 +29,7 @@ interface Props {
 }
 
 export default function Me({ state, source, reload, editing, onEdit }: Props) {
-  const { me, poke, event } = state;
-  const round = event.phase === "prevote" ? ("pre" as const) : ("party" as const);
-  const budget = poke.budget[round];
+  const { me, event } = state;
   // 사전 투표가 열리면 사람들이 이 정보를 보고 콕을 찌른다. 그 뒤로는 굳는다 (ADR-31)
   const canEdit = event.phase === "reg";
 
@@ -45,20 +42,15 @@ export default function Me({ state, source, reload, editing, onEdit }: Props) {
     if (editing && !canEdit) onEdit(false, { replace: true });
   }, [editing, canEdit, onEdit]);
 
-  // 자리·남은 콕은 홈 탭에, 결과는 참가자 탭에 있다. 같은 것을 두 곳에 두지 않는다
+  /*
+   * 여기 있는 건 **내가 낸 것** 하나다.
+   *
+   * 라운드·보낸 콕은 두지 않는다 — 라운드는 상단 바가, 콕 숫자는 참가자 탭이 맡는다.
+   * 회차 이름도 상단 바로 옮겼다. 같은 것을 두 곳에 두면 어느 쪽이 맞는지 눈이 한 번 더 확인한다.
+   * 자리는 홈 탭에, 결과는 참가자 탭에 있다.
+   */
   return (
     <div className="stack">
-      {canPoke(event.phase) && (
-        <div className="card">
-          <div className="kicker">{PEOPLE.sentSoFar(round, budget.used)}</div>
-        </div>
-      )}
-
-      {/* 입장 코드는 보여주지 않는다 — 문을 여는 건 전화번호고, 코드는 참가자가 쓸 일이 없다 */}
-      <div className="card stack">
-        <Row label={ME.labels.event} value={event.name} />
-      </div>
-
       {editing && canEdit ? (
         <EditForm me={me} source={source} reload={reload} done={() => onEdit(false)} />
       ) : (
