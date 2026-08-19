@@ -694,14 +694,17 @@ export class EventDO extends DurableObject {
    * 한 번 연 운세는 바뀌지 않는다 (ADR-20). 저장하는 자리가 그 규칙을 지키게 둔다.
    *
    * 이미 채워져 있으면 그대로 돌려준다. 두 번 눌러도 같은 문장이 온다.
+   *
+   * `lead`(왜 오늘 이것인지)는 미션과 **함께** 들어오고 함께 잠긴다.
+   * 없이 올 수도 있다 — LLM 이 빼먹은 경우다. 그때는 미션만 남고 화면이 한 줄로 그린다.
    */
-  async saveMission(playerId: string, mission: string): Promise<Result<Fortune>> {
+  async saveMission(playerId: string, m: { mission: string; lead?: string }): Promise<Result<Fortune>> {
     const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
     if (!row) return fail("not_found");
     const saved = readFortune(JSON.parse(row.json));
     if (saved.mission) return ok(saved);
 
-    const next = { ...saved, mission };
+    const next = { ...saved, ...m };
     this.ctx.storage.sql.exec(
       "UPDATE fortunes SET json = ? WHERE player_id = ?",
       JSON.stringify(next),

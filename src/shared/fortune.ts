@@ -35,6 +35,14 @@ export interface Fortune {
    * **안 열어 본 사람 몫은 아예 만들지 않는다.**
    */
   mission?: string;
+  /**
+   * 미션 앞에 붙는 **왜**. 오늘의 운세에서 이어지는 이유 한두 문장.
+   *
+   * 미션만 한 줄 던지면 남이 준 숙제로 읽힌다 — 왜 오늘 이게 나에게 맞는지가 붙어야
+   * 내 운세에서 나온 것이 된다. **지시하지 않는다.** 지시는 미션 한 문장이 한다.
+   * 옛 저장본에는 없다 — 화면이 조건부로 그린다.
+   */
+  lead?: string;
   /** 규칙으로 만든 문구인가. 화면에서는 구분하지 않고, 운영자가 원인을 찾을 때 쓴다 */
   fallback?: boolean;
 }
@@ -182,8 +190,14 @@ export function fallbackFortune(input: FortuneInput, now: number, lines: Fallbac
 }
 
 /** 미션에도 규칙 문구가 있다. 운세만 뜨고 미션 칸이 비면 화면이 반쯤 죽은 것처럼 보인다 */
-export function fallbackMission(input: MissionInput, lines: readonly string[]): string {
+export function fallbackMission(input: MissionInput, lines: readonly MissionLines[]): MissionLines {
   return lines[seedOf(`${input.nickname}:${input.mbti}`) % lines.length];
+}
+
+/** 미션 한 벌 — **왜**(lead)와 **언제·무엇**(mission) */
+export interface MissionLines {
+  lead: string;
+  mission: string;
 }
 
 /** 문구는 `copy.ts` 에서 넘겨받는다. 이 파일에는 한국어를 두지 않는다 */
@@ -196,7 +210,7 @@ export interface FallbackLines {
  * 운세 호출이 만드는 것. **미션은 여기 없다** — 두 번째 호출이 만든다.
  * 타입으로 갈라두면 한 호출에서 둘 다 뽑으려는 시도가 컴파일에서 막힌다.
  */
-export type FortuneDraft = Omit<Fortune, "mission">;
+export type FortuneDraft = Omit<Fortune, "mission" | "lead">;
 
 /**
  * 저장돼 있던 운세를 지금 모양으로 읽는다.
@@ -242,15 +256,25 @@ export function parseFortune(raw: string, input: FortuneInput, now: number): For
   return { headline, body, color: pickColor(fortuneSeed(input)), at: now };
 }
 
-/** 미션 응답. 한 문장이라 JSON 한 칸이면 된다 */
-export function parseMission(raw: string): string | null {
+/**
+ * 미션 응답 — **왜**와 **언제·무엇** 두 칸.
+ *
+ * `mission` 은 필수고 `lead` 는 **없어도 버리지 않는다** — 이유 한 줄이 빠졌다고
+ * 쓸 만한 미션을 통째로 규칙 문구로 바꾸는 건 손해가 더 크다. 화면이 조건부로 그린다.
+ */
+export function parseMission(raw: string): { mission: string; lead?: string } | null {
   const text = raw.trim().replace(/^```(?:json)?/, "").replace(/```$/, "");
   try {
     const data = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as {
       mission?: unknown;
+      lead?: unknown;
     };
-    const m = data.mission;
-    return typeof m === "string" && m.trim() && m.length <= 160 ? m.trim() : null;
+    const str = (v: unknown, max: number) =>
+      typeof v === "string" && v.trim() && v.length <= max ? v.trim() : null;
+    const mission = str(data.mission, 160);
+    if (!mission) return null;
+    const lead = str(data.lead, 200);
+    return lead ? { mission, lead } : { mission };
   } catch {
     return null;
   }

@@ -129,9 +129,15 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
         {card.mission ? (
           <div className="fortuneMission opened">
             <div className="kicker">🎯 {FORTUNE.missionTitle}</div>
-            <p className="pre" style={{ margin: 0 }}>
-              {card.mission}
-            </p>
+            {/*
+              **왜 오늘 이것인지가 먼저다.** 한 줄만 던지면 남이 준 숙제로 읽히고,
+              숙제는 미뤄진다. 운세에서 이어지는 이유가 앞에 서야 내 것이 된다.
+
+              옛 저장본에는 `lead` 가 없다 — 그때는 미션 한 줄만 그린다.
+              빈 자리를 만들거나 대신할 문장을 지어내지 마라. 없는 건 없는 것이다.
+            */}
+            {card.lead && <p className="missionLead">{card.lead}</p>}
+            <p className="missionLine pre">{card.mission}</p>
           </div>
         ) : (
           <button

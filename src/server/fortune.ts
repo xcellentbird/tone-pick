@@ -64,7 +64,16 @@ export async function makeFortune(env: Env, input: FortuneInput, now: number): P
 }
 
 /**
- * 오늘의 미션 한 줄. **운세가 나온 뒤에** 부른다 — 그 결과가 재료라서 나란히 못 부른다.
+ * 미션이 내놓는 것. `lead` 는 **LLM 이 빼먹을 수 있다** — 그래도 미션은 살린다
+ * (`parseMission`). 규칙 문구 쪽은 언제나 둘 다 있다.
+ */
+type MissionOut = { mission: string; lead?: string };
+
+/**
+ * 오늘의 미션. **운세가 나온 뒤에** 부른다 — 그 결과가 재료라서 나란히 못 부른다.
+ *
+ * 내놓는 건 두 칸이다: 왜 오늘 이것인지(`lead`)와 언제 무엇을(`mission`).
+ * 미션 한 줄만 던지면 남이 준 숙제로 읽힌다 — 이유가 붙어야 내 운세에서 나온 것이 된다.
  *
  * 한 호출에서 운세와 함께 뽑던 시절에는 미션이 본문 마지막 문단을 그대로 옮겨 적곤 했다.
  * 다 읽고 나서 따로 물으면 겹치지 않는다.
@@ -72,7 +81,7 @@ export async function makeFortune(env: Env, input: FortuneInput, now: number): P
  * 실패는 여기서도 정상 경로다. 미션이 안 나와도 운세는 그대로 뜬다 —
  * 둘이 함께 죽지 않게 실패를 각자 삼킨다.
  */
-export async function makeMission(env: Env, input: MissionInput): Promise<string> {
+export async function makeMission(env: Env, input: MissionInput): Promise<MissionOut> {
   const key = env.OPENAI_API_KEY;
   if (!key) return fallbackMission(input, MISSION.fallback);
 
