@@ -12,7 +12,8 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Invite } from "../../../shared/types.ts";
-import { LIMITS, formatPhone, typedPhone } from "../../../shared/constants.ts";
+import { LIMITS, PHONE_SEED, formatPhone, typedPhone } from "../../../shared/constants.ts";
+import { keepPhoneSeed } from "../../lib/phoneField.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
@@ -199,7 +200,7 @@ function Invites({
    *
    * 상태는 **숫자 그대로**다. 하이픈은 보여줄 때만 붙는다 (`formatPhone`).
    */
-  const [one, setOne] = useState("010");
+  const [one, setOne] = useState(PHONE_SEED);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const known = new Set(invites.map((i) => i.phone));
@@ -222,8 +223,8 @@ function Invites({
     e.preventDefault();
     // 이미 있는 번호는 서버까지 갈 것도 없다. 조용히 성공하면 넣은 줄 알고 넘어간다
     if (known.has(one)) return setError(HOST_UI.invites.already);
-    // 넣고 나면 다음 사람을 바로 칠 수 있게 `010` 만 남긴다
-    void add([one], () => setOne("010"));
+    // 넣고 나면 다음 사람을 바로 칠 수 있게 씨앗만 남긴다
+    void add([one], () => setOne(PHONE_SEED));
   }
 
   async function remove(phone: string) {
@@ -242,6 +243,8 @@ function Invites({
             id="oneInvite"
             className="grow"
             value={formatPhone(one)}
+            /* 미리 든 `010` 이 통째로 선택된 채 오면 다음 숫자가 그걸 덮는다 */
+            onFocus={keepPhoneSeed}
             inputMode="tel"
             autoComplete="off"
             onChange={(e) => {

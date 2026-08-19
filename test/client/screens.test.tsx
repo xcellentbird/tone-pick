@@ -583,6 +583,36 @@ describe("참가 링크", () => {
     expect(input.value).toBe("011-2345-678");
   });
 
+  it("★ 씨앗만 있는 칸에 포커스가 오면 010 이 선택된 채로 남지 않는다", async () => {
+    /*
+     * 브라우저가 `010` 을 **통째로 선택한 채** 포커스를 준다. 그대로 두면 다음에 누르는
+     * 숫자 하나가 그 세 글자를 덮어써서, 여덟 자리만 친 사람은 `010` 이 있는 줄 알고 보낸다.
+     * 운영자 명단 칸에서 같은 일이 나면 그 사람은 파티 당일 문 앞에서 막힌다.
+     */
+    atGate();
+    renderJoin();
+    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
+
+    input.setSelectionRange(0, input.value.length);
+    fireEvent.focus(input);
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    expect(input.selectionStart).toBe(3);
+    expect(input.selectionEnd).toBe(3);
+  });
+
+  it("이미 친 번호가 있으면 전체 선택을 건드리지 않는다 — 다 지우고 다시 치려는 것이다", async () => {
+    atGate();
+    renderJoin();
+    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "01012345678" } });
+    input.setSelectionRange(0, input.value.length);
+    fireEvent.focus(input);
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+  });
+
   it("★ 치는 대로 하이픈이 붙고, 자리가 덜 차면 보낼 수 없다", async () => {
     atGate();
     renderJoin();

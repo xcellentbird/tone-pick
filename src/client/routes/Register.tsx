@@ -13,11 +13,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared/copy.ts";
-import type { PublicEvent, RegisterResult } from "../../shared/types.ts";
-import { LIMITS, RETENTION_DAYS, normalizeInstagram } from "../../shared/constants.ts";
-import { ApiError, api, post } from "../lib/api.ts";
+import type { RegisterResult } from "../../shared/types.ts";
+import { LIMITS, normalizeInstagram } from "../../shared/constants.ts";
+import { ApiError, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
-import { useLoad } from "../lib/useLoad.ts";
 import type { ProfileDraft } from "../lib/profileForm.ts";
 import { EMPTY_DRAFT, toInput, validateProfile } from "../lib/profileForm.ts";
 
@@ -31,9 +30,6 @@ export default function Register() {
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<{ field: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  // "N일 뒤에 지워져요" 약속은 회차 설정을 따른다 — 전역 상수는 응답이 오기 전의 대체값일 뿐이다
-  const found = useLoad(() => api<PublicEvent>(`/events/by-id/${id}`), [id]);
-
   const at = Math.min(3, Math.max(1, Number(step) || 1));
 
   // 오류를 만든 칸으로 데려간다 — 키보드가 올라온 폰에서는 화면 밖 오류가 "아무 일도 없음"으로 보인다.
@@ -165,7 +161,7 @@ export default function Register() {
 
         {at === 2 && (
           <>
-            <p className="tiny dim pre">{REGISTER.retention(found.data?.retentionDays ?? RETENTION_DAYS)}</p>
+            <p className="tiny dim pre">{REGISTER.contactNote}</p>
             <div className="field">
               <label htmlFor="instagram">{ME.labels.instagram}</label>
               <input id="instagram" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} {...invalid("instagram")} />

@@ -16,7 +16,8 @@ import { useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, PHASE_LABEL, SCREEN_TITLE } from "../../shared/copy.ts";
 import type { EnterResult, ParticipantState, PublicEvent } from "../../shared/types.ts";
 import { formatWhen } from "../../shared/time.ts";
-import { formatPhone, typedPhone } from "../../shared/constants.ts";
+import { PHONE_SEED, formatPhone, typedPhone } from "../../shared/constants.ts";
+import { keepPhoneSeed } from "../lib/phoneField.ts";
 import { ApiError, api, post } from "../lib/api.ts";
 import { useLoad } from "../lib/useLoad.ts";
 
@@ -37,7 +38,7 @@ export default function Join() {
    *
    * 상태는 **숫자만** 들고, 하이픈은 그릴 때만 넣는다 (생년월일 칸과 같은 방식).
    */
-  const [phone, setPhone] = useState("010");
+  const [phone, setPhone] = useState(PHONE_SEED);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -109,6 +110,8 @@ export default function Join() {
                     id="phone"
                     value={formatPhone(phone)}
                     onChange={(e) => setPhone(typedPhone(e.target.value))}
+                    /* 미리 든 `010` 이 통째로 선택된 채 오면 다음 숫자가 그걸 덮는다 */
+                    onFocus={keepPhoneSeed}
                     inputMode="tel"
                     autoComplete="tel"
                     style={{ fontSize: 20, textAlign: "center", letterSpacing: "0.06em" }}
