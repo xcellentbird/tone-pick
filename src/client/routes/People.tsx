@@ -107,7 +107,9 @@ export default function People({ state, source, reload, profileId, onProfile }: 
             </button>
           ))}
         </div>
-        {open && <span className="small dim">{STATUS.roundLeft(round, budget.max - budget.used)}</span>}
+        {/* 라운드 이름은 붙이지 않는다 — 지금 어느 라운드인지는 상단 바가 이미 말한다 */
+        }
+        {open && <span className="small dim">{STATUS.roundLeft(budget.max - budget.used)}</span>}
       </div>
 
       {/*

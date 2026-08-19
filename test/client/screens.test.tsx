@@ -599,20 +599,34 @@ describe("상단 바", () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
     // 어느 라운드의 콕인지 함께 적는다. 숫자만 있으면 마감된 줄 모른다
-    expect(screen.getAllByText(STATUS.roundLeft("pre", 2))).toHaveLength(1);
+    expect(screen.getAllByText(STATUS.roundLeft(2))).toHaveLength(1);
   });
 
-  it("회차 이름은 상단이 아니라 '내 정보' 에 있다", async () => {
+  it("★ 회차 이름은 상단 바 한 곳에만 있다", async () => {
+    // 어느 탭에 있든 보인다 — "내가 지금 어느 파티에 있나" 는 아무 때나 확인하고 싶은 것이다
     const { rerender } = renderParticipant(fakeSource());
     await screen.findByText(PHASE_LABEL.prevote);
-    expect(screen.queryByText("테스트 파티")).toBeNull();
+    expect(screen.getAllByText("테스트 파티")).toHaveLength(1);
 
+    // 내 정보 탭으로 옮겨도 여전히 한 곳뿐이다 (예전에는 그 탭 안에 또 있었다)
     rerender(
       <MemoryRouter>
         <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
       </MemoryRouter>,
     );
-    await screen.findByText("테스트 파티");
+    await waitFor(() => expect(screen.getAllByText("테스트 파티")).toHaveLength(1));
+  });
+
+  it("★ 내 정보 탭에는 라운드도 보낸 콕도 없다", async () => {
+    // 라운드는 상단 바가, 콕 숫자는 참가자 탭이 맡는다
+    render(
+      <MemoryRouter>
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
+      </MemoryRouter>,
+    );
+    await screen.findByText(ME.labels.nickname);
+    expect(screen.queryByText(/보낸 콕/)).toBeNull();
+    expect(screen.queryByText(/라운드/)).toBeNull();
   });
 });
 

@@ -10,8 +10,10 @@
  * 있으면 어느 쪽이 맞는지 눈이 한 번 더 확인하게 된다.
  * 헤더는 스크롤되지 않으므로(.screen 이 flex 라 .body 만 흐른다) 목록을 내려도 계속 보인다.
  *
- * 회차 이름은 여기 두지 않는다 — 입장·등록에서 이미 확인했고, 파티 중에 다시 볼 일이 없다.
- * '내 정보' 탭으로 옮겼다.
+ * 회차 이름은 **여기 하나뿐이다.** 한동안 '내 정보' 탭에 뒀었는데(상단은 세로 공간이 비싸다),
+ * 정작 "내가 지금 어느 파티에 있나" 는 아무 때나 확인하고 싶은 것이라 탭을 옮겨야 하는 게 불편했다.
+ * 대신 **줄을 늘리지 않는다** — 단계 옆에 작게 붙어서 높이를 그대로 쓴다.
+ * 길면 말줄임한다. 이름 때문에 카운트다운이 밀리면 안 된다.
  *
  * 남은 시간은 **서버 시각**에서 뺀다. 폰 시계를 바꿔 결과를 먼저 보는 걸 막기 위해.
  */
@@ -22,7 +24,7 @@ import { now } from "../lib/serverTime.ts";
 import { useTicker } from "../lib/useLoad.ts";
 
 export default function StatusBar({ state }: { state: ParticipantState }) {
-  const { phase, playerCount, schedule } = state.event;
+  const { name, phase, playerCount, schedule } = state.event;
   // 파티가 시작되면 셀 것이 없다. 그 뒤로는 단계 이름만 남는다
   const before = phase === "prep" || phase === "reg" || phase === "prevote";
   const left = before && schedule.partyAt ? schedule.partyAt - now() : 0;
@@ -32,6 +34,8 @@ export default function StatusBar({ state }: { state: ParticipantState }) {
   return (
     <div className={`statusbar phase-${phase}`}>
       <span className="phase">{PHASE_LABEL[phase]}</span>
+      {/* 어느 파티에 있는지. 단계보다 한 단계 물러나고, 길면 여기서 잘린다 */}
+      <span className="event">{name}</span>
 
       {phase === "reg" && <span className="small dim">{UNIT.people(playerCount)}</span>}
 

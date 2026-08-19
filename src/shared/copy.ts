@@ -201,8 +201,6 @@ export const PEOPLE = {
   mineLater: "나이·MBTI 는 파티가 시작돼야 보여요.",
   /** 프로필 시트에서는 매력 전문을 보여준다 */
   charmTitle: "이 사람의 매력",
-  /** 라운드를 명시한다 — 파티 단계에 사전 투표 콕이 빠진 숫자를 총합처럼 읽게 하지 않는다 */
-  sentSoFar: (round: PokeRound, n: number) => `${roundName(round)} 라운드 · 보낸 콕 ${n}회`,
 } as const;
 
 export const ME = {
@@ -471,11 +469,10 @@ export const STATUS = {
   /** 파티 중 참가자가 가장 자주 확인하는 숫자 */
   pokeLeft: (n: number) => `콕 ${n}회 남음`,
   /**
-   * 어느 라운드의 콕인지 함께 적는다.
-   * 사전 투표가 마감되면 그 콕은 끝나고 파티 라운드가 새로 열린다 —
-   * 숫자만 보여주면 마감됐는데도 계속 찌르는 줄 안다.
+   * 남은 콕. **라운드 이름은 붙이지 않는다** — 지금 어느 라운드인지는 상단 단계가 이미 말한다.
+   * (예전에는 `사전 투표 라운드 · 콕 1회 남음` 이었는데, 위에 `사전 투표` 가 그대로 또 있었다)
    */
-  roundLeft: (round: PokeRound, n: number) => `${roundName(round)} 라운드 · 콕 ${n}회 남음`,
+  roundLeft: (n: number) => `콕 ${n}회 남음`,
   /**
    * 카운트다운이 향하는 곳은 **파티 시작**뿐이다.
    * 투표 마감과 발표는 운영자가 누르는 것이라 셀 수 있는 시각이 없다 —
