@@ -35,6 +35,14 @@ interface ViewProps {
   /** 프로필 시트도 라우트다 — 뒤로 가기로 닫힌다 */
   profileId?: string;
   onProfile: (playerId: string | null) => void;
+  /**
+   * 내 정보 편집도 라우트다 — 뒤로 가기가 곧 취소다 (ADR-31).
+   *
+   * 닫을 때 `replace` 는 **취소가 아니라 되돌림**이다. 잠긴 뒤에 편집 주소를 직접 연 경우
+   * 뒤로 갈 자리가 없어서 앱을 벗어난다 — 그때는 내 정보로 갈아끼운다.
+   */
+  editing?: boolean;
+  onEdit: (on: boolean, opts?: { replace?: boolean }) => void;
 }
 
 /** URL 이 상태를 들고 있는 진짜 참가자 화면 */
@@ -45,8 +53,10 @@ export default function Participant() {
   const base = `/e/${code}`;
 
   const source = useMemo(() => sessionSource(code), [code]);
-  // 프로필 시트(/p/:id)는 참가자 탭 위에 뜬 것이다 — 탭 표시도 참가자로 둔다
-  const tab: Tab = location.pathname.endsWith("/me")
+  // 프로필 시트(/p/:id)는 참가자 탭 위에, 편집(/me/edit)은 내 정보 탭 위에 뜬 것이다 —
+  // 탭 표시는 그 아래 탭 그대로 둔다
+  const editing = location.pathname.endsWith("/me/edit");
+  const tab: Tab = location.pathname.endsWith("/me") || editing
     ? "me"
     : location.pathname.endsWith("/fortune")
       ? "fortune"
@@ -76,6 +86,15 @@ export default function Participant() {
       profileId={profileId}
       // 시트 열기는 push, 닫기는 뒤로 가기 — 안드로이드 백 버튼으로 닫혀야 한다
       onProfile={(id) => (id ? navigate(`${base}/p/${id}`) : navigate(-1))}
+      editing={editing}
+      // 편집도 같다. 뒤로 가기가 곧 취소이고, 고치던 입력은 버려진다 (취소 버튼과 같은 동작)
+      onEdit={(on, opts) =>
+        on
+          ? navigate(`${base}/me/edit`)
+          : opts?.replace
+            ? navigate(`${base}/me`, { replace: true })
+            : navigate(-1)
+      }
     />
   );
 }
@@ -109,6 +128,8 @@ function Loaded({
   onTab,
   profileId,
   onProfile,
+  editing,
+  onEdit,
   welcome,
   state,
   reload,
@@ -172,7 +193,9 @@ function Loaded({
             />
           )}
           {tab === "fortune" && <FortuneTab state={state} reload={reload} />}
-          {tab === "me" && <Me state={state} source={source} reload={reload} />}
+          {tab === "me" && (
+            <Me state={state} source={source} reload={reload} editing={!!editing} onEdit={onEdit} />
+          )}
         </div>
 
         <nav className="tabbar">
