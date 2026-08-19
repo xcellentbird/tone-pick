@@ -12,7 +12,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Invite } from "../../../shared/types.ts";
-import { LIMITS, normalizePhone } from "../../../shared/constants.ts";
+import { LIMITS, formatPhone, typedPhone } from "../../../shared/constants.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
@@ -173,7 +173,14 @@ function Invites({
   /** 더한 수. 뺐으면 음수, 이미 있어서 아무 일도 없었으면 0 */
   onDone: (added: number) => void;
 }) {
-  const [one, setOne] = useState("");
+  /**
+   * 참가자가 입장할 때 치는 칸과 **같은 모양**이다 — `010` 이 미리 들어가 있고
+   * 하이픈으로 끊어 보인다. 운영자가 여기 넣는 번호와 참가자가 문 앞에서 치는 번호가
+   * 같아야 문이 열리는데, 두 칸이 달리 보이면 같은 번호를 다르게 옮겨 적게 된다.
+   *
+   * 상태는 **숫자 그대로**다. 하이픈은 보여줄 때만 붙는다 (`formatPhone`).
+   */
+  const [one, setOne] = useState("010");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const known = new Set(invites.map((i) => i.phone));
@@ -194,10 +201,10 @@ function Invites({
 
   function addOne(e: React.FormEvent) {
     e.preventDefault();
-    const phone = normalizePhone(one);
     // 이미 있는 번호는 서버까지 갈 것도 없다. 조용히 성공하면 넣은 줄 알고 넘어간다
-    if (known.has(phone)) return setError(HOST_UI.invites.already);
-    void add([phone], () => setOne(""));
+    if (known.has(one)) return setError(HOST_UI.invites.already);
+    // 넣고 나면 다음 사람을 바로 칠 수 있게 `010` 만 남긴다
+    void add([one], () => setOne("010"));
   }
 
   async function remove(phone: string) {
@@ -215,15 +222,16 @@ function Invites({
           <input
             id="oneInvite"
             className="grow"
-            value={one}
+            value={formatPhone(one)}
             inputMode="tel"
             autoComplete="off"
             onChange={(e) => {
-              setOne(e.target.value);
+              setOne(typedPhone(e.target.value));
               setError(null);
             }}
           />
-          <button className="btn primary" disabled={busy || normalizePhone(one).length < 9}>
+          {/* 문턱은 서버와 같은 아홉 자리다 (`addInvites`). 011 같은 옛 번호도 명단에 들어간다 */}
+          <button className="btn primary" disabled={busy || one.length < 9}>
             {HOST_UI.invites.addOne}
           </button>
         </div>
@@ -240,7 +248,8 @@ function Invites({
           <div className="stack">
             {invites.map((i) => (
               <div className="row between" key={i.phone}>
-                <span className="grow ellipsis">{i.phone}</span>
+                {/* 목록도 같은 모양으로 끊는다 — 입력칸과 다르면 같은 번호가 다르게 읽힌다 */}
+                <span className="grow ellipsis">{formatPhone(i.phone)}</span>
                 <span className={`small ${i.nickname ? "okText" : "dim"}`}>
                   {i.nickname ? `${i.nickname} · ${HOST_UI.invites.joined}` : HOST_UI.invites.waiting}
                 </span>

@@ -109,6 +109,24 @@ export function normalizePhone(s: string): string {
  *
  * 치는 도중에도 있는 만큼만 끊어 준다 — 몇 자리를 넣었는지 눈으로 세어진다.
  */
+/**
+ * 입력칸에서 온 값을 **저장할 숫자**로 줄인다. 칸에는 `010` 이 미리 들어가 있다.
+ *
+ * 그 뒤에 커서를 두고 `010-1234-5678` 을 붙여넣으면 `010010…` 이 되는데,
+ * 앞에서부터 열한 자리로 자르면 `01001012345` — **조용히 틀린 번호**가 남는다.
+ * 참가자는 문 앞에서 다시 치면 그만이지만, 운영자 명단에서는 파티 당일에야 드러난다.
+ *
+ * 그래서 **열한 자리를 넘겼고** 앞이 `010010` 으로 겹칠 때만 앞의 것을 버린다.
+ * 길이 조건이 있어야 `010-0104-5678` 같은 진짜 번호(열한 자리)를 건드리지 않는다.
+ *
+ * 자르는 건 여기 한 곳이다 — 칸에 `maxLength` 를 걸지 마라.
+ * 브라우저가 붙여넣기를 먼저 잘라버리면 겹친 것을 알아볼 길이 없어진다.
+ */
+export function typedPhone(raw: string): string {
+  const d = normalizePhone(raw);
+  return (d.length > 11 && d.startsWith("010010") ? d.slice(3) : d).slice(0, 11);
+}
+
 export function formatPhone(digits: string): string {
   const d = digits.slice(0, 11);
   return [d.slice(0, 3), d.slice(3, 7), d.slice(7)].filter(Boolean).join("-");
