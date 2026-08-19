@@ -36,6 +36,8 @@ export default function People({ state, source, reload, profileId, onProfile }: 
   const round = state.event.phase === "prevote" ? "pre" : "party";
   const budget = state.poke.budget[round];
   const open = canPoke(state.event.phase);
+  /** 나이·MBTI 가 아직 안 열린 단계인가. `toPublic()` 이 여는 시점과 같아야 한다 (ADR-21) */
+  const agesHidden = state.event.phase !== "party" && state.event.phase !== "done";
   /**
    * **아직 안 열린 것과 끝난 것은 다르다.**
    * 등록 중에는 잠긴 버튼이 "곧 열린다" 를 말해주지만, 발표가 끝난 뒤에는 그 말이 거짓이다 —
@@ -122,12 +124,17 @@ export default function People({ state, source, reload, profileId, onProfile }: 
       )}
 
       {/*
-        남은 콕은 **👉 버튼이 소비하는 예산**이라 필터가 아니라 이 목록에 붙는다.
-        왼쪽 정렬이다 — 필터의 왼쪽 끝, 카드의 왼쪽 끝과 같은 세로선에 선다.
-        오른쪽으로 두면 왼쪽에 짝이 없어 빈 공간이 남고, 가운데는 기준선이 아예 없다.
+        목록 머리 한 줄 — 왼쪽은 **아래 사람들에 대한 안내**, 오른쪽은 **남은 콕**.
+        남은 콕은 👉 버튼이 소비하는 예산이라 필터가 아니라 이 목록에 붙는다.
+        오른쪽 정렬이 성립하는 건 왼쪽에 짝이 있기 때문이다 — 짝 없이 오른쪽에만 두면
+        왼쪽에 빈 공간이 남아 떠 보인다 (그게 필터 옆에 있을 때의 문제였다).
+        볼 사람이 없으면 줄 자체가 없다.
       */}
-      {open && list.length > 0 && (
-        <span className="small dim">{STATUS.roundLeft(budget.max - budget.used)}</span>
+      {list.length > 0 && (
+        <div className="row between">
+          <span className="small dim">{agesHidden ? PEOPLE.agesAtParty : ""}</span>
+          {open && <span className="small dim">{STATUS.roundLeft(budget.max - budget.used)}</span>}
+        </div>
       )}
 
       <div className="stack">
@@ -251,30 +258,23 @@ function MyCard({ me, phase }: { me: Player; phase: Phase }) {
   const seenAs: Phase = phase === "party" || phase === "done" ? phase : "prevote";
   const shown = toPublic(me, seenAs);
   return (
-    <div className="stack">
-      <div className="person">
-        <Avatar nickname={shown.nickname} gender={shown.gender} />
-        <span className="meta">
-          <span className="name">
-            <span className="who">{shown.nickname}</span>
-            <span className="mineTag">{PEOPLE.mine}</span>
-            {shown.age && <span className="age">{shown.age}</span>}
-            {shown.mbti && <Mbti value={shown.mbti} />}
-          </span>
-          <span className="charms">
-            {shown.charms.map((c, i) => (
-              <span className="chip" key={i}>
-                {c}
-              </span>
-            ))}
-          </span>
+    <div className="person">
+      <Avatar nickname={shown.nickname} gender={shown.gender} />
+      <span className="meta">
+        <span className="name">
+          <span className="who">{shown.nickname}</span>
+          <span className="mineTag">{PEOPLE.mine}</span>
+          {shown.age && <span className="age">{shown.age}</span>}
+          {shown.mbti && <Mbti value={shown.mbti} />}
         </span>
-      </div>
-      {/*
-        **감춰진 게 있을 때만** 말한다. 파티가 시작되면 감출 게 없으니 이 줄이 통째로 사라진다.
-        "다른 사람에게는 이렇게 보여요" 는 뺐다 — `mine` 태그와 맨 위라는 자리가 이미 말한다.
-      */}
-      {shown.age === undefined && <p className="tiny dim">{PEOPLE.mineLater}</p>}
+        <span className="charms">
+          {shown.charms.map((c, i) => (
+            <span className="chip" key={i}>
+              {c}
+            </span>
+          ))}
+        </span>
+      </span>
     </div>
   );
 }
