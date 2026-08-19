@@ -970,6 +970,26 @@ button {
 }
 
 /* 미션은 읽고 끝나는 게 아니라 **하는 것**이다. 오늘의 색으로 한 겹 띄운다 */
+/*
+ * 오늘의 어필 — 운세 **아래에 선 별도 카드**.
+ *
+ * 운세 카드의 `--tone` 을 쓰지 않는다. 그 색은 "오늘의 색" 이라는 뜻을 이미 지고 있어서,
+ * 다른 카드가 같은 색을 쓰면 색이 뜻을 잃는다. 여기는 기본 카드 위에 주 색 테두리만 얹는다.
+ */
+.appealCard { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.appealTips { gap: 8px; }
+/*
+ * 팁 셋은 **번호가 아니라 왼쪽 선**으로 나눈다. 번호를 붙이면 순서나 등급으로 읽히는데
+ * 셋은 매력 3가지에 하나씩 붙은 것일 뿐 우열이 없다.
+ */
+.appealTip {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
 .fortuneMission {
   margin-top: 4px;
   padding: 14px;

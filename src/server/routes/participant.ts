@@ -12,8 +12,8 @@ import { Hono } from "hono";
 import type { EnterResult, RegisterInput } from "../../shared/types.ts";
 import { ENTRY, FORTUNE, ME } from "../../shared/copy.ts";
 import { canOpenFortune } from "../../shared/phase.ts";
-import { fortuneInput, validBirth } from "../../shared/fortune.ts";
-import { makeFortune } from "../fortune.ts";
+import { appealInput, fortuneInput, validBirth } from "../../shared/fortune.ts";
+import { makeAppeal, makeFortune } from "../fortune.ts";
 import { normalizePhone } from "../../shared/constants.ts";
 import {
   INVITE_COOKIE,
@@ -169,7 +169,17 @@ participantRoutes.post("/fortune", async (c) => {
   if (!state.ok) return apiError(c, "not_found");
   // 파티가 시작돼야 열린다. 그 전에는 탭도 없다
   if (!canOpenFortune(state.value.event.phase)) return apiError(c, "closed", FORTUNE.closed);
-  if (state.value.fortune) return c.json(state.value.fortune);
+  /*
+   * 한 번 연 운세는 다시 만들지 않는다 (ADR-20). 다만 **어필만 비어 있으면 그것만 채운다** —
+   * 어필이 생기기 전에 연 사람에게도 카드가 보여야 하고, 운세 문장은 그대로 남는다.
+   */
+  const saved = state.value.fortune;
+  if (saved) {
+    if (saved.appeal) return c.json(saved);
+    const filled = { ...saved, appeal: await makeAppeal(c.env, appealInput(state.value.me, saved)) };
+    const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, filled));
+    return response ?? c.json(value);
+  }
 
   // 생년월일은 여기서 읽고 여기서 버린다 — LLM 전송에만 쓰고 저장하지 않는다 (ADR-20)
   const body = (await c.req.json().catch(() => ({}))) as { birth?: unknown };
@@ -183,8 +193,13 @@ participantRoutes.post("/fortune", async (c) => {
     birth = { year, month, day };
   }
 
+  /*
+   * 두 번 부른다. 나란히 못 부른다 — 어필의 재료가 방금 나온 운세라서 순서가 있다.
+   * 이름은 **첫 번째 호출에만** 들어간다 (ADR-20 개정). `appealInput` 에는 자리가 없다.
+   */
   const made = await makeFortune(c.env, fortuneInput(state.value.me, birth), serverNow());
-  const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, made));
+  const appeal = await makeAppeal(c.env, appealInput(state.value.me, made));
+  const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, { ...made, appeal }));
   return response ?? c.json(value);
 });
 
