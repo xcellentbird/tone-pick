@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams } from "react-router";
 import { HOST_UI, PHASE_LABEL, TABS_HOST } from "../../../shared/copy.ts";
 import type { HostState } from "../../../shared/types.ts";
-import { api, post } from "../../lib/api.ts";
+import { api } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
 import { connect } from "../../lib/realtime.ts";
@@ -38,11 +38,6 @@ export default function HostConsole() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
 
-  async function leave() {
-    await post("/host/logout");
-    navigate("/host", { replace: true });
-  }
-
   if (!loaded.data) return <div className="screen" />;
   const base = `/host/${id}`;
   // 현황 탭이 스택의 바닥이다. 다른 탭에서 뒤로 가면 현황으로 온다 (참가자 화면과 같은 규칙)
@@ -63,9 +58,6 @@ export default function HostConsole() {
               <span>{HOST_UI.dash.registered(loaded.data.players.length)}</span>
             </div>
           </div>
-          <button className="btn ghost" onClick={leave}>
-            {HOST_UI.logout}
-          </button>
         </header>
 
         <nav className="tabs">

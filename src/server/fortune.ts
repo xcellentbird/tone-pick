@@ -10,9 +10,9 @@
  * 실패는 **정상 경로**다. 키가 없거나, 모델 이름이 틀렸거나, 느리거나, 형식이 어긋나면
  * 규칙 문구로 떨어진다 (`fallbackFortune`). 파티 당일에 탭 하나가 에러를 뿜는 건 사고다.
  */
-import type { Fortune, FortuneInput } from "../shared/fortune.ts";
-import { fallbackFortune, parseFortune } from "../shared/fortune.ts";
-import { FORTUNE } from "../shared/copy.ts";
+import type { FortuneDraft, FortuneInput, MissionInput } from "../shared/fortune.ts";
+import { fallbackFortune, fallbackMission, parseFortune, parseMission } from "../shared/fortune.ts";
+import { FORTUNE, MISSION } from "../shared/copy.ts";
 import type { Env } from "./http.ts";
 
 /** 파티 중이다. 오래 기다리느니 규칙 문구가 낫다 — 다만 카드 뒤집기가 앞의 1초를 덮는다 */
@@ -25,7 +25,7 @@ const TIMEOUT_MS = 12000;
  */
 const MAX_TOKENS = 3000;
 
-export async function makeFortune(env: Env, input: FortuneInput, now: number): Promise<Fortune> {
+export async function makeFortune(env: Env, input: FortuneInput, now: number): Promise<FortuneDraft> {
   const key = env.OPENAI_API_KEY;
   if (!key) return fallbackFortune(input, now, FORTUNE.fallback);
 
@@ -60,5 +60,58 @@ export async function makeFortune(env: Env, input: FortuneInput, now: number): P
     // 원인은 남기되 참가자에게는 티가 나지 않는다
     console.error("fortune failed", e);
     return fallbackFortune(input, now, FORTUNE.fallback);
+  }
+}
+
+/**
+ * 미션이 내놓는 것. `lead` 는 **LLM 이 빼먹을 수 있다** — 그래도 미션은 살린다
+ * (`parseMission`). 규칙 문구 쪽은 언제나 둘 다 있다.
+ */
+type MissionOut = { mission: string; lead?: string };
+
+/**
+ * 오늘의 미션. **운세가 나온 뒤에** 부른다 — 그 결과가 재료라서 나란히 못 부른다.
+ *
+ * 내놓는 건 두 칸이다: 왜 오늘 이것인지(`lead`)와 언제 무엇을(`mission`).
+ * 미션 한 줄만 던지면 남이 준 숙제로 읽힌다 — 이유가 붙어야 내 운세에서 나온 것이 된다.
+ *
+ * 한 호출에서 운세와 함께 뽑던 시절에는 미션이 본문 마지막 문단을 그대로 옮겨 적곤 했다.
+ * 다 읽고 나서 따로 물으면 겹치지 않는다.
+ *
+ * 실패는 여기서도 정상 경로다. 미션이 안 나와도 운세는 그대로 뜬다 —
+ * 둘이 함께 죽지 않게 실패를 각자 삼킨다.
+ */
+export async function makeMission(env: Env, input: MissionInput): Promise<MissionOut> {
+  const key = env.OPENAI_API_KEY;
+  if (!key) return fallbackMission(input, MISSION.fallback);
+
+  try {
+    const res = await fetch(`${env.LLM_BASE_URL || "https://api.openai.com/v1"}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: env.LLM_MODEL || "gpt-5.6-luna",
+        messages: [
+          { role: "system", content: MISSION.prompt.system },
+          { role: "user", content: MISSION.prompt.user(input) },
+        ],
+        max_completion_tokens: MAX_TOKENS,
+      }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`llm ${res.status}`);
+
+    const body = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+    };
+    const choice = body.choices?.[0];
+    const parsed = parseMission(choice?.message?.content ?? "");
+    if (parsed) return parsed;
+
+    console.error("mission unusable", { finish: choice?.finish_reason, len: choice?.message?.content?.length });
+    return fallbackMission(input, MISSION.fallback);
+  } catch (e) {
+    console.error("mission failed", e instanceof Error ? e.message : e);
+    return fallbackMission(input, MISSION.fallback);
   }
 }

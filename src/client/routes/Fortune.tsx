@@ -20,6 +20,7 @@ import { useOverlay } from "../ui/Overlays.tsx";
 export default function FortuneTab({ state, reload }: { state: ParticipantState; reload: () => void }) {
   const [opening, setOpening] = useState(false);
   const [card, setCard] = useState<Fortune | undefined>(state.fortune);
+  const [missionOpening, setMissionOpening] = useState(false);
   const [birth, setBirth] = useState("");
   const [birthErr, setBirthErr] = useState(false);
   const { toast } = useOverlay();
@@ -45,6 +46,20 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
       toast(e instanceof ApiError && e.userMessage ? e.userMessage : FORTUNE.closed);
     } finally {
       setOpening(false);
+    }
+  }
+
+  /** 미션은 **누르는 그 순간에** 만든다. 한 번 연 것은 서버가 그대로 돌려준다 */
+  async function openMission() {
+    if (missionOpening || card?.mission) return;
+    setMissionOpening(true);
+    try {
+      setCard(await post<Fortune>("/fortune/mission", {}));
+      reload();
+    } catch (e) {
+      toast(e instanceof ApiError && e.userMessage ? e.userMessage : FORTUNE.closed);
+    } finally {
+      setMissionOpening(false);
     }
   }
 
@@ -106,26 +121,46 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
           </p>
         ))}
 
-        <div className="fortuneMission">
-          <div className="kicker">🎯 {FORTUNE.missionTitle}</div>
-          <p className="pre" style={{ margin: 0 }}>
-            {card.mission}
-          </p>
-        </div>
+        {/*
+          미션도 **뒤집어서** 연다 — 이미 만들어 둔 걸 감췄다 보여주는 게 아니라,
+          누르는 그 순간에 만든다. 여는 동작이 있어야 그 한 줄이 오늘 것처럼 읽힌다 (ADR-20).
+          뒷면은 **미션이 들어설 그 자리**에 있다. 열려도 화면이 튀지 않는다.
+        */}
+        {card.mission ? (
+          <div className="fortuneMission opened">
+            <div className="kicker">🎯 {FORTUNE.missionTitle}</div>
+            {/*
+              **왜 오늘 이것인지가 먼저다.** 한 줄만 던지면 남이 준 숙제로 읽히고,
+              숙제는 미뤄진다. 운세에서 이어지는 이유가 앞에 서야 내 것이 된다.
 
-        {/* 색·결 메타 — 미션과 같은 내부 카드. 본문(읽는 것)과 정보(찾아보는 것)가 형태로 갈린다 */}
+              옛 저장본에는 `lead` 가 없다 — 그때는 미션 한 줄만 그린다.
+              빈 자리를 만들거나 대신할 문장을 지어내지 마라. 없는 건 없는 것이다.
+            */}
+            {card.lead && <p className="missionLead">{card.lead}</p>}
+            <p className="missionLine pre">{card.mission}</p>
+          </div>
+        ) : (
+          <button
+            className={`fortuneMission missionBack ${missionOpening ? "opening" : ""}`}
+            onClick={openMission}
+            disabled={missionOpening}
+          >
+            <span className="orb" aria-hidden>
+              🎯
+            </span>
+            <span className="small">{missionOpening ? FORTUNE.missionOpening : FORTUNE.missionOpen}</span>
+          </button>
+        )}
+
+        {/* 색 메타 — 미션과 같은 내부 카드. 본문(읽는 것)과 정보(찾아보는 것)가 형태로 갈린다 */}
         <div className="fortuneMeta">
           <div className="row between">
             <span className="small dim">🎨 {FORTUNE.colorTitle}</span>
             <span className="small">{FORTUNE.colorName[card.color]}</span>
           </div>
-          <div className="row between">
-            <span className="small dim">🤝 {FORTUNE.matchTitle}</span>
-            <span className="small">{card.matchTypes.join(" · ")}</span>
-          </div>
-          {card.matchNote && <p className="tiny dim" style={{ margin: 0, textAlign: "right" }}>{card.matchNote}</p>}
         </div>
       </div>
+
     </div>
   );
 }

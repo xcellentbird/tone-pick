@@ -6,13 +6,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, TABS_PARTICIPANT } from "../../shared/copy.ts";
-import type { ParticipantState, PublicEvent } from "../../shared/types.ts";
+import type { ParticipantState } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
 import { sessionSource, type ParticipantSource } from "../lib/participant.ts";
 import { useLoad } from "../lib/useLoad.ts";
-import { ApiError, api } from "../lib/api.ts";
+import { ApiError } from "../lib/api.ts";
 import { Overlays, useOverlay } from "../ui/Overlays.tsx";
 import People from "./People.tsx";
 import Me from "./Me.tsx";
@@ -35,6 +35,14 @@ interface ViewProps {
   /** 프로필 시트도 라우트다 — 뒤로 가기로 닫힌다 */
   profileId?: string;
   onProfile: (playerId: string | null) => void;
+  /**
+   * 내 정보 편집도 라우트다 — 뒤로 가기가 곧 취소다 (ADR-31).
+   *
+   * 닫을 때 `replace` 는 **취소가 아니라 되돌림**이다. 잠긴 뒤에 편집 주소를 직접 연 경우
+   * 뒤로 갈 자리가 없어서 앱을 벗어난다 — 그때는 내 정보로 갈아끼운다.
+   */
+  editing?: boolean;
+  onEdit: (on: boolean, opts?: { replace?: boolean }) => void;
 }
 
 /** URL 이 상태를 들고 있는 진짜 참가자 화면 */
@@ -45,8 +53,10 @@ export default function Participant() {
   const base = `/e/${code}`;
 
   const source = useMemo(() => sessionSource(code), [code]);
-  // 프로필 시트(/p/:id)는 참가자 탭 위에 뜬 것이다 — 탭 표시도 참가자로 둔다
-  const tab: Tab = location.pathname.endsWith("/me")
+  // 프로필 시트(/p/:id)는 참가자 탭 위에, 편집(/me/edit)은 내 정보 탭 위에 뜬 것이다 —
+  // 탭 표시는 그 아래 탭 그대로 둔다
+  const editing = location.pathname.endsWith("/me/edit");
+  const tab: Tab = location.pathname.endsWith("/me") || editing
     ? "me"
     : location.pathname.endsWith("/fortune")
       ? "fortune"
@@ -76,6 +86,15 @@ export default function Participant() {
       profileId={profileId}
       // 시트 열기는 push, 닫기는 뒤로 가기 — 안드로이드 백 버튼으로 닫혀야 한다
       onProfile={(id) => (id ? navigate(`${base}/p/${id}`) : navigate(-1))}
+      editing={editing}
+      // 편집도 같다. 뒤로 가기가 곧 취소이고, 고치던 입력은 버려진다 (취소 버튼과 같은 동작)
+      onEdit={(on, opts) =>
+        on
+          ? navigate(`${base}/me/edit`)
+          : opts?.replace
+            ? navigate(`${base}/me`, { replace: true })
+            : navigate(-1)
+      }
     />
   );
 }
@@ -109,6 +128,8 @@ function Loaded({
   onTab,
   profileId,
   onProfile,
+  editing,
+  onEdit,
   welcome,
   state,
   reload,
@@ -169,10 +190,13 @@ function Loaded({
               reload={reload}
               profileId={profileId}
               onProfile={onProfile}
+              onTab={onTab}
             />
           )}
           {tab === "fortune" && <FortuneTab state={state} reload={reload} />}
-          {tab === "me" && <Me state={state} reload={reload} />}
+          {tab === "me" && (
+            <Me state={state} source={source} reload={reload} editing={!!editing} onEdit={onEdit} />
+          )}
         </div>
 
         <nav className="tabbar">
@@ -222,26 +246,13 @@ function Greeting({ text }: { text: string }) {
  */
 function Failed({ error, code }: { error: ApiError; code?: string }) {
   const navigate = useNavigate();
-  /**
-   * 세션이 이 회차의 것이 아니다 — 다른 회차에 등록했거나 만료됐다.
-   * 문 앞으로 돌려보내되 **코드를 회차 아이디로 바꿔서** 보낸다.
+  /*
+   * 세션이 이 회차의 것이 아니면(401) 예전에는 코드로 회차를 되찾아 문 앞으로 보냈다.
+   * 그 길을 닫았다 — **코드로 회차를 찾는 창구가 곧 링크를 내주는 창구**였기 때문이다
+   * (`by-code` 응답에 회차 아이디가 들어 있어서, 30비트 코드를 뚫으면 64비트 링크가 나왔다).
    *
-   * `/j` 는 아이디 경로다 (ADR-13). 코드를 그대로 넘기면 아이디로 대조하는 서버가
-   * 못 찾아서 "그런 회차가 없어요" 로 끝난다 — 회차는 멀쩡한데 없다고 말하는 셈이다.
-   * 입장 화면(Entry)이 쓰는 순서와 같다: 코드로 회차를 찾고, 아이디로 이동한다.
+   * 이제는 참가 링크로 다시 들어오면 된다. 링크는 운영자가 뿌린 그대로 남아 있다.
    */
-  useEffect(() => {
-    if (!code || error.status !== 401) return;
-    let alive = true;
-    api<PublicEvent>(`/events/by-code/${code}`)
-      .then((found) => alive && navigate(`/j/${found.id}`, { replace: true }))
-      // 코드마저 못 찾으면 이 화면의 문구가 비로소 맞는 말이 된다
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [code, error.status, navigate]);
-
   const removed = error.status === 404;
   return (
     <div className="screen">

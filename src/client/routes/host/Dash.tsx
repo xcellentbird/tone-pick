@@ -82,18 +82,6 @@ export default function Dash() {
         </button>
       )}
 
-      <button
-        className="btn ghost block"
-        onClick={() => {
-          void navigator.clipboard?.writeText(`${location.origin}/j/${meta.id}`);
-          toast(HOST_UI.copied);
-        }}
-      >
-        {HOST_UI.entryLink}
-      </button>
-      {/* 링크만 보내면 참가자가 문 앞에서 막힌다. 코드를 따로 알려야 한다는 걸 여기서 못 박는다 */}
-      <p className="tiny dim">{HOST_UI.entryLinkNote}</p>
-
       {/* 👑 사전 투표 1위 — 진행 멘트에 쓰는 정보라 이름이 크게 읽혀야 한다 */}
       <div className="row between">
         <span className="kicker">{HOST_UI.dash.prevoteTop}</span>

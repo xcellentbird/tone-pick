@@ -12,9 +12,10 @@ import { Hono } from "hono";
 import type { EnterResult, RegisterInput } from "../../shared/types.ts";
 import { ENTRY, FORTUNE, ME } from "../../shared/copy.ts";
 import { canOpenFortune } from "../../shared/phase.ts";
-import { fortuneInput, validBirth } from "../../shared/fortune.ts";
-import { makeFortune } from "../fortune.ts";
+import { fortuneInput, missionInput, validBirth } from "../../shared/fortune.ts";
+import { makeFortune, makeMission } from "../fortune.ts";
 import { normalizePhone } from "../../shared/constants.ts";
+import { todayIn } from "../../shared/time.ts";
 import {
   INVITE_COOKIE,
   PLAYER_COOKIE,
@@ -51,14 +52,13 @@ participantRoutes.get("/events/by-id/:id", async (c) => {
   const { value, response } = unwrap(c, await eventStub(c.env, id).publicAt(serverNow()), () => ENTRY.notFound);
   return response ?? c.json(value);
 });
-
-/** 입장 코드 조회. 인증이 없으므로 `PublicEvent` 밖의 필드를 절대 넣지 않는다 */
-participantRoutes.get("/events/by-code/:code", async (c) => {
-  const id = await registry(c.env).idByCode(c.req.param("code"));
-  if (!id) return apiError(c, "not_found", ENTRY.notFound);
-  const { value, response } = unwrap(c, await eventStub(c.env, id).publicAt(serverNow()), () => ENTRY.notFound);
-  return response ?? c.json(value);
-});
+/*
+ * 코드로 회차를 찾던 길(`/events/by-code/:code`)을 닫았다.
+ *
+ * 그 응답에는 **회차 아이디**가 들어 있었다. 즉 30비트 코드(32^6)를 뚫으면
+ * 64비트 링크가 그대로 나왔다 — 링크의 강도가 코드까지 내려가 있었던 셈이다.
+ * 이제 문은 참가 링크 하나뿐이고, 코드는 참가자 주소(`/e/:code`)를 가리키는 이름으로만 남는다.
+ */
 
 /**
  * 입장. **운영자가 미리 넣어둔 번호만 통과한다** (ADR-15).
@@ -165,11 +165,13 @@ participantRoutes.post("/fortune", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");
 
-  const state = await seat.stub.participantState(seat.playerId, serverNow());
-  if (!state.ok) return apiError(c, "not_found");
+  // 명단·콕까지 빚는 `participantState()` 대신 **좁은 읽기**다. 파티 시작 때 인원 수만큼 열린다
+  const ctx = await seat.stub.fortuneContext(seat.playerId, serverNow());
+  if (!ctx.ok) return apiError(c, "not_found");
   // 파티가 시작돼야 열린다. 그 전에는 탭도 없다
-  if (!canOpenFortune(state.value.event.phase)) return apiError(c, "closed", FORTUNE.closed);
-  if (state.value.fortune) return c.json(state.value.fortune);
+  if (!canOpenFortune(ctx.value.phase)) return apiError(c, "closed", FORTUNE.closed);
+  // 한 번 연 운세는 다시 만들지 않는다 (ADR-20)
+  if (ctx.value.fortune) return c.json(ctx.value.fortune);
 
   // 생년월일은 여기서 읽고 여기서 버린다 — LLM 전송에만 쓰고 저장하지 않는다 (ADR-20)
   const body = (await c.req.json().catch(() => ({}))) as { birth?: unknown };
@@ -183,21 +185,58 @@ participantRoutes.post("/fortune", async (c) => {
     birth = { year, month, day };
   }
 
-  const made = await makeFortune(c.env, fortuneInput(state.value.me, birth), serverNow());
+  /*
+   * **운세만 만든다.** 미션은 참가자가 그 카드를 뒤집을 때 따로 부른다 —
+   * 여는 동작이 있어야 그 한 줄이 오늘 것처럼 읽히고(ADR-20),
+   * 안 열어 본 사람 몫은 아예 만들지 않는다.
+   *
+   * 오늘 날짜는 **파티가 열리는 지역 기준**이다 (`todayIn`). UTC 로 자르면 자정 넘은 파티가
+   * 어제 날짜를 읽는다.
+   */
+  const now = serverNow();
+  const made = await makeFortune(c.env, fortuneInput(ctx.value.me, todayIn(now), birth), now);
   const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, made));
   return response ?? c.json(value);
 });
 
-/** 매력 세 줄 고치기. 사전 투표가 열리기 전까지만 열려 있다 (ADR-27) */
-participantRoutes.put("/me/charms", async (c) => {
+/**
+ * 오늘의 미션. **운세를 연 뒤에만** 부를 수 있다 — 재료가 그 운세라서.
+ *
+ * 한 번 연 미션은 다시 만들지 않는다 (ADR-20). 두 번 눌러도 같은 문장이 온다.
+ */
+participantRoutes.post("/fortune/mission", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");
-  const body = (await c.req.json().catch(() => ({}))) as { charms?: unknown };
-  if (!Array.isArray(body.charms)) return apiError(c, "bad_request");
+
+  const ctx = await seat.stub.fortuneContext(seat.playerId, serverNow());
+  if (!ctx.ok) return apiError(c, "not_found");
+  const saved = ctx.value.fortune;
+  // 운세가 없으면 재료가 없다. 화면에서도 이 버튼은 운세가 나온 뒤에야 뜬다
+  if (!saved) return apiError(c, "closed", FORTUNE.closed);
+  if (saved.mission) return c.json(saved);
+
+  // 두 칸이 함께 온다 — 왜 오늘 이것인지(`lead`)와 언제 무엇을(`mission`)
+  const made = await makeMission(c.env, missionInput(ctx.value.me, saved));
+  // 운세 본문은 건드리지 않는 전용 경로다 — `saveFortune` 로 덮으면 ADR-20 이 무너진다
+  const { value, response } = unwrap(c, await seat.stub.saveMission(seat.playerId, made));
+  return response ?? c.json(value);
+});
+
+/**
+ * 내 정보 고치기. 사전 투표가 열리기 전까지만 열려 있다 (ADR-31).
+ *
+ * 입력은 등록과 같은 모양이다 — **전화번호는 그 모양에 없다** (ADR-15).
+ * 고칠 사람은 쿠키에서 온다. 본문에 담긴 id 는 읽지 않는다.
+ */
+participantRoutes.put("/me", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const input = (await c.req.json().catch(() => ({}))) as RegisterInput;
+  const nickTaken = registerMessage(String(input.nickname ?? ""));
   const { value, response } = unwrap(
     c,
-    await seat.stub.editCharms(seat.playerId, body.charms.map(String), serverNow()),
-    (error) => (error === "closed" ? ME.charmsLocked : undefined),
+    await seat.stub.editProfile(seat.playerId, input, serverNow()),
+    (error) => (error === "closed" ? ME.locked : nickTaken(error)),
   );
   return response ?? c.json(value);
 });

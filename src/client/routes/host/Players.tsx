@@ -12,7 +12,8 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Invite } from "../../../shared/types.ts";
-import { LIMITS, normalizePhone } from "../../../shared/constants.ts";
+import { LIMITS, PHONE_SEED, formatPhone, typedPhone } from "../../../shared/constants.ts";
+import { keepPhoneSeed } from "../../lib/phoneField.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
@@ -75,6 +76,25 @@ export default function Players() {
         </span>
         <span className="dim">{"›"}</span>
       </button>
+
+      {/*
+        참가 링크는 **명단 바로 아래**다. 한동안 현황 탭에 있었는데, 문을 여는 건
+        링크가 아니라 그 위의 명단이라(ADR-15) 둘이 떨어져 있으면 순서가 보이지 않았다 —
+        번호를 넣고, 그 사람들에게 링크를 보낸다. 한 화면에서 이어서 하는 일이다.
+
+        **링크만 보내면 된다.** 입장 코드는 이제 어디에서도 입력받지 않는다.
+        운영자가 "코드도 알려줘야 하나" 하고 헤매지 않도록 그 사실을 여기서 못 박는다.
+      */}
+      <button
+        className="btn ghost block"
+        onClick={() => {
+          void navigator.clipboard?.writeText(`${location.origin}/j/${state.meta.id}`);
+          toast(HOST_UI.copied);
+        }}
+      >
+        {HOST_UI.entryLink}
+      </button>
+      <p className="tiny dim">{HOST_UI.entryLinkNote}</p>
 
       {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
       <div className="choice">
@@ -173,7 +193,14 @@ function Invites({
   /** 더한 수. 뺐으면 음수, 이미 있어서 아무 일도 없었으면 0 */
   onDone: (added: number) => void;
 }) {
-  const [one, setOne] = useState("");
+  /**
+   * 참가자가 입장할 때 치는 칸과 **같은 모양**이다 — `010` 이 미리 들어가 있고
+   * 하이픈으로 끊어 보인다. 운영자가 여기 넣는 번호와 참가자가 문 앞에서 치는 번호가
+   * 같아야 문이 열리는데, 두 칸이 달리 보이면 같은 번호를 다르게 옮겨 적게 된다.
+   *
+   * 상태는 **숫자 그대로**다. 하이픈은 보여줄 때만 붙는다 (`formatPhone`).
+   */
+  const [one, setOne] = useState(PHONE_SEED);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const known = new Set(invites.map((i) => i.phone));
@@ -194,10 +221,10 @@ function Invites({
 
   function addOne(e: React.FormEvent) {
     e.preventDefault();
-    const phone = normalizePhone(one);
     // 이미 있는 번호는 서버까지 갈 것도 없다. 조용히 성공하면 넣은 줄 알고 넘어간다
-    if (known.has(phone)) return setError(HOST_UI.invites.already);
-    void add([phone], () => setOne(""));
+    if (known.has(one)) return setError(HOST_UI.invites.already);
+    // 넣고 나면 다음 사람을 바로 칠 수 있게 씨앗만 남긴다
+    void add([one], () => setOne(PHONE_SEED));
   }
 
   async function remove(phone: string) {
@@ -215,15 +242,18 @@ function Invites({
           <input
             id="oneInvite"
             className="grow"
-            value={one}
+            value={formatPhone(one)}
+            /* 미리 든 `010` 이 통째로 선택된 채 오면 다음 숫자가 그걸 덮는다 */
+            onFocus={keepPhoneSeed}
             inputMode="tel"
             autoComplete="off"
             onChange={(e) => {
-              setOne(e.target.value);
+              setOne(typedPhone(e.target.value));
               setError(null);
             }}
           />
-          <button className="btn primary" disabled={busy || normalizePhone(one).length < 9}>
+          {/* 문턱은 서버와 같은 아홉 자리다 (`addInvites`). 011 같은 옛 번호도 명단에 들어간다 */}
+          <button className="btn primary" disabled={busy || one.length < 9}>
             {HOST_UI.invites.addOne}
           </button>
         </div>
@@ -240,7 +270,8 @@ function Invites({
           <div className="stack">
             {invites.map((i) => (
               <div className="row between" key={i.phone}>
-                <span className="grow ellipsis">{i.phone}</span>
+                {/* 목록도 같은 모양으로 끊는다 — 입력칸과 다르면 같은 번호가 다르게 읽힌다 */}
+                <span className="grow ellipsis">{formatPhone(i.phone)}</span>
                 <span className={`small ${i.nickname ? "okText" : "dim"}`}>
                   {i.nickname ? `${i.nickname} · ${HOST_UI.invites.joined}` : HOST_UI.invites.waiting}
                 </span>

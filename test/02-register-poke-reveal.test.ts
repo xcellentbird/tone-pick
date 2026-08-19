@@ -12,7 +12,7 @@
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ENTRY, ME, POKE, REGISTER, hangulSeq } from "../src/shared/copy.ts";
-import { ENTRY_TRIES } from "../src/shared/constants.ts";
+import { ENTRY_TRIES, formatPhone, typedPhone } from "../src/shared/constants.ts";
 import type { EventMeta, ParticipantState, Player, RegisterInput, RegisterResult } from "../src/shared/types.ts";
 
 const MASTER_PIN = "1234";
@@ -346,6 +346,32 @@ describe("등록", () => {
  * "이 번호가 이 파티에 있나"를 되묻는 창구가 된다.
  */
 describe("입장 명단", () => {
+  /*
+   * 운영자가 명단에 넣는 번호와 참가자가 문 앞에서 치는 번호가 **같아야** 문이 열린다.
+   * 그래서 두 칸이 같은 모양이다 — `010` 이 미리 들어가 있고 하이픈으로 끊겨 보인다.
+   * 두 칸의 규칙이 갈라지면 같은 번호가 다르게 저장되고, 그건 파티 당일 문 앞에서야 드러난다.
+   */
+  it("★ 미리 들어간 010 뒤에 붙여넣어도 번호가 어긋나지 않는다", () => {
+    // 커서를 끝에 두고 `010-1234-5678` 을 붙여넣은 그대로
+    expect(typedPhone("010" + "010-1234-5678")).toBe("01012345678");
+    // 앞에서부터 열한 자리로 자르면 `01001012345` 라는 조용히 틀린 번호가 남았다
+    expect(typedPhone("010" + "010-1234-5678")).not.toBe("01001012345");
+
+    // 제대로 친 것과 통째로 붙여넣은 것은 그대로 지난다
+    expect(typedPhone("01012345678")).toBe("01012345678");
+    expect(typedPhone("010-1234-5678")).toBe("01012345678");
+    // 열한 자리짜리 진짜 번호는 010010 으로 시작해도 건드리지 않는다
+    expect(typedPhone("010-0104-5678")).toBe("01001045678");
+    // 옛 열 자리 번호도 명단에 들어간다 (서버 문턱은 아홉 자리다)
+    expect(typedPhone("011-234-5678")).toBe("0112345678");
+  });
+
+  it("끊는 자리는 언제나 3-4-4 다 — 마지막 글자에서 칸이 흔들리지 않게", () => {
+    expect(formatPhone("010")).toBe("010");
+    expect(formatPhone("0101234")).toBe("010-1234");
+    expect(formatPhone("01012345678")).toBe("010-1234-5678");
+  });
+
   it("★ 명단에 없는 번호는 들어올 수 없다", async () => {
     const ev = await freshEvent();
     await invite(ev.id, "01011112222");
@@ -947,22 +973,132 @@ describe("오늘의 연애운", () => {
   });
 });
 
-describe("나의 매력", () => {
-  it("★ 등록 중에는 고칠 수 있다", async () => {
+/**
+ * 내 정보 고치기 (ADR-31).
+ *
+ * 등록할 때 낸 것을 **사전 투표가 열리기 전까지** 스스로 고친다.
+ * 고치는 길은 하나뿐이고(매력만 따로 고치지 않는다), 전화번호는 그 길에 없다.
+ */
+describe("내 정보 고치기", () => {
+  it("★ 등록 중에는 낸 것을 고칠 수 있다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
 
-    const res = await api<Player>("/api/me/charms", {
+    const res = await api<Player>("/api/me", {
       method: "PUT",
       cookie: me.cookie,
-      body: { charms: ["새 매력 하나", "새 매력 둘", "새 매력 셋"] },
+      body: {
+        ...me.input,
+        nickname: "고친닉",
+        realName: "박고침",
+        age: 33,
+        gender: "F",
+        mbti: "ISTJ",
+        instagram: "fixed_id",
+        charms: ["새 매력 하나", "새 매력 둘", "새 매력 셋"],
+      },
     });
-    expect(res.status).toBe(200);
-    expect(res.body.charms).toEqual(["새 매력 하나", "새 매력 둘", "새 매력 셋"]);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
 
     // 다시 읽어도 바뀐 채로 온다
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
-    expect(state.body.me.charms[0]).toBe("새 매력 하나");
+    expect(state.body.me.nickname).toBe("고친닉");
+    expect(state.body.me.realName).toBe("박고침");
+    expect(state.body.me.age).toBe(33);
+    expect(state.body.me.gender).toBe("F");
+    expect(state.body.me.mbti).toBe("ISTJ");
+    expect(state.body.me.instagram).toBe("fixed_id");
+    expect(state.body.me.charms).toEqual(["새 매력 하나", "새 매력 둘", "새 매력 셋"]);
+  });
+
+  it("★ 전화번호는 고칠 수 없다 — 파티의 문이라서", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+
+    const res = await api<Player>("/api/me", {
+      method: "PUT",
+      cookie: me.cookie,
+      body: { ...me.input, phone: "01099998888" },
+    });
+    expect(res.status).toBe(200);
+
+    // 번호는 초대 명단에서 확인한 그대로다. 입력에 담아도 자리가 없다 (ADR-15)
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.me.phone).toBe(me.phone);
+  });
+
+  it("등록과 같은 검증을 지난다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+
+    const bad: Partial<RegisterInput>[] = [
+      { nickname: "" },
+      { nickname: "가".repeat(16) },
+      { nickname: "닉!네임" },
+      { nickname: "달빛3" },
+      { realName: "" },
+      { realName: "김실명3" },
+      { age: 17 },
+      { age: 100 },
+      { age: 28.5 },
+      { gender: "X" as RegisterInput["gender"] },
+      { mbti: "XXXX" },
+      { instagram: "" },
+      { instagram: "인스타" },
+      { charms: ["가", "나"] as unknown as RegisterInput["charms"] },
+      { charms: ["가", "나", "  "] },
+      { charms: ["가", "나", "다", "라"] as unknown as RegisterInput["charms"] },
+    ];
+    for (const over of bad) {
+      const res = await api("/api/me", { method: "PUT", cookie: me.cookie, body: { ...me.input, ...over } });
+      expect(res.status, JSON.stringify(over)).toBe(400);
+    }
+
+    // 하나도 바뀌지 않았다
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.me.nickname).toBe(me.input.nickname);
+    expect(state.body.me.age).toBe(me.input.age);
+  });
+
+  it("닉네임 유일성은 고칠 때도 같다", async () => {
+    const ev = await freshEvent();
+    await join(ev, { nickname: "달빛" });
+    const me = await join(ev, { gender: "F" });
+
+    const res = await api<{ error: string; message: string }>("/api/me", {
+      method: "PUT",
+      cookie: me.cookie,
+      body: { ...me.input, nickname: "달빛" },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("nick_taken");
+    expect(res.body.message).toBe(REGISTER.err.nickTaken("달빛"));
+  });
+
+  it("내 닉네임을 그대로 두고 다른 것만 고칠 수 있다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+
+    // 자기 자신과 겹쳤다고 막으면 나이 하나 고치는 데 닉네임까지 바꿔야 한다
+    const res = await api("/api/me", { method: "PUT", cookie: me.cookie, body: { ...me.input, age: 30 } });
+    expect(res.status).toBe(200);
+  });
+
+  it("저장은 전부 되거나 전부 안 된다", async () => {
+    const ev = await freshEvent();
+    await join(ev, { nickname: "먼저찜" });
+    const me = await join(ev, { gender: "F" });
+
+    const res = await api("/api/me", {
+      method: "PUT",
+      cookie: me.cookie,
+      body: { ...me.input, nickname: "먼저찜", age: 30 },
+    });
+    expect(res.status).toBe(409);
+
+    // 닉네임이 막혔으면 같이 보낸 나이도 그대로여야 한다
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.me.age).toBe(me.input.age);
   });
 
   it("★ 사전 투표가 시작되면 닫힌다", async () => {
@@ -970,29 +1106,79 @@ describe("나의 매력", () => {
     const me = await join(ev);
     await setPhase(ev.id, "prevote");
 
-    const res = await api<{ message: string }>("/api/me/charms", {
+    const res = await api<{ message: string }>("/api/me", {
       method: "PUT",
       cookie: me.cookie,
-      body: { charms: ["가", "나", "다"] },
+      body: { ...me.input, nickname: "늦은닉" },
     });
     expect(res.status).toBe(409);
-    expect(res.body.message).toBe(ME.charmsLocked);
+    expect(res.body.message).toBe(ME.locked);
   });
 
-  it("빈 줄로는 저장되지 않는다 — 세 가지 모두 필요하다", async () => {
-    const ev = await freshEvent();
-    const me = await join(ev);
-    for (const charms of [["가", "나"], ["가", "나", "  "], ["가", "나", "다", "라"]]) {
-      const res = await api("/api/me/charms", { method: "PUT", cookie: me.cookie, body: { charms } });
-      expect(res.status).toBe(400);
+  it("파티 중·발표 후에도 닫혀 있다", async () => {
+    for (const phase of ["party", "done"]) {
+      const ev = await freshEvent();
+      const me = await join(ev);
+      await setPhase(ev.id, phase);
+
+      const res = await api("/api/me", { method: "PUT", cookie: me.cookie, body: { ...me.input, age: 30 } });
+      expect(res.status, phase).toBe(409);
     }
   });
 
-  it("남의 매력은 고칠 수 없다", async () => {
+  it("늦게 등록한 사람에게는 처음부터 열리지 않는다", async () => {
     const ev = await freshEvent();
-    await join(ev);
-    const res = await api("/api/me/charms", { method: "PUT", body: { charms: ["가", "나", "다"] } });
+    await setPhase(ev.id, "party");
+    // 등록은 발표 전까지 열려 있다 — 파티 중에 합류한 사람
+    const late = await join(ev);
+
+    const res = await api("/api/me", { method: "PUT", cookie: late.cookie, body: { ...late.input, age: 30 } });
+    expect(res.status).toBe(409);
+  });
+
+  it("★ 세션 없이는 고칠 수 없다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const res = await api("/api/me", { method: "PUT", body: { ...me.input, nickname: "몰래" } });
     expect(res.status).toBe(401);
+  });
+
+  it("★ 고치는 대상은 언제나 자기 자신이다", async () => {
+    const ev = await freshEvent();
+    const a = await join(ev);
+    const b = await join(ev, { gender: "F" });
+
+    // 입력에 남의 id 를 담아도 대상은 쿠키에서만 온다
+    const res = await api("/api/me", {
+      method: "PUT",
+      cookie: a.cookie,
+      body: { ...a.input, id: b.id, nickname: "에이가고침" },
+    });
+    expect(res.status).toBe(200);
+
+    const mine = await api<ParticipantState>("/api/me", { cookie: a.cookie });
+    const hers = await api<ParticipantState>("/api/me", { cookie: b.cookie });
+    expect(mine.body.me.nickname).toBe("에이가고침");
+    expect(hers.body.me.nickname).toBe(b.input.nickname);
+  });
+
+  it("★ 고쳐도 공개 범위는 그대로다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F", nickname: "그녀" });
+
+    await api("/api/me", {
+      method: "PUT",
+      cookie: her.cookie,
+      body: { ...her.input, nickname: "고친그녀", realName: "이비밀", instagram: "secret_id" },
+    });
+    await setPhase(ev.id, "prevote");
+
+    const seen = (await api<ParticipantState>("/api/me", { cookie: me.cookie })).body.roster[0];
+    expect(seen.nickname).toBe("고친그녀");
+    for (const leak of ["realName", "phone", "instagram", "age", "mbti"]) {
+      expect(Object.keys(seen), leak).not.toContain(leak);
+    }
   });
 });
 
@@ -1274,17 +1460,69 @@ describe("오늘의 연애운", () => {
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
 
-    const res = await api<{ headline: string; body: string; mission: string; fallback?: boolean }>(
+    const res = await api<{ headline: string; body: string; mission?: string; fallback?: boolean }>(
       "/api/fortune",
       { method: "POST", cookie: me.cookie },
     );
     expect(res.status).toBe(200);
     expect(res.body.fallback).toBe(true);
-    for (const line of [res.body.headline, res.body.body, res.body.mission]) {
+    for (const line of [res.body.headline, res.body.body]) {
       expect(line.length).toBeGreaterThan(0);
     }
     // 오늘의 기운은 세 문단이다
     expect(res.body.body.split(/\n\s*\n/).length).toBe(3);
+    // **미션은 아직 없다.** 참가자가 그 카드를 뒤집을 때 만들어진다
+    expect(res.body.mission).toBeUndefined();
+  });
+
+  it("★ 미션은 뒤집을 때 만들어지고, 두 번 눌러도 같은 문장이다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+    await api("/api/fortune", { method: "POST", cookie: me.cookie });
+
+    type Mission = { mission: string; lead?: string };
+    const first = await api<Mission>("/api/fortune/mission", { method: "POST", cookie: me.cookie });
+    expect(first.status).toBe(200);
+    expect(first.body.mission.length).toBeGreaterThan(0);
+    // 왜 오늘 이것인지가 미션과 **함께** 온다. 미션만 오면 남이 준 숙제로 읽힌다
+    expect(first.body.lead?.length).toBeGreaterThan(0);
+
+    // 한 번 연 것은 다시 만들지 않는다 (ADR-20). 이유도 함께 잠긴다
+    const again = await api<Mission>("/api/fortune/mission", { method: "POST", cookie: me.cookie });
+    expect(again.body.mission).toBe(first.body.mission);
+    expect(again.body.lead).toBe(first.body.lead);
+  });
+
+  it("★ 운세·미션 응답에는 실명이 없다", async () => {
+    /*
+     * 두 경로는 이제 `fortuneContext()` 라는 **좁은 읽기**를 쓴다 (명단·콕을 빚지 않는다).
+     * 그 반환값에는 LLM 입력을 만들 실명이 들어 있다 — 라우트가 그걸 그대로 돌려주면
+     * 참가자 응답에 이름이 실린다. 돌려주는 건 `Fortune` 하나여야 한다 (ADR-20).
+     */
+    const ev = await freshEvent();
+    const me = await join(ev, { realName: "홍길동" });
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+
+    for (const path of ["/api/fortune", "/api/fortune/mission"]) {
+      const res = await api(path, { method: "POST", cookie: me.cookie });
+      const body = JSON.stringify(res.body);
+      expect(body, path).not.toContain("홍길동");
+      expect(body, path).not.toContain(me.phone);
+      expect(Object.keys(res.body as object).sort(), path).not.toContain("me");
+    }
+  });
+
+  it("★ 운세를 열기 전에는 미션을 만들 수 없다 — 재료가 그 운세다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+
+    const res = await api("/api/fortune/mission", { method: "POST", cookie: me.cookie });
+    expect(res.status).toBe(409);
   });
 
   it("남의 운세는 볼 수 없다", async () => {
@@ -1334,5 +1572,144 @@ describe("되돌리기", () => {
     expect(after.body.phase).toBe("party");
     // 되돌려도 "발표했었다"는 사실은 남는다
     expect(after.body.fired.done).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────── 앉힌 자리 고치기 (슬라이스 11)
+
+/**
+ * 발행한 라운드는 손댈 수 없는 것이었다. 유일한 수단이 새 라운드 발행이라,
+ * 한 명이 늦게 왔다고 **전원이 자리를 옮기고 전원이 확인 화면을 다시 받았다.**
+ *
+ * 이제 초안이든 발행된 것이든 같은 조작 셋을 받는다 — 맞교환 · 앉히기 · 자리 비우기.
+ */
+describe("앉힌 자리 고치기", () => {
+  type Round = { round: number; seats: Array<{ playerId: string; table: number }>; acks: string[] };
+  const seatOp = (id: string, op: string, body: Record<string, unknown>) =>
+    api<Round>(`/api/host/events/${id}/seating/${op}`, { method: "POST", cookie: master, body });
+  const rounds = async (id: string) =>
+    (await api<{ seatings: Round[] }>(`/api/host/events/${id}/state`, { cookie: master })).body.seatings;
+
+  /** 남녀 셋씩 여섯 명을 두 테이블에 앉히고 발행까지 한다 */
+  async function seated(final = false) {
+    const ev = await freshEvent();
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    await api(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, final },
+    });
+    const pub = await api<Round>(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
+    return { ev, ids, round: pub.body };
+  }
+
+  it("★ 앉힐 테이블은 서버가 고른다 — 그 성별이 가장 덜 찬 곳으로", async () => {
+    /*
+     * 운영자가 테이블을 고르게 하면 그게 곧 **한 명만 옮기는 API** 다 (SEATING.md).
+     * 성비는 지키려고 노력하는 게 아니라 깨질 방법이 없어야 한다.
+     */
+    const { ev, round } = await seated();
+    const man = round.seats.find((s) => s.table === 1)!;
+    // 1번에서 한 명을 빼면 그 테이블이 그 성별로 가장 비게 된다 → 도로 1번에 앉아야 한다
+    await seatOp(ev.id, "unseat", { playerId: man.playerId, round: round.round });
+    const back = await seatOp(ev.id, "seat", { playerId: man.playerId, round: round.round });
+    expect(back.body.seats.find((s) => s.playerId === man.playerId)?.table).toBe(1);
+
+    // 테이블을 받는 통로는 없다 — 보내도 서버가 무시한다
+    await seatOp(ev.id, "unseat", { playerId: man.playerId, round: round.round });
+    const forced = await seatOp(ev.id, "seat", { playerId: man.playerId, round: round.round, table: 2 });
+    expect(forced.body.seats.find((s) => s.playerId === man.playerId)?.table).toBe(1);
+  });
+
+  it("★ 같은 사람이 두 자리에 있지 않다", async () => {
+    const { ev, round } = await seated();
+    const one = round.seats[0].playerId;
+    const again = await seatOp(ev.id, "seat", { playerId: one, round: round.round });
+    expect(again.body.seats.filter((s) => s.playerId === one).length).toBe(1);
+    expect(again.body.seats.length).toBe(6);
+  });
+
+  it("★ 자리 비우기는 참가자를 지우는 것이 아니다", async () => {
+    /*
+     * 지우면 그가 만든 매칭이 **상대에게서도 사라진다** (FLOWS.md).
+     * 집에 간 사람도 서로 찔렀으면 연락처가 오가는 게 이 앱의 목적이다.
+     */
+    const ev = await freshEvent();
+    const a = await join(ev, { gender: "M" });
+    const b = await join(ev, { gender: "F" });
+    await setPhase(ev.id, "prevote");
+    await api("/api/poke", { method: "POST", cookie: a.cookie, body: { toId: b.id } });
+    await api("/api/poke", { method: "POST", cookie: b.cookie, body: { toId: a.id } });
+    await setPhase(ev.id, "party");
+    await api(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 1, final: false },
+    });
+    const pub = await api<Round>(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
+
+    await seatOp(ev.id, "unseat", { playerId: a.id, round: pub.body.round });
+
+    // 명단에 그대로 있고
+    const state = await api<{ players: Array<{ id: string }>; mutual: Array<[string, string]> }>(
+      `/api/host/events/${ev.id}/state`, { cookie: master },
+    );
+    expect(state.body.players.map((p) => p.id)).toContain(a.id);
+    // 서로 찌른 쌍도 그대로다
+    expect(state.body.mutual.length).toBe(1);
+    // 발표 때 상대에게 매칭이 보인다
+    await setPhase(ev.id, "done");
+    const mine = await api<ParticipantState>("/api/me", { cookie: b.cookie });
+    expect(mine.body.poke.matches.map((m) => m.player.id)).toEqual([a.id]);
+  });
+
+  it("★ 발행된 라운드를 고쳐도 자리 이동 확인이 뜨지 않는다", async () => {
+    /*
+     * 전원이 한꺼번에 움직이는 건 **발행**뿐이고, 그때만 확인 화면이 뜬다.
+     * `acks` 의 뜻이 "이 자리를 안다" 로 넓어진다 — 운영자가 손으로 앉힌 것도 아는 것이다.
+     */
+    const { ev, ids, round } = await seated();
+    // 발행 뒤에 등록한 사람 — 이 라운드에 자리가 없다
+    const late = await join(ev, { gender: "M" });
+    const before = (await rounds(ev.id))[0];
+    expect(before.seats.some((s) => s.playerId === late.id)).toBe(false);
+
+    const after = (await seatOp(ev.id, "seat", { playerId: late.id, round: round.round })).body;
+    expect(after.seats.some((s) => s.playerId === late.id)).toBe(true);
+    // 확인 화면은 `acked` 가 아닐 때만 뜬다 — 함께 넣어서 뜨지 않게 한다
+    expect(after.acks).toContain(late.id);
+    const seen = await api<ParticipantState>("/api/me", { cookie: late.cookie });
+    expect(seen.body.seat?.acked).toBe(true);
+
+    // 맞교환은 `acks` 를 건드리지 않는다. 자리를 비우면 거기서도 빠진다
+    const swapped = (await seatOp(ev.id, "swap", { a: ids[0], b: ids[1], round: round.round })).body;
+    expect(swapped.acks).toContain(late.id);
+    const emptied = (await seatOp(ev.id, "unseat", { playerId: late.id, round: round.round })).body;
+    expect(emptied.acks).not.toContain(late.id);
+  });
+
+  it("★ 발표 후에는 고치는 길이 다 막힌다", async () => {
+    // 발표만이 자리를 끝낸다. 확정도 발행도 끝내지 않는다 (ADR-28)
+    const { ev, ids, round } = await seated();
+    await setPhase(ev.id, "done");
+    for (const [op, body] of [
+      ["swap", { a: ids[0], b: ids[1], round: round.round }],
+      ["seat", { playerId: ids[0], round: round.round }],
+      ["unseat", { playerId: ids[0], round: round.round }],
+      ["shuffle", {}],
+      ["publish", {}],
+    ] as const) {
+      const res = await api(`/api/host/events/${ev.id}/seating/${op}`, { method: "POST", cookie: master, body });
+      expect(res.status, op).toBe(409);
+    }
+  });
+
+  it("★ 발표 후에도 지난 자리는 그대로 읽힌다", async () => {
+    /*
+     * 잠기는 건 **고치는 길**뿐이다. 운영자는 끝난 뒤에도 누가 어디 앉았는지를 본다 —
+     * 다음 회차 자리를 짤 때, 사진을 정리할 때.
+     */
+    const { ev, round } = await seated();
+    await setPhase(ev.id, "done");
+    const after = (await rounds(ev.id)).find((r) => r.round === round.round)!;
+    expect(after.seats.length).toBe(6);
+    expect(after.seats.map((s) => s.playerId).sort()).toEqual(round.seats.map((s) => s.playerId).sort());
   });
 });

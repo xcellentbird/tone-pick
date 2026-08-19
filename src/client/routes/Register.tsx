@@ -13,31 +13,16 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared/copy.ts";
-import type { PublicEvent, RegisterInput, RegisterResult } from "../../shared/types.ts";
-import { LIMITS, RETENTION_DAYS, nicknameProblem, normalizeInstagram, realNameProblem } from "../../shared/constants.ts";
-import { ApiError, api, post } from "../lib/api.ts";
+import type { RegisterResult } from "../../shared/types.ts";
+import { LIMITS, normalizeInstagram } from "../../shared/constants.ts";
+import { ApiError, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
-import { useLoad } from "../lib/useLoad.ts";
+import type { ProfileDraft } from "../lib/profileForm.ts";
+import { EMPTY_DRAFT, toInput, validateProfile } from "../lib/profileForm.ts";
 
-interface Draft {
-  nickname: string;
-  realName: string;
-  age: string;
-  gender: "M" | "F" | "";
-  instagram: string;
-  mbti: Record<number, string>;
-  charms: [string, string, string];
-}
-
-const EMPTY: Draft = {
-  nickname: "",
-  realName: "",
-  age: "",
-  gender: "",
-  instagram: "",
-  mbti: {},
-  charms: ["", "", ""],
-};
+/** 초안·검증은 내 정보 수정 폼과 함께 쓴다 (`lib/profileForm.ts`) */
+type Draft = ProfileDraft;
+const EMPTY = EMPTY_DRAFT;
 
 export default function Register() {
   const { id = "", step = "1" } = useParams();
@@ -45,9 +30,6 @@ export default function Register() {
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<{ field: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  // "N일 뒤에 지워져요" 약속은 회차 설정을 따른다 — 전역 상수는 응답이 오기 전의 대체값일 뿐이다
-  const found = useLoad(() => api<PublicEvent>(`/events/by-id/${id}`), [id]);
-
   const at = Math.min(3, Math.max(1, Number(step) || 1));
 
   // 오류를 만든 칸으로 데려간다 — 키보드가 올라온 폰에서는 화면 밖 오류가 "아무 일도 없음"으로 보인다.
@@ -71,7 +53,7 @@ export default function Register() {
     // 붙여넣은 @·URL 껍데기는 오류가 아니다 — 벗긴 값으로 검증하고, 화면에도 벗긴 값을 남긴다
     const d = at === 2 ? { ...draft, instagram: normalizeInstagram(draft.instagram) } : draft;
     if (d !== draft) setDraft(d);
-    const bad = validate(d, at);
+    const bad = validateProfile(d, at);
     if (bad) return setError(bad);
     if (at < 3) return navigate(`/j/${id}/register/${at + 1}`);
     submit();
@@ -80,17 +62,8 @@ export default function Register() {
   async function submit() {
     setBusy(true);
     try {
-      const body: RegisterInput = {
-        nickname: draft.nickname.trim(),
-        realName: draft.realName.trim(),
-        age: Number(draft.age),
-        gender: draft.gender as "M" | "F",
-        instagram: normalizeInstagram(draft.instagram),
-        mbti: MBTI_AXES.map((_, i) => draft.mbti[i]).join(""),
-        charms: draft.charms.map((c) => c.trim()) as [string, string, string],
-      };
       // 번호는 입장할 때 확인한 값이다. 서버가 초대 쿠키에서 꺼내 쓴다 (ADR-15)
-      const done = await post<RegisterResult>("/register", body);
+      const done = await post<RegisterResult>("/register", toInput(draft));
       // 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
       navigate(`/e/${done.state.event.code}`, {
         replace: true,
@@ -188,7 +161,7 @@ export default function Register() {
 
         {at === 2 && (
           <>
-            <p className="tiny dim pre">{REGISTER.retention(found.data?.retentionDays ?? RETENTION_DAYS)}</p>
+            <p className="tiny dim pre">{REGISTER.contactNote}</p>
             <div className="field">
               <label htmlFor="instagram">{ME.labels.instagram}</label>
               <input id="instagram" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} {...invalid("instagram")} />
@@ -250,59 +223,4 @@ export default function Register() {
       </div>
     </div>
   );
-}
-
-/** 검증은 화면 순서대로. 서버도 같은 규칙을 다시 본다 — 여기는 사람이 고치기 쉬우라고 있는 것 */
-function validate(d: Draft, step: number): { field: string; text: string } | null {
-  if (step === 1) {
-    // switch 는 전수 분기다 — 검증 코드가 늘면 여기가 컴파일 에러로 알려준다
-    const nick = nicknameProblem(d.nickname);
-    switch (nick) {
-      case null:
-        break;
-      case "empty":
-        return { field: "nickname", text: REGISTER.err.nick };
-      case "short":
-      case "long":
-        return { field: "nickname", text: REGISTER.err.nickLen(LIMITS.nicknameMin, LIMITS.nicknameMax) };
-      case "chars":
-        return { field: "nickname", text: REGISTER.err.nickChars };
-      default:
-        return nick satisfies never;
-    }
-    const name = realNameProblem(d.realName);
-    switch (name) {
-      case null:
-        break;
-      case "empty":
-        return { field: "realName", text: REGISTER.err.name };
-      case "digit":
-        return { field: "realName", text: REGISTER.err.nameDigit };
-      case "long":
-        return { field: "realName", text: REGISTER.err.nameLen(LIMITS.realNameMax) };
-      default:
-        return name satisfies never;
-    }
-    const age = Number(d.age);
-    if (!Number.isInteger(age) || age < 18 || age > 99) return { field: "age", text: REGISTER.err.age };
-    if (!d.gender) return { field: "gender", text: REGISTER.err.gender };
-  }
-  if (step === 2) {
-    if (!d.instagram.trim()) return { field: "instagram", text: REGISTER.err.instaRequired };
-    if (!/^[A-Za-z0-9._]+$/.test(d.instagram.trim())) {
-      return { field: "instagram", text: REGISTER.err.insta };
-    }
-    // 상한은 서버와 같은 상수다 — 여기서 안 막으면 3스텝을 다 쓴 뒤에야 실패를 만난다
-    if (d.instagram.trim().length > LIMITS.instagramMax) {
-      return { field: "instagram", text: REGISTER.err.instaLen(LIMITS.instagramMax) };
-    }
-  }
-  if (step === 3) {
-    // 답 안 한 첫 문항·비어 있는 첫 칸을 가리킨다 — field 가 곧 요소 id 라 스크롤·포커스가 따라간다
-    const blank = MBTI_AXES.findIndex((_, i) => !d.mbti[i]);
-    if (blank >= 0) return { field: `mbti${blank}`, text: REGISTER.err.mbti };
-    const missing = d.charms.findIndex((c) => !c.trim());
-    if (missing >= 0) return { field: `charm${missing}`, text: REGISTER.err.charm(missing + 1) };
-  }
-  return null;
 }

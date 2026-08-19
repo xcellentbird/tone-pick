@@ -65,10 +65,9 @@ CREATE TABLE IF NOT EXISTS players (
   age        INTEGER NOT NULL,
   gender     TEXT NOT NULL CHECK (gender IN ('M','F')),
   phone      TEXT NOT NULL UNIQUE,   -- 재접속 키
-  instagram  TEXT,
+  instagram  TEXT NOT NULL,
   mbti       TEXT NOT NULL,
   charms     TEXT NOT NULL,          -- JSON string[3]
-  no_show    INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pokes (
@@ -383,56 +382,96 @@ export class EventDO extends DurableObject {
     if (meta.phase === "prep" || meta.phase === "done") return fail("closed");
 
     // 번호는 폼이 아니라 입장할 때 확인한 값에서 온다 (ADR-15)
-    // 닉네임·실명 규칙은 화면과 같은 함수를 본다 — 폼을 우회해 API 로 바로 쏘는 참가자가 있다.
-    // 검증을 통과한 정규화본만 아래로 내려보낸다. input 원본은 문자열이 아닐 수도 있다
-    const nickname = cleanName(input.nickname);
-    const realName = cleanName(input.realName);
-    if (nicknameProblem(nickname) || realNameProblem(realName) || !phone) {
-      return fail("bad_request");
-    }
-    const nickNorm = normalizeNickname(nickname);
-    if (!Number.isInteger(input.age) || input.age < 18 || input.age > 99) return fail("bad_request");
-    if (input.gender !== "M" && input.gender !== "F") return fail("bad_request");
-    if (!/^[EI][NS][TF][JP]$/.test(String(input.mbti))) return fail("bad_request");
-    const charms = Array.isArray(input.charms)
-      ? input.charms.map((c) => (typeof c === "string" ? c.trim() : ""))
-      : [];
-    if (charms.length !== LIMITS.charms || charms.some((c) => !c || c.length > LIMITS.charmMax)) {
-      return fail("bad_request");
-    }
-    // 인스타는 필수다. 매칭되면 서로에게 공개되는 연락 수단이라 없이는 매칭이 반쪽이 된다
-    const instagram = normalizeInstagram(String(input.instagram ?? ""));
-    if (instagram.length > LIMITS.instagramMax || !/^[A-Za-z0-9._]+$/.test(instagram)) {
-      return fail("bad_request");
-    }
+    if (!phone) return fail("bad_request");
+    const clean = cleanProfile(input);
+    if (!clean) return fail("bad_request");
 
     const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone)[0];
-    const clash = this.rows<PlayerRow>("SELECT * FROM players WHERE nick_norm = ?", nickNorm)[0];
-    if (clash && clash.id !== mine?.id) return fail("nick_taken");
+    const saved = this.writeProfile(clean, {
+      id: mine?.id ?? randomHex(8),
+      phone,
+      createdAt: mine?.created_at ?? now,
+    });
+    if (!saved.ok) return saved;
+
+    this.broadcast({ type: "roster", count: this.playerCount() });
+    return saved;
+  }
+
+  /**
+   * 내 정보 고치기 (ADR-31). **사전 투표가 열리기 전까지만.**
+   *
+   * 그 뒤에는 사람들이 이 정보를 보고 콕을 찌른다 —
+   * 바꾸면 누군가 나를 고른 근거가 조용히 사라진다.
+   * 명단이 열리는 순간과 정보가 굳는 순간을 같게 뒀다 (ADR-21).
+   *
+   * **전화번호는 바뀌지 않는다.** 입력에 자리가 없고, 저장할 때도 저장된 값을 그대로 쓴다 (ADR-15).
+   * 고치는 대상은 쿠키에서 온 `playerId` 뿐이다 — 입력에 담긴 id 는 읽지 않는다.
+   */
+  async editProfile(playerId: string, input: RegisterInput, now: number): Promise<Result<Player>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (meta.phase !== "reg") return fail("closed");
+
+    const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE id = ?", playerId)[0];
+    if (!mine) return fail("not_found");
+    const clean = cleanProfile(input);
+    if (!clean) return fail("bad_request");
+
+    const saved = this.writeProfile(clean, {
+      id: mine.id,
+      phone: mine.phone,
+      createdAt: mine.created_at,
+    });
+    if (!saved.ok) return saved;
+
+    /*
+     * **운영자에게만 알린다.** 고치기가 열려 있는 건 등록 중뿐이고, 그때 참가자에게는
+     * 명단이 아예 안 내려간다 (ADR-21). 인원수도 그대로다 — 전원에게 보내면 50명이
+     * 똑같은 화면을 다시 읽으려고 줄을 서고, 그 읽기는 쓰기 큐 뒤에 선다.
+     * 바뀐 닉네임이 필요한 건 운영자 명단 하나뿐이다.
+     */
+    this.toHosts({ type: "roster", count: this.playerCount() });
+    return saved;
+  }
+
+  /**
+   * 등록과 수정이 함께 쓰는 쓰기.
+   *
+   * 닉네임 유일성은 **자기 자신을 뺀** 회차 안에서만 본다 —
+   * 안 그러면 나이 하나 고치는 데 닉네임까지 바꿔야 한다.
+   * 실패하면 아무것도 쓰지 않는다. 저장은 전부 되거나 전부 안 된다.
+   */
+  private writeProfile(
+    clean: CleanProfile,
+    who: { id: string; phone: string; createdAt: number },
+  ): Result<Player> {
+    const clash = this.rows<PlayerRow>("SELECT * FROM players WHERE nick_norm = ?", clean.nickNorm)[0];
+    if (clash && clash.id !== who.id) return fail("nick_taken");
 
     const player: Player = {
-      id: mine?.id ?? randomHex(8),
-      nickname,
-      realName,
-      age: input.age,
-      gender: input.gender,
-      phone,
-      instagram,
-      mbti: input.mbti,
-      charms: charms as [string, string, string],
-      createdAt: mine?.created_at ?? now,
+      id: who.id,
+      nickname: clean.nickname,
+      realName: clean.realName,
+      age: clean.age,
+      gender: clean.gender,
+      phone: who.phone,
+      instagram: clean.instagram,
+      mbti: clean.mbti,
+      charms: clean.charms,
+      createdAt: who.createdAt,
     };
 
     this.ctx.storage.sql.exec(
-      `INSERT INTO players (id, nickname, nick_norm, real_name, age, gender, phone, instagram, mbti, charms, no_show, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,0,?)
+      `INSERT INTO players (id, nickname, nick_norm, real_name, age, gender, phone, instagram, mbti, charms, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET
          nickname=excluded.nickname, nick_norm=excluded.nick_norm, real_name=excluded.real_name,
          age=excluded.age, gender=excluded.gender, instagram=excluded.instagram,
          mbti=excluded.mbti, charms=excluded.charms`,
       player.id,
       player.nickname,
-      nickNorm,
+      clean.nickNorm,
       player.realName,
       player.age,
       player.gender,
@@ -442,8 +481,6 @@ export class EventDO extends DurableObject {
       JSON.stringify(player.charms),
       player.createdAt,
     );
-
-    this.broadcast({ type: "roster", count: this.playerCount() });
     return ok(player);
   }
 
@@ -564,24 +601,30 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * 매력 세 줄을 고친다. **사전 투표가 열리기 전까지만** (ADR-27).
+   * 운세 두 경로가 쓰는 **좁은 읽기**.
    *
-   * 사전 투표가 시작되면 사람들이 그 세 줄을 보고 콕을 찌른다.
-   * 그 뒤에 바꾸면 누군가 나를 고른 근거가 조용히 사라진다 —
-   * 등록할 때 급히 쓴 걸 다듬을 시간은 주되, 남이 읽은 뒤로는 그대로 둔다.
+   * `participantState()` 로 이걸 하면 명단 전체를 `toPublic()` 으로 빚고 콕을 집계하고
+   * 자리를 찾는다 — 정작 필요한 건 단계·나·저장된 운세 셋뿐이다.
+   * 파티가 시작되면 인원 수만큼 이 경로가 한꺼번에 열리는데, 그 일이 전부
+   * **직렬화된 DO 스레드**에서 벌어진다. 그 시간이 곧 다른 사람의 읽기가 기다리는 시간이다.
+   *
+   * ⚠️ 여기 담긴 `me` 에는 실명이 있다. **참가자 응답에 그대로 싣지 마라** —
+   * LLM 입력(`fortuneInput`·`missionInput`)을 만드는 데만 쓰고, 라우트는 `Fortune` 만 돌려준다.
    */
-  async editCharms(playerId: string, charms: string[], now: number): Promise<Result<Player>> {
+  async fortuneContext(
+    playerId: string,
+    now: number,
+  ): Promise<Result<{ phase: Phase; me: Player; fortune?: Fortune }>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    if (meta.phase !== "reg") return fail("closed");
-
     const me = this.player(playerId);
     if (!me) return fail("not_found");
-    const clean = charms.map((c) => String(c ?? "").trim());
-    if (clean.length !== LIMITS.charms || clean.some((c) => !c)) return fail("bad_request");
-
-    this.ctx.storage.sql.exec("UPDATE players SET charms = ? WHERE id = ?", JSON.stringify(clean), playerId);
-    return ok({ ...me, charms: clean as [string, string, string] });
+    const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
+    return ok({
+      phase: meta.phase,
+      me,
+      ...(row ? { fortune: readFortune(JSON.parse(row.json)) } : {}),
+    });
   }
 
   async ackSeat(playerId: string, round: number): Promise<Result<true>> {
@@ -672,9 +715,35 @@ export class EventDO extends DurableObject {
    * 처음 저장한 것만 남는다. 두 번 눌러 두 번 만들어졌더라도 **먼저 온 하나**가 오늘의 운세다 —
    * 열 때마다 달라지면 그 순간 전부 거짓말이 된다.
    */
+  /**
+   * 미션만 채운다. **운세 본문은 건드리지 않는다** —
+   * 한 번 연 운세는 바뀌지 않는다 (ADR-20). 저장하는 자리가 그 규칙을 지키게 둔다.
+   *
+   * 이미 채워져 있으면 그대로 돌려준다. 두 번 눌러도 같은 문장이 온다.
+   *
+   * `lead`(왜 오늘 이것인지)는 미션과 **함께** 들어오고 함께 잠긴다.
+   * 없이 올 수도 있다 — LLM 이 빼먹은 경우다. 그때는 미션만 남고 화면이 한 줄로 그린다.
+   */
+  async saveMission(playerId: string, m: { mission: string; lead?: string }): Promise<Result<Fortune>> {
+    const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
+    if (!row) return fail("not_found");
+    const saved = readFortune(JSON.parse(row.json));
+    if (saved.mission) return ok(saved);
+
+    const next = { ...saved, ...m };
+    this.ctx.storage.sql.exec(
+      "UPDATE fortunes SET json = ? WHERE player_id = ?",
+      JSON.stringify(next),
+      playerId,
+    );
+    return ok(next);
+  }
+
   async saveFortune(playerId: string, fortune: Fortune): Promise<Result<Fortune>> {
     if (!this.player(playerId)) return fail("not_found");
     this.ctx.storage.sql.exec(
+      // DO NOTHING 이 곧 "한 번 연 운세는 바뀌지 않는다" 다 (ADR-20).
+      // 미션을 채우는 건 `saveMission` 이 따로 한다 — 여기로 덮어쓰면 그 규칙이 무너진다
       "INSERT INTO fortunes (player_id, json) VALUES (?,?) ON CONFLICT(player_id) DO NOTHING",
       playerId,
       JSON.stringify(fortune),
@@ -726,21 +795,115 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * 좌석 변경은 **맞교환 하나뿐**이다. 한 명만 옮기면 그 테이블 인원이 늘고 옆이 준다 (SEATING.md).
+   * 고칠 라운드를 찾는다. **초안이든 발행된 것이든 같은 조작을 받는다** (슬라이스 11).
+   *
+   * 발행한 라운드가 손댈 수 없는 것이던 시절에는, 한 명이 늦게 왔을 때 쓸 수 있는 게
+   * 새 라운드 발행뿐이었다 — 전원이 자리를 옮기고 전원이 확인 화면을 다시 받았다.
+   *
+   * 번호를 안 주면 초안이다. 운영자가 지금 보고 있는 카드가 어느 것인지는 화면이 안다.
+   */
+  private editableRound(round?: number): SeatingRound | null {
+    const all = this.seatings();
+    return (round ? all.find((s) => s.round === round) : all.find((s) => s.status === "draft")) ?? null;
+  }
+
+  /** 발표만이 자리를 끝낸다 (ADR-28). 확정도, 발행도 끝내지 않는다 */
+  private async seatsOpen(): Promise<boolean> {
+    return (await this.ctx.storage.get<EventMeta>("meta"))?.phase !== "done";
+  }
+
+  /**
+   * 고친 라운드를 저장하고, 발행된 것이면 **다시 읽으라고** 알린다.
+   *
+   * 방송을 거르면 참가자 화면이 옛 테이블 번호를 그대로 들고 있게 된다 —
+   * **알림을 안 보내는 것과 화면을 안 고치는 것은 다른 일이다** (ADR-26).
+   * 자리 이동 확인 화면이 뜨지 않는 건 `acks` 가 막는다.
+   */
+  private saveRound(s: SeatingRound) {
+    this.writeSeating(s);
+    if (s.status === "published") this.broadcast({ type: "seating", round: s.round });
+  }
+
+  /**
+   * 좌석 **변경**은 맞교환 하나뿐이다. 한 명만 옮기면 그 테이블 인원이 늘고 옆이 준다 (SEATING.md).
    *
    * 남녀를 맞바꾸는 것도 허용한다. 두 테이블의 남녀 구성이 바뀌지만 인원은 그대로다 —
    * 현장에서 운영자가 아는 사정(아는 사이, 자리 요청)은 배정 알고리즘이 모른다.
    * 바뀐 성비는 자리 화면의 `남 N / 여 M` 에 곧바로 보인다.
+   *
+   * **`acks` 는 건드리지 않는다.** 둘 다 이미 들어 있고, 빼면 그 둘에게만 확인 화면이 뜬다 —
+   * 라운드 하나를 고치는 건 운영자가 그 사람 앞에 서서 하는 일이라 앱이 대신 말할 게 없다.
    */
-  async swapSeats(a: string, b: string): Promise<Result<SeatingRound>> {
-    const draft = this.seatings().find((s) => s.status === "draft");
-    if (!draft) return fail("not_found");
-    const sa = draft.seats.find((s) => s.playerId === a);
-    const sb = draft.seats.find((s) => s.playerId === b);
+  async swapSeats(a: string, b: string, round?: number): Promise<Result<SeatingRound>> {
+    if (!(await this.seatsOpen())) return fail("closed");
+    const target = this.editableRound(round);
+    if (!target) return fail("not_found");
+    const sa = target.seats.find((s) => s.playerId === a);
+    const sb = target.seats.find((s) => s.playerId === b);
     if (!sa || !sb || sa.playerId === sb.playerId) return fail("not_found");
     [sa.table, sb.table] = [sb.table, sa.table];
-    this.writeSeating(draft);
-    return ok(draft);
+    this.saveRound(target);
+    return ok(target);
+  }
+
+  /**
+   * 자리 없는 사람을 이 라운드에 **끼워 넣는다.** 옮기는 게 아니라 더하는 것이라
+   * 아무도 자리를 잃지 않는다 — 커플 자리의 쌍도 그대로다 (ADR-23).
+   *
+   * **테이블은 서버가 고른다.** 운영자가 고르게 하면 그게 곧 SEATING.md 가 금지한
+   * 단일 이동 API 다 — 조작 한 번에 성비 불변식이 깨진다.
+   * 자기 성별이 가장 적은 테이블, 같으면 사람이 적은 쪽, 그것도 같으면 낮은 번호.
+   * **난수를 쓰지 않는다** — 같은 상태에서 같은 자리가 나와야 한다.
+   *
+   * 발행된 라운드라면 `acks` 에 함께 넣는다. 안 그러면 이 사람에게만 자리 이동 확인이
+   * 뜬다 — 방금 운영자가 손으로 앉히며 말해준 것을 앱이 한 번 더 묻는 꼴이다.
+   */
+  async seatPlayer(playerId: string, round?: number): Promise<Result<SeatingRound>> {
+    if (!(await this.seatsOpen())) return fail("closed");
+    const target = this.editableRound(round);
+    if (!target) return fail("not_found");
+    const me = this.player(playerId);
+    if (!me) return fail("not_found");
+    if (target.seats.some((s) => s.playerId === playerId)) return ok(target);
+
+    const gender = new Map(
+      this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
+    );
+    let best = 1;
+    let bestKey: [number, number] = [Infinity, Infinity];
+    for (let t = 1; t <= target.tableCount; t++) {
+      const here = target.seats.filter((s) => s.table === t);
+      const key: [number, number] = [here.filter((s) => gender.get(s.playerId) === me.gender).length, here.length];
+      if (key[0] < bestKey[0] || (key[0] === bestKey[0] && key[1] < bestKey[1])) {
+        best = t;
+        bestKey = key;
+      }
+    }
+
+    target.seats.push({ playerId, table: best });
+    if (target.status === "published" && !target.acks.includes(playerId)) target.acks.push(playerId);
+    this.saveRound(target);
+    return ok(target);
+  }
+
+  /**
+   * 이 라운드 자리에서만 뺀다. **참가자를 지우는 것이 아니다** —
+   * 명단에도 콕 대상에도 그대로 있고, 그가 만든 매칭은 아무것도 바뀌지 않는다.
+   * (지우면 그 매칭이 상대에게서도 사라진다 — `FLOWS.md`.)
+   *
+   * `acks` 에서도 뺀다. 자리가 없는 사람이 "자리를 안다" 로 세어지면
+   * 운영자가 보는 `N/총원` 의 분자와 분모가 서로 다른 것을 센다.
+   */
+  async unseatPlayer(playerId: string, round?: number): Promise<Result<SeatingRound>> {
+    if (!(await this.seatsOpen())) return fail("closed");
+    const target = this.editableRound(round);
+    if (!target) return fail("not_found");
+    if (!target.seats.some((s) => s.playerId === playerId)) return fail("not_found");
+
+    target.seats = target.seats.filter((s) => s.playerId !== playerId);
+    target.acks = target.acks.filter((x) => x !== playerId);
+    this.saveRound(target);
+    return ok(target);
   }
 
   /**
@@ -755,6 +918,7 @@ export class EventDO extends DurableObject {
    * 버튼 하나로 그 라운드가 무의미해진다. 붙어 앉은 쌍은 자리를 지키고 나머지만 섞인다.
    */
   async shuffleSeating(): Promise<Result<SeatingRound>> {
+    if (!(await this.seatsOpen())) return fail("closed");
     const draft = this.seatings().find((s) => s.status === "draft");
     if (!draft) return fail("not_found");
 
@@ -795,6 +959,8 @@ export class EventDO extends DurableObject {
   }
 
   async publishSeating(now: number): Promise<Result<SeatingRound>> {
+    // 발표만이 자리를 끝낸다 (ADR-28). 끝난 뒤에 발행하면 아무도 보지 못할 자리가 생긴다
+    if (!(await this.seatsOpen())) return fail("closed");
     const draft = this.seatings().find((s) => s.status === "draft");
     if (!draft) return fail("not_found");
     draft.status = "published";
@@ -899,6 +1065,24 @@ export class EventDO extends DurableObject {
     for (const ws of this.ctx.getWebSockets()) {
       const at = (ws.deserializeAttachment() ?? {}) as Attachment;
       if (at.playerId === playerId) this.send(ws, ev);
+    }
+  }
+
+  /**
+   * 운영자 콘솔에만 보낸다. 참가자 화면이 달라지지 않는 변화를 위한 통로다.
+   *
+   * **신호 하나가 곧 N번의 재조회다** (ADR-26 — 실시간은 "다시 읽어라" 신호로만 쓴다).
+   * 참가자 화면이 똑같이 그려질 변화까지 전원에게 보내면, 아무것도 바꾸지 않는 읽기가
+   * 인원수만큼 쌓이고 그 읽기는 쓰기 큐 뒤에 선다. 50명에서 재조회 하나가 8초까지 밀렸다.
+   *
+   * 참가자 소켓에는 `playerId` 가 붙어 있다 (Worker 가 세션 쿠키를 보고 붙인다).
+   * 안 붙은 소켓은 운영자 콘솔이다 — 세션이 끊긴 참가자도 여기 섞일 수 있지만,
+   * 이 통로로 나가는 건 이미 참가자에게 보이는 값뿐이라 새어도 잃을 게 없다.
+   */
+  private toHosts(ev: ServerEvent) {
+    for (const ws of this.ctx.getWebSockets()) {
+      const at = (ws.deserializeAttachment() ?? {}) as Attachment;
+      if (!at.playerId) this.send(ws, ev);
     }
   }
 
@@ -1091,10 +1275,9 @@ interface PlayerRow {
   age: number;
   gender: Gender;
   phone: string;
-  instagram: string | null;
+  instagram: string;
   mbti: string;
   charms: string;
-  no_show: number;
   created_at: number;
 }
 
@@ -1109,6 +1292,58 @@ interface SeatingRow {
   published_at: number | null;
 }
 
+/** 검증을 지난 정규화본. 여기까지 온 값만 저장한다 */
+interface CleanProfile {
+  nickname: string;
+  nickNorm: string;
+  realName: string;
+  age: number;
+  gender: Gender;
+  instagram: string;
+  mbti: string;
+  charms: [string, string, string];
+}
+
+/**
+ * 등록과 수정이 함께 보는 검증. 통과하면 정규화본만 돌려준다.
+ *
+ * 닉네임·실명 규칙은 화면과 **같은 함수**를 본다 — 폼을 우회해 API 로 바로 쏘는 참가자가 있다.
+ * `input` 원본은 문자열이 아닐 수도 있어서 그대로 내려보내지 않는다.
+ *
+ * **전화번호는 여기 없다.** 입장할 때 확인한 값이라 입력에서 오지 않는다 (ADR-15) —
+ * 등록 폼에서 받지 않는 것과 같은 이유고, 수정에서도 같다.
+ */
+function cleanProfile(input: RegisterInput): CleanProfile | null {
+  const nickname = cleanName(input.nickname);
+  const realName = cleanName(input.realName);
+  if (nicknameProblem(nickname) || realNameProblem(realName)) return null;
+  if (!Number.isInteger(input.age) || input.age < 18 || input.age > 99) return null;
+  if (input.gender !== "M" && input.gender !== "F") return null;
+  if (!/^[EI][NS][TF][JP]$/.test(String(input.mbti))) return null;
+
+  const charms = Array.isArray(input.charms)
+    ? input.charms.map((c) => (typeof c === "string" ? c.trim() : ""))
+    : [];
+  if (charms.length !== LIMITS.charms || charms.some((c) => !c || c.length > LIMITS.charmMax)) {
+    return null;
+  }
+
+  // 인스타는 필수다. 매칭되면 서로에게 공개되는 연락 수단이라 없이는 매칭이 반쪽이 된다
+  const instagram = normalizeInstagram(String(input.instagram ?? ""));
+  if (instagram.length > LIMITS.instagramMax || !/^[A-Za-z0-9._]+$/.test(instagram)) return null;
+
+  return {
+    nickname,
+    nickNorm: normalizeNickname(nickname),
+    realName,
+    age: input.age,
+    gender: input.gender,
+    instagram,
+    mbti: input.mbti,
+    charms: charms as [string, string, string],
+  };
+}
+
 function toPlayer(r: PlayerRow): Player {
   return {
     id: r.id,
@@ -1117,10 +1352,9 @@ function toPlayer(r: PlayerRow): Player {
     age: r.age,
     gender: r.gender,
     phone: r.phone,
-    instagram: r.instagram ?? undefined,
+    instagram: r.instagram,
     mbti: r.mbti,
     charms: JSON.parse(r.charms) as [string, string, string],
-    noShow: !!r.no_show,
     createdAt: r.created_at,
   };
 }

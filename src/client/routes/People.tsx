@@ -8,10 +8,11 @@
  * 되돌리기는 지금 화면에 두지 않는다. 그래서 확인창이 "되돌릴 수 없다"고 분명히 말한다.
  */
 import { useState } from "react";
-import { BTN, ME, PEOPLE, POKE, REVEAL, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
-import type { MatchInfo, ParticipantState, PublicPlayer } from "../../shared/types.ts";
+import { BTN, ME, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
+import type { MatchInfo, ParticipantState, Phase, Player, PublicPlayer } from "../../shared/types.ts";
+import type { Tab } from "./Participant.tsx";
 import { canPoke } from "../../shared/phase.ts";
-import { rosterOpen } from "../../shared/types.ts";
+import { rosterOpen, toPublic } from "../../shared/types.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
@@ -25,9 +26,10 @@ interface Props {
   reload: () => void;
   profileId?: string;
   onProfile: (playerId: string | null) => void;
+  onTab: (tab: Tab) => void;
 }
 
-export default function People({ state, source, reload, profileId, onProfile }: Props) {
+export default function People({ state, source, reload, profileId, onProfile, onTab }: Props) {
   // 동성에게도 찌를 수 있는 회차라면 처음부터 전체를 보여준다 — 반쪽만 보이면 설정이 무색해진다
   const sameGenderOk = state.event.config.allowSameGender !== false;
   const [onlyOpposite, setOnlyOpposite] = useState(!sameGenderOk);
@@ -36,6 +38,8 @@ export default function People({ state, source, reload, profileId, onProfile }: 
   const round = state.event.phase === "prevote" ? "pre" : "party";
   const budget = state.poke.budget[round];
   const open = canPoke(state.event.phase);
+  /** 나이·MBTI 가 아직 안 열린 단계인가. `toPublic()` 이 여는 시점과 같아야 한다 (ADR-21) */
+  const agesHidden = state.event.phase !== "party" && state.event.phase !== "done";
   /**
    * **아직 안 열린 것과 끝난 것은 다르다.**
    * 등록 중에는 잠긴 버튼이 "곧 열린다" 를 말해주지만, 발표가 끝난 뒤에는 그 말이 거짓이다 —
@@ -91,11 +95,46 @@ export default function People({ state, source, reload, profileId, onProfile }: 
 
   return (
     <>
-      <div className="row between">
-        <div className="choice grow">
+      {/*
+        내 카드는 **필터 위**에 있다. 한동안 목록 맨 줄에 뒀었는데 — 같은 모양이라야
+        "남들에게 이렇게 보인다" 가 성립한다고 봤다 — 필터가 다스리지 않는 것이
+        필터와 목록 **사이**에 끼어 있는 모양이었다. `이성만` 을 눌러도 내가 남아 있으니
+        필터가 안 먹은 것으로 읽힌다. 거르는 버튼은 **걸러지는 것 바로 위**에 있어야 한다.
+
+        옮겨도 "이렇게 보인다" 는 그대로다 — 같은 카드, 같은 `toPublic()` 결과다.
+        잃은 건 목록과 붙어 있음 하나인데, 그 붙어 있음이 오해를 만들고 있었다.
+
+        덤으로 하나 더 고쳐진다: 오른쪽 `남은 콕` 이 남들 줄의 👉 와 같은 세로줄에 나란히 있으면
+        **눌리지 않는 내 콕 버튼**으로 읽힌다. 사이에 필터 줄이 들어가면 그 오해가 사라진다.
+      */}
+      <div className="row">
+        <MyCard me={state.me} phase={state.event.phase} onOpen={() => onTab("me")} />
+        {/* 폭은 남들 줄의 👉 칸과 같다. 그래야 카드 오른쪽 끝이 아래와 맞는다 */}
+        {open && (
+          <div className="mineCell">
+            <span className="n">{UNIT.times(budget.max - budget.used)}</span>
+            <span className="t">{PEOPLE.pokeLeftLabel}</span>
+          </div>
+        )}
+      </div>
+
+      {/*
+        필터는 **전체 폭**을 쓴다. 옆에 글자를 붙이면 알약 컨테이너와 맨 글자가 한 줄에서
+        서로 다른 층위로 읽히고, 늘어난 필터와 오른쪽 글자 사이에 빈 공간이 남는다.
+
+        **기본값이 왼쪽이다** — `전체` 가 기본이라(ADR-17) 켜져 있는 쪽이 먼저 읽혀야 한다.
+
+        **인원 수는 여기 없다.** 이 버튼이 답하는 건 "누구를 볼까" 하나이고,
+        "몇 명 모였나" 는 홈 탭이 맡는다 (`HOME` 의 `함께하는 사람`).
+
+        거를 것이 아예 없으면 그리지 않는다. 다만 판단은 **거르기 전 명단**으로 한다 —
+        `이성만` 이 0명이라고 버튼을 감추면 `전체` 로 돌아갈 길이 사라진다.
+      */}
+      {state.roster.length > 0 && (
+        <div className="choice">
           {[
-            { on: true, label: PEOPLE.onlyOpposite },
             { on: false, label: PEOPLE.everyone },
+            { on: true, label: PEOPLE.onlyOpposite },
           ].map((opt) => (
             <button
               key={opt.label}
@@ -107,12 +146,19 @@ export default function People({ state, source, reload, profileId, onProfile }: 
             </button>
           ))}
         </div>
-        {open && <span className="small dim">{STATUS.roundLeft(round, budget.max - budget.used)}</span>}
-      </div>
+      )}
 
+      {/* 이 문구는 **남들에 대한 말**이다. 내 카드가 생겼다고 지우지 않는다 */}
       {list.length === 0 && (
         <p className="dim center pre">{rosterOpen(state.event.phase) ? PEOPLE.empty : PEOPLE.notOpenYet}</p>
       )}
+
+      {/*
+        아래 사람들에 대한 안내. 남은 콕은 **내 카드 오른쪽 칸**으로 옮겼다 —
+        콕을 쓰는 세로줄에 얼마나 남았는지가 함께 있는 게 맞다.
+        볼 사람이 없으면 이 줄도 없다.
+      */}
+      {list.length > 0 && agesHidden && <span className="small dim">{PEOPLE.agesAtParty}</span>}
 
       <div className="stack">
         {list.map((p) => {
@@ -218,6 +264,59 @@ export default function People({ state, source, reload, profileId, onProfile }: 
 }
 
 /**
+ * 목록 맨 위의 내 카드. 답하는 건 **"내가 남들에게 어떻게 보이나"** 하나다.
+ *
+ * `toPublic()` 을 **그대로** 쓴다. 화면에서 규칙을 다시 짜면 두 곳이 갈라지는데,
+ * 하필 "이렇게 보여요" 라고 말하는 자리라 갈라지는 순간 거짓말이 된다.
+ * 서버 응답은 하나도 바뀌지 않는다 — 이미 받은 `me` 를 같은 함수로 줄여 그릴 뿐이다.
+ *
+ * **단계를 그대로 넘기지 않는다.** `toPublic` 은 `prevote` 에서만 나이·MBTI 를 뺀다.
+ * 등록 중에 그대로 부르면 나이가 나오는데 정작 사전 투표에서는 안 보인다 —
+ * 그래서 **남들이 나를 처음 보게 되는 상태**로 바꿔서 부른다.
+ *
+ * **누르면 내 정보 탭으로 간다.** 남들 카드는 눌러서 프로필 시트를 여는데,
+ * 여기서 같은 시트를 열 수는 없다 — 시트는 `roster` 에서 상대를 찾고 거기 나는 없다.
+ * 그렇다고 혼자 못 누르는 카드로 두면, 이 줄에서 더 보고 싶은 것(매력 전문·내가 낸 것 전부)이
+ * 어디 있는지 알 길이 없다. 그게 이미 **내 정보 탭**에 있으니 거기로 보낸다.
+ *
+ * 탭 이동은 `onTab` 이 맡는다 — push/replace 규칙이 거기 한 곳에 있다 (`docs/ROUTES.md`).
+ * 여기서 `navigate` 를 직접 부르면 그 규칙이 두 곳으로 갈라진다.
+ */
+function MyCard({ me, phase, onOpen }: { me: Player; phase: Phase; onOpen: () => void }) {
+  const seenAs: Phase = phase === "party" || phase === "done" ? phase : "prevote";
+  const shown = toPublic(me, seenAs);
+  return (
+    <button type="button" className="person grow" onClick={onOpen}>
+      {/* "나" 는 아바타 위에 얹는다. 이름 줄은 닉네임·나이·MBTI 로 이미 꽉 차 있다 */}
+      <span className="avatarMine">
+        <Avatar nickname={shown.nickname} gender={shown.gender} />
+        <span className="mineTag">{PEOPLE.mine}</span>
+      </span>
+      <span className="meta">
+        <span className="name">
+          <span className="who">{shown.nickname}</span>
+          {shown.age && <span className="age">{shown.age}</span>}
+          {shown.mbti && <Mbti value={shown.mbti} />}
+        </span>
+        <span className="charms">
+          {shown.charms.map((c, i) => (
+            <span className="chip" key={i}>
+              {c}
+            </span>
+          ))}
+        </span>
+      </span>
+      {/*
+        화살표 같은 표시는 붙이지 않는다 — 이 줄에만 붙으면 남들 카드보다 더 눌러도 되는 것처럼
+        보인다. 둘 다 눌리는 카드다. 다만 **어디로 가는지는 글자로** 말해야 해서,
+        보이지 않는 한 줄로 목적지를 남긴다.
+      */}
+      <span className="srOnly">{PEOPLE.mineOpen}</span>
+    </button>
+  );
+}
+
+/**
  * 서로 찌른 상대의 연락처.
  *
  * 전화와 인스타는 **누를 수 있게** 둔다 — 파티장에서 번호를 손으로 옮겨 적게 하지 않는다.
@@ -259,9 +358,11 @@ function PokeControls({
   onSend: () => void;
 }) {
   /**
-   * 숫자는 버튼 **오른쪽**에 둔다.
-   * 왼쪽에 두면 찌른 사람과 안 찌른 사람의 카드 폭이 달라져 목록이 들쭉날쭉해진다.
-   * 오른쪽 끝은 어차피 비어 있는 자리고, 자리를 늘 비워두면 폭도 흔들리지 않는다.
+   * 카드와 **같은 키, 같은 모서리**다. 44px 알약이던 시절에는 74px 카드 옆에서
+   * 혼자 작고 동그래서 짝이 안 맞았다 — 지금은 한 줄이 두 덩어리로 읽힌다.
+   *
+   * 찌른 횟수는 **버튼 안**에 있다. 밖에 두면 폭이 흔들리지 않게 자리를 늘 비워둬야 했는데,
+   * 안에 넣으면 그 문제가 없어지고 숫자가 무엇에 대한 것인지도 붙어서 읽힌다.
    */
   return (
     <div className="pokeCell">
@@ -271,9 +372,9 @@ function PokeControls({
         onClick={onSend}
         aria-label={POKE.confirm.submit}
       >
-        👉
+        <span aria-hidden>👉</span>
+        {count > 0 && <span className="n">{count}</span>}
       </button>
-      <span className="pokeCount">{count > 0 ? count : ""}</span>
     </div>
   );
 }

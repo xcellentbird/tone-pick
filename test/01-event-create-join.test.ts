@@ -221,7 +221,7 @@ describe("B. 회차 생성", () => {
     expect(res.body.phase).toBe("reg");
     expect(res.body.fired.reg).toBeGreaterThan(0);
     // And   그 코드로 즉시 입장할 수 있다
-    const pub = await api<PublicEvent>(`/api/events/by-code/${res.body.code}`);
+    const pub = await api<PublicEvent>(`/api/events/by-id/${res.body.id}`);
     expect(pub.body.canRegister).toBe(true);
   });
 
@@ -313,7 +313,7 @@ describe("C. 입장 코드", () => {
     // Given 등록 중인 회차가 있다
     const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
     // When  코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-code/${ev.body.code}`);
+    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
     // Then  200 이고 이름과 phase 를 받는다
     expect(res.status).toBe(200);
     expect(res.body.name).toBe(ev.body.name);
@@ -324,7 +324,7 @@ describe("C. 입장 코드", () => {
     // Given 등록 중인 회차가 있다
     const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
     // When  인증 없이 코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-code/${ev.body.code}`);
+    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
     // 빈 응답이면 "비밀이 없다"가 저절로 참이 된다. 먼저 진짜 응답인지 확인한다
     expect(res.status).toBe(200);
     expect(res.body.name).toBe(ev.body.name);
@@ -353,12 +353,15 @@ describe("C. 입장 코드", () => {
     expect(Object.keys(res.body as object)).not.toContain("code");
   });
 
-  it("S-C3 없는 코드는 알려준다", async () => {
-    // When  없는 코드로 조회한다
-    const res = await api<{ error: string; message: string }>("/api/events/by-code/ZZZZZZ");
-    // Then  404 이고 메시지는 ENTRY.notFound 다
-    expect(res.status).toBe(404);
-    expect(res.body.message).toBe(ENTRY.notFound);
+  it("★ S-C3 코드로 회차를 찾는 길이 없다", async () => {
+    /*
+     * 그 응답에는 **회차 아이디**가 들어 있었다 — 30비트 코드(32^6)를 뚫으면
+     * 64비트 링크가 그대로 나왔다. 링크의 강도가 코드까지 내려가 있던 셈이다.
+     * 이제 문은 참가 링크 하나뿐이다 (ADR-13·15).
+     */
+    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
+    // 실재하는 회차의 **진짜 코드**로도 찾을 수 없다 — 코드가 틀려서가 아니라 길이 없어서다
+    expect((await api(`/api/events/by-code/${ev.body.code}`)).status).toBe(404);
   });
 
   it("S-C4 준비 중인 회차는 등록을 막고 안내한다", async () => {
@@ -367,7 +370,7 @@ describe("C. 입장 코드", () => {
     const ev = await createEvent(master, { regOpenAt: at, prevoteAt: at + 24 * HOUR });
     expect(ev.body.phase).toBe("prep");
     // When  코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-code/${ev.body.code}`);
+    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
     // Then  등록 불가이고 ENTRY.notOpenYet 형태의 안내가 온다
     expect(res.body.canRegister).toBe(false);
     expect(res.body.message).toMatch(/부터 등록이 열려요\.$/);
@@ -383,21 +386,12 @@ describe("C. 입장 코드", () => {
     });
     expect(done.status).toBe(200);
     // When  코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-code/${ev.body.code}`);
+    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
     // Then  등록 불가이고 메시지는 ENTRY.finished 다
     expect(res.body.canRegister).toBe(false);
     expect(res.body.message).toBe(ENTRY.finished);
   });
 
-  it("S-C6 코드는 대소문자를 가리지 않는다", async () => {
-    // Given 코드가 대문자로 발급됐다
-    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
-    // When  소문자로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-code/${ev.body.code.toLowerCase()}`);
-    // Then  같은 회차를 찾는다
-    expect(res.status).toBe(200);
-    expect(res.body.id).toBe(ev.body.id);
-  });
 });
 
 // ─────────────────────────────────────────── D. 서버 시각
@@ -417,7 +411,7 @@ describe("D. 서버 시각", () => {
     expect(ev.body.phase).toBe("prep");
 
     // When  클라이언트가 자기 시각을 미래로 주장하며 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-code/${ev.body.code}`, {
+    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`, {
       headers: { "x-client-now": String(at + 10 * HOUR), date: new Date(at + 10 * HOUR).toUTCString() },
     });
 
