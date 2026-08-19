@@ -198,6 +198,8 @@ button {
 .center { text-align: center; }
 .pre { white-space: pre-line; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 줄바꿈 없이 제 폭을 지킨다 — 한 줄에서 옆의 늘어나는 칸이 먼저 줄어든다 */
+.nowrap { flex: none; white-space: nowrap; }
 .danger { color: var(--danger); }
 .warnText { color: var(--warn); }
 .okText { color: var(--ok); }
