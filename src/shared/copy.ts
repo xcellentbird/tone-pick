@@ -362,6 +362,12 @@ export const FORTUNE = {
   opening: "오늘을 읽는 중",
   closed: "파티가 시작되면 열려요",
   missionTitle: "오늘의 미션",
+  /**
+   * 미션도 **뒤집어서** 연다. 운세와 같은 말을 쓴다 —
+   * 같은 동작에 같은 말이라야 두 번째도 같은 무게로 읽힌다.
+   */
+  missionOpen: "오늘의 미션 열기",
+  missionOpening: "오늘 할 일을 고르는 중",
   colorTitle: "오늘의 색",
   colorName: { violet: "자정 보라", gold: "황금", teal: "청록", coral: "산호" },
 

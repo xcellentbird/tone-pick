@@ -1016,6 +1016,30 @@ button {
 }
 
 /* 미션은 읽고 끝나는 게 아니라 **하는 것**이다. 오늘의 색으로 한 겹 띄운다 */
+/*
+ * 미션 뒷면 — **미션이 들어설 그 자리**에 있는 카드다. 눌러서 뒤집는다.
+ *
+ * 운세 뒷면(`.fortuneBack`)과 같은 언어를 쓰되 크기만 작다 —
+ * 같은 동작에 같은 모양이라야 두 번째도 같은 무게로 읽힌다.
+ * 뒤집혀도 자리가 그대로라 화면이 튀지 않는다.
+ */
+.missionBack {
+  width: 100%;
+  cursor: pointer;
+  align-items: center;
+  color: var(--fg);
+  text-align: center;
+  gap: 8px;
+  min-height: 96px;
+  justify-content: center;
+}
+.missionBack .orb { font-size: 32px; line-height: 1; }
+.missionBack:disabled { cursor: default; }
+/* 여는 동안 과녁이 천천히 숨 쉰다. 기다리는 중이라는 걸 글자 없이도 말한다 */
+.missionBack.opening .orb { animation: fortunePulse 1.6s ease-in-out infinite; }
+/* 열린 미션은 뒤집히며 들어선다 — 운세 카드와 같은 동작 */
+.fortuneMission.opened { animation: fortuneFlip 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
 .fortuneMission {
   margin-top: 4px;
   padding: 14px;
@@ -1029,7 +1053,9 @@ button {
 
 /* 움직임을 원치 않는 사람에게는 돌지 않고 그대로 나온다 */
 @media (prefers-reduced-motion: reduce) {
-  .fortuneCard { animation: none; }
+  .fortuneCard,
+  .fortuneMission.opened { animation: none; }
+  .missionBack.opening .orb { animation: none; }
   .fortuneBack.opening .orb { animation: none; }
 }
 

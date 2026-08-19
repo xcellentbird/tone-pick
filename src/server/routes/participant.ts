@@ -185,16 +185,38 @@ participantRoutes.post("/fortune", async (c) => {
   }
 
   /*
-   * 두 번 부른다. 나란히 못 부른다 — **미션의 재료가 방금 나온 운세**라서 순서가 있다.
-   * 한 번에 뽑던 시절에는 미션이 본문 마지막 문단을 그대로 옮겨 적곤 했다.
+   * **운세만 만든다.** 미션은 참가자가 그 카드를 뒤집을 때 따로 부른다 —
+   * 여는 동작이 있어야 그 한 줄이 오늘 것처럼 읽히고(ADR-20),
+   * 안 열어 본 사람 몫은 아예 만들지 않는다.
    *
    * 오늘 날짜는 **파티가 열리는 지역 기준**이다 (`todayIn`). UTC 로 자르면 자정 넘은 파티가
    * 어제 날짜를 읽는다.
    */
   const now = serverNow();
   const made = await makeFortune(c.env, fortuneInput(state.value.me, todayIn(now), birth), now);
-  const mission = await makeMission(c.env, missionInput(state.value.me, made));
-  const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, { ...made, mission }));
+  const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, made));
+  return response ?? c.json(value);
+});
+
+/**
+ * 오늘의 미션. **운세를 연 뒤에만** 부를 수 있다 — 재료가 그 운세라서.
+ *
+ * 한 번 연 미션은 다시 만들지 않는다 (ADR-20). 두 번 눌러도 같은 문장이 온다.
+ */
+participantRoutes.post("/fortune/mission", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+
+  const state = await seat.stub.participantState(seat.playerId, serverNow());
+  if (!state.ok) return apiError(c, "not_found");
+  const saved = state.value.fortune;
+  // 운세가 없으면 재료가 없다. 화면에서도 이 버튼은 운세가 나온 뒤에야 뜬다
+  if (!saved) return apiError(c, "closed", FORTUNE.closed);
+  if (saved.mission) return c.json(saved);
+
+  const mission = await makeMission(c.env, missionInput(state.value.me, saved));
+  // 운세 본문은 건드리지 않는 전용 경로다 — `saveFortune` 로 덮으면 ADR-20 이 무너진다
+  const { value, response } = unwrap(c, await seat.stub.saveMission(seat.playerId, mission));
   return response ?? c.json(value);
 });
 

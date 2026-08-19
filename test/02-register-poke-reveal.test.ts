@@ -1434,17 +1434,45 @@ describe("오늘의 연애운", () => {
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
 
-    const res = await api<{ headline: string; body: string; mission: string; fallback?: boolean }>(
+    const res = await api<{ headline: string; body: string; mission?: string; fallback?: boolean }>(
       "/api/fortune",
       { method: "POST", cookie: me.cookie },
     );
     expect(res.status).toBe(200);
     expect(res.body.fallback).toBe(true);
-    for (const line of [res.body.headline, res.body.body, res.body.mission]) {
+    for (const line of [res.body.headline, res.body.body]) {
       expect(line.length).toBeGreaterThan(0);
     }
     // 오늘의 기운은 세 문단이다
     expect(res.body.body.split(/\n\s*\n/).length).toBe(3);
+    // **미션은 아직 없다.** 참가자가 그 카드를 뒤집을 때 만들어진다
+    expect(res.body.mission).toBeUndefined();
+  });
+
+  it("★ 미션은 뒤집을 때 만들어지고, 두 번 눌러도 같은 문장이다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+    await api("/api/fortune", { method: "POST", cookie: me.cookie });
+
+    const first = await api<{ mission: string }>("/api/fortune/mission", { method: "POST", cookie: me.cookie });
+    expect(first.status).toBe(200);
+    expect(first.body.mission.length).toBeGreaterThan(0);
+
+    // 한 번 연 것은 다시 만들지 않는다 (ADR-20)
+    const again = await api<{ mission: string }>("/api/fortune/mission", { method: "POST", cookie: me.cookie });
+    expect(again.body.mission).toBe(first.body.mission);
+  });
+
+  it("★ 운세를 열기 전에는 미션을 만들 수 없다 — 재료가 그 운세다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+
+    const res = await api("/api/fortune/mission", { method: "POST", cookie: me.cookie });
+    expect(res.status).toBe(409);
   });
 
   it("남의 운세는 볼 수 없다", async () => {

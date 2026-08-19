@@ -689,9 +689,32 @@ export class EventDO extends DurableObject {
    * 처음 저장한 것만 남는다. 두 번 눌러 두 번 만들어졌더라도 **먼저 온 하나**가 오늘의 운세다 —
    * 열 때마다 달라지면 그 순간 전부 거짓말이 된다.
    */
+  /**
+   * 미션만 채운다. **운세 본문은 건드리지 않는다** —
+   * 한 번 연 운세는 바뀌지 않는다 (ADR-20). 저장하는 자리가 그 규칙을 지키게 둔다.
+   *
+   * 이미 채워져 있으면 그대로 돌려준다. 두 번 눌러도 같은 문장이 온다.
+   */
+  async saveMission(playerId: string, mission: string): Promise<Result<Fortune>> {
+    const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
+    if (!row) return fail("not_found");
+    const saved = readFortune(JSON.parse(row.json));
+    if (saved.mission) return ok(saved);
+
+    const next = { ...saved, mission };
+    this.ctx.storage.sql.exec(
+      "UPDATE fortunes SET json = ? WHERE player_id = ?",
+      JSON.stringify(next),
+      playerId,
+    );
+    return ok(next);
+  }
+
   async saveFortune(playerId: string, fortune: Fortune): Promise<Result<Fortune>> {
     if (!this.player(playerId)) return fail("not_found");
     this.ctx.storage.sql.exec(
+      // DO NOTHING 이 곧 "한 번 연 운세는 바뀌지 않는다" 다 (ADR-20).
+      // 미션을 채우는 건 `saveMission` 이 따로 한다 — 여기로 덮어쓰면 그 규칙이 무너진다
       "INSERT INTO fortunes (player_id, json) VALUES (?,?) ON CONFLICT(player_id) DO NOTHING",
       playerId,
       JSON.stringify(fortune),

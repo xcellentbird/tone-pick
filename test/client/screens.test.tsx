@@ -322,6 +322,45 @@ describe("오늘 탭", () => {
     expect(screen.getByText("요즘 자주 듣는 노래를 물어보세요")).toBeTruthy();
   });
 
+  it("★ 미션이 아직 없으면 뒤집을 카드가 그 자리에 있다", async () => {
+    /*
+     * 미션은 **누르는 그 순간에** 만든다. 이미 만들어 둔 걸 감췄다 보여주는 게 아니다 —
+     * 여는 동작이 있어야 그 한 줄이 오늘 것처럼 읽힌다 (ADR-20).
+     */
+    renderFortune(
+      party({ fortune: { headline: "천천히 걷는 밤", body: "본문", color: "violet", at: 1 } }),
+    );
+    await screen.findByText("천천히 걷는 밤");
+    expect(screen.getByText(FORTUNE.missionOpen)).toBeTruthy();
+    // 아직 만들지 않았으니 열린 미션 블록은 없다
+    // (문구로 찾으면 안 된다 — `오늘의 미션 열기` 가 `오늘의 미션` 을 품고 있다)
+    expect(document.querySelector(".fortuneMission.opened")).toBeNull();
+  });
+
+  it("★ 뒤집으면 그 자리에서 미션을 받아 온다", async () => {
+    const asked: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        asked.push(String(url));
+        return new Response(
+          JSON.stringify({ headline: "천천히 걷는 밤", body: "본문", mission: "이름을 물어보세요", color: "violet", at: 1 }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+    renderFortune(
+      party({ fortune: { headline: "천천히 걷는 밤", body: "본문", color: "violet", at: 1 } }),
+    );
+    fireEvent.click(await screen.findByText(FORTUNE.missionOpen));
+
+    await screen.findByText("이름을 물어보세요");
+    expect(asked).toContain("/api/fortune/mission");
+    // 뒤집힌 자리에는 버튼이 없다
+    expect(screen.queryByText(FORTUNE.missionOpen)).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   it("★ 점수를 보여주지 않는다", async () => {
     renderFortune(
       party({
