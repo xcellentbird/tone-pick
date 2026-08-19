@@ -76,6 +76,25 @@ export default function Players() {
         <span className="dim">{"›"}</span>
       </button>
 
+      {/*
+        참가 링크는 **명단 바로 아래**다. 한동안 현황 탭에 있었는데, 문을 여는 건
+        링크가 아니라 그 위의 명단이라(ADR-15) 둘이 떨어져 있으면 순서가 보이지 않았다 —
+        번호를 넣고, 그 사람들에게 링크를 보낸다. 한 화면에서 이어서 하는 일이다.
+
+        **링크만 보내면 된다.** 입장 코드는 이제 어디에서도 입력받지 않는다.
+        운영자가 "코드도 알려줘야 하나" 하고 헤매지 않도록 그 사실을 여기서 못 박는다.
+      */}
+      <button
+        className="btn ghost block"
+        onClick={() => {
+          void navigator.clipboard?.writeText(`${location.origin}/j/${state.meta.id}`);
+          toast(HOST_UI.copied);
+        }}
+      >
+        {HOST_UI.entryLink}
+      </button>
+      <p className="tiny dim">{HOST_UI.entryLinkNote}</p>
+
       {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
       <div className="choice">
         {([["all", HOST_UI.players.filterAll], ["M", GENDER.M], ["F", GENDER.F]] as const).map(([key, label]) => (

@@ -188,6 +188,19 @@ button {
   -webkit-overflow-scrolling: touch;
 }
 
+/*
+ * 머리와 목록 **사이에 고정되는 칸.** `.body` 앞에 두면 그대로 제자리에 남는다 —
+ * 흐르는 건 `.body` 하나뿐이라 `position: sticky` 도 `z-index` 도 필요 없다.
+ *
+ * 아래쪽 여백을 반만 준다. `.body` 가 제 몫의 `--pad` 를 들고 있어서
+ * 온전히 주면 고정 칸과 목록 첫 줄 사이만 두 배로 벌어진다.
+ */
+.pinned {
+  flex: none;
+  padding: var(--pad);
+  padding-bottom: calc(var(--pad) / 2);
+}
+
 .stack { display: flex; flex-direction: column; gap: var(--gap); }
 .row { display: flex; align-items: center; gap: var(--gap); }
 .row.between { justify-content: space-between; }
@@ -867,6 +880,13 @@ button {
  */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chipBtn { padding: 0 14px; font-size: 14px; }
+
+/*
+ * 발표 후에는 누를 수 없다. **흐리게 하지 않는다** — 자리는 그대로 읽혀야 하고,
+ * 여기서 흐려지면 지난 자리를 보러 온 사람이 볼 것을 못 본다.
+ * `.btn:disabled` 의 opacity 와 다른 이유가 그것이다: 저건 버튼이고 이건 정보다.
+ */
+.seatChip:disabled { cursor: default; }
 
 .seatChip {
   box-shadow: var(--shadow);

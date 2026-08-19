@@ -1665,7 +1665,7 @@ describe("앉힌 자리 고치기", () => {
     expect(emptied.acks).not.toContain(late.id);
   });
 
-  it("★ 발표 후에는 셋 다 막힌다", async () => {
+  it("★ 발표 후에는 고치는 길이 다 막힌다", async () => {
     // 발표만이 자리를 끝낸다. 확정도 발행도 끝내지 않는다 (ADR-28)
     const { ev, ids, round } = await seated();
     await setPhase(ev.id, "done");
@@ -1673,9 +1673,23 @@ describe("앉힌 자리 고치기", () => {
       ["swap", { a: ids[0], b: ids[1], round: round.round }],
       ["seat", { playerId: ids[0], round: round.round }],
       ["unseat", { playerId: ids[0], round: round.round }],
+      ["shuffle", {}],
+      ["publish", {}],
     ] as const) {
       const res = await api(`/api/host/events/${ev.id}/seating/${op}`, { method: "POST", cookie: master, body });
       expect(res.status, op).toBe(409);
     }
+  });
+
+  it("★ 발표 후에도 지난 자리는 그대로 읽힌다", async () => {
+    /*
+     * 잠기는 건 **고치는 길**뿐이다. 운영자는 끝난 뒤에도 누가 어디 앉았는지를 본다 —
+     * 다음 회차 자리를 짤 때, 사진을 정리할 때.
+     */
+    const { ev, round } = await seated();
+    await setPhase(ev.id, "done");
+    const after = (await rounds(ev.id)).find((r) => r.round === round.round)!;
+    expect(after.seats.length).toBe(6);
+    expect(after.seats.map((s) => s.playerId).sort()).toEqual(round.seats.map((s) => s.playerId).sort());
   });
 });

@@ -892,6 +892,7 @@ export class EventDO extends DurableObject {
    * 버튼 하나로 그 라운드가 무의미해진다. 붙어 앉은 쌍은 자리를 지키고 나머지만 섞인다.
    */
   async shuffleSeating(): Promise<Result<SeatingRound>> {
+    if (!(await this.seatsOpen())) return fail("closed");
     const draft = this.seatings().find((s) => s.status === "draft");
     if (!draft) return fail("not_found");
 
@@ -932,6 +933,8 @@ export class EventDO extends DurableObject {
   }
 
   async publishSeating(now: number): Promise<Result<SeatingRound>> {
+    // 발표만이 자리를 끝낸다 (ADR-28). 끝난 뒤에 발행하면 아무도 보지 못할 자리가 생긴다
+    if (!(await this.seatsOpen())) return fail("closed");
     const draft = this.seatings().find((s) => s.status === "draft");
     if (!draft) return fail("not_found");
     draft.status = "published";
