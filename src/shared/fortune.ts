@@ -27,11 +27,14 @@ export interface Fortune {
   color: FortuneColor;
   at: number;
   /**
-   * 오늘의 미션. **운세가 나온 뒤 두 번째 호출**에서 나온다 (`missionInput`).
-   * 한 번에 뽑으면 본문의 마지막 문단을 그대로 옮겨 적는 일이 잦았다 —
-   * 운세를 다 읽고 나서 "그래서 뭘 하지" 를 따로 묻는 편이 겹치지 않는다.
+   * 오늘의 미션. **참가자가 미션 카드를 뒤집을 때** 두 번째 호출로 만들어진다 (`missionInput`).
+   *
+   * 그래서 **없을 수 있다** — 운세만 열고 미션은 아직 안 연 상태다.
+   * 한 번에 뽑던 시절에는 본문 마지막 문단을 그대로 옮겨 적는 일이 잦았다.
+   * 다 읽고 나서 "그래서 뭘 하지" 를 따로 묻는 편이 겹치지 않고,
+   * **안 열어 본 사람 몫은 아예 만들지 않는다.**
    */
-  mission: string;
+  mission?: string;
   /** 규칙으로 만든 문구인가. 화면에서는 구분하지 않고, 운영자가 원인을 찾을 때 쓴다 */
   fallback?: boolean;
 }
@@ -202,8 +205,11 @@ export type FortuneDraft = Omit<Fortune, "mission">;
  * 이미 저장된 운세가 그대로 올라오면 미션 칸이 빈다. 기본값 NaN 사고와 같은 자리다.
  */
 export function readFortune(saved: unknown): Fortune {
-  const { step, ...rest } = saved as Fortune & { step?: string };
-  return { ...rest, mission: rest.mission || step || "" };
+  const { step, mission, ...rest } = saved as Fortune & { step?: string };
+  const m = mission || step;
+  // **없는 것과 빈 것을 뭉개지 않는다.** 빈 문자열로 채우면 "아직 안 연 미션" 이
+  // "연 적 있는데 비어 있는 미션" 으로 읽혀 다시 만들 길이 막힌다
+  return m ? { ...rest, mission: m } : rest;
 }
 
 /**
