@@ -165,12 +165,13 @@ participantRoutes.post("/fortune", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");
 
-  const state = await seat.stub.participantState(seat.playerId, serverNow());
-  if (!state.ok) return apiError(c, "not_found");
+  // 명단·콕까지 빚는 `participantState()` 대신 **좁은 읽기**다. 파티 시작 때 인원 수만큼 열린다
+  const ctx = await seat.stub.fortuneContext(seat.playerId, serverNow());
+  if (!ctx.ok) return apiError(c, "not_found");
   // 파티가 시작돼야 열린다. 그 전에는 탭도 없다
-  if (!canOpenFortune(state.value.event.phase)) return apiError(c, "closed", FORTUNE.closed);
+  if (!canOpenFortune(ctx.value.phase)) return apiError(c, "closed", FORTUNE.closed);
   // 한 번 연 운세는 다시 만들지 않는다 (ADR-20)
-  if (state.value.fortune) return c.json(state.value.fortune);
+  if (ctx.value.fortune) return c.json(ctx.value.fortune);
 
   // 생년월일은 여기서 읽고 여기서 버린다 — LLM 전송에만 쓰고 저장하지 않는다 (ADR-20)
   const body = (await c.req.json().catch(() => ({}))) as { birth?: unknown };
@@ -193,7 +194,7 @@ participantRoutes.post("/fortune", async (c) => {
    * 어제 날짜를 읽는다.
    */
   const now = serverNow();
-  const made = await makeFortune(c.env, fortuneInput(state.value.me, todayIn(now), birth), now);
+  const made = await makeFortune(c.env, fortuneInput(ctx.value.me, todayIn(now), birth), now);
   const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, made));
   return response ?? c.json(value);
 });
@@ -207,15 +208,15 @@ participantRoutes.post("/fortune/mission", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");
 
-  const state = await seat.stub.participantState(seat.playerId, serverNow());
-  if (!state.ok) return apiError(c, "not_found");
-  const saved = state.value.fortune;
+  const ctx = await seat.stub.fortuneContext(seat.playerId, serverNow());
+  if (!ctx.ok) return apiError(c, "not_found");
+  const saved = ctx.value.fortune;
   // 운세가 없으면 재료가 없다. 화면에서도 이 버튼은 운세가 나온 뒤에야 뜬다
   if (!saved) return apiError(c, "closed", FORTUNE.closed);
   if (saved.mission) return c.json(saved);
 
   // 두 칸이 함께 온다 — 왜 오늘 이것인지(`lead`)와 언제 무엇을(`mission`)
-  const made = await makeMission(c.env, missionInput(state.value.me, saved));
+  const made = await makeMission(c.env, missionInput(ctx.value.me, saved));
   // 운세 본문은 건드리지 않는 전용 경로다 — `saveFortune` 로 덮으면 ADR-20 이 무너진다
   const { value, response } = unwrap(c, await seat.stub.saveMission(seat.playerId, made));
   return response ?? c.json(value);

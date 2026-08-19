@@ -600,6 +600,33 @@ export class EventDO extends DurableObject {
     });
   }
 
+  /**
+   * 운세 두 경로가 쓰는 **좁은 읽기**.
+   *
+   * `participantState()` 로 이걸 하면 명단 전체를 `toPublic()` 으로 빚고 콕을 집계하고
+   * 자리를 찾는다 — 정작 필요한 건 단계·나·저장된 운세 셋뿐이다.
+   * 파티가 시작되면 인원 수만큼 이 경로가 한꺼번에 열리는데, 그 일이 전부
+   * **직렬화된 DO 스레드**에서 벌어진다. 그 시간이 곧 다른 사람의 읽기가 기다리는 시간이다.
+   *
+   * ⚠️ 여기 담긴 `me` 에는 실명이 있다. **참가자 응답에 그대로 싣지 마라** —
+   * LLM 입력(`fortuneInput`·`missionInput`)을 만드는 데만 쓰고, 라우트는 `Fortune` 만 돌려준다.
+   */
+  async fortuneContext(
+    playerId: string,
+    now: number,
+  ): Promise<Result<{ phase: Phase; me: Player; fortune?: Fortune }>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    const me = this.player(playerId);
+    if (!me) return fail("not_found");
+    const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
+    return ok({
+      phase: meta.phase,
+      me,
+      ...(row ? { fortune: readFortune(JSON.parse(row.json)) } : {}),
+    });
+  }
+
   async ackSeat(playerId: string, round: number): Promise<Result<true>> {
     const s = this.seatings().find((x) => x.round === round && x.status === "published");
     if (!s) return fail("not_found");
