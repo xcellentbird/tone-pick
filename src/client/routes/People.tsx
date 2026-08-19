@@ -9,9 +9,9 @@
  */
 import { useState } from "react";
 import { BTN, ME, PEOPLE, POKE, REVEAL, SEAT, STATUS, UNIT } from "../../shared/copy.ts";
-import type { MatchInfo, ParticipantState, PublicPlayer } from "../../shared/types.ts";
+import type { MatchInfo, ParticipantState, Phase, Player, PublicPlayer } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
-import { rosterOpen } from "../../shared/types.ts";
+import { rosterOpen, toPublic } from "../../shared/types.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
@@ -110,6 +110,14 @@ export default function People({ state, source, reload, profileId, onProfile }: 
         {open && <span className="small dim">{STATUS.roundLeft(round, budget.max - budget.used)}</span>}
       </div>
 
+      {/*
+        내 카드는 **필터 위**에 있지 않고 목록 맨 위에 있다 — 다른 카드와 같은 자리, 같은 모양이라야
+        "남들에게 이렇게 보인다"가 성립한다. 다만 `이성만 보기`에는 걸리지 않는다:
+        필터를 바꿨는데 내가 깜빡 사라지면 버그로 읽힌다.
+      */}
+      <MyCard me={state.me} phase={state.event.phase} />
+
+      {/* 이 문구는 **남들에 대한 말**이다. 내 카드가 생겼다고 지우지 않는다 */}
       {list.length === 0 && (
         <p className="dim center pre">{rosterOpen(state.event.phase) ? PEOPLE.empty : PEOPLE.notOpenYet}</p>
       )}
@@ -214,6 +222,51 @@ export default function People({ state, source, reload, profileId, onProfile }: 
         )}
       </Sheet>
     </>
+  );
+}
+
+/**
+ * 목록 맨 위의 내 카드. 답하는 건 **"내가 남들에게 어떻게 보이나"** 하나다.
+ *
+ * `toPublic()` 을 **그대로** 쓴다. 화면에서 규칙을 다시 짜면 두 곳이 갈라지는데,
+ * 하필 "이렇게 보여요" 라고 말하는 자리라 갈라지는 순간 거짓말이 된다.
+ * 서버 응답은 하나도 바뀌지 않는다 — 이미 받은 `me` 를 같은 함수로 줄여 그릴 뿐이다.
+ *
+ * **단계를 그대로 넘기지 않는다.** `toPublic` 은 `prevote` 에서만 나이·MBTI 를 뺀다.
+ * 등록 중에 그대로 부르면 나이가 나오는데 정작 사전 투표에서는 안 보인다 —
+ * 그래서 **남들이 나를 처음 보게 되는 상태**로 바꿔서 부른다.
+ *
+ * 누를 수 없다. 매력 전문과 내가 낸 것 전부는 내 정보 탭에 있고,
+ * 프로필 시트는 `roster` 에서 상대를 찾는데 거기 나는 없다.
+ */
+function MyCard({ me, phase }: { me: Player; phase: Phase }) {
+  const seenAs: Phase = phase === "party" || phase === "done" ? phase : "prevote";
+  const shown = toPublic(me, seenAs);
+  return (
+    <div className="stack">
+      <div className="person">
+        <Avatar nickname={shown.nickname} gender={shown.gender} />
+        <span className="meta">
+          <span className="name">
+            <span className="who">{shown.nickname}</span>
+            <span className="mineTag">{PEOPLE.mine}</span>
+            {shown.age && <span className="age">{shown.age}</span>}
+            {shown.mbti && <Mbti value={shown.mbti} />}
+          </span>
+          <span className="charms">
+            {shown.charms.map((c, i) => (
+              <span className="chip" key={i}>
+                {c}
+              </span>
+            ))}
+          </span>
+        </span>
+      </div>
+      <p className="tiny dim">
+        {rosterOpen(phase) ? PEOPLE.mineNow : PEOPLE.mineSoon}
+        {shown.age === undefined ? ` ${PEOPLE.mineLater}` : ""}
+      </p>
+    </div>
   );
 }
 

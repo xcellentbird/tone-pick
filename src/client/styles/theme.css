@@ -420,6 +420,25 @@ button {
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, var(--card)), var(--card));
 }
 .person .charm.matchLine { color: var(--accent); font-weight: 700; }
+
+/*
+ * 목록 맨 위 내 카드의 "나" 표시.
+ *
+ * **매칭 색(--accent)을 쓰지 않는다.** 목록에서 가장 눈에 띄어야 하는 건 서로 찌른 사람이고,
+ * 내 카드는 맨 위에 있다는 위치와 이 글자로 충분하다. 카드 자체는 다른 카드와 같은 모양이어야
+ * 한다 — 이 카드가 답하는 게 "남들에게 어떻게 보이나" 라서, 다르게 그리면 답이 틀린다.
+ */
+.person .mineTag {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--dim);
+}
 .matchCard { border: 1px solid var(--accent); }
 
 /* ── 현황 탭 (ADR-30) */
