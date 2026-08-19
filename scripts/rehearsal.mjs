@@ -42,6 +42,14 @@ const BURST = process.argv.includes("--burst");
  * 운영자가 "다들 폰 보세요" 라고 말하면 1초 안에 전원이 잠금을 푼다.
  */
 const READ_MS = Number(process.env.READWINDOW ?? 1) * 1000;
+/**
+ * 콕 상한. 기본 3 은 실제 기본값(`DEFAULTS` 의 사전 1 · 파티 2)보다 **일부러 무겁게** 잡은 값이다.
+ *
+ * 쓰기 총량이 곧 이 구간의 길이라서(150건 ÷ 5건/초 ≈ 30초) 이 숫자가 결과를 지배한다.
+ * 실제 설정에서 어떤지 보려면 `MAXPRE=1 MAXPARTY=2` 로 돌린다.
+ */
+const MAX_PRE = Number(process.env.MAXPRE ?? 3);
+const MAX_PARTY = Number(process.env.MAXPARTY ?? 3);
 
 /**
  * 닉네임·실명에 숫자를 쓸 수 없다 (nicknameProblem/realNameProblem) — 일련번호를 한글로 읽는다.
@@ -141,7 +149,7 @@ if (!health.label) {
   process.exit(1);
 }
 console.log(`\n환경 ${health.label} · ${BASE}`);
-console.log(`인원 ${PEOPLE}명 · 테이블 ${TABLES}개\n`);
+console.log(`인원 ${PEOPLE}명 · 테이블 ${TABLES}개 · 콕 상한 사전 ${MAX_PRE} / 파티 ${MAX_PARTY}\n`);
 
 const login = await host("/host/pin", { method: "POST", body: { pin: PIN } });
 if (login.status !== 200) {
@@ -156,12 +164,10 @@ const made = await host("/host/events", {
     partyAt: stamp + 86400_000,
     regOpenAt: "now",
     prevoteAt: stamp + 3600_000,
-    config: { maxPre: 3, maxParty: 3 },
+    config: { maxPre: MAX_PRE, maxParty: MAX_PARTY },
     requestId: `rehearsal-${stamp}`,
   },
 });
-// ⚠️ maxPre 3 은 기본값(DEFAULTS.maxPre = 1)의 **세 배**다. 일부러 무겁게 잡은 값이라
-//    여기 나오는 콕 숫자를 실제 파티의 사전 투표 부하로 읽으면 안 된다 — 1/3 로 보면 된다
 if (made.status !== 200) {
   console.error("❌ 회차를 만들지 못했습니다:", made.body);
   process.exit(1);
@@ -234,6 +240,11 @@ await Promise.all(
         clearTimeout(timer);
         done();
       };
+      /*
+       * 여기 소켓은 **익명이다.** Worker 는 세션 쿠키에서 참가자를 읽어 `x-player-id` 를 붙이는데,
+       * 노드의 WebSocket 은 핸드셰이크에 쿠키를 못 싣는다. 그래서 받는 사람에게만 가는
+       * `poke` 신호는 이 소켓에 닿지 않는다 — 콕이 부르는 재조회는 아래 ③ 에서 직접 만든다.
+       */
       ws.onmessage = (e) => {
         if (JSON.parse(e.data).type !== "phase") return;
         received++;
@@ -274,20 +285,42 @@ herd.at = performance.now();
 const pokeTimes = [];
 const pokeStarts = [];
 let pokeFailed = 0;
+/**
+ * **콕 한 건은 쓰기 1 + 읽기 1 이다.**
+ *
+ * 받은 사람에게 `poke` 신호가 가고(toPlayer), 그 화면은 신호 종류를 가리지 않고
+ * 한 벌을 다시 읽는다 — 부분 갱신을 만들지 않기로 했기 때문이다 (ADR-26).
+ * 여기 소켓은 익명이라 그 신호를 못 받으니, 받았을 때 일어날 읽기를 직접 만들어 같이 싣는다.
+ */
+const echoes = [];
+const echoTimes = [];
+let echoFailed = 0;
+
 await Promise.all(
   players.map(async (me, n) => {
     if (!BURST && players.length > 1) await sleep((n / (players.length - 1)) * SPREAD_MS);
     const targets = me.gender === "M" ? women : men;
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < MAX_PRE; k++) {
       const target = targets[(n + k * 7) % targets.length];
       pokeStarts.push(performance.now());
       const res = await me.call("/poke", { method: "POST", body: { toId: target.id } });
       pokeTimes.push(res.took);
-      if (res.status !== 200) pokeFailed++;
+      if (res.status !== 200) {
+        pokeFailed++;
+        continue;
+      }
+      // 기다리지 않는다 — 받은 사람 화면이 알아서 다시 읽는 것이라 보낸 쪽과 무관하게 흐른다
+      echoes.push(
+        target.call("/me").then((r) => {
+          echoTimes.push(r.took);
+          if (r.status !== 200) echoFailed++;
+        }),
+      );
     }
   }),
 );
 const pokeDone = performance.now();
+await Promise.all(echoes);
 
 // 늦게 도착한 신호까지 받아준 뒤 재조회를 마저 기다린다
 await sleep(1000);
@@ -301,7 +334,8 @@ report(
   `${herd.failed ? `실패 ${herd.failed}건` : "실패 0"}` +
     (herd.last ? ` · 마지막 ${ms(herd.last - herd.at)}` : ""),
 );
-report("콕", pokeTimes, `${pokeFailed ? `실패 ${pokeFailed}건` : "실패 0"} · 마지막 ${ms(pokeDone - herd.at)}`);
+report("콕(쓰기)", pokeTimes, `${pokeFailed ? `실패 ${pokeFailed}건` : "실패 0"} · 마지막 ${ms(pokeDone - herd.at)}`);
+report("콕이 부른 읽기", echoTimes, echoFailed ? `실패 ${echoFailed}건` : "실패 0");
 // 이 줄이 이 구간의 요점이다. 0 이면 겹치지 않은 것이고, 그러면 이 시나리오를 잰 게 아니다
 const overlapped = herd.last ? pokeStarts.filter((t) => t < herd.last).length : 0;
 console.log(`  겹침           재조회가 끝나기 전에 들어간 콕 ${overlapped}/${pokeStarts.length}건`);
