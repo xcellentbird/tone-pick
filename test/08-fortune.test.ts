@@ -1,18 +1,22 @@
 /**
  * 오늘의 연애운 (ADR-20).
  *
- * 재미로 붙인 기능이지만 규칙은 세 가지고, 셋 다 어기면 사고다.
- *   ① LLM 에 실명·전화번호·인스타를 보내지 않는다
- *   ② 한 번 연 운세는 바뀌지 않는다
- *   ③ 외부 서비스가 없어도 화면은 뜬다
+ * 재미로 붙인 기능이지만 규칙이 있고, 어기면 사고다.
+ *   ① 전화번호·인스타는 어느 호출에도 보내지 않는다
+ *   ② **실명은 운세 호출 하나에만** 예외로 들어간다 (ADR-20 개정).
+ *      어필 호출에는 없고, 답변·저장물·화면 어디에도 남지 않는다
+ *   ③ 한 번 연 운세는 바뀌지 않는다
+ *   ④ 외부 서비스가 없어도 화면은 뜬다
  */
 import { describe, expect, it } from "vitest";
 import {
   animalIndex,
+  appealInput,
+  fallbackAppeal,
   fallbackFortune,
   fortuneInput,
-  matchTypes,
   paragraphs,
+  parseAppeal,
   parseFortune,
   pickColor,
   readFortune,
@@ -20,7 +24,7 @@ import {
   validBirth,
   zodiacIndex,
 } from "../src/shared/fortune.ts";
-import { FORTUNE } from "../src/shared/copy.ts";
+import { APPEAL, FORTUNE } from "../src/shared/copy.ts";
 import { canOpenFortune } from "../src/shared/phase.ts";
 import type { Player } from "../src/shared/types.ts";
 
@@ -38,23 +42,44 @@ const PLAYER: Player = {
 };
 
 describe("LLM 에 보내는 것", () => {
-  it("★ 실명·전화번호·인스타는 보내지 않는다", () => {
-    const input = fortuneInput(PLAYER);
-    const sent = JSON.stringify(input) + FORTUNE.prompt.user(input);
+  it("★ 전화번호·인스타는 어느 호출에도 가지 않는다", () => {
+    const f = fortuneInput(PLAYER);
+    const a = appealInput(PLAYER, fallbackFortune(f, 1, FORTUNE.fallback));
+    const sent = JSON.stringify(f) + FORTUNE.prompt.user(f) + JSON.stringify(a) + APPEAL.prompt.user(a);
 
-    expect(sent).not.toContain("김실명");
     expect(sent).not.toContain("01012345678");
     expect(sent).not.toContain("secret_gram");
-    for (const leak of ["realName", "phone", "instagram", "id"]) {
-      expect(Object.keys(input)).not.toContain(leak);
+    for (const input of [f, a]) {
+      for (const leak of ["phone", "instagram", "id"]) {
+        expect(Object.keys(input)).not.toContain(leak);
+      }
     }
   });
 
-  it("보내는 건 이미 다른 참가자에게도 보이는 것들뿐이다", () => {
-    // roster 로 나가는 PublicPlayer 와 같은 범위다
-    expect(Object.keys(fortuneInput(PLAYER)).sort()).toEqual(
-      ["age", "charms", "gender", "mbti", "nickname"],
-    );
+  it("★ 실명은 운세 호출에만 간다 — 어필 호출에는 자리가 없다", () => {
+    /*
+     * 예외는 하나뿐이라야 예외다. 어필까지 이름을 받기 시작하면
+     * "어디까지 보내도 되나" 의 경계가 사라진다 (ADR-20 개정).
+     */
+    const f = fortuneInput(PLAYER);
+    expect(FORTUNE.prompt.user(f)).toContain("김실명");
+
+    const a = appealInput(PLAYER, fallbackFortune(f, 1, FORTUNE.fallback));
+    expect(JSON.stringify(a) + APPEAL.prompt.user(a)).not.toContain("김실명");
+    expect(Object.keys(a)).not.toContain("realName");
+  });
+
+  it("★ 이름을 답변에 쓰지 말라고 모델에게 못 박는다", () => {
+    // 답변에 이름이 나오면 저장물에도 화면에도 남는다 — 보내는 것보다 남는 게 무겁다
+    expect(FORTUNE.prompt.system).toContain("이름을 쓰지 마세요");
+    expect(APPEAL.prompt.system).toContain("이름을 지어 부르지 마세요");
+  });
+
+  it("운세와 어필은 재료가 갈린다", () => {
+    // 운세는 사주(이름·생년월일·성별), 어필은 사람(나이·성별·매력) + 방금 나온 운세
+    expect(Object.keys(fortuneInput(PLAYER)).sort()).toEqual(["gender", "realName"]);
+    expect(Object.keys(appealInput(PLAYER, fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback))).sort())
+      .toEqual(["age", "charms", "fortune", "gender"]);
   });
 
   it("점수를 매기지 말라고 모델에게 못 박는다", () => {
@@ -99,21 +124,44 @@ describe("생년월일", () => {
   });
 });
 
-describe("잘 통할 결의 이유 한 줄", () => {
-  it("폴백에도 채워진다", () => {
-    const f = fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback);
-    expect(f.matchNote).toBeTruthy();
+describe("오늘의 어필", () => {
+  const fortuneOf = () => fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback);
+
+  it("★ 운세 결과를 재료로 받는다 — 두 카드가 서로를 모르면 남남인 글이 된다", () => {
+    const f = fortuneOf();
+    const sent = APPEAL.prompt.user(appealInput(PLAYER, f));
+    expect(sent).toContain(f.headline);
+    expect(sent).toContain(f.mission);
   });
 
-  it("★ 없어도 운세를 버리지 않는다 — 옛 저장본과 새 코드가 같이 산다", () => {
-    const f = parseFortune('{"headline":"h","body":"b","mission":"m"}', fortuneInput(PLAYER), 1);
-    expect(f).not.toBeNull();
-    expect(f!.matchNote).toBeUndefined();
+  it("★ 파티가 어떤 자리인지 모델에게 알려준다", () => {
+    // 이 셋을 모르면 "좋은 인상을 남기세요" 같은 아무 데나 쓰는 말이 나온다
+    expect(APPEAL.prompt.system).toContain("지인들의 파티");
+    expect(APPEAL.prompt.system).toContain("이성을 만날 기회");
+    expect(APPEAL.prompt.system).toContain("콕");
   });
 
-  it("모델이 주면 다듬어 통과시킨다", () => {
-    const raw = JSON.stringify({ headline: "h", body: "b", mission: "m", matchNote: " 이유 " });
-    expect(parseFortune(raw, fortuneInput(PLAYER), 1)!.matchNote).toBe("이유");
+  it("팁은 매력 개수만큼 온다 — 모자라면 통째로 버린다", () => {
+    const input = appealInput(PLAYER, fortuneOf());
+    const ok = parseAppeal('{"headline":"h","tips":["a","b","c"]}', input);
+    expect(ok!.tips).toEqual(["a", "b", "c"]);
+    // 두 개만 오면 어느 매력이 빠진 건지 화면에서 알 수 없다
+    expect(parseAppeal('{"headline":"h","tips":["a","b"]}', input)).toBeNull();
+    expect(parseAppeal('{"headline":"h"}', input)).toBeNull();
+  });
+
+  it("★ 외부 서비스가 없어도 매력마다 한 줄씩 채워진다", () => {
+    const input = appealInput(PLAYER, fortuneOf());
+    const a = fallbackAppeal(input, APPEAL.fallback);
+    expect(a.headline).toBeTruthy();
+    expect(a.tips).toHaveLength(PLAYER.charms.length);
+    // 본인이 쓴 매력을 그대로 안아 쓴다 — 남이 지어준 말보다 잘 맞는다
+    for (const [i, charm] of PLAYER.charms.entries()) expect(a.tips[i]).toContain(charm);
+  });
+
+  it("점수를 매기지 말라고 여기에도 못 박는다", () => {
+    expect(APPEAL.prompt.system).toContain("점수");
+    expect(APPEAL.prompt.system).toContain("외모");
   });
 });
 
@@ -145,15 +193,14 @@ describe("외부 서비스가 없어도", () => {
     expect(f.mission.length).toBeGreaterThan(0);
     // 오늘의 기운은 세 문단이다
     expect(paragraphs(f.body)).toHaveLength(3);
-    expect(f.matchTypes).toHaveLength(2);
     expect(f.fallback).toBe(true);
-    // 본인이 쓴 매력을 그대로 안아 쓴다. 남이 지어준 말보다 잘 맞는다
-    expect(PLAYER.charms.some((c) => f.body.includes(c))).toBe(true);
   });
 
-  it("매력이 비어 있어도 문장이 만들어진다", () => {
-    const f = fallbackFortune({ ...fortuneInput(PLAYER), charms: [] }, 1, FORTUNE.fallback);
+  it("생년월일이 없어도 문장이 만들어진다", () => {
+    // 운세 입력은 이름·성별뿐일 수도 있다. 그때도 화면은 떠야 한다
+    const f = fallbackFortune(fortuneInput(PLAYER), 1, FORTUNE.fallback);
     expect(f.body.length).toBeGreaterThan(0);
+    expect(f.headline.length).toBeGreaterThan(0);
   });
 });
 
@@ -180,7 +227,7 @@ describe("모델이 뱉은 것을 읽을 때", () => {
   it("모델이 뭘 넣어 보내든 화면에 들어가는 항목만 통과한다", () => {
     const raw = '{"headline":"h","body":"b","mission":"m","score":92,"color":"#ff0000"}';
     const f = parseFortune(raw, input, 1)!;
-    expect(Object.keys(f).sort()).toEqual(["at", "body", "color", "headline", "matchTypes", "mission"]);
+    expect(Object.keys(f).sort()).toEqual(["at", "body", "color", "headline", "mission"]);
     expect(Object.keys(FORTUNE.colorName)).toContain(f.color);
   });
 });
@@ -212,21 +259,5 @@ describe("언제 열리나", () => {
     expect(canOpenFortune("party")).toBe(true);
     // 발표가 끝났다고 오늘 하루의 것이 사라질 이유는 없다
     expect(canOpenFortune("done")).toBe(true);
-  });
-});
-
-describe("말이 잘 통할 결", () => {
-  it("에너지는 반대, 보는 방식은 같게 고른다", () => {
-    const [a, b] = matchTypes("INFP");
-    expect(a[0]).toBe("E");
-    expect(b[0]).toBe("E");
-    expect(a[1]).toBe("N");
-    expect(b[1]).toBe("N");
-  });
-
-  it("이상한 값이 와도 MBTI 모양을 돌려준다", () => {
-    for (const bad of ["", "XXXX", "ENFPP", "1234"]) {
-      for (const t of matchTypes(bad)) expect(t).toMatch(/^[EI][NS][TF][JP]$/);
-    }
   });
 });

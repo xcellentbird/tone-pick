@@ -10,9 +10,9 @@
  * 실패는 **정상 경로**다. 키가 없거나, 모델 이름이 틀렸거나, 느리거나, 형식이 어긋나면
  * 규칙 문구로 떨어진다 (`fallbackFortune`). 파티 당일에 탭 하나가 에러를 뿜는 건 사고다.
  */
-import type { Fortune, FortuneInput } from "../shared/fortune.ts";
-import { fallbackFortune, parseFortune } from "../shared/fortune.ts";
-import { FORTUNE } from "../shared/copy.ts";
+import type { Appeal, AppealInput, Fortune, FortuneInput } from "../shared/fortune.ts";
+import { fallbackAppeal, fallbackFortune, parseAppeal, parseFortune } from "../shared/fortune.ts";
+import { APPEAL, FORTUNE } from "../shared/copy.ts";
 import type { Env } from "./http.ts";
 
 /** 파티 중이다. 오래 기다리느니 규칙 문구가 낫다 — 다만 카드 뒤집기가 앞의 1초를 덮는다 */
@@ -60,5 +60,48 @@ export async function makeFortune(env: Env, input: FortuneInput, now: number): P
     // 원인은 남기되 참가자에게는 티가 나지 않는다
     console.error("fortune failed", e);
     return fallbackFortune(input, now, FORTUNE.fallback);
+  }
+}
+
+/**
+ * 오늘의 어필 한 장. **운세가 나온 뒤에** 부른다 — 그 결과가 재료라서 나란히 못 부른다.
+ *
+ * 실패는 여기서도 정상 경로다. 어필이 안 나와도 운세는 그대로 뜬다 —
+ * 두 카드가 함께 죽지 않게, 실패를 각자 삼킨다.
+ *
+ * **이름은 여기 오지 않는다** (`AppealInput` 에 자리가 없다). 실명 예외는 운세 하나뿐이다.
+ */
+export async function makeAppeal(env: Env, input: AppealInput): Promise<Appeal> {
+  const key = env.OPENAI_API_KEY;
+  if (!key) return fallbackAppeal(input, APPEAL.fallback);
+
+  try {
+    const res = await fetch(`${env.LLM_BASE_URL || "https://api.openai.com/v1"}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: env.LLM_MODEL || "gpt-5.6-luna",
+        messages: [
+          { role: "system", content: APPEAL.prompt.system },
+          { role: "user", content: APPEAL.prompt.user(input) },
+        ],
+        max_completion_tokens: MAX_TOKENS,
+      }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`llm ${res.status}`);
+
+    const body = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+    };
+    const choice = body.choices?.[0];
+    const parsed = parseAppeal(choice?.message?.content ?? "", input);
+    if (parsed) return parsed;
+
+    console.error("appeal unusable", { finish: choice?.finish_reason, len: choice?.message?.content?.length });
+    return fallbackAppeal(input, APPEAL.fallback);
+  } catch (e) {
+    console.error("appeal failed", e instanceof Error ? e.message : e);
+    return fallbackAppeal(input, APPEAL.fallback);
   }
 }

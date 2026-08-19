@@ -5,9 +5,13 @@
  * 키가 없어도, 파티 당일에 외부 서비스가 죽어도 화면은 산다.
  * 실제 호출은 Worker 가 하고 (`server/fortune.ts`), 결과는 회차 DO 에 한 번만 저장된다.
  *
- * ⚠️ **LLM 에 보내는 값은 `fortuneInput()` 이 만드는 것뿐이다.**
- *    실명·전화번호·인스타는 절대 넣지 마라. 다른 참가자에게도 안 주는 걸
- *    외부 서비스에 보내는 건 더 나쁘다 (ADR-20).
+ * ⚠️ **LLM 에 보내는 값은 이 파일의 두 입력 함수가 만드는 것뿐이다.**
+ *    전화번호·인스타는 절대 넣지 마라.
+ *
+ *    실명은 **운세 호출 하나에만** 예외로 들어간다 (ADR-20 개정). 세 가지가 함께 지켜져야 한다.
+ *      · 어필 호출에는 넣지 않는다 — 예외는 하나뿐이라야 예외다
+ *      · **답변에 이름이 나오지 않게** 프롬프트가 막는다. 그래서 저장물에도, 화면에도 없다
+ *      · 어디에도 저장하지 않는다. 생년월일과 같다 — 전송에만 쓴다
  */
 import type { Gender } from "./types.ts";
 
@@ -22,32 +26,54 @@ export interface Fortune {
   /** 오늘의 기운에서 이어지는 작은 미션. 30분 안에 해볼 수 있고 실패해도 티가 나지 않는 것 */
   mission: string;
   color: FortuneColor;
-  /** 오늘 말이 잘 통할 결. 규칙으로 정한다 (LLM 아님) */
-  matchTypes: [string, string];
   at: number;
-  /** 잘 통할 결 두 MBTI 가 오늘 왜 잘 맞는지 한 줄. 옛 저장본에는 없다 — 화면이 조건부로 그린다 */
-  matchNote?: string;
+  /**
+   * 오늘의 어필. **운세를 재료로 두 번째 호출**에서 나온다 —
+   * 두 카드가 따로 놀면 한 화면에 남남인 글 두 개가 된다.
+   * 옛 저장본에는 없다. 화면이 조건부로 그린다.
+   */
+  appeal?: Appeal;
   /** 규칙으로 만든 문구인가. 화면에서는 구분하지 않고, 운영자가 원인을 찾을 때 쓴다 */
   fallback?: boolean;
 }
 
 /**
- * LLM 에 보내는 값. **이 함수가 개인정보 경계다.**
+ * 운세 호출에 보내는 값. **이 타입이 개인정보 경계다.**
  *
- * 여기 담기는 건 전부 이미 다른 참가자에게 보이는 것들이다 —
- * 닉네임·나이·성별·MBTI·매력 3가지. 그 밖의 것은 담지 않는다.
+ * 사주를 보는 재료만 담는다 — 이름·생년월일·성별. 닉네임·MBTI·매력은 담지 않는다
+ * (그건 어필 호출의 재료다).
+ *
+ * **실명은 여기서만 예외다** (ADR-20 개정). 대신 셋을 함께 지킨다 —
+ * 답변에 이름이 나오지 않게 프롬프트가 막고, 저장하지 않고, 어필 호출에는 넣지 않는다.
  */
 export interface FortuneInput {
-  nickname: string;
-  age: number;
+  /** 사주를 부르는 이름. **전송에만 쓴다** — 답변에도, 저장물에도 남지 않는다 */
+  realName: string;
   gender: "M" | "F";
-  mbti: string;
-  charms: string[];
   /**
    * 여는 순간 본인이 넣는 생년월일. **전송에만 쓰고 저장하지 않는다** —
-   * 운세와 함께 남기면 실명·전화와 나란히 놓이는 가장 무거운 신원 정보가 된다.
+   * 운세와 함께 남기면 전화번호와 나란히 놓이는 가장 무거운 신원 정보가 된다.
    */
   birth?: { year: number; month: number; day: number };
+}
+
+/**
+ * 어필 호출에 보내는 값. **이름은 없다** — 예외는 운세 하나뿐이라야 예외다.
+ *
+ * 운세 결과를 함께 넘긴다. 두 카드가 한 화면에 나란히 서는데 서로를 모르면
+ * 남남인 글 두 개가 된다 — 오늘의 결에서 이어지는 어필이라야 읽을 값어치가 있다.
+ */
+export interface AppealInput {
+  age: number;
+  gender: "M" | "F";
+  charms: string[];
+  fortune: { headline: string; body: string; mission: string };
+}
+
+/** 오늘의 어필. 매력 3가지에 하나씩 대응하는 팁 */
+export interface Appeal {
+  headline: string;
+  tips: string[];
 }
 
 /**
@@ -55,22 +81,26 @@ export interface FortuneInput {
  * 이 함수가 하는 일은 **덜어내는 것**이지 모양을 맞추는 게 아니다.
  */
 export function fortuneInput(
-  p: {
-    nickname: string;
-    age: number;
-    gender: Gender;
-    mbti: string;
-    charms: readonly string[];
-  },
+  p: { realName: string; gender: Gender },
   birth?: { year: number; month: number; day: number },
 ): FortuneInput {
   return {
-    nickname: p.nickname,
+    realName: p.realName,
+    gender: p.gender,
+    ...(birth ? { birth } : {}),
+  };
+}
+
+/** 어필 호출에 보내는 값을 만든다. **이름을 넣지 마라** — 여기가 그 경계다 */
+export function appealInput(
+  p: { age: number; gender: Gender; charms: readonly string[] },
+  fortune: Fortune,
+): AppealInput {
+  return {
     age: p.age,
     gender: p.gender,
-    mbti: p.mbti,
     charms: [...p.charms],
-    ...(birth ? { birth } : {}),
+    fortune: { headline: fortune.headline, body: fortune.body, mission: fortune.mission },
   };
 }
 
@@ -119,20 +149,14 @@ export function pickColor(seed: number): FortuneColor {
 }
 
 /**
- * 오늘 말이 잘 통할 결.
+ * 저장물에 남는 값(색)과 대체 문구를 고르는 씨앗.
  *
- * 과학이 아니라 운세다. 다만 **아무 말이나 하지는 않는다** —
- * 세상을 보는 방식(N/S)이 같으면 이야기가 붙고, 에너지(E/I)가 다르면
- * 한쪽이 말하고 한쪽이 듣는다. 그 두 가지만 규칙으로 쓴다.
+ * **실명을 쓰지 않는다.** 저장되는 값이 이름에서 나오면 이름이 간접적으로 남는 셈이다 —
+ * 생년월일과 성별이면 사람마다 갈리기에 충분하다.
  */
-export function matchTypes(mbti: string): [string, string] {
-  const m = /^[EI][NS][TF][JP]$/.test(mbti) ? mbti : "ENFP";
-  const flip = (c: string, a: string, b: string) => (c === a ? b : a);
-  const same = m[1];
-  return [
-    `${flip(m[0], "E", "I")}${same}${m[2]}${m[3]}`,
-    `${flip(m[0], "E", "I")}${same}${flip(m[2], "T", "F")}${flip(m[3], "J", "P")}`,
-  ];
+function fortuneSeed(input: FortuneInput): number {
+  const b = input.birth;
+  return seedOf(`${b ? `${b.year}-${b.month}-${b.day}` : "?"}:${input.gender}`);
 }
 
 /**
@@ -140,29 +164,39 @@ export function matchTypes(mbti: string): [string, string] {
  *
  * 키가 없을 때만 쓰는 임시 문구가 아니다 — 파티 당일 외부 서비스가 느리거나 죽어도
  * **이 화면은 반드시 뜬다.** 그래서 이쪽 문장도 읽을 만해야 한다.
- * 본인이 쓴 매력 한 줄을 그대로 안아 쓴다. 남이 지어준 말보다 잘 맞는다.
  */
 export function fallbackFortune(input: FortuneInput, now: number, lines: FallbackLines): Fortune {
-  const seed = seedOf(`${input.nickname}:${input.mbti}`);
-  const charm = input.charms[seed % input.charms.length] ?? "";
+  const seed = fortuneSeed(input);
   return {
     headline: lines.headline[seed % lines.headline.length],
-    body: lines.body(charm, input.mbti[0] === "E"),
-    mission: lines.mission[(seed >> 3) % lines.mission.length],
-    matchNote: lines.matchNote[(seed >> 6) % lines.matchNote.length],
+    body: lines.body[(seed >> 2) % lines.body.length],
+    mission: lines.mission[(seed >> 5) % lines.mission.length],
     color: pickColor(seed),
-    matchTypes: matchTypes(input.mbti),
     at: now,
     fallback: true,
+  };
+}
+
+/** 어필도 규칙 문구가 있다. 운세만 뜨고 어필 칸이 비면 화면이 반쯤 죽은 것처럼 보인다 */
+export function fallbackAppeal(input: AppealInput, lines: AppealFallbackLines): Appeal {
+  const seed = seedOf(input.charms.join("/"));
+  return {
+    headline: lines.headline[seed % lines.headline.length],
+    tips: input.charms.map((charm, i) => lines.tip(charm, (seed >> (i * 3)) % 3)),
   };
 }
 
 /** 문구는 `copy.ts` 에서 넘겨받는다. 이 파일에는 한국어를 두지 않는다 */
 export interface FallbackLines {
   headline: readonly string[];
+  body: readonly string[];
   mission: readonly string[];
-  matchNote: readonly string[];
-  body: (charm: string, outgoing: boolean) => string;
+}
+
+export interface AppealFallbackLines {
+  headline: readonly string[];
+  /** 본인이 쓴 매력을 그대로 안아 쓴다. 남이 지어준 말보다 잘 맞는다 */
+  tip: (charm: string, variant: number) => string;
 }
 
 /**
@@ -189,7 +223,7 @@ export function paragraphs(body: string): string[] {
  */
 export function parseFortune(raw: string, input: FortuneInput, now: number): Fortune | null {
   const text = raw.trim().replace(/^```(?:json)?/, "").replace(/```$/, "");
-  let data: { headline?: unknown; body?: unknown; mission?: unknown; step?: unknown; matchNote?: unknown };
+  let data: { headline?: unknown; body?: unknown; mission?: unknown; step?: unknown };
   try {
     data = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
   } catch {
@@ -205,17 +239,26 @@ export function parseFortune(raw: string, input: FortuneInput, now: number): For
   const mission = str(data.mission, 160) ?? str(data.step, 160);
   if (!headline || !body || !mission) return null;
 
-  // matchNote 는 **없어도 운세를 버리지 않는다** — 화면이 조건부로 그린다.
-  // 옛 저장본과 새 저장본이 같은 코드로 읽혀야 한다
-  const matchNote = str(data.matchNote, 90);
+  return { headline, body, mission, color: pickColor(fortuneSeed(input)), at: now };
+}
 
-  return {
-    headline,
-    body,
-    mission,
-    ...(matchNote ? { matchNote } : {}),
-    color: pickColor(seedOf(`${input.nickname}:${input.mbti}`)),
-    matchTypes: matchTypes(input.mbti),
-    at: now,
-  };
+/**
+ * 어필 응답을 읽는다. 팁은 **매력 개수만큼** 와야 한다 —
+ * 두 개만 오면 어느 매력이 빠진 건지 화면에서 알 수 없다. 그럴 바엔 규칙 문구가 낫다.
+ */
+export function parseAppeal(raw: string, input: AppealInput): Appeal | null {
+  const text = raw.trim().replace(/^```(?:json)?/, "").replace(/```$/, "");
+  let data: { headline?: unknown; tips?: unknown };
+  try {
+    data = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+  } catch {
+    return null;
+  }
+  const str = (v: unknown, max: number) =>
+    typeof v === "string" && v.trim().length > 0 && v.length <= max ? v.trim() : null;
+
+  const headline = str(data.headline, 60);
+  const tips = Array.isArray(data.tips) ? data.tips.map((t) => str(t, 200)) : [];
+  if (!headline || tips.length !== input.charms.length || tips.some((t) => !t)) return null;
+  return { headline, tips: tips as string[] };
 }

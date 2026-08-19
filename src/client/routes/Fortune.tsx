@@ -11,7 +11,7 @@
  *  · 카드 하나뿐인 화면이다 — 화면을 채운다 (fortuneFill). 내용이 길면 그대로 스크롤된다
  */
 import { useState } from "react";
-import { FORTUNE } from "../../shared/copy.ts";
+import { APPEAL, FORTUNE } from "../../shared/copy.ts";
 import { paragraphs, validBirth, type Fortune } from "../../shared/fortune.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { ApiError, post } from "../lib/api.ts";
@@ -113,19 +113,34 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
           </p>
         </div>
 
-        {/* 색·결 메타 — 미션과 같은 내부 카드. 본문(읽는 것)과 정보(찾아보는 것)가 형태로 갈린다 */}
+        {/* 색 메타 — 미션과 같은 내부 카드. 본문(읽는 것)과 정보(찾아보는 것)가 형태로 갈린다 */}
         <div className="fortuneMeta">
           <div className="row between">
             <span className="small dim">🎨 {FORTUNE.colorTitle}</span>
             <span className="small">{FORTUNE.colorName[card.color]}</span>
           </div>
-          <div className="row between">
-            <span className="small dim">🤝 {FORTUNE.matchTitle}</span>
-            <span className="small">{card.matchTypes.join(" · ")}</span>
-          </div>
-          {card.matchNote && <p className="tiny dim" style={{ margin: 0, textAlign: "right" }}>{card.matchNote}</p>}
         </div>
       </div>
+
+      {/*
+        오늘의 어필 — **운세 아래에 별도 카드**로 선다.
+        운세가 "오늘 나는 어떤 결인가" 라면 이건 "그래서 뭘 어떻게 보여주나" 다.
+        한 카드에 이어 붙이면 읽을 것이 너무 길어지고, 둘의 성격이 형태로 갈리지 않는다.
+        옛 저장본에는 없다 — 그때는 이 카드가 통째로 없다.
+      */}
+      {card.appeal && (
+        <div className="card stack appealCard">
+          <div className="kicker">💬 {APPEAL.title}</div>
+          <h2 className="fortuneHeadline">{card.appeal.headline}</h2>
+          <div className="stack appealTips">
+            {card.appeal.tips.map((tip, i) => (
+              <p className="appealTip" key={i}>
+                {tip}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
