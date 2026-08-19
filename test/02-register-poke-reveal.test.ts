@@ -1554,3 +1554,128 @@ describe("되돌리기", () => {
     expect(after.body.fired.done).toBeGreaterThan(0);
   });
 });
+
+// ─────────────────────────────────────────── 앉힌 자리 고치기 (슬라이스 11)
+
+/**
+ * 발행한 라운드는 손댈 수 없는 것이었다. 유일한 수단이 새 라운드 발행이라,
+ * 한 명이 늦게 왔다고 **전원이 자리를 옮기고 전원이 확인 화면을 다시 받았다.**
+ *
+ * 이제 초안이든 발행된 것이든 같은 조작 셋을 받는다 — 맞교환 · 앉히기 · 자리 비우기.
+ */
+describe("앉힌 자리 고치기", () => {
+  type Round = { round: number; seats: Array<{ playerId: string; table: number }>; acks: string[] };
+  const seatOp = (id: string, op: string, body: Record<string, unknown>) =>
+    api<Round>(`/api/host/events/${id}/seating/${op}`, { method: "POST", cookie: master, body });
+  const rounds = async (id: string) =>
+    (await api<{ seatings: Round[] }>(`/api/host/events/${id}/state`, { cookie: master })).body.seatings;
+
+  /** 남녀 셋씩 여섯 명을 두 테이블에 앉히고 발행까지 한다 */
+  async function seated(final = false) {
+    const ev = await freshEvent();
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    await api(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, final },
+    });
+    const pub = await api<Round>(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
+    return { ev, ids, round: pub.body };
+  }
+
+  it("★ 앉힐 테이블은 서버가 고른다 — 그 성별이 가장 덜 찬 곳으로", async () => {
+    /*
+     * 운영자가 테이블을 고르게 하면 그게 곧 **한 명만 옮기는 API** 다 (SEATING.md).
+     * 성비는 지키려고 노력하는 게 아니라 깨질 방법이 없어야 한다.
+     */
+    const { ev, round } = await seated();
+    const man = round.seats.find((s) => s.table === 1)!;
+    // 1번에서 한 명을 빼면 그 테이블이 그 성별로 가장 비게 된다 → 도로 1번에 앉아야 한다
+    await seatOp(ev.id, "unseat", { playerId: man.playerId, round: round.round });
+    const back = await seatOp(ev.id, "seat", { playerId: man.playerId, round: round.round });
+    expect(back.body.seats.find((s) => s.playerId === man.playerId)?.table).toBe(1);
+
+    // 테이블을 받는 통로는 없다 — 보내도 서버가 무시한다
+    await seatOp(ev.id, "unseat", { playerId: man.playerId, round: round.round });
+    const forced = await seatOp(ev.id, "seat", { playerId: man.playerId, round: round.round, table: 2 });
+    expect(forced.body.seats.find((s) => s.playerId === man.playerId)?.table).toBe(1);
+  });
+
+  it("★ 같은 사람이 두 자리에 있지 않다", async () => {
+    const { ev, round } = await seated();
+    const one = round.seats[0].playerId;
+    const again = await seatOp(ev.id, "seat", { playerId: one, round: round.round });
+    expect(again.body.seats.filter((s) => s.playerId === one).length).toBe(1);
+    expect(again.body.seats.length).toBe(6);
+  });
+
+  it("★ 자리 비우기는 참가자를 지우는 것이 아니다", async () => {
+    /*
+     * 지우면 그가 만든 매칭이 **상대에게서도 사라진다** (FLOWS.md).
+     * 집에 간 사람도 서로 찔렀으면 연락처가 오가는 게 이 앱의 목적이다.
+     */
+    const ev = await freshEvent();
+    const a = await join(ev, { gender: "M" });
+    const b = await join(ev, { gender: "F" });
+    await setPhase(ev.id, "prevote");
+    await api("/api/poke", { method: "POST", cookie: a.cookie, body: { toId: b.id } });
+    await api("/api/poke", { method: "POST", cookie: b.cookie, body: { toId: a.id } });
+    await setPhase(ev.id, "party");
+    await api(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 1, final: false },
+    });
+    const pub = await api<Round>(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
+
+    await seatOp(ev.id, "unseat", { playerId: a.id, round: pub.body.round });
+
+    // 명단에 그대로 있고
+    const state = await api<{ players: Array<{ id: string }>; mutual: Array<[string, string]> }>(
+      `/api/host/events/${ev.id}/state`, { cookie: master },
+    );
+    expect(state.body.players.map((p) => p.id)).toContain(a.id);
+    // 서로 찌른 쌍도 그대로다
+    expect(state.body.mutual.length).toBe(1);
+    // 발표 때 상대에게 매칭이 보인다
+    await setPhase(ev.id, "done");
+    const mine = await api<ParticipantState>("/api/me", { cookie: b.cookie });
+    expect(mine.body.poke.matches.map((m) => m.player.id)).toEqual([a.id]);
+  });
+
+  it("★ 발행된 라운드를 고쳐도 자리 이동 확인이 뜨지 않는다", async () => {
+    /*
+     * 전원이 한꺼번에 움직이는 건 **발행**뿐이고, 그때만 확인 화면이 뜬다.
+     * `acks` 의 뜻이 "이 자리를 안다" 로 넓어진다 — 운영자가 손으로 앉힌 것도 아는 것이다.
+     */
+    const { ev, ids, round } = await seated();
+    // 발행 뒤에 등록한 사람 — 이 라운드에 자리가 없다
+    const late = await join(ev, { gender: "M" });
+    const before = (await rounds(ev.id))[0];
+    expect(before.seats.some((s) => s.playerId === late.id)).toBe(false);
+
+    const after = (await seatOp(ev.id, "seat", { playerId: late.id, round: round.round })).body;
+    expect(after.seats.some((s) => s.playerId === late.id)).toBe(true);
+    // 확인 화면은 `acked` 가 아닐 때만 뜬다 — 함께 넣어서 뜨지 않게 한다
+    expect(after.acks).toContain(late.id);
+    const seen = await api<ParticipantState>("/api/me", { cookie: late.cookie });
+    expect(seen.body.seat?.acked).toBe(true);
+
+    // 맞교환은 `acks` 를 건드리지 않는다. 자리를 비우면 거기서도 빠진다
+    const swapped = (await seatOp(ev.id, "swap", { a: ids[0], b: ids[1], round: round.round })).body;
+    expect(swapped.acks).toContain(late.id);
+    const emptied = (await seatOp(ev.id, "unseat", { playerId: late.id, round: round.round })).body;
+    expect(emptied.acks).not.toContain(late.id);
+  });
+
+  it("★ 발표 후에는 셋 다 막힌다", async () => {
+    // 발표만이 자리를 끝낸다. 확정도 발행도 끝내지 않는다 (ADR-28)
+    const { ev, ids, round } = await seated();
+    await setPhase(ev.id, "done");
+    for (const [op, body] of [
+      ["swap", { a: ids[0], b: ids[1], round: round.round }],
+      ["seat", { playerId: ids[0], round: round.round }],
+      ["unseat", { playerId: ids[0], round: round.round }],
+    ] as const) {
+      const res = await api(`/api/host/events/${ev.id}/seating/${op}`, { method: "POST", cookie: master, body });
+      expect(res.status, op).toBe(409);
+    }
+  });
+});

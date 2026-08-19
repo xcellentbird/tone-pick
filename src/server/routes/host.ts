@@ -250,12 +250,38 @@ hostRoutes.post("/events/:id/seating", async (c) => {
   return response ?? c.json(value);
 });
 
+/**
+ * 라운드 하나를 고치는 조작 셋. **초안이든 발행된 것이든 같은 길로 간다** (슬라이스 11).
+ *
+ * `round` 를 안 주면 초안이다 — 운영자가 지금 보고 있는 카드가 어느 것인지는 화면이 안다.
+ * 발행된 라운드를 고쳐도 자리 이동 확인은 뜨지 않는다. 화면은 방송으로 다시 읽는다.
+ */
 hostRoutes.post("/events/:id/seating/swap", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
-  const body = await json<{ a?: string; b?: string }>(c);
+  const body = await json<{ a?: string; b?: string; round?: number }>(c);
   if (!body.a || !body.b) return apiError(c, "bad_request");
-  const { value, response } = unwrap(c, await gate.stub.swapSeats(body.a, body.b));
+  const { value, response } = unwrap(c, await gate.stub.swapSeats(body.a, body.b, body.round));
+  return response ?? c.json(value);
+});
+
+/** 자리 없는 사람을 앉힌다. **테이블은 받지 않는다** — 서버가 고른다 (SEATING.md) */
+hostRoutes.post("/events/:id/seating/seat", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const body = await json<{ playerId?: string; round?: number }>(c);
+  if (!body.playerId) return apiError(c, "bad_request");
+  const { value, response } = unwrap(c, await gate.stub.seatPlayer(body.playerId, body.round));
+  return response ?? c.json(value);
+});
+
+/** 이 라운드 자리에서만 뺀다. 참가자를 지우는 길(`DELETE /players/:id`)과 다른 일이다 */
+hostRoutes.post("/events/:id/seating/unseat", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const body = await json<{ playerId?: string; round?: number }>(c);
+  if (!body.playerId) return apiError(c, "bad_request");
+  const { value, response } = unwrap(c, await gate.stub.unseatPlayer(body.playerId, body.round));
   return response ?? c.json(value);
 });
 
