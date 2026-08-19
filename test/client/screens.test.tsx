@@ -21,6 +21,7 @@ import type { ParticipantSource } from "../../src/client/lib/participant.ts";
 import { ApiError } from "../../src/client/lib/api.ts";
 import { Overlays } from "../../src/client/ui/Overlays.tsx";
 import EnvBadge from "../../src/client/ui/EnvBadge.tsx";
+import { useKeyboardInset } from "../../src/client/lib/keyboard.ts";
 
 afterEach(cleanup);
 
@@ -612,6 +613,82 @@ describe("상단 바", () => {
       </MemoryRouter>,
     );
     await screen.findByText("테스트 파티");
+  });
+});
+
+// ─────────────────────────────────────────── 키보드가 가린 높이
+
+/**
+ * `position: fixed; bottom: 0` 은 **레이아웃 뷰포트** 기준이라 키보드가 떠도 안 움직인다.
+ * 운영자가 입장 명단에 번호를 넣을 때 시트가 통째로 키보드 뒤로 들어갔다.
+ *
+ * 안드로이드는 뷰포트 메타(`interactive-widget=resizes-content`)가 맡지만
+ * **iOS 사파리는 그 속성을 모른다** — 거기서는 이 값이 유일한 단서라 계산이 틀리면 조용히 가려진다.
+ */
+describe("키보드가 가린 높이", () => {
+  function Probe() {
+    useKeyboardInset();
+    return null;
+  }
+  const kb = () => document.documentElement.style.getPropertyValue("--kb");
+
+  /** 시각 뷰포트를 흉내낸다. happy-dom 에는 visualViewport 가 없다 */
+  function fakeViewport(height: number, offsetTop = 0) {
+    const listeners: Array<() => void> = [];
+    const vv = {
+      height,
+      offsetTop,
+      addEventListener: (_: string, fn: () => void) => listeners.push(fn),
+      removeEventListener: () => {},
+      fire: () => listeners.forEach((fn) => fn()),
+      set: (h: number, top = 0) => {
+        vv.height = h;
+        vv.offsetTop = top;
+        vv.fire();
+      },
+    };
+    vi.stubGlobal("visualViewport", vv);
+    return vv;
+  }
+
+  afterEach(() => {
+    document.documentElement.style.removeProperty("--kb");
+    vi.unstubAllGlobals();
+  });
+
+  it("★ 키보드가 뜨면 가린 높이만큼 값이 생긴다", () => {
+    const vv = fakeViewport(window.innerHeight);
+    render(<Probe />);
+    expect(kb()).toBe("0px");
+
+    // 키보드 300px 이 올라왔다
+    vv.set(window.innerHeight - 300);
+    expect(kb()).toBe("300px");
+  });
+
+  it("★ 위로 밀린 만큼을 두 번 세지 않는다", () => {
+    /*
+     * iOS 는 키보드가 뜰 때 시각 뷰포트를 위로 밀기도 한다. 그만큼은 이미 화면이 스크롤된 것이라
+     * 두 번 세면 시트가 필요 이상으로 떠서 위쪽이 화면 밖으로 나간다.
+     */
+    const vv = fakeViewport(window.innerHeight);
+    render(<Probe />);
+    vv.set(window.innerHeight - 300, 100);
+    expect(kb()).toBe("200px");
+  });
+
+  it("키보드가 내려가면 0 으로 돌아온다", () => {
+    const vv = fakeViewport(window.innerHeight - 300);
+    render(<Probe />);
+    expect(kb()).toBe("300px");
+
+    vv.set(window.innerHeight);
+    expect(kb()).toBe("0px");
+  });
+
+  it("시각 뷰포트를 모르는 브라우저에서도 화면이 죽지 않는다", () => {
+    vi.stubGlobal("visualViewport", undefined);
+    expect(() => render(<Probe />)).not.toThrow();
   });
 });
 

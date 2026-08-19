@@ -88,6 +88,12 @@
   --radius-sm: 8px;
   --radius-pill: 999px;
   --tap: 44px; /* 터치 타겟 최소 크기 */
+  /*
+   * 소프트 키보드가 아래에서 가린 높이. `lib/keyboard.ts` 가 실제 값을 넣는다.
+   * **기본값이 없으면 안 된다** — 비어 있으면 이 변수를 쓰는 calc 가 통째로 무효가 되고
+   * 시트가 자리를 잃는다. 키보드가 없는 곳(데스크톱)에서는 계속 0 이다.
+   */
+  --kb: 0px;
   --gap: 12px;
   --gap-lg: 18px;
   --pad: 16px;
@@ -133,10 +139,20 @@ button {
 
 /* ─────────────────────────── 화면 뼈대 */
 
+/*
+ * 화면도 **키보드 위까지만** 쓴다 (`--kb`).
+ *
+ * 안드로이드는 뷰포트 메타가 레이아웃을 줄여줘서 100dvh 가 알아서 따라오지만
+ * **iOS 사파리는 안 줄어든다** — 그대로 두면 아래에 붙은 버튼(등록 폼의 `다음`, 탭바)이
+ * 키보드 뒤로 들어가 누를 수가 없다. 사파리가 입력칸만 보이게 스크롤해줘도
+ * 눌러야 할 버튼은 여전히 안 보인다.
+ *
+ * 안은 `.body` 가 스크롤하므로 줄어든 만큼 그쪽이 받아준다.
+ */
 .screen {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  height: calc(100dvh - var(--kb));
   overflow: hidden;
   /* 오로라는 화면에 고정이다. 목록과 함께 흐르면 스크롤이 어지럽다 */
   background: var(--aurora), var(--bg);
@@ -612,15 +628,22 @@ button {
   z-index: 20;
 }
 
-/* 스크림과 형제로 놓이므로 자리는 스스로 잡는다 */
+/*
+ * 스크림과 형제로 놓이므로 자리는 스스로 잡는다.
+ *
+ * **키보드 위로 올라온다** (`--kb`, lib/keyboard.ts). `bottom: 0` 은 레이아웃 뷰포트 기준이라
+ * 키보드가 떠도 그대로 있는데, 그러면 시트가 통째로 키보드 뒤로 들어간다 —
+ * 운영자가 입장 명단에 번호를 넣을 때 입력칸이 가려지던 게 이것이다.
+ * 높이도 같이 줄여야 한다. 올리기만 하면 위쪽이 화면 밖으로 나간다.
+ */
 .sheet {
   position: fixed;
   left: 50%;
-  bottom: 0;
+  bottom: var(--kb);
   transform: translateX(-50%);
   z-index: 21;
   width: min(560px, 100%);
-  max-height: 88dvh;
+  max-height: calc(88dvh - var(--kb));
   overflow-y: auto;
   background: var(--card);
   border: 1px solid var(--line);
@@ -637,10 +660,11 @@ button {
   gap: var(--gap);
 }
 
+/* 확인창도 **보이는 영역의** 가운데다. 키보드가 떠 있으면 그만큼 위로 */
 .dialog {
   position: fixed;
   left: 50%;
-  top: 50%;
+  top: calc(50% - var(--kb) / 2);
   transform: translate(-50%, -50%);
   z-index: 21;
   width: min(420px, calc(100% - 32px));
@@ -699,7 +723,8 @@ button {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(72px + env(safe-area-inset-bottom));
+  /* 토스트도 키보드 위로. "저장했어요" 가 키보드 뒤에 뜨면 없는 것과 같다 */
+  bottom: calc(72px + env(safe-area-inset-bottom) + var(--kb));
   display: flex;
   flex-direction: column;
   align-items: center;
