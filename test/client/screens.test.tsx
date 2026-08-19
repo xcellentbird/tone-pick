@@ -11,7 +11,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
+import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
 import { BTN, ENTRY, ENV_BANNER, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
@@ -89,7 +89,7 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
 function renderParticipant(source: ParticipantSource, profileId?: string) {
   return render(
     <MemoryRouter>
-      <ParticipantView source={source} tab="people" profileId={profileId} onTab={() => {}} onProfile={() => {}} />
+      <ParticipantView source={source} tab="people" profileId={profileId} onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
     </MemoryRouter>,
   );
 }
@@ -239,7 +239,7 @@ describe("오늘 탭", () => {
   function renderFortune(source: ParticipantSource) {
     return render(
       <MemoryRouter>
-        <ParticipantView source={source} tab="fortune" onTab={() => {}} onProfile={() => {}} />
+        <ParticipantView source={source} tab="fortune" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
       </MemoryRouter>,
     );
   }
@@ -423,7 +423,7 @@ describe("한 폰으로 두 회차", () => {
         {
           path: "/e/:code",
           element: (
-            <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} />
+            <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
           ),
         },
         { path: "/j/:id", element: <div>{SCREEN_TITLE.join}</div> },
@@ -607,7 +607,7 @@ describe("상단 바", () => {
 
     rerender(
       <MemoryRouter>
-        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} />
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
       </MemoryRouter>,
     );
     await screen.findByText("테스트 파티");
@@ -621,17 +621,46 @@ describe("상단 바", () => {
  * 사전 투표가 열리면 함께 잠긴다. 전화번호는 그 폼에 들어가지 않는다 (ADR-15).
  */
 describe("내 정보 고치기", () => {
-  const renderMe = (over: Partial<ParticipantState> = {}, src?: ReturnType<typeof fakeSource>) =>
-    render(
-      <MemoryRouter>
+  /**
+   * 편집은 라우트다 — 진짜 히스토리 위에서 본다.
+   * 편집 모드를 화면 상태로만 들면 뒤로 가기가 탭을 벗어나면서 고치던 입력이 사라진다.
+   */
+  const renderMe = (
+    over: Partial<ParticipantState> = {},
+    src?: ReturnType<typeof fakeSource>,
+    at = "/e/ABCDEF/me",
+  ) => {
+    const source = src ?? fakeSource({ load: async () => participantState(over) });
+    function View() {
+      const location = useLocation();
+      const navigate = useNavigate();
+      return (
         <ParticipantView
-          source={src ?? fakeSource({ load: async () => participantState(over) })}
+          source={source}
           tab="me"
+          editing={location.pathname.endsWith("/me/edit")}
+          onEdit={(on, opts) =>
+            on
+              ? navigate("/e/ABCDEF/me/edit")
+              : opts?.replace
+                ? navigate("/e/ABCDEF/me", { replace: true })
+                : navigate(-1)
+          }
           onTab={() => {}}
           onProfile={() => {}}
         />
-      </MemoryRouter>,
+      );
+    }
+    const router = createMemoryRouter(
+      [
+        { path: "/e/:code/me", element: <View /> },
+        { path: "/e/:code/me/edit", element: <View /> },
+      ],
+      { initialEntries: [at] },
     );
+    render(<RouterProvider router={router} />);
+    return { router, source };
+  };
 
   /** 등록 중인 회차. 명단이 아직 열리지 않아 아무도 내 정보를 보지 않았다 */
   const reg = { event: { ...participantState().event, phase: "reg" as const } };
@@ -661,6 +690,30 @@ describe("내 정보 고치기", () => {
     renderMe();
     await screen.findByText(ME.locked);
     expect(screen.queryByText(ME.edit)).toBeNull();
+  });
+
+  it("★ 뒤로 가기가 곧 취소다 — 탭을 벗어나지 않는다", async () => {
+    const { router } = renderMe(reg);
+    fireEvent.click(await screen.findByText(ME.edit));
+    fireEvent.change(screen.getByLabelText(ME.labels.nickname), { target: { value: "버려질닉" } });
+
+    // 안드로이드 백 버튼. 편집만 닫히고 내 정보 탭에 남는다
+    await router.navigate(-1);
+    await screen.findByText(ME.edit);
+    expect(router.state.location.pathname).toBe("/e/ABCDEF/me");
+    expect(screen.queryByLabelText(ME.labels.nickname)).toBeNull();
+
+    // 고치던 입력은 버려졌다 — 취소 버튼과 같다
+    fireEvent.click(screen.getByText(ME.edit));
+    expect((screen.getByLabelText(ME.labels.nickname) as HTMLInputElement).value).toBe("나");
+  });
+
+  it("잠긴 뒤에 편집 주소를 열면 내 정보로 되돌린다", async () => {
+    // 링크·새로고침·편집 중 단계 전환 — 고칠 수 없는 폼을 띄우지 않는다
+    const { router } = renderMe({}, undefined, "/e/ABCDEF/me/edit");
+    await screen.findByText(ME.locked);
+    expect(screen.queryByLabelText(ME.labels.nickname)).toBeNull();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF/me"));
   });
 
   it("고친 것을 저장하면 통로로 나간다", async () => {
@@ -725,6 +778,7 @@ describe("탭 역할 분담", () => {
           tab={t}
           onTab={() => {}}
           onProfile={() => {}}
+          onEdit={() => {}}
         />
       </MemoryRouter>,
     );

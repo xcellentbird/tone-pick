@@ -48,6 +48,8 @@ export const router = createBrowserRouter([
   // 알림 탭은 홈으로 합쳤다. 폰에 열어둔 옛 주소가 막다른 길이 되지 않게 남겨둔다
   { path: "/e/:code/alerts", element: <Participant /> },
   { path: "/e/:code/me", element: <Participant /> },
+  // 내 정보 편집도 라우트다 — 뒤로 가기가 곧 취소다 (ADR-31)
+  { path: "/e/:code/me/edit", element: <Participant /> },
   // 프로필 시트도 라우트다 — 뒤로 가기로 닫히게 하기 위해
   { path: "/e/:code/p/:pid", element: <Participant /> },
 

@@ -24,15 +24,26 @@ interface Props {
   state: ParticipantState;
   source: ParticipantSource;
   reload: () => void;
+  /** 편집은 라우트다 (`/e/:code/me/edit`) — 뒤로 가기가 곧 취소다 */
+  editing: boolean;
+  onEdit: (on: boolean, opts?: { replace?: boolean }) => void;
 }
 
-export default function Me({ state, source, reload }: Props) {
+export default function Me({ state, source, reload, editing, onEdit }: Props) {
   const { me, poke, event } = state;
   const round = event.phase === "prevote" ? ("pre" as const) : ("party" as const);
   const budget = poke.budget[round];
   // 사전 투표가 열리면 사람들이 이 정보를 보고 콕을 찌른다. 그 뒤로는 굳는다 (ADR-31)
   const canEdit = event.phase === "reg";
-  const [editing, setEditing] = useState(false);
+
+  /**
+   * 잠긴 뒤에 편집 주소가 열려 있으면 안 된다 — 링크를 눌러서든 새로고침으로든
+   * 고칠 수 없는 폼이 뜬다. 사전 투표가 시작되는 순간 편집 중이던 사람도 여기서 밀려난다.
+   */
+  useEffect(() => {
+    // 뒤로 가기가 아니라 갈아끼우기다 — 주소를 직접 연 사람에게는 뒤로 갈 자리가 없다
+    if (editing && !canEdit) onEdit(false, { replace: true });
+  }, [editing, canEdit, onEdit]);
 
   // 자리·남은 콕은 홈 탭에, 결과는 참가자 탭에 있다. 같은 것을 두 곳에 두지 않는다
   return (
@@ -48,10 +59,10 @@ export default function Me({ state, source, reload }: Props) {
         <Row label={ME.labels.event} value={event.name} />
       </div>
 
-      {editing ? (
-        <EditForm me={me} source={source} reload={reload} done={() => setEditing(false)} />
+      {editing && canEdit ? (
+        <EditForm me={me} source={source} reload={reload} done={() => onEdit(false)} />
       ) : (
-        <Saved me={me} canEdit={canEdit} edit={() => setEditing(true)} />
+        <Saved me={me} canEdit={canEdit} edit={() => onEdit(true)} />
       )}
     </div>
   );
