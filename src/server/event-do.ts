@@ -426,8 +426,13 @@ export class EventDO extends DurableObject {
     });
     if (!saved.ok) return saved;
 
-    // 운영자 명단의 닉네임이 따라 바뀐다. 실시간은 "다시 읽어라" 신호로만 쓴다 (ADR-26)
-    this.broadcast({ type: "roster", count: this.playerCount() });
+    /*
+     * **운영자에게만 알린다.** 고치기가 열려 있는 건 등록 중뿐이고, 그때 참가자에게는
+     * 명단이 아예 안 내려간다 (ADR-21). 인원수도 그대로다 — 전원에게 보내면 50명이
+     * 똑같은 화면을 다시 읽으려고 줄을 서고, 그 읽기는 쓰기 큐 뒤에 선다.
+     * 바뀐 닉네임이 필요한 건 운영자 명단 하나뿐이다.
+     */
+    this.toHosts({ type: "roster", count: this.playerCount() });
     return saved;
   }
 
@@ -911,6 +916,24 @@ export class EventDO extends DurableObject {
     for (const ws of this.ctx.getWebSockets()) {
       const at = (ws.deserializeAttachment() ?? {}) as Attachment;
       if (at.playerId === playerId) this.send(ws, ev);
+    }
+  }
+
+  /**
+   * 운영자 콘솔에만 보낸다. 참가자 화면이 달라지지 않는 변화를 위한 통로다.
+   *
+   * **신호 하나가 곧 N번의 재조회다** (ADR-26 — 실시간은 "다시 읽어라" 신호로만 쓴다).
+   * 참가자 화면이 똑같이 그려질 변화까지 전원에게 보내면, 아무것도 바꾸지 않는 읽기가
+   * 인원수만큼 쌓이고 그 읽기는 쓰기 큐 뒤에 선다. 50명에서 재조회 하나가 8초까지 밀렸다.
+   *
+   * 참가자 소켓에는 `playerId` 가 붙어 있다 (Worker 가 세션 쿠키를 보고 붙인다).
+   * 안 붙은 소켓은 운영자 콘솔이다 — 세션이 끊긴 참가자도 여기 섞일 수 있지만,
+   * 이 통로로 나가는 건 이미 참가자에게 보이는 값뿐이라 새어도 잃을 게 없다.
+   */
+  private toHosts(ev: ServerEvent) {
+    for (const ws of this.ctx.getWebSockets()) {
+      const at = (ws.deserializeAttachment() ?? {}) as Attachment;
+      if (!at.playerId) this.send(ws, ev);
     }
   }
 
