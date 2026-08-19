@@ -91,25 +91,22 @@ export default function People({ state, source, reload, profileId, onProfile }: 
 
   return (
     <>
-      <div className="row between">
-        <div className="choice grow">
-          {[
-            { on: true, label: PEOPLE.onlyOpposite },
-            { on: false, label: PEOPLE.everyone },
-          ].map((opt) => (
-            <button
-              key={opt.label}
-              type="button"
-              aria-pressed={onlyOpposite === opt.on}
-              onClick={() => setOnlyOpposite(opt.on)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        {/* 라운드 이름은 붙이지 않는다 — 지금 어느 라운드인지는 상단 바가 이미 말한다 */
-        }
-        {open && <span className="small dim">{STATUS.roundLeft(budget.max - budget.used)}</span>}
+      {/* 필터는 **전체 폭**을 쓴다. 옆에 글자를 붙이면 알약 컨테이너와 맨 글자가 한 줄에서
+          서로 다른 층위로 읽히고, 늘어난 필터와 오른쪽 글자 사이에 빈 공간이 남는다 */}
+      <div className="choice">
+        {[
+          { on: true, label: PEOPLE.onlyOpposite },
+          { on: false, label: PEOPLE.everyone },
+        ].map((opt) => (
+          <button
+            key={opt.label}
+            type="button"
+            aria-pressed={onlyOpposite === opt.on}
+            onClick={() => setOnlyOpposite(opt.on)}
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
 
       {/*
@@ -122,6 +119,15 @@ export default function People({ state, source, reload, profileId, onProfile }: 
       {/* 이 문구는 **남들에 대한 말**이다. 내 카드가 생겼다고 지우지 않는다 */}
       {list.length === 0 && (
         <p className="dim center pre">{rosterOpen(state.event.phase) ? PEOPLE.empty : PEOPLE.notOpenYet}</p>
+      )}
+
+      {/*
+        남은 콕은 **👉 버튼이 소비하는 예산**이라 필터가 아니라 이 목록에 붙는다.
+        왼쪽 정렬이다 — 필터의 왼쪽 끝, 카드의 왼쪽 끝과 같은 세로선에 선다.
+        오른쪽으로 두면 왼쪽에 짝이 없어 빈 공간이 남고, 가운데는 기준선이 아예 없다.
+      */}
+      {open && list.length > 0 && (
+        <span className="small dim">{STATUS.roundLeft(budget.max - budget.used)}</span>
       )}
 
       <div className="stack">
@@ -264,10 +270,11 @@ function MyCard({ me, phase }: { me: Player; phase: Phase }) {
           </span>
         </span>
       </div>
-      <p className="tiny dim">
-        {rosterOpen(phase) ? PEOPLE.mineNow : PEOPLE.mineSoon}
-        {shown.age === undefined ? ` ${PEOPLE.mineLater}` : ""}
-      </p>
+      {/*
+        **감춰진 게 있을 때만** 말한다. 파티가 시작되면 감출 게 없으니 이 줄이 통째로 사라진다.
+        "다른 사람에게는 이렇게 보여요" 는 뺐다 — `mine` 태그와 맨 위라는 자리가 이미 말한다.
+      */}
+      {shown.age === undefined && <p className="tiny dim">{PEOPLE.mineLater}</p>}
     </div>
   );
 }
