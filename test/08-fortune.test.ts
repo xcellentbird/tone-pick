@@ -154,14 +154,50 @@ describe("오늘의 미션", () => {
     expect(MISSION.prompt.system).toContain("그대로 옮겨 적지 마세요");
   });
 
-  it("모델이 뭘 뱉든 한 문장만 통과시킨다", () => {
-    expect(parseMission('{"mission":" 이름을 물어보세요 "}')).toBe("이름을 물어보세요");
+  it("모델이 뭘 뱉든 쓸 수 있는 것만 통과시킨다", () => {
+    expect(parseMission('{"lead":" 오늘은 그런 날 ","mission":" 이름을 물어보세요 "}')).toEqual({
+      lead: "오늘은 그런 날",
+      mission: "이름을 물어보세요",
+    });
     expect(parseMission('{"mission":""}')).toBeNull();
     expect(parseMission("그냥 문장")).toBeNull();
   });
 
-  it("★ 외부 서비스가 없어도 미션은 채워진다", () => {
-    expect(fallbackMission(missionInput(PLAYER, draft()), MISSION.fallback).length).toBeGreaterThan(0);
+  it("★ 이유가 빠져도 미션은 버리지 않는다", () => {
+    /*
+     * `lead` 한 줄이 없다고 쓸 만한 미션을 통째로 규칙 문구로 바꾸면 손해가 더 크다.
+     * **없는 것과 빈 것을 뭉개지도 않는다** — 키 자체가 없어야 화면이 한 줄로 그린다.
+     */
+    const only = parseMission('{"mission":"이름을 물어보세요"}');
+    expect(only?.mission).toBe("이름을 물어보세요");
+    expect(only).not.toHaveProperty("lead");
+    expect(parseMission('{"lead":"","mission":"이름을 물어보세요"}')).not.toHaveProperty("lead");
+  });
+
+  it("★ 미션 문장에는 **언제** 가 들어간다", () => {
+    /*
+     * 누구에게·무엇을 만 정해주면 미룬다. 언제 할지가 문장에 있어야 그 순간에 떠오른다.
+     * 다만 시계 시간은 아니다 — 상황으로 적는다.
+     */
+    expect(MISSION.prompt.system).toContain("언제 할지를 문장에 넣습니다");
+    for (const f of MISSION.fallback) {
+      expect(f.mission, f.mission).toMatch(/때|직후|직전/);
+    }
+  });
+
+  it("★ 이유는 시키지 않는다 — 시키는 건 미션 한 문장뿐이다", () => {
+    // 이유까지 지시가 되면 한 카드에 숙제가 둘이 된다. 그리고 다짐을 받아내는 앱이 아니다
+    expect(MISSION.prompt.system).toContain("시키지 마세요");
+    for (const f of MISSION.fallback) {
+      expect(f.lead, f.lead).not.toMatch(/꼭|반드시|해야|하세요|해보세요/);
+    }
+  });
+
+  it("★ 외부 서비스가 없어도 미션은 두 칸 다 채워진다", () => {
+    // 규칙 문구만 한 줄이면 키가 없는 날에는 화면 모양이 달라진다 — 그게 곧 신호가 된다
+    const m = fallbackMission(missionInput(PLAYER, draft()), MISSION.fallback);
+    expect(m.mission.length).toBeGreaterThan(0);
+    expect(m.lead.length).toBeGreaterThan(0);
   });
 });
 
@@ -173,7 +209,7 @@ describe("한 번 연 운세는 바뀌지 않는다", () => {
     expect(b.color).toBe(a.color);
     // 미션도 마찬가지다 — 두 번째 호출이 만들지만 규칙 문구는 같은 씨앗을 쓴다
     const m = (t: number) => fallbackMission(missionInput(PLAYER, fallbackFortune(fortuneInput(PLAYER, TODAY), t, FORTUNE.fallback)), MISSION.fallback);
-    expect(m(999)).toBe(m(1));
+    expect(m(999)).toEqual(m(1));
   });
 
   it("사람이 다르면 다르게 나온다", () => {

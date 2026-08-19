@@ -1456,13 +1456,17 @@ describe("오늘의 연애운", () => {
     await setPhase(ev.id, "party");
     await api("/api/fortune", { method: "POST", cookie: me.cookie });
 
-    const first = await api<{ mission: string }>("/api/fortune/mission", { method: "POST", cookie: me.cookie });
+    type Mission = { mission: string; lead?: string };
+    const first = await api<Mission>("/api/fortune/mission", { method: "POST", cookie: me.cookie });
     expect(first.status).toBe(200);
     expect(first.body.mission.length).toBeGreaterThan(0);
+    // 왜 오늘 이것인지가 미션과 **함께** 온다. 미션만 오면 남이 준 숙제로 읽힌다
+    expect(first.body.lead?.length).toBeGreaterThan(0);
 
-    // 한 번 연 것은 다시 만들지 않는다 (ADR-20)
-    const again = await api<{ mission: string }>("/api/fortune/mission", { method: "POST", cookie: me.cookie });
+    // 한 번 연 것은 다시 만들지 않는다 (ADR-20). 이유도 함께 잠긴다
+    const again = await api<Mission>("/api/fortune/mission", { method: "POST", cookie: me.cookie });
     expect(again.body.mission).toBe(first.body.mission);
+    expect(again.body.lead).toBe(first.body.lead);
   });
 
   it("★ 운세를 열기 전에는 미션을 만들 수 없다 — 재료가 그 운세다", async () => {

@@ -1051,6 +1051,26 @@ button {
   gap: 6px;
 }
 
+/*
+ * 미션 한 벌 — 위가 **왜**, 아래가 **언제·무엇**.
+ *
+ * 무게는 크기가 아니라 **차이**로 준다. 둘 다 굵게 하면 둘 다 안 읽힌다 —
+ * 이유를 흐리게 깔고 그 위에 미션을 얹어야 눈이 미션에 앉는다.
+ * 미션은 실제로 해야 하는 문장이라 본문보다 조금 크고 줄간격이 넉넉하다.
+ */
+.missionLead {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+.missionLine {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.65;
+  font-weight: 700;
+}
+
 /* 움직임을 원치 않는 사람에게는 돌지 않고 그대로 나온다 */
 @media (prefers-reduced-motion: reduce) {
   .fortuneCard,

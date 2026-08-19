@@ -344,7 +344,14 @@ describe("오늘 탭", () => {
       vi.fn(async (url: string) => {
         asked.push(String(url));
         return new Response(
-          JSON.stringify({ headline: "천천히 걷는 밤", body: "본문", mission: "이름을 물어보세요", color: "violet", at: 1 }),
+          JSON.stringify({
+            headline: "천천히 걷는 밤",
+            body: "본문",
+            lead: "오늘은 먼저 건넨 한마디가 오래 남아요.",
+            mission: "이름을 물어보세요",
+            color: "violet",
+            at: 1,
+          }),
           { headers: { "content-type": "application/json" } },
         );
       }),
@@ -356,9 +363,25 @@ describe("오늘 탭", () => {
 
     await screen.findByText("이름을 물어보세요");
     expect(asked).toContain("/api/fortune/mission");
+    // **왜 오늘 이것인지가 함께 온다.** 한 줄만 던지면 남이 준 숙제로 읽힌다
+    expect(screen.getByText("오늘은 먼저 건넨 한마디가 오래 남아요.")).toBeTruthy();
     // 뒤집힌 자리에는 버튼이 없다
     expect(screen.queryByText(FORTUNE.missionOpen)).toBeNull();
     vi.unstubAllGlobals();
+  });
+
+  it("★ 옛 저장본에는 이유가 없다 — 그때는 미션 한 줄만 그린다", async () => {
+    /*
+     * `lead` 는 나중에 생긴 칸이다. 그 전에 열어둔 운세에는 없고,
+     * 한 번 연 운세는 다시 만들지 않으므로 (ADR-20) 영영 없다.
+     * 빈 자리를 남기거나 대신할 문장을 지어내면 그 순간 거짓말이 된다.
+     */
+    renderFortune(
+      party({ fortune: { headline: "h", body: "b", mission: "이름을 물어보세요", color: "violet", at: 1 } }),
+    );
+    await screen.findByText("이름을 물어보세요");
+    expect(document.querySelector(".missionLead")).toBeNull();
+    expect(document.querySelector(".missionLine")).toBeTruthy();
   });
 
   it("★ 점수를 보여주지 않는다", async () => {

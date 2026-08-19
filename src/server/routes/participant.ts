@@ -214,9 +214,10 @@ participantRoutes.post("/fortune/mission", async (c) => {
   if (!saved) return apiError(c, "closed", FORTUNE.closed);
   if (saved.mission) return c.json(saved);
 
-  const mission = await makeMission(c.env, missionInput(state.value.me, saved));
+  // 두 칸이 함께 온다 — 왜 오늘 이것인지(`lead`)와 언제 무엇을(`mission`)
+  const made = await makeMission(c.env, missionInput(state.value.me, saved));
   // 운세 본문은 건드리지 않는 전용 경로다 — `saveFortune` 로 덮으면 ADR-20 이 무너진다
-  const { value, response } = unwrap(c, await seat.stub.saveMission(seat.playerId, mission));
+  const { value, response } = unwrap(c, await seat.stub.saveMission(seat.playerId, made));
   return response ?? c.json(value);
 });
 
