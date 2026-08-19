@@ -10,7 +10,7 @@
  *   · 코드가 틀려도 입력값을 지우지 않는다
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
 import { BTN, ENTRY, ENV_BANNER, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
@@ -19,7 +19,6 @@ import Join from "../../src/client/routes/Join.tsx";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
 import { ApiError } from "../../src/client/lib/api.ts";
-import { Overlays } from "../../src/client/ui/Overlays.tsx";
 import { APPEAL } from "../../src/shared/copy.ts";
 import EnvBadge from "../../src/client/ui/EnvBadge.tsx";
 import { useKeyboardInset } from "../../src/client/lib/keyboard.ts";
@@ -99,33 +98,61 @@ function renderParticipant(source: ParticipantSource, profileId?: string) {
 
 // ─────────────────────────────────────────── 입장
 
-describe("입장 화면", () => {
-  beforeEach(() => {
+describe("뿌리 화면", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** 세션이 없으면 401. 여기서 할 수 있는 일이 없다는 걸 말해야 한다 */
+  const noSession = () =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 })),
+    );
+
+  it("★ 코드를 묻지 않는다 — 문은 참가 링크 하나뿐이다", async () => {
+    /*
+     * 예전에는 여기서 입장 코드 여섯 자리를 물었다. 운영자는 보통 링크만 주므로,
+     * 링크를 열었다 뒤로 간 참가자가 **알지도 못하는 코드를 요구받는 막다른 길**이었다.
+     */
+    noSession();
+    render(
+      <MemoryRouter>
+        <Entry />
+      </MemoryRouter>,
+    );
+    await screen.findByText(ENTRY.linkOnly);
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("★ 운영자 진입 버튼을 두지 않는다", async () => {
+    // 참가자에게 관리 경로를 광고할 이유가 없다. 운영자는 /host 를 직접 연다
+    noSession();
+    render(
+      <MemoryRouter>
+        <Entry />
+      </MemoryRouter>,
+    );
+    await screen.findByText(ENTRY.linkOnly);
+    // 이 화면에는 누를 것이 하나도 없다. 관리 경로는 그중에서도 없어야 한다
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("★ 이미 들어가 있는 사람은 자기 회차로 보낸다", async () => {
+    // 이미 들어와 있는 사람에게 "링크로 오세요" 라고 하는 건 거짓말이다
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        new Response(JSON.stringify({ error: "not_found", message: ENTRY.notFound }), {
-          status: 404,
-          headers: { "content-type": "application/json" },
-        }),
+        new Response(JSON.stringify(participantState()), { headers: { "content-type": "application/json" } }),
       ),
     );
-  });
-
-  it("코드가 틀려도 입력값을 지우지 않는다", async () => {
-    render(
-      <MemoryRouter>
-        <Overlays>
-          <Entry />
-        </Overlays>
-      </MemoryRouter>,
+    const router = createMemoryRouter(
+      [
+        { path: "/", element: <Entry /> },
+        { path: "/e/:code", element: <div>{SCREEN_TITLE.join}</div> },
+      ],
+      { initialEntries: ["/"] },
     );
-    const input = screen.getByLabelText(ENTRY.codeLabel) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "ZZZZZZ" } });
-    fireEvent.click(screen.getByText(ENTRY.submit));
-
-    await screen.findByText(ENTRY.notFound);
-    expect(input.value).toBe("ZZZZZZ");
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF"));
   });
 });
 
@@ -411,45 +438,36 @@ describe("발표 후 참가자 탭", () => {
 describe("한 폰으로 두 회차", () => {
   /**
    * 한 브라우저에 참가자 세션은 하나뿐이다. 다음 회차에 등록하면 앞의 세션이 덮인다.
-   * 그때 앞 회차 주소를 열면 서버가 401 을 주는데(자료 격리는 서버 테스트가 지킨다),
-   * **되돌아가는 길**이 끊기면 안 된다.
+   * 그때 앞 회차 주소를 열면 서버가 401 을 준다 (자료 격리는 서버 테스트가 지킨다).
    */
-  it("★ 다른 회차 세션이면 코드가 아니라 회차 아이디로 문 앞에 보낸다", async () => {
+  it("★ 코드로 회차를 되찾지 않는다 — 되돌아가는 길은 참가 링크다", async () => {
     /*
-     * `/j` 는 아이디 경로다 (ADR-13). 코드를 그대로 넘기면 아이디로 대조하는 서버가
-     * 못 찾아 "그런 회차가 없어요" 로 끝난다 — 회차는 멀쩡한데 없다고 말하는 셈이다.
+     * 예전에는 여기서 `by-code` 로 코드를 회차 아이디로 바꿔 문 앞에 보냈다.
+     * 그 길을 닫았다 — **코드로 회차를 찾는 창구가 곧 링크를 내주는 창구**였기 때문이다.
+     * 화면은 이제 그 사실을 말하고 멈춘다.
      */
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        expect(String(url)).toBe("/api/events/by-code/ABCDEF");
-        return new Response(JSON.stringify({ id: "evt-1234", name: "테스트 파티", code: "ABCDEF", phase: "prevote" }), {
-          headers: { "content-type": "application/json" },
-        });
-      }),
-    );
+    const fetched = vi.fn(async (...args: unknown[]) => {
+      void args;
+      return new Response("{}", { headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetched);
     const source = fakeSource({
       load: async () => {
         throw new ApiError(401, "unauthorized", ENTRY.notFound);
       },
     });
-    const router = createMemoryRouter(
-      [
-        {
-          path: "/e/:code",
-          element: (
-            <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
-          ),
-        },
-        { path: "/j/:id", element: <div>{SCREEN_TITLE.join}</div> },
-      ],
-      { initialEntries: ["/e/ABCDEF"] },
+    render(
+      <MemoryRouter initialEntries={["/e/ABCDEF"]}>
+        <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
+      </MemoryRouter>,
     );
-    render(<RouterProvider router={router} />);
 
-    await screen.findByText(SCREEN_TITLE.join);
-    expect(router.state.location.pathname).toBe("/j/evt-1234");
+    await screen.findByText(ENTRY.notFound);
+    // 코드를 회차로 바꾸려 서버에 묻지 않는다
+    for (const call of fetched.mock.calls) expect(String(call[0])).not.toContain("by-code");
   });
+
+  afterEach(() => vi.unstubAllGlobals());
 });
 
 // ─────────────────────────────────────────── 참가 링크 재방문

@@ -66,18 +66,18 @@ const wake = () =>
 describe("파기 Cron", () => {
   it("★ 보관 기간이 지난 회차는 입장 코드까지 사라진다", async () => {
     const ev = await makeEvent();
-    expect((await api(`/api/events/by-code/${ev.code}`)).status).toBe(200);
+    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(200);
 
     // 아직은 지울 때가 아니다
     await wake();
-    expect((await api(`/api/events/by-code/${ev.code}`)).status).toBe(200);
+    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(200);
 
     // 보관 기간을 넘긴 뒤 다시 깨어나면
     await travelTo(Date.now() + (RETENTION_DAYS + 2) * DAY);
     await wake();
     await login();   // 앞으로 돌린 시계 때문에 만료된 세션을 새로 받는다
 
-    expect((await api(`/api/events/by-code/${ev.code}`)).status).toBe(404);
+    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(404);
     expect((await api(`/api/host/events/${ev.id}`, { cookie: master })).status).toBe(404);
   });
 
@@ -88,7 +88,7 @@ describe("파기 Cron", () => {
     // 만든 지 오래된 것처럼 시계를 밀어도, 예약이 앞에 있으면 지우지 않는다
     await travelTo(Date.now() + (RETENTION_DAYS + 2) * DAY);
     await wake();
-    expect((await api(`/api/events/by-code/${ev.code}`)).status).toBe(200);
+    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(200);
   });
 
   it("★ 파기 대기 일수는 회차 설정을 따른다", async () => {
@@ -106,8 +106,8 @@ describe("파기 Cron", () => {
     await travelTo(Date.now() + 3 * DAY);
     await wake();
     await login();
-    expect((await api(`/api/events/by-code/${fast.code}`)).status).toBe(404);
-    expect((await api(`/api/events/by-code/${slow.code}`)).status).toBe(200);
+    expect((await api(`/api/events/by-id/${fast.id}`)).status).toBe(404);
+    expect((await api(`/api/events/by-id/${slow.id}`)).status).toBe(200);
   });
 
   it("파기 대기 일수는 정해진 범위 밖이면 거절한다", async () => {

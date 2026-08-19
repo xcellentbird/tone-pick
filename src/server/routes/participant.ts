@@ -51,14 +51,13 @@ participantRoutes.get("/events/by-id/:id", async (c) => {
   const { value, response } = unwrap(c, await eventStub(c.env, id).publicAt(serverNow()), () => ENTRY.notFound);
   return response ?? c.json(value);
 });
-
-/** 입장 코드 조회. 인증이 없으므로 `PublicEvent` 밖의 필드를 절대 넣지 않는다 */
-participantRoutes.get("/events/by-code/:code", async (c) => {
-  const id = await registry(c.env).idByCode(c.req.param("code"));
-  if (!id) return apiError(c, "not_found", ENTRY.notFound);
-  const { value, response } = unwrap(c, await eventStub(c.env, id).publicAt(serverNow()), () => ENTRY.notFound);
-  return response ?? c.json(value);
-});
+/*
+ * 코드로 회차를 찾던 길(`/events/by-code/:code`)을 닫았다.
+ *
+ * 그 응답에는 **회차 아이디**가 들어 있었다. 즉 30비트 코드(32^6)를 뚫으면
+ * 64비트 링크가 그대로 나왔다 — 링크의 강도가 코드까지 내려가 있었던 셈이다.
+ * 이제 문은 참가 링크 하나뿐이고, 코드는 참가자 주소(`/e/:code`)를 가리키는 이름으로만 남는다.
+ */
 
 /**
  * 입장. **운영자가 미리 넣어둔 번호만 통과한다** (ADR-15).
