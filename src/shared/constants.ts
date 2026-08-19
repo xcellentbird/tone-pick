@@ -101,6 +101,20 @@ export function normalizePhone(s: string): string {
 }
 
 /**
+ * 보여줄 때만 하이픈을 넣는다. **상태와 전송은 숫자 그대로다** (`normalizePhone` 과 짝).
+ *
+ * 끊는 자리는 **언제나 3-4-4** 다. 자리 수를 세어 3-3-4 로 바꾸면 열한 번째를 치는 순간
+ * 하이픈이 한 칸 밀려서 칸이 흔들린다 — 마지막 글자에서 화면이 움직이는 건 오타처럼 보인다.
+ * 열 자리 옛 번호(011)는 `011-2345-678` 로 조금 어색하게 끊기지만 읽는 데 지장이 없다.
+ *
+ * 치는 도중에도 있는 만큼만 끊어 준다 — 몇 자리를 넣었는지 눈으로 세어진다.
+ */
+export function formatPhone(digits: string): string {
+  const d = digits.slice(0, 11);
+  return [d.slice(0, 3), d.slice(3, 7), d.slice(7)].filter(Boolean).join("-");
+}
+
+/**
  * 인스타 아이디 정규화 — 붙여넣은 껍데기를 벗긴다.
  *
  * 가장 흔한 "유효하지 않은 값"은 오타가 아니라 `@아이디` 나 프로필 URL 붙여넣기다.

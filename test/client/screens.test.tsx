@@ -506,6 +506,60 @@ describe("참가 링크", () => {
     return render(<RouterProvider router={router} />);
   }
 
+  /** 세션이 없어 전화번호 칸이 뜨는 상태 */
+  const atGate = () =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("/me")
+          ? new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 })
+          : new Response(
+              JSON.stringify({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true }),
+              { headers: { "content-type": "application/json" } },
+            ),
+      ),
+    );
+
+  it("★ 전화번호 칸은 010 이 채워진 채로 시작한다", async () => {
+    /*
+     * 거의 모든 번호가 010 이라 세 번의 탭을 아낀다. 다만 **칸 밖의 고정 접두사로 두지 않는다** —
+     * 칸이 여덟 자리짜리가 되면 브라우저 자동완성이 채운 열한 자리가 안 들어가고,
+     * 011 같은 옛 번호를 지우고 칠 수도 없어진다 (그 사람은 문 앞에서 막히는데 이유를 알 수 없다).
+     */
+    atGate();
+    renderJoin();
+    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
+    expect(input.value).toBe("010");
+    // 지우고 다른 번호를 칠 수 있다
+    fireEvent.change(input, { target: { value: "0112345678" } });
+    expect(input.value).toBe("011-2345-678");
+  });
+
+  it("★ 치는 대로 하이픈이 붙고, 자리가 덜 차면 보낼 수 없다", async () => {
+    atGate();
+    renderJoin();
+    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
+    const submit = screen.getByText(ENTRY.submit) as HTMLButtonElement;
+
+    fireEvent.change(input, { target: { value: "0101234" } });
+    expect(input.value).toBe("010-1234");
+    // 덜 찬 채로 보내면 돌아오는 건 "이 번호로는 들어갈 수 없어요" 하나뿐이라 이유를 알 수 없다
+    expect(submit.disabled).toBe(true);
+
+    fireEvent.change(input, { target: { value: "01012345678" } });
+    expect(input.value).toBe("010-1234-5678");
+    expect(submit.disabled).toBe(false);
+  });
+
+  it("자동완성이 채운 열한 자리도 그대로 받는다", async () => {
+    // 자동완성은 하이픈 없이 한 번에 넣는다. 세 번 아끼려다 열한 번을 잃으면 안 된다
+    atGate();
+    renderJoin();
+    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "010-9876-5432" } });
+    expect(input.value).toBe("010-9876-5432");
+  });
+
   it("★ 이미 등록한 사람은 등록 화면이 아니라 자기 화면으로 간다", async () => {
     vi.stubGlobal(
       "fetch",
@@ -582,8 +636,8 @@ describe("참가 링크", () => {
 
     expect(await screen.findByText(ENTRY.notInvited)).toBeTruthy();
     expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
-    // 번호를 다시 치게 하지 않는다
-    expect(input.value).toBe("01099998888");
+    // 번호를 다시 치게 하지 않는다 (칸은 하이픈을 넣어 보여준다)
+    expect(input.value).toBe("010-9999-8888");
   });
 
   it("이미 등록한 사람은 등록 폼을 건너뛴다", async () => {
