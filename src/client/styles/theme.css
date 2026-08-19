@@ -860,6 +860,14 @@ button {
   gap: var(--gap);
 }
 
+/*
+ * 자리 없는 사람들. **이름 하나가 버튼 하나**라 줄바꿈으로 흐른다 —
+ * 한 명일 때가 대부분이지만 라운드 사이에는 여럿이 될 수 있다.
+ * 높이는 탭 타겟(44px)을 지킨다. 파티장에서 누르는 버튼이다.
+ */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chipBtn { padding: 0 14px; font-size: 14px; }
+
 .seatChip {
   box-shadow: var(--shadow);
   display: flex;

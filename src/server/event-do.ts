@@ -769,21 +769,115 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * 좌석 변경은 **맞교환 하나뿐**이다. 한 명만 옮기면 그 테이블 인원이 늘고 옆이 준다 (SEATING.md).
+   * 고칠 라운드를 찾는다. **초안이든 발행된 것이든 같은 조작을 받는다** (슬라이스 11).
+   *
+   * 발행한 라운드가 손댈 수 없는 것이던 시절에는, 한 명이 늦게 왔을 때 쓸 수 있는 게
+   * 새 라운드 발행뿐이었다 — 전원이 자리를 옮기고 전원이 확인 화면을 다시 받았다.
+   *
+   * 번호를 안 주면 초안이다. 운영자가 지금 보고 있는 카드가 어느 것인지는 화면이 안다.
+   */
+  private editableRound(round?: number): SeatingRound | null {
+    const all = this.seatings();
+    return (round ? all.find((s) => s.round === round) : all.find((s) => s.status === "draft")) ?? null;
+  }
+
+  /** 발표만이 자리를 끝낸다 (ADR-28). 확정도, 발행도 끝내지 않는다 */
+  private async seatsOpen(): Promise<boolean> {
+    return (await this.ctx.storage.get<EventMeta>("meta"))?.phase !== "done";
+  }
+
+  /**
+   * 고친 라운드를 저장하고, 발행된 것이면 **다시 읽으라고** 알린다.
+   *
+   * 방송을 거르면 참가자 화면이 옛 테이블 번호를 그대로 들고 있게 된다 —
+   * **알림을 안 보내는 것과 화면을 안 고치는 것은 다른 일이다** (ADR-26).
+   * 자리 이동 확인 화면이 뜨지 않는 건 `acks` 가 막는다.
+   */
+  private saveRound(s: SeatingRound) {
+    this.writeSeating(s);
+    if (s.status === "published") this.broadcast({ type: "seating", round: s.round });
+  }
+
+  /**
+   * 좌석 **변경**은 맞교환 하나뿐이다. 한 명만 옮기면 그 테이블 인원이 늘고 옆이 준다 (SEATING.md).
    *
    * 남녀를 맞바꾸는 것도 허용한다. 두 테이블의 남녀 구성이 바뀌지만 인원은 그대로다 —
    * 현장에서 운영자가 아는 사정(아는 사이, 자리 요청)은 배정 알고리즘이 모른다.
    * 바뀐 성비는 자리 화면의 `남 N / 여 M` 에 곧바로 보인다.
+   *
+   * **`acks` 는 건드리지 않는다.** 둘 다 이미 들어 있고, 빼면 그 둘에게만 확인 화면이 뜬다 —
+   * 라운드 하나를 고치는 건 운영자가 그 사람 앞에 서서 하는 일이라 앱이 대신 말할 게 없다.
    */
-  async swapSeats(a: string, b: string): Promise<Result<SeatingRound>> {
-    const draft = this.seatings().find((s) => s.status === "draft");
-    if (!draft) return fail("not_found");
-    const sa = draft.seats.find((s) => s.playerId === a);
-    const sb = draft.seats.find((s) => s.playerId === b);
+  async swapSeats(a: string, b: string, round?: number): Promise<Result<SeatingRound>> {
+    if (!(await this.seatsOpen())) return fail("closed");
+    const target = this.editableRound(round);
+    if (!target) return fail("not_found");
+    const sa = target.seats.find((s) => s.playerId === a);
+    const sb = target.seats.find((s) => s.playerId === b);
     if (!sa || !sb || sa.playerId === sb.playerId) return fail("not_found");
     [sa.table, sb.table] = [sb.table, sa.table];
-    this.writeSeating(draft);
-    return ok(draft);
+    this.saveRound(target);
+    return ok(target);
+  }
+
+  /**
+   * 자리 없는 사람을 이 라운드에 **끼워 넣는다.** 옮기는 게 아니라 더하는 것이라
+   * 아무도 자리를 잃지 않는다 — 커플 자리의 쌍도 그대로다 (ADR-23).
+   *
+   * **테이블은 서버가 고른다.** 운영자가 고르게 하면 그게 곧 SEATING.md 가 금지한
+   * 단일 이동 API 다 — 조작 한 번에 성비 불변식이 깨진다.
+   * 자기 성별이 가장 적은 테이블, 같으면 사람이 적은 쪽, 그것도 같으면 낮은 번호.
+   * **난수를 쓰지 않는다** — 같은 상태에서 같은 자리가 나와야 한다.
+   *
+   * 발행된 라운드라면 `acks` 에 함께 넣는다. 안 그러면 이 사람에게만 자리 이동 확인이
+   * 뜬다 — 방금 운영자가 손으로 앉히며 말해준 것을 앱이 한 번 더 묻는 꼴이다.
+   */
+  async seatPlayer(playerId: string, round?: number): Promise<Result<SeatingRound>> {
+    if (!(await this.seatsOpen())) return fail("closed");
+    const target = this.editableRound(round);
+    if (!target) return fail("not_found");
+    const me = this.player(playerId);
+    if (!me) return fail("not_found");
+    if (target.seats.some((s) => s.playerId === playerId)) return ok(target);
+
+    const gender = new Map(
+      this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
+    );
+    let best = 1;
+    let bestKey: [number, number] = [Infinity, Infinity];
+    for (let t = 1; t <= target.tableCount; t++) {
+      const here = target.seats.filter((s) => s.table === t);
+      const key: [number, number] = [here.filter((s) => gender.get(s.playerId) === me.gender).length, here.length];
+      if (key[0] < bestKey[0] || (key[0] === bestKey[0] && key[1] < bestKey[1])) {
+        best = t;
+        bestKey = key;
+      }
+    }
+
+    target.seats.push({ playerId, table: best });
+    if (target.status === "published" && !target.acks.includes(playerId)) target.acks.push(playerId);
+    this.saveRound(target);
+    return ok(target);
+  }
+
+  /**
+   * 이 라운드 자리에서만 뺀다. **참가자를 지우는 것이 아니다** —
+   * 명단에도 콕 대상에도 그대로 있고, 그가 만든 매칭은 아무것도 바뀌지 않는다.
+   * (지우면 그 매칭이 상대에게서도 사라진다 — `FLOWS.md`.)
+   *
+   * `acks` 에서도 뺀다. 자리가 없는 사람이 "자리를 안다" 로 세어지면
+   * 운영자가 보는 `N/총원` 의 분자와 분모가 서로 다른 것을 센다.
+   */
+  async unseatPlayer(playerId: string, round?: number): Promise<Result<SeatingRound>> {
+    if (!(await this.seatsOpen())) return fail("closed");
+    const target = this.editableRound(round);
+    if (!target) return fail("not_found");
+    if (!target.seats.some((s) => s.playerId === playerId)) return fail("not_found");
+
+    target.seats = target.seats.filter((s) => s.playerId !== playerId);
+    target.acks = target.acks.filter((x) => x !== playerId);
+    this.saveRound(target);
+    return ok(target);
   }
 
   /**

@@ -1,11 +1,17 @@
 /**
- * 자리 탭.  테이블 수 선택 → 초안 → 검토·맞교환 → 📣 알림 발송
+ * 자리 탭.  테이블 수 선택 → 초안 → 검토·고치기 → 📣 알림 발송
  *
  * · 테이블 수는 **배정할 때마다** 고른다. 설정값이 아니다 (ADR-5)
  * · 초안 생성에는 확인을 붙이지 않는다 — 참가자에게 안 보이고 몇 번이든 다시 만들 수 있다
  * · 발송에는 확인을 붙인다 — 참가자 화면을 덮는 확인 화면이 뜬다
- * · 좌석 변경은 **맞교환 하나뿐**이다. 한 명만 옮기는 버튼을 만들면 테이블 인원이 어긋난다
+ * · 좌석 **변경**은 맞교환 하나뿐이다. 한 명만 옮기는 버튼을 만들면 테이블 인원이 어긋난다
  * · 남녀를 맞바꾸는 것도 된다 — 바뀐 성비는 테이블 머리의 `남 N / 여 M` 에 바로 보인다
+ *
+ * **발행된 라운드도 고칠 수 있다** (슬라이스 11). 초안과 같은 조작 셋이 붙는다 —
+ * 맞교환 · 앉히기 · 자리 비우기. 예전에는 발행하면 손댈 수 없어서, 한 명이 늦게 왔을 때
+ * 쓸 수 있는 게 새 라운드 발행뿐이었다 (전원이 옮기고 전원이 확인 화면을 다시 받았다).
+ * 고친 자리에는 **알림이 가지 않는다** — 운영자가 그 사람 앞에서 하는 일이라
+ * 앱이 대신 말할 게 없다. 화면은 방송으로 다시 읽는다 (ADR-26).
  */
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -26,7 +32,11 @@ export default function Seats() {
   // 테이블 수를 고르는 시트도 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md)
   const { mode } = useParams();
   const here = `/host/${state.meta.id}/seats`;
-  const [picked, setPicked] = useState<string | null>(null);
+  /**
+   * 고르는 중인 사람. **라운드까지 함께 기억한다** — 카드가 여럿이라
+   * 초안에서 고른 사람이 발행된 라운드의 다음 클릭과 짝지어지면 엉뚱한 맞교환이 된다.
+   */
+  const [picked, setPicked] = useState<{ round: number; playerId: string } | null>(null);
   const [busy, setBusy] = useState(false);
   // 두 번째 라운드에서는 같은 테이블 수를 다시 고르는 일이 흔하다. 지난번 값에서 시작한다
   const lastTableCount =
@@ -66,6 +76,8 @@ export default function Seats() {
     }
   }
 
+  const nameOf = (id: string) => state.players.find((p) => p.id === id)?.nickname ?? "";
+
   async function shuffle() {
     await post(`${base}/shuffle`);
     // 커플 자리에서는 쌍이 제자리에 남는다. 그 사실을 그때 말해준다
@@ -93,21 +105,21 @@ export default function Seats() {
     return out;
   }
 
-  async function swap(playerId: string) {
-    if (!picked) return setPicked(playerId);
-    if (picked === playerId) return setPicked(null);
-    const first = picked;
+  /** 같은 카드 안에서 두 명을 차례로 고르면 맞바꾼다. 다른 카드를 누르면 거기서 새로 고른다 */
+  async function swap(round: SeatingRound, playerId: string) {
+    if (picked?.round !== round.round) return setPicked({ round: round.round, playerId });
+    if (picked.playerId === playerId) return setPicked(null);
+    const first = picked.playerId;
     setPicked(null);
 
     // 막지는 않는다 — 현장 사정은 운영자가 안다. 다만 무엇이 깨지는지는 말한다
     const run = async () => {
       // 남녀를 맞바꿔도 된다. 인원은 그대로고, 바뀐 성비는 테이블 머리의 숫자에 바로 보인다
-      await post(`${base}/swap`, { a: first, b: playerId });
+      await post(`${base}/swap`, { a: first, b: playerId, round: round.round });
       reload();
     };
-    const broken = draft ? pairsBrokenBy(draft, first, playerId) : [];
+    const broken = pairsBrokenBy(round, first, playerId);
     if (broken.length > 0) {
-      const name = (id: string) => state.players.find((p) => p.id === id)?.nickname ?? "";
       return confirm(
         {
           btn: HOST_UI.seats.breakBtn,
@@ -115,12 +127,48 @@ export default function Seats() {
           danger: true,
           note: HOST_UI.seats.breakNote,
           // 떨어지는 쌍을 전부 이름으로 보여준다. 한 번에 여럿이 깨질 수 있다
-          facts: broken.map(([x, y]) => [HOST_UI.seats.pairLabel, HOST_UI.dash.mutualPair(name(x), name(y))]),
+          facts: broken.map(([x, y]) => [HOST_UI.seats.pairLabel, HOST_UI.dash.mutualPair(nameOf(x), nameOf(y))]),
         },
         run,
       );
     }
     await run();
+  }
+
+  /**
+   * 자리 없는 사람을 앉힌다. **테이블은 보내지 않는다** — 서버가 고른다 (SEATING.md).
+   * 그래서 어디에 앉았는지는 응답을 보고 말해준다. 운영자가 그 번호를 그 사람에게 전한다.
+   */
+  async function seat(round: SeatingRound, playerId: string) {
+    const next = await post<SeatingRound>(`${base}/seat`, { playerId, round: round.round });
+    const table = next.seats.find((s) => s.playerId === playerId)?.table;
+    if (table) toast(HOST_UI.seats.seatedAt(nameOf(playerId), table));
+    reload();
+  }
+
+  /** 이 라운드 자리에서만 뺀다. 참가자를 지우는 것과 다른 일이다 — 되돌릴 수 있어 확인이 없다 */
+  async function unseat(round: SeatingRound, playerId: string) {
+    setPicked(null);
+    await post(`${base}/unseat`, { playerId, round: round.round });
+    toast(HOST_UI.seats.unseated(nameOf(playerId)));
+    reload();
+  }
+
+  /**
+   * 카드 머리의 한 줄. 고른 사람이 없으면 무엇을 할 수 있는지, 있으면 누구를 골랐는지 —
+   * **자리 비우기는 고른 뒤에만** 보인다. 상시로 두면 사람마다 버튼이 하나씩 붙는다.
+   */
+  function editBar(round: SeatingRound) {
+    const one = picked?.round === round.round ? picked.playerId : null;
+    if (!one) return <p className="small dim">{HOST_UI.seats.swapHint}</p>;
+    return (
+      <div className="row between">
+        <span className="small grow ellipsis">{HOST_UI.seats.pickedOne(nameOf(one))}</span>
+        <button className="btn ghost" onClick={() => unseat(round, one)}>
+          {HOST_UI.seats.unseat}
+        </button>
+      </div>
+    );
   }
 
   function askPublish(round: SeatingRound) {
@@ -189,12 +237,21 @@ export default function Seats() {
           <div className="kicker">{HOST_UI.seats.roundTitle(draft.round, draft.final)}</div>
           {/* 커플 자리의 성적표. 이 라운드가 제 일을 했는지 여기서 보인다 (ADR-23) */}
           {draft.final && <PairReport round={draft} mutual={state.mutual} state={state} />}
-          <p className="small dim">{HOST_UI.seats.swapHint}</p>
-          <Tables round={draft} picked={picked} onPick={swap} state={state} partners={draft.final ? partners : undefined} />
+          {editBar(draft)}
+          <Tables
+            round={draft}
+            picked={picked?.round === draft.round ? picked.playerId : null}
+            onPick={(id) => swap(draft, id)}
+            state={state}
+            partners={draft.final ? partners : undefined}
+          />
+          {/* 초안에도 자리 없는 사람이 있다 — 배정을 누른 뒤에 등록한 사람 */}
+          <Unassigned round={draft} state={state} onSeat={(id) => seat(draft, id)} />
           <div className="row">
             <button
               className="btn wide ghost"
               onClick={async () => {
+                setPicked(null);
                 await del(base);
                 toast(HOST.seating.discarded);
                 reload();
@@ -221,8 +278,17 @@ export default function Seats() {
             <span className="kicker">{HOST_UI.seats.roundTitle(round.round, round.final)}</span>
             <span className="small dim">{HOST.ack.progress(round.acks.length, round.seats.length)}</span>
           </div>
-          <Tables round={round} picked={null} onPick={() => {}} state={state} partners={round.final ? partners : undefined} />
-          <Unassigned round={round} state={state} />
+          {/* 알림이 가지 않는다는 걸 고치기 전에 말한다 — 앱이 말해주는 줄 알면 그 사람은 옛 자리에 앉아 있다 */}
+          <p className="tiny dim">{HOST_UI.seats.editQuiet}</p>
+          {editBar(round)}
+          <Tables
+            round={round}
+            picked={picked?.round === round.round ? picked.playerId : null}
+            onPick={(id) => swap(round, id)}
+            state={state}
+            partners={round.final ? partners : undefined}
+          />
+          <Unassigned round={round} state={state} onSeat={(id) => seat(round, id)} />
         </div>
       ))}
     </div>
@@ -393,18 +459,37 @@ function Tables({
   );
 }
 
-/** 자리를 발행한 뒤 등록한 사람은 그 라운드에 자리가 없다. 운영자가 알아야 할 신호다 (FLOWS.md) */
+/**
+ * 이 라운드에 자리가 없는 사람 — 배정 뒤에 등록했거나, 운영자가 자리를 비웠거나.
+ *
+ * **이름이 버튼이다.** 예전에는 알리기만 하고 할 수 있는 일이 없어서,
+ * 한 명 때문에 새 라운드를 발행해야 했다 (전원이 옮겼다).
+ */
 function Unassigned({
   round,
   state,
+  onSeat,
 }: {
   round: SeatingRound;
   state: ReturnType<typeof useConsole>["state"];
+  onSeat: (playerId: string) => void;
 }) {
   const seated = new Set(round.seats.map((s) => s.playerId));
   const missing = state.players.filter((p) => !seated.has(p.id));
   if (missing.length === 0) return null;
-  return <p className="small warnText">{HOST_UI.seats.unassigned(missing.map((p) => p.nickname).join(", "))}</p>;
+  return (
+    <div className="stack">
+      <span className="small warnText">{HOST_UI.seats.unassigned}</span>
+      <div className="chips">
+        {missing.map((p) => (
+          <button className="btn ghost chipBtn" key={p.id} onClick={() => onSeat(p.id)}>
+            {p.nickname}
+          </button>
+        ))}
+      </div>
+      <span className="tiny dim">{HOST_UI.seats.unassignedHint}</span>
+    </div>
+  );
 }
 
 function PerTableWarning({ people, tables }: { people: number; tables: number }) {
