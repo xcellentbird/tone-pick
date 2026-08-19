@@ -47,7 +47,8 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
     },
     me: {
       id: "me",
-      nickname: "나",
+      // UI 라벨 "나"(PEOPLE.mine)와 겹치지 않는 닉네임이어야 한다 — 겹치면 조회가 둘을 잡는다
+      nickname: "달빛",
       realName: "김나",
       age: 30,
       gender: "M",
@@ -57,7 +58,7 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
       charms: ["하나", "둘", "셋"],
       createdAt: 1,
     },
-    roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["가", "나", "다"] }],
+    roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE_STATE,
     ...over,
   };
@@ -313,7 +314,7 @@ describe("발표 후 참가자 탭", () => {
           age: 29,
           gender: "F",
           mbti: "ISFJ",
-          charms: ["가", "나", "다"],
+          charms: ["매력가", "매력나", "매력다"],
         },
         sameTable: 2,
         contact: { realName: "이실명", phone: "01055556666", instagram: "her_gram" },
@@ -614,6 +615,80 @@ describe("상단 바", () => {
   });
 });
 
+// ─────────────────────────────────────────── 참가자 탭의 내 카드
+
+/**
+ * 목록 맨 위의 내 카드가 답하는 건 **"내가 남들에게 어떻게 보이나"** 하나다.
+ * 그래서 남들이 보는 것보다 더 보여주면 그 순간 답이 틀린다.
+ */
+describe("참가자 탭 · 내 카드", () => {
+  const at = (phase: ParticipantState["event"]["phase"]) =>
+    renderParticipant(
+      fakeSource({
+        load: async () =>
+          participantState({
+            event: { ...participantState().event, phase },
+            // 서버는 등록 중에 명단을 아예 안 내려준다 (ADR-21) — 픽스처도 그래야 한다
+            ...(phase === "reg" || phase === "prep" ? { roster: [] } : {}),
+          }),
+      }),
+    );
+
+  it("★ 사전 투표에서는 닉네임과 매력만 — 나이·MBTI 는 남들도 못 본다", async () => {
+    at("prevote");
+    await screen.findByText(PEOPLE.mine);
+
+    // 내 것: 닉네임 "달빛" · 매력 "하나". 나이 30 과 MBTI 는 아직 아무 데도 없다
+    expect(screen.getByText("하나")).toBeTruthy();
+    expect(screen.queryByText("30")).toBeNull();
+    // 실명·전화·인스타는 어느 단계에도 이 탭에 없다
+    for (const secret of ["김나", "01000000000", "na_gram"]) {
+      expect(screen.queryByText(secret), secret).toBeNull();
+    }
+  });
+
+  it("★ 파티가 시작되면 나이와 MBTI 도 함께 보인다", async () => {
+    at("party");
+    await screen.findByText(PEOPLE.mine);
+    expect(screen.getAllByText("30").length).toBeGreaterThan(0);
+  });
+
+  it("★ 등록 중에는 사전 투표 때 모습을 미리 보여준다", async () => {
+    /*
+     * toPublic(me, "reg") 를 그대로 부르면 나이가 나온다 — 정작 사전 투표에서는 안 보이는데.
+     * "이렇게 보여요" 라고 말하는 자리에서 그러면 거짓말이 된다.
+     */
+    at("reg");
+    await screen.findByText(PEOPLE.mine);
+    expect(screen.queryByText("30")).toBeNull();
+    expect(screen.getByText(new RegExp(PEOPLE.mineSoon))).toBeTruthy();
+    // 남의 명단은 여전히 비어 있고, 그 사실을 말하는 문구도 그대로다 (줄바꿈이 있어 첫 줄로 찾는다)
+    expect(screen.getByText(new RegExp(PEOPLE.notOpenYet.split("\n")[0]))).toBeTruthy();
+  });
+
+  it("사전 투표가 시작되면 문장이 바뀐다", async () => {
+    at("prevote");
+    await screen.findByText(PEOPLE.mine);
+    expect(screen.getByText(new RegExp(PEOPLE.mineNow))).toBeTruthy();
+  });
+
+  it("★ 이성만 보기를 켜도 내 카드는 사라지지 않는다", async () => {
+    renderParticipant(fakeSource());
+    await screen.findByText(PEOPLE.mine);
+
+    // 나는 남성이고 목록의 '그녀'는 여성이다 — 필터를 켜면 그녀만 남아야 하지만 나는 남는다
+    fireEvent.click(screen.getByText(PEOPLE.onlyOpposite));
+    expect(screen.getByText(PEOPLE.mine)).toBeTruthy();
+  });
+
+  it("★ 내 카드에는 콕 버튼이 없다", async () => {
+    renderParticipant(fakeSource());
+    await screen.findByText(PEOPLE.mine);
+    // 목록에는 '그녀' 하나뿐이니 콕 버튼도 하나뿐이어야 한다 — 내 것이 생기면 둘이 된다
+    expect(screen.getAllByLabelText(POKE.confirm.submit).length).toBe(1);
+  });
+});
+
 // ─────────────────────────────────────────── 내 정보 고치기
 
 /**
@@ -705,7 +780,7 @@ describe("내 정보 고치기", () => {
 
     // 고치던 입력은 버려졌다 — 취소 버튼과 같다
     fireEvent.click(screen.getByText(ME.edit));
-    expect((screen.getByLabelText(ME.labels.nickname) as HTMLInputElement).value).toBe("나");
+    expect((screen.getByLabelText(ME.labels.nickname) as HTMLInputElement).value).toBe("달빛");
   });
 
   it("잠긴 뒤에 편집 주소를 열면 내 정보로 되돌린다", async () => {
@@ -738,7 +813,7 @@ describe("내 정보 고치기", () => {
 
     // 다시 들어가면 저장돼 있던 값이다
     fireEvent.click(await screen.findByText(ME.edit));
-    expect((screen.getByLabelText(ME.labels.nickname) as HTMLInputElement).value).toBe("나");
+    expect((screen.getByLabelText(ME.labels.nickname) as HTMLInputElement).value).toBe("달빛");
   });
 
   it("닉네임이 겹치면 그 칸에 알리고 입력값은 지우지 않는다", async () => {
