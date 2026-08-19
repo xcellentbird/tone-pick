@@ -12,7 +12,7 @@
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ENTRY, ME, POKE, REGISTER, hangulSeq } from "../src/shared/copy.ts";
-import { ENTRY_TRIES } from "../src/shared/constants.ts";
+import { ENTRY_TRIES, formatPhone, typedPhone } from "../src/shared/constants.ts";
 import type { EventMeta, ParticipantState, Player, RegisterInput, RegisterResult } from "../src/shared/types.ts";
 
 const MASTER_PIN = "1234";
@@ -346,6 +346,32 @@ describe("등록", () => {
  * "이 번호가 이 파티에 있나"를 되묻는 창구가 된다.
  */
 describe("입장 명단", () => {
+  /*
+   * 운영자가 명단에 넣는 번호와 참가자가 문 앞에서 치는 번호가 **같아야** 문이 열린다.
+   * 그래서 두 칸이 같은 모양이다 — `010` 이 미리 들어가 있고 하이픈으로 끊겨 보인다.
+   * 두 칸의 규칙이 갈라지면 같은 번호가 다르게 저장되고, 그건 파티 당일 문 앞에서야 드러난다.
+   */
+  it("★ 미리 들어간 010 뒤에 붙여넣어도 번호가 어긋나지 않는다", () => {
+    // 커서를 끝에 두고 `010-1234-5678` 을 붙여넣은 그대로
+    expect(typedPhone("010" + "010-1234-5678")).toBe("01012345678");
+    // 앞에서부터 열한 자리로 자르면 `01001012345` 라는 조용히 틀린 번호가 남았다
+    expect(typedPhone("010" + "010-1234-5678")).not.toBe("01001012345");
+
+    // 제대로 친 것과 통째로 붙여넣은 것은 그대로 지난다
+    expect(typedPhone("01012345678")).toBe("01012345678");
+    expect(typedPhone("010-1234-5678")).toBe("01012345678");
+    // 열한 자리짜리 진짜 번호는 010010 으로 시작해도 건드리지 않는다
+    expect(typedPhone("010-0104-5678")).toBe("01001045678");
+    // 옛 열 자리 번호도 명단에 들어간다 (서버 문턱은 아홉 자리다)
+    expect(typedPhone("011-234-5678")).toBe("0112345678");
+  });
+
+  it("끊는 자리는 언제나 3-4-4 다 — 마지막 글자에서 칸이 흔들리지 않게", () => {
+    expect(formatPhone("010")).toBe("010");
+    expect(formatPhone("0101234")).toBe("010-1234");
+    expect(formatPhone("01012345678")).toBe("010-1234-5678");
+  });
+
   it("★ 명단에 없는 번호는 들어올 수 없다", async () => {
     const ev = await freshEvent();
     await invite(ev.id, "01011112222");

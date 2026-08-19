@@ -16,7 +16,7 @@ import { useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, PHASE_LABEL, SCREEN_TITLE } from "../../shared/copy.ts";
 import type { EnterResult, ParticipantState, PublicEvent } from "../../shared/types.ts";
 import { formatWhen } from "../../shared/time.ts";
-import { formatPhone, normalizePhone } from "../../shared/constants.ts";
+import { formatPhone, typedPhone } from "../../shared/constants.ts";
 import { ApiError, api, post } from "../lib/api.ts";
 import { useLoad } from "../lib/useLoad.ts";
 
@@ -108,11 +108,9 @@ export default function Join() {
                   <input
                     id="phone"
                     value={formatPhone(phone)}
-                    onChange={(e) => setPhone(normalizePhone(e.target.value).slice(0, 11))}
+                    onChange={(e) => setPhone(typedPhone(e.target.value))}
                     inputMode="tel"
                     autoComplete="tel"
-                    /* 010-1234-5678 = 13자. 하이픈까지 세어 잡는다 */
-                    maxLength={13}
                     style={{ fontSize: 20, textAlign: "center", letterSpacing: "0.06em" }}
                   />
                   {error ? <span className="err">{error}</span> : <span className="tiny dim">{ENTRY.gateNote}</span>}
