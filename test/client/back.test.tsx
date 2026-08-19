@@ -26,7 +26,6 @@ const STATE: ParticipantState = {
     fired: { reg: 1, prevote: 2 },
     schedule: { partyAt: Date.now() + 3600_000 },
     config: { maxPre: 3, maxParty: 3 },
-    playerCount: 2,
   },
   me: {
     id: "me",

@@ -601,7 +601,6 @@ export const STATUS = {
    * 없는 마감을 세어 보여주면 참가자가 그 숫자를 믿고 조급해진다.
    */
   untilParty: "파티까지",
-  peopleHere: "함께하는 사람",
 } as const;
 
 /** 참가자 알림. `ev.fired` 에서 파생되며 읽음 상태를 따로 저장하지 않는다 */
