@@ -37,6 +37,11 @@ const KEEP = process.argv.includes("--keep");
  */
 const SPREAD_MS = Number(process.env.SPREAD ?? 5) * 1000;
 const BURST = process.argv.includes("--burst");
+/**
+ * 읽기가 몰리는 창. 앱 복귀·재연결은 **서버가 부른 게 아니라** 사람과 네트워크가 부른다 —
+ * 운영자가 "다들 폰 보세요" 라고 말하면 1초 안에 전원이 잠금을 푼다.
+ */
+const READ_MS = Number(process.env.READWINDOW ?? 1) * 1000;
 
 /**
  * 닉네임·실명에 숫자를 쓸 수 없다 (nicknameProblem/realNameProblem) — 일련번호를 한글로 읽는다.
@@ -89,6 +94,27 @@ function client() {
 }
 
 const sleep = (n) => new Promise((r) => setTimeout(r, n));
+
+/**
+ * 읽기만 창 안에 고르게 흩어 쏜다.
+ *
+ * 브로드캐스트가 부르는 재조회와 달리 **서버 이벤트가 없다** — 화면이 스스로 다시 읽는
+ * 상황(앱 복귀·재연결)이라 서버 쪽 지표에는 원인이 안 남는다. 여기서만 보인다.
+ */
+async function burstReads(list, windowMs) {
+  const times = [];
+  let failed = 0;
+  const at = performance.now();
+  await Promise.all(
+    list.map(async (who, n) => {
+      if (list.length > 1) await sleep((n / (list.length - 1)) * windowMs);
+      const res = await who.call("/me");
+      times.push(res.took);
+      if (res.status !== 200) failed++;
+    }),
+  );
+  return { times, failed, span: performance.now() - at };
+}
 
 /** 한꺼번에 다 던지지 않고 폭을 정해 밀어넣는다. 파티장에서도 동시에 100명이 누르진 않는다 */
 async function pool(items, width, run) {
@@ -308,7 +334,82 @@ const me = players[0];
 const state = await me.call("/me");
 console.log(`  참가자 화면 ${ms(state.took)} · 명단 ${state.body.roster?.length ?? 0}명`);
 
-// ⑦ 정리 — 가짜 개인정보를 남기지 않는다
+// ⑦ 앱 복귀 — 서버 이벤트 없이 읽기만 몰린다
+console.log(`\n⑥ 앱 복귀 (읽기 ${players.length}건이 ${READ_MS / 1000}초 안에)`);
+console.log('   운영자가 "다들 폰 확인하세요" 라고 말하는 순간. 브로드캐스트가 없어 서버는 원인을 모른다');
+
+const calm = await burstReads(players, READ_MS);
+report("조용할 때", calm.times, `${calm.failed ? `실패 ${calm.failed}건` : "실패 0"} · 창 ${ms(calm.span)}`);
+
+/*
+ * 같은 일이 **쓰기가 도는 중에** 벌어지면 다르다. 읽기 자체는 가볍지만 같은 DO 를 지나므로
+ * 쌓인 쓰기 큐 뒤에 선다 — 파티 중이라면 누군가는 늘 콕을 찌르고 있다.
+ */
+const writing = Promise.all(
+  players.map(async (who, n) => {
+    const targets = who.gender === "M" ? women : men;
+    const res = await who.call("/poke", { method: "POST", body: { toId: targets[n % targets.length].id } });
+    return res.status === 200;
+  }),
+);
+await sleep(1000); // 큐가 쌓일 시간을 준다
+const busy = await burstReads(players, READ_MS);
+const wrote = (await writing).filter(Boolean).length;
+report(
+  "쓰기 중",
+  busy.times,
+  `${busy.failed ? `실패 ${busy.failed}건` : "실패 0"} · 창 ${ms(busy.span)} · 콕 ${wrote}건과 겹침`,
+);
+
+// ⑧ 재연결 — 소켓이 한꺼번에 끊겼다 붙는다
+console.log(`\n⑦ 재연결 (소켓 ${players.length}개가 ${READ_MS / 1000}초 안에 다시 붙는다)`);
+console.log("   배포·하이버네이션으로 한꺼번에 끊겼을 때. 클라이언트 백오프에 지터가 없어 파도가 겹친다");
+
+for (const ws of sockets) {
+  try {
+    ws.close();
+  } catch {
+    /* 이미 닫힌 것 */
+  }
+}
+await sleep(1000);
+
+const openTimes = [];
+const backTimes = [];
+let backFailed = 0;
+let reopened = 0;
+const fresh = [];
+await Promise.all(
+  players.map(async (who, n) => {
+    if (players.length > 1) await sleep((n / (players.length - 1)) * READ_MS);
+    const at = performance.now();
+    const ok = await new Promise((r) => {
+      const ws = new WebSocket(`${BASE.replace(/^http/, "ws")}/ws/${code}`);
+      const timer = setTimeout(() => r(false), 15_000);
+      ws.onopen = () => {
+        clearTimeout(timer);
+        r(true);
+      };
+      ws.onerror = () => {
+        clearTimeout(timer);
+        r(false);
+      };
+      fresh.push(ws);
+    });
+    if (!ok) return;
+    reopened++;
+    openTimes.push(performance.now() - at);
+    // 붙자마자 한 벌을 다시 읽는다 — 끊긴 동안의 것은 서버가 다시 밀어주지 않는다 (ADR-26)
+    const res = await who.call("/me");
+    backTimes.push(res.took);
+    if (res.status !== 200) backFailed++;
+  }),
+);
+sockets.push(...fresh); // 정리에서 함께 닫는다
+report("소켓 재연결", openTimes, `${reopened}/${players.length} 성공`);
+report("복귀 후 읽기", backTimes, backFailed ? `실패 ${backFailed}건` : "실패 0");
+
+// ⑨ 정리 — 가짜 개인정보를 남기지 않는다
 for (const ws of sockets) {
   try {
     ws.close();
