@@ -10,9 +10,9 @@
  * 실패는 **정상 경로**다. 키가 없거나, 모델 이름이 틀렸거나, 느리거나, 형식이 어긋나면
  * 규칙 문구로 떨어진다 (`fallbackFortune`). 파티 당일에 탭 하나가 에러를 뿜는 건 사고다.
  */
-import type { Appeal, AppealInput, Fortune, FortuneInput } from "../shared/fortune.ts";
-import { fallbackAppeal, fallbackFortune, parseAppeal, parseFortune } from "../shared/fortune.ts";
-import { APPEAL, FORTUNE } from "../shared/copy.ts";
+import type { FortuneDraft, FortuneInput, MissionInput } from "../shared/fortune.ts";
+import { fallbackFortune, fallbackMission, parseFortune, parseMission } from "../shared/fortune.ts";
+import { FORTUNE, MISSION } from "../shared/copy.ts";
 import type { Env } from "./http.ts";
 
 /** 파티 중이다. 오래 기다리느니 규칙 문구가 낫다 — 다만 카드 뒤집기가 앞의 1초를 덮는다 */
@@ -25,7 +25,7 @@ const TIMEOUT_MS = 12000;
  */
 const MAX_TOKENS = 3000;
 
-export async function makeFortune(env: Env, input: FortuneInput, now: number): Promise<Fortune> {
+export async function makeFortune(env: Env, input: FortuneInput, now: number): Promise<FortuneDraft> {
   const key = env.OPENAI_API_KEY;
   if (!key) return fallbackFortune(input, now, FORTUNE.fallback);
 
@@ -64,16 +64,17 @@ export async function makeFortune(env: Env, input: FortuneInput, now: number): P
 }
 
 /**
- * 오늘의 어필 한 장. **운세가 나온 뒤에** 부른다 — 그 결과가 재료라서 나란히 못 부른다.
+ * 오늘의 미션 한 줄. **운세가 나온 뒤에** 부른다 — 그 결과가 재료라서 나란히 못 부른다.
  *
- * 실패는 여기서도 정상 경로다. 어필이 안 나와도 운세는 그대로 뜬다 —
- * 두 카드가 함께 죽지 않게, 실패를 각자 삼킨다.
+ * 한 호출에서 운세와 함께 뽑던 시절에는 미션이 본문 마지막 문단을 그대로 옮겨 적곤 했다.
+ * 다 읽고 나서 따로 물으면 겹치지 않는다.
  *
- * **이름은 여기 오지 않는다** (`AppealInput` 에 자리가 없다). 실명 예외는 운세 하나뿐이다.
+ * 실패는 여기서도 정상 경로다. 미션이 안 나와도 운세는 그대로 뜬다 —
+ * 둘이 함께 죽지 않게 실패를 각자 삼킨다.
  */
-export async function makeAppeal(env: Env, input: AppealInput): Promise<Appeal> {
+export async function makeMission(env: Env, input: MissionInput): Promise<string> {
   const key = env.OPENAI_API_KEY;
-  if (!key) return fallbackAppeal(input, APPEAL.fallback);
+  if (!key) return fallbackMission(input, MISSION.fallback);
 
   try {
     const res = await fetch(`${env.LLM_BASE_URL || "https://api.openai.com/v1"}/chat/completions`, {
@@ -82,8 +83,8 @@ export async function makeAppeal(env: Env, input: AppealInput): Promise<Appeal> 
       body: JSON.stringify({
         model: env.LLM_MODEL || "gpt-5.6-luna",
         messages: [
-          { role: "system", content: APPEAL.prompt.system },
-          { role: "user", content: APPEAL.prompt.user(input) },
+          { role: "system", content: MISSION.prompt.system },
+          { role: "user", content: MISSION.prompt.user(input) },
         ],
         max_completion_tokens: MAX_TOKENS,
       }),
@@ -95,13 +96,13 @@ export async function makeAppeal(env: Env, input: AppealInput): Promise<Appeal> 
       choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
     };
     const choice = body.choices?.[0];
-    const parsed = parseAppeal(choice?.message?.content ?? "", input);
+    const parsed = parseMission(choice?.message?.content ?? "");
     if (parsed) return parsed;
 
-    console.error("appeal unusable", { finish: choice?.finish_reason, len: choice?.message?.content?.length });
-    return fallbackAppeal(input, APPEAL.fallback);
+    console.error("mission unusable", { finish: choice?.finish_reason, len: choice?.message?.content?.length });
+    return fallbackMission(input, MISSION.fallback);
   } catch (e) {
-    console.error("appeal failed", e instanceof Error ? e.message : e);
-    return fallbackAppeal(input, APPEAL.fallback);
+    console.error("mission failed", e instanceof Error ? e.message : e);
+    return fallbackMission(input, MISSION.fallback);
   }
 }

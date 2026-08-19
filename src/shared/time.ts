@@ -22,6 +22,23 @@ export function formatWhen(ts?: number): string {
   return ts ? dateTime.format(new Date(ts)) : "";
 }
 
+const ymd = new Intl.DateTimeFormat("en-CA", {
+  timeZone: EVENT_TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/**
+ * 파티가 열리는 지역의 **오늘 날짜** (`2026-08-20`).
+ *
+ * UTC 로 자르면 안 된다 — 한국 밤 9시는 UTC 로 같은 날 정오지만,
+ * **자정 넘은 파티는 UTC 기준으로 어제**다. 운세가 하루 밀린 날짜를 읽게 된다.
+ */
+export function todayIn(ts: number): string {
+  return ymd.format(new Date(ts));
+}
+
 /** 하루 넘게 남았으면 초를 세지 않는다 — `144:00:00` 은 읽는 사람이 다시 나눠야 한다 */
 export const TICK_WINDOW = 24 * 3600_000;
 
