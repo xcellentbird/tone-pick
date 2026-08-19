@@ -195,7 +195,11 @@ export type AuthScope =
 
 export type ServerEvent =
   | { type: "phase"; phase: Phase; fired: FiredMap }
-  | { type: "roster"; count: number }
+  /**
+   * 명단이 움직였다. **숫자를 싣지 않는다** — 전원에게 나가는 신호라
+   * 등록 중에는 몇 명인지가 그대로 새어 나간다. 받는 쪽은 어차피 다시 읽는다 (ADR-26).
+   */
+  | { type: "roster" }
   | { type: "poke"; receivedCount: number }          // 익명. 발신자 정보 없음
   /**
    * 자리가 확정됐다. **테이블 번호는 싣지 않는다** — 전원에게 나가는 신호라
@@ -343,7 +347,14 @@ export interface PublicEventState {
   fired: FiredMap;
   schedule: EventSchedule;
   config: EventConfig;
-  playerCount: number;
+  /**
+   * **인원 수는 여기 없다.** 등록 중에는 몇 명이 왔는지가 참가자에게 나가면 안 된다 —
+   * 명단이 사전 투표부터 열리는 것과 같은 이유이고(ADR-21), 인원이 적을수록
+   * 그 숫자 하나가 명단만큼 많은 것을 말한다.
+   *
+   * 사전 투표부터는 `roster` 가 있으니 셀 수 있다. 그래서 이 칸은 어느 단계에도 필요 없다.
+   * 화면에서 감추는 것으로는 부족하다 — 개발자 도구를 여는 참가자가 있다.
+   */
 }
 
 /** 내 자리. 확인(ack)을 받아야 하는지까지 서버가 판단해서 내려준다 */
