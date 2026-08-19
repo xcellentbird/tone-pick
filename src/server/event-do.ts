@@ -383,44 +383,79 @@ export class EventDO extends DurableObject {
     if (meta.phase === "prep" || meta.phase === "done") return fail("closed");
 
     // 번호는 폼이 아니라 입장할 때 확인한 값에서 온다 (ADR-15)
-    // 닉네임·실명 규칙은 화면과 같은 함수를 본다 — 폼을 우회해 API 로 바로 쏘는 참가자가 있다.
-    // 검증을 통과한 정규화본만 아래로 내려보낸다. input 원본은 문자열이 아닐 수도 있다
-    const nickname = cleanName(input.nickname);
-    const realName = cleanName(input.realName);
-    if (nicknameProblem(nickname) || realNameProblem(realName) || !phone) {
-      return fail("bad_request");
-    }
-    const nickNorm = normalizeNickname(nickname);
-    if (!Number.isInteger(input.age) || input.age < 18 || input.age > 99) return fail("bad_request");
-    if (input.gender !== "M" && input.gender !== "F") return fail("bad_request");
-    if (!/^[EI][NS][TF][JP]$/.test(String(input.mbti))) return fail("bad_request");
-    const charms = Array.isArray(input.charms)
-      ? input.charms.map((c) => (typeof c === "string" ? c.trim() : ""))
-      : [];
-    if (charms.length !== LIMITS.charms || charms.some((c) => !c || c.length > LIMITS.charmMax)) {
-      return fail("bad_request");
-    }
-    // 인스타는 필수다. 매칭되면 서로에게 공개되는 연락 수단이라 없이는 매칭이 반쪽이 된다
-    const instagram = normalizeInstagram(String(input.instagram ?? ""));
-    if (instagram.length > LIMITS.instagramMax || !/^[A-Za-z0-9._]+$/.test(instagram)) {
-      return fail("bad_request");
-    }
+    if (!phone) return fail("bad_request");
+    const clean = cleanProfile(input);
+    if (!clean) return fail("bad_request");
 
     const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone)[0];
-    const clash = this.rows<PlayerRow>("SELECT * FROM players WHERE nick_norm = ?", nickNorm)[0];
-    if (clash && clash.id !== mine?.id) return fail("nick_taken");
+    const saved = this.writeProfile(clean, {
+      id: mine?.id ?? randomHex(8),
+      phone,
+      createdAt: mine?.created_at ?? now,
+    });
+    if (!saved.ok) return saved;
+
+    this.broadcast({ type: "roster", count: this.playerCount() });
+    return saved;
+  }
+
+  /**
+   * 내 정보 고치기 (ADR-31). **사전 투표가 열리기 전까지만.**
+   *
+   * 그 뒤에는 사람들이 이 정보를 보고 콕을 찌른다 —
+   * 바꾸면 누군가 나를 고른 근거가 조용히 사라진다.
+   * 명단이 열리는 순간과 정보가 굳는 순간을 같게 뒀다 (ADR-21).
+   *
+   * **전화번호는 바뀌지 않는다.** 입력에 자리가 없고, 저장할 때도 저장된 값을 그대로 쓴다 (ADR-15).
+   * 고치는 대상은 쿠키에서 온 `playerId` 뿐이다 — 입력에 담긴 id 는 읽지 않는다.
+   */
+  async editProfile(playerId: string, input: RegisterInput, now: number): Promise<Result<Player>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (meta.phase !== "reg") return fail("closed");
+
+    const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE id = ?", playerId)[0];
+    if (!mine) return fail("not_found");
+    const clean = cleanProfile(input);
+    if (!clean) return fail("bad_request");
+
+    const saved = this.writeProfile(clean, {
+      id: mine.id,
+      phone: mine.phone,
+      createdAt: mine.created_at,
+    });
+    if (!saved.ok) return saved;
+
+    // 운영자 명단의 닉네임이 따라 바뀐다. 실시간은 "다시 읽어라" 신호로만 쓴다 (ADR-26)
+    this.broadcast({ type: "roster", count: this.playerCount() });
+    return saved;
+  }
+
+  /**
+   * 등록과 수정이 함께 쓰는 쓰기.
+   *
+   * 닉네임 유일성은 **자기 자신을 뺀** 회차 안에서만 본다 —
+   * 안 그러면 나이 하나 고치는 데 닉네임까지 바꿔야 한다.
+   * 실패하면 아무것도 쓰지 않는다. 저장은 전부 되거나 전부 안 된다.
+   */
+  private writeProfile(
+    clean: CleanProfile,
+    who: { id: string; phone: string; createdAt: number },
+  ): Result<Player> {
+    const clash = this.rows<PlayerRow>("SELECT * FROM players WHERE nick_norm = ?", clean.nickNorm)[0];
+    if (clash && clash.id !== who.id) return fail("nick_taken");
 
     const player: Player = {
-      id: mine?.id ?? randomHex(8),
-      nickname,
-      realName,
-      age: input.age,
-      gender: input.gender,
-      phone,
-      instagram,
-      mbti: input.mbti,
-      charms: charms as [string, string, string],
-      createdAt: mine?.created_at ?? now,
+      id: who.id,
+      nickname: clean.nickname,
+      realName: clean.realName,
+      age: clean.age,
+      gender: clean.gender,
+      phone: who.phone,
+      instagram: clean.instagram,
+      mbti: clean.mbti,
+      charms: clean.charms,
+      createdAt: who.createdAt,
     };
 
     this.ctx.storage.sql.exec(
@@ -432,7 +467,7 @@ export class EventDO extends DurableObject {
          mbti=excluded.mbti, charms=excluded.charms`,
       player.id,
       player.nickname,
-      nickNorm,
+      clean.nickNorm,
       player.realName,
       player.age,
       player.gender,
@@ -442,8 +477,6 @@ export class EventDO extends DurableObject {
       JSON.stringify(player.charms),
       player.createdAt,
     );
-
-    this.broadcast({ type: "roster", count: this.playerCount() });
     return ok(player);
   }
 
@@ -561,27 +594,6 @@ export class EventDO extends DurableObject {
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
       ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),
     });
-  }
-
-  /**
-   * 매력 세 줄을 고친다. **사전 투표가 열리기 전까지만** (ADR-27).
-   *
-   * 사전 투표가 시작되면 사람들이 그 세 줄을 보고 콕을 찌른다.
-   * 그 뒤에 바꾸면 누군가 나를 고른 근거가 조용히 사라진다 —
-   * 등록할 때 급히 쓴 걸 다듬을 시간은 주되, 남이 읽은 뒤로는 그대로 둔다.
-   */
-  async editCharms(playerId: string, charms: string[], now: number): Promise<Result<Player>> {
-    const meta = await this.touch(now);
-    if (!meta) return fail("not_found");
-    if (meta.phase !== "reg") return fail("closed");
-
-    const me = this.player(playerId);
-    if (!me) return fail("not_found");
-    const clean = charms.map((c) => String(c ?? "").trim());
-    if (clean.length !== LIMITS.charms || clean.some((c) => !c)) return fail("bad_request");
-
-    this.ctx.storage.sql.exec("UPDATE players SET charms = ? WHERE id = ?", JSON.stringify(clean), playerId);
-    return ok({ ...me, charms: clean as [string, string, string] });
   }
 
   async ackSeat(playerId: string, round: number): Promise<Result<true>> {
@@ -1107,6 +1119,58 @@ interface SeatingRow {
   acks: string;
   created_at: number;
   published_at: number | null;
+}
+
+/** 검증을 지난 정규화본. 여기까지 온 값만 저장한다 */
+interface CleanProfile {
+  nickname: string;
+  nickNorm: string;
+  realName: string;
+  age: number;
+  gender: Gender;
+  instagram: string;
+  mbti: string;
+  charms: [string, string, string];
+}
+
+/**
+ * 등록과 수정이 함께 보는 검증. 통과하면 정규화본만 돌려준다.
+ *
+ * 닉네임·실명 규칙은 화면과 **같은 함수**를 본다 — 폼을 우회해 API 로 바로 쏘는 참가자가 있다.
+ * `input` 원본은 문자열이 아닐 수도 있어서 그대로 내려보내지 않는다.
+ *
+ * **전화번호는 여기 없다.** 입장할 때 확인한 값이라 입력에서 오지 않는다 (ADR-15) —
+ * 등록 폼에서 받지 않는 것과 같은 이유고, 수정에서도 같다.
+ */
+function cleanProfile(input: RegisterInput): CleanProfile | null {
+  const nickname = cleanName(input.nickname);
+  const realName = cleanName(input.realName);
+  if (nicknameProblem(nickname) || realNameProblem(realName)) return null;
+  if (!Number.isInteger(input.age) || input.age < 18 || input.age > 99) return null;
+  if (input.gender !== "M" && input.gender !== "F") return null;
+  if (!/^[EI][NS][TF][JP]$/.test(String(input.mbti))) return null;
+
+  const charms = Array.isArray(input.charms)
+    ? input.charms.map((c) => (typeof c === "string" ? c.trim() : ""))
+    : [];
+  if (charms.length !== LIMITS.charms || charms.some((c) => !c || c.length > LIMITS.charmMax)) {
+    return null;
+  }
+
+  // 인스타는 필수다. 매칭되면 서로에게 공개되는 연락 수단이라 없이는 매칭이 반쪽이 된다
+  const instagram = normalizeInstagram(String(input.instagram ?? ""));
+  if (instagram.length > LIMITS.instagramMax || !/^[A-Za-z0-9._]+$/.test(instagram)) return null;
+
+  return {
+    nickname,
+    nickNorm: normalizeNickname(nickname),
+    realName,
+    age: input.age,
+    gender: input.gender,
+    instagram,
+    mbti: input.mbti,
+    charms: charms as [string, string, string],
+  };
 }
 
 function toPlayer(r: PlayerRow): Player {

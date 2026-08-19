@@ -947,22 +947,132 @@ describe("오늘의 연애운", () => {
   });
 });
 
-describe("나의 매력", () => {
-  it("★ 등록 중에는 고칠 수 있다", async () => {
+/**
+ * 내 정보 고치기 (ADR-31).
+ *
+ * 등록할 때 낸 것을 **사전 투표가 열리기 전까지** 스스로 고친다.
+ * 고치는 길은 하나뿐이고(매력만 따로 고치지 않는다), 전화번호는 그 길에 없다.
+ */
+describe("내 정보 고치기", () => {
+  it("★ 등록 중에는 낸 것을 고칠 수 있다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
 
-    const res = await api<Player>("/api/me/charms", {
+    const res = await api<Player>("/api/me", {
       method: "PUT",
       cookie: me.cookie,
-      body: { charms: ["새 매력 하나", "새 매력 둘", "새 매력 셋"] },
+      body: {
+        ...me.input,
+        nickname: "고친닉",
+        realName: "박고침",
+        age: 33,
+        gender: "F",
+        mbti: "ISTJ",
+        instagram: "fixed_id",
+        charms: ["새 매력 하나", "새 매력 둘", "새 매력 셋"],
+      },
     });
-    expect(res.status).toBe(200);
-    expect(res.body.charms).toEqual(["새 매력 하나", "새 매력 둘", "새 매력 셋"]);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
 
     // 다시 읽어도 바뀐 채로 온다
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
-    expect(state.body.me.charms[0]).toBe("새 매력 하나");
+    expect(state.body.me.nickname).toBe("고친닉");
+    expect(state.body.me.realName).toBe("박고침");
+    expect(state.body.me.age).toBe(33);
+    expect(state.body.me.gender).toBe("F");
+    expect(state.body.me.mbti).toBe("ISTJ");
+    expect(state.body.me.instagram).toBe("fixed_id");
+    expect(state.body.me.charms).toEqual(["새 매력 하나", "새 매력 둘", "새 매력 셋"]);
+  });
+
+  it("★ 전화번호는 고칠 수 없다 — 파티의 문이라서", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+
+    const res = await api<Player>("/api/me", {
+      method: "PUT",
+      cookie: me.cookie,
+      body: { ...me.input, phone: "01099998888" },
+    });
+    expect(res.status).toBe(200);
+
+    // 번호는 초대 명단에서 확인한 그대로다. 입력에 담아도 자리가 없다 (ADR-15)
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.me.phone).toBe(me.phone);
+  });
+
+  it("등록과 같은 검증을 지난다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+
+    const bad: Partial<RegisterInput>[] = [
+      { nickname: "" },
+      { nickname: "가".repeat(16) },
+      { nickname: "닉!네임" },
+      { nickname: "달빛3" },
+      { realName: "" },
+      { realName: "김실명3" },
+      { age: 17 },
+      { age: 100 },
+      { age: 28.5 },
+      { gender: "X" as RegisterInput["gender"] },
+      { mbti: "XXXX" },
+      { instagram: "" },
+      { instagram: "인스타" },
+      { charms: ["가", "나"] as unknown as RegisterInput["charms"] },
+      { charms: ["가", "나", "  "] },
+      { charms: ["가", "나", "다", "라"] as unknown as RegisterInput["charms"] },
+    ];
+    for (const over of bad) {
+      const res = await api("/api/me", { method: "PUT", cookie: me.cookie, body: { ...me.input, ...over } });
+      expect(res.status, JSON.stringify(over)).toBe(400);
+    }
+
+    // 하나도 바뀌지 않았다
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.me.nickname).toBe(me.input.nickname);
+    expect(state.body.me.age).toBe(me.input.age);
+  });
+
+  it("닉네임 유일성은 고칠 때도 같다", async () => {
+    const ev = await freshEvent();
+    await join(ev, { nickname: "달빛" });
+    const me = await join(ev, { gender: "F" });
+
+    const res = await api<{ error: string; message: string }>("/api/me", {
+      method: "PUT",
+      cookie: me.cookie,
+      body: { ...me.input, nickname: "달빛" },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("nick_taken");
+    expect(res.body.message).toBe(REGISTER.err.nickTaken("달빛"));
+  });
+
+  it("내 닉네임을 그대로 두고 다른 것만 고칠 수 있다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+
+    // 자기 자신과 겹쳤다고 막으면 나이 하나 고치는 데 닉네임까지 바꿔야 한다
+    const res = await api("/api/me", { method: "PUT", cookie: me.cookie, body: { ...me.input, age: 30 } });
+    expect(res.status).toBe(200);
+  });
+
+  it("저장은 전부 되거나 전부 안 된다", async () => {
+    const ev = await freshEvent();
+    await join(ev, { nickname: "먼저찜" });
+    const me = await join(ev, { gender: "F" });
+
+    const res = await api("/api/me", {
+      method: "PUT",
+      cookie: me.cookie,
+      body: { ...me.input, nickname: "먼저찜", age: 30 },
+    });
+    expect(res.status).toBe(409);
+
+    // 닉네임이 막혔으면 같이 보낸 나이도 그대로여야 한다
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.me.age).toBe(me.input.age);
   });
 
   it("★ 사전 투표가 시작되면 닫힌다", async () => {
@@ -970,29 +1080,79 @@ describe("나의 매력", () => {
     const me = await join(ev);
     await setPhase(ev.id, "prevote");
 
-    const res = await api<{ message: string }>("/api/me/charms", {
+    const res = await api<{ message: string }>("/api/me", {
       method: "PUT",
       cookie: me.cookie,
-      body: { charms: ["가", "나", "다"] },
+      body: { ...me.input, nickname: "늦은닉" },
     });
     expect(res.status).toBe(409);
-    expect(res.body.message).toBe(ME.charmsLocked);
+    expect(res.body.message).toBe(ME.locked);
   });
 
-  it("빈 줄로는 저장되지 않는다 — 세 가지 모두 필요하다", async () => {
-    const ev = await freshEvent();
-    const me = await join(ev);
-    for (const charms of [["가", "나"], ["가", "나", "  "], ["가", "나", "다", "라"]]) {
-      const res = await api("/api/me/charms", { method: "PUT", cookie: me.cookie, body: { charms } });
-      expect(res.status).toBe(400);
+  it("파티 중·발표 후에도 닫혀 있다", async () => {
+    for (const phase of ["party", "done"]) {
+      const ev = await freshEvent();
+      const me = await join(ev);
+      await setPhase(ev.id, phase);
+
+      const res = await api("/api/me", { method: "PUT", cookie: me.cookie, body: { ...me.input, age: 30 } });
+      expect(res.status, phase).toBe(409);
     }
   });
 
-  it("남의 매력은 고칠 수 없다", async () => {
+  it("늦게 등록한 사람에게는 처음부터 열리지 않는다", async () => {
     const ev = await freshEvent();
-    await join(ev);
-    const res = await api("/api/me/charms", { method: "PUT", body: { charms: ["가", "나", "다"] } });
+    await setPhase(ev.id, "party");
+    // 등록은 발표 전까지 열려 있다 — 파티 중에 합류한 사람
+    const late = await join(ev);
+
+    const res = await api("/api/me", { method: "PUT", cookie: late.cookie, body: { ...late.input, age: 30 } });
+    expect(res.status).toBe(409);
+  });
+
+  it("★ 세션 없이는 고칠 수 없다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const res = await api("/api/me", { method: "PUT", body: { ...me.input, nickname: "몰래" } });
     expect(res.status).toBe(401);
+  });
+
+  it("★ 고치는 대상은 언제나 자기 자신이다", async () => {
+    const ev = await freshEvent();
+    const a = await join(ev);
+    const b = await join(ev, { gender: "F" });
+
+    // 입력에 남의 id 를 담아도 대상은 쿠키에서만 온다
+    const res = await api("/api/me", {
+      method: "PUT",
+      cookie: a.cookie,
+      body: { ...a.input, id: b.id, nickname: "에이가고침" },
+    });
+    expect(res.status).toBe(200);
+
+    const mine = await api<ParticipantState>("/api/me", { cookie: a.cookie });
+    const hers = await api<ParticipantState>("/api/me", { cookie: b.cookie });
+    expect(mine.body.me.nickname).toBe("에이가고침");
+    expect(hers.body.me.nickname).toBe(b.input.nickname);
+  });
+
+  it("★ 고쳐도 공개 범위는 그대로다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F", nickname: "그녀" });
+
+    await api("/api/me", {
+      method: "PUT",
+      cookie: her.cookie,
+      body: { ...her.input, nickname: "고친그녀", realName: "이비밀", instagram: "secret_id" },
+    });
+    await setPhase(ev.id, "prevote");
+
+    const seen = (await api<ParticipantState>("/api/me", { cookie: me.cookie })).body.roster[0];
+    expect(seen.nickname).toBe("고친그녀");
+    for (const leak of ["realName", "phone", "instagram", "age", "mbti"]) {
+      expect(Object.keys(seen), leak).not.toContain(leak);
+    }
   });
 });
 
