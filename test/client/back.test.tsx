@@ -35,6 +35,7 @@ const STATE: ParticipantState = {
     age: 30,
     gender: "M",
     phone: "01000000000",
+    instagram: "gram_a",
     mbti: "ENFP",
     charms: ["하나", "둘", "셋"],
     createdAt: 1,

@@ -40,7 +40,7 @@ export interface Fortune {
    *
    * 미션만 한 줄 던지면 남이 준 숙제로 읽힌다 — 왜 오늘 이게 나에게 맞는지가 붙어야
    * 내 운세에서 나온 것이 된다. **지시하지 않는다.** 지시는 미션 한 문장이 한다.
-   * 옛 저장본에는 없다 — 화면이 조건부로 그린다.
+   * **없을 수 있다** — LLM 이 빼먹으면 미션만 살리고 화면은 한 줄로 그린다.
    */
   lead?: string;
   /** 규칙으로 만든 문구인가. 화면에서는 구분하지 않고, 운영자가 원인을 찾을 때 쓴다 */
@@ -213,17 +213,19 @@ export interface FallbackLines {
 export type FortuneDraft = Omit<Fortune, "mission" | "lead">;
 
 /**
- * 저장돼 있던 운세를 지금 모양으로 읽는다.
+ * 저장돼 있던 운세를 읽는 **단 한 곳**.
  *
- * 저장된 자료는 코드보다 오래 산다 — '오늘의 한 걸음'(`step`)이 '오늘의 미션'(`mission`)이 됐을 때
- * 이미 저장된 운세가 그대로 올라오면 미션 칸이 빈다. 기본값 NaN 사고와 같은 자리다.
+ * 저장된 자료는 코드보다 오래 산다. 지금은 1.0.0 이 쓴 모양만 들어 있어서 할 일이 없지만,
+ * 읽는 자리를 하나로 두는 것 자체가 값이다 — 다음에 모양이 바뀌면 고칠 곳이 여기 하나다.
+ * ('오늘의 한 걸음'(`step`)이 '오늘의 미션'(`mission`)이 됐을 때 여기가 그 일을 했다.
+ *  그 자료는 1.0.0 기준선에서 사라졌다.)
+ *
+ * **없는 것과 빈 것을 뭉개지 않는다.** 미션을 빈 문자열로 채우면 "아직 안 연 미션" 이
+ * "연 적 있는데 비어 있는 미션" 으로 읽혀 다시 만들 길이 막힌다.
  */
 export function readFortune(saved: unknown): Fortune {
-  const { step, mission, ...rest } = saved as Fortune & { step?: string };
-  const m = mission || step;
-  // **없는 것과 빈 것을 뭉개지 않는다.** 빈 문자열로 채우면 "아직 안 연 미션" 이
-  // "연 적 있는데 비어 있는 미션" 으로 읽혀 다시 만들 길이 막힌다
-  return m ? { ...rest, mission: m } : rest;
+  const { mission, ...rest } = saved as Fortune;
+  return mission ? { ...rest, mission } : rest;
 }
 
 /**

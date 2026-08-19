@@ -17,7 +17,7 @@ import type {
 import { HOST, HOST_UI } from "../../shared/copy.ts";
 import { LIMITS } from "../../shared/constants.ts";
 import { PHASE_ORDER } from "../../shared/phase.ts";
-import { HOST_COOKIE, clearCookie, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
+import { HOST_COOKIE, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
 import {
   apiError,
   eventStub,
@@ -45,11 +45,6 @@ hostRoutes.post("/pin", async (c) => {
   const token = await signSession(scope, c.env.SESSION_SECRET, serverNow());
   c.header("set-cookie", setCookie(HOST_COOKIE, token, isSecure(c), sessionTtl(scope)));
   return c.json({ scope });
-});
-
-hostRoutes.post("/logout", (c) => {
-  c.header("set-cookie", clearCookie(HOST_COOKIE, isSecure(c)));
-  return c.json({ ok: true });
 });
 
 hostRoutes.get("/session", async (c) => {

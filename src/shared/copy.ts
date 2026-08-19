@@ -1032,7 +1032,6 @@ export const SCREEN_TITLE = {
   hostEvents: "회차 목록",
   hostDefaults: "회차 기본 설정",
   hostWizard: "새 회차 만들기",
-  hostConsole: "회차 콘솔",
 } as const;
 
 /**

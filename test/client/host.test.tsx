@@ -40,6 +40,7 @@ function hostState(over: Partial<HostState["meta"]> = {}): HostState {
         age: 28,
         gender: "M",
         phone: "01011112222",
+        instagram: "gram_a",
         mbti: "ENFP",
         charms: ["a", "b", "c"],
         createdAt: 1,
@@ -51,6 +52,7 @@ function hostState(over: Partial<HostState["meta"]> = {}): HostState {
         age: 27,
         gender: "F",
         phone: "01033334444",
+        instagram: "gram_b",
         mbti: "ISFJ",
         charms: ["a", "b", "c"],
         createdAt: 2,
@@ -195,7 +197,7 @@ describe("운영자 콘솔", () => {
   it("★ 받은 콕 순위는 TOP 5 — 5위가 동점이면 그만큼 늘어난다", () => {
     const mk = (n: number, g: "M" | "F" = "M") => ({
       id: `x${n}`, nickname: `사람${n}`, realName: `김${n}`, age: 30, gender: g,
-      phone: `0100000000${n}`, mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string],
+      phone: `0100000000${n}`, instagram: `gram_${n}`, mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string],
       createdAt: n,
     });
     const players = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => mk(n));
@@ -212,7 +214,7 @@ describe("운영자 콘솔", () => {
 
   it("받은 콕이 아무도 없으면 순위도 없다", () => {
     const players = [{ id: "a", nickname: "가", realName: "김가", age: 30, gender: "M" as const,
-      phone: "01011112222", mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string], createdAt: 1 }];
+      phone: "01011112222", instagram: "gram_a", mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string], createdAt: 1 }];
     expect(topRanks(players, { a: 0 })).toEqual([]);
   });
 
