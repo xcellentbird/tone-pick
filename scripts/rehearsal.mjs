@@ -20,6 +20,8 @@
  * ⚠️ 연습용 환경에서만 돈다. 프로덕션이면 시작하지 않는다 (아래 guard).
  *    QA 에도 실제 사람의 전화번호를 넣지 마라 — 여기서 만드는 번호는 전부 가짜다.
  */
+import WsClient from "ws";
+
 const BASE = process.argv[2]?.replace(/\/$/, "");
 const PIN = process.env.MASTER_PIN;
 const PEOPLE = Number(process.env.PEOPLE ?? 100);
@@ -209,7 +211,18 @@ await pool([...Array(PEOPLE).keys()], WIDTH, async (i) => {
     },
   });
   regTimes.push(res.took);
-  if (res.status === 200) players.push({ id: res.body.state.me.id, call: c, gender: i % 2 === 0 ? "M" : "F" });
+  // 쿠키를 들고 있어야 소켓도 **그 참가자의 것**으로 붙는다 — 익명 소켓에는 콕 신호가 안 온다
+  if (res.status === 200) {
+    players.push({
+      id: res.body.state.me.id,
+      call: c,
+      cookie: res.cookie,
+      gender: i % 2 === 0 ? "M" : "F",
+      input: { nickname: `손님${hangulSeq(i)}`, realName: `가짜${hangulSeq(i)}`, age: 24 + (i % 21),
+        gender: i % 2 === 0 ? "M" : "F", instagram: `rehearsal_${i}`,
+        mbti: i % 3 === 0 ? "ISTJ" : "ENFP", charms: ["리허설용 매력 하나", "둘", "셋"] },
+    });
+  }
   else regFailed++;
 });
 report("등록", regTimes, regFailed ? `실패 ${regFailed}건` : "실패 0");
@@ -222,51 +235,62 @@ let received = 0;
 let firstAt = 0;
 
 /**
- * 소켓 i 를 참가자 i 와 짝지어, 신호를 받으면 **그 사람의 세션으로 한 벌을 다시 읽는다.**
+ * 소켓을 **그 참가자의 것으로** 붙인다.
  *
- * 화면이 실제로 하는 일이다 (ADR-26 — 실시간은 "다시 읽어라" 신호로만 쓴다).
- * 이벤트 개수만 세면 부하의 절반을 안 재는 셈이다. 신호 하나가 곧 N번의 GET 이고,
- * 그 N 번이 이어지는 콕 쓰기와 겹치는 것이 사전 투표 시작 구간의 전부다.
+ * Worker 가 세션 쿠키를 보고 `x-player-id` 를 붙여야(`src/server/index.ts`) DO 가 누구인지 안다.
+ * 익명 소켓에는 받는 사람에게만 가는 `poke` 도, 운영자에게만 가는 `roster` 도 닿지 않아서
+ * 부하가 실제와 다르게 나온다. 그래서 노드 기본 WebSocket 대신 `ws` 를 쓴다 —
+ * 핸드셰이크에 쿠키를 실을 수 있는 건 이쪽뿐이다.
+ *
+ * 신호를 받으면 화면이 하는 일 그대로 **한 벌을 다시 읽는다** (ADR-26).
+ * `pong` 만 빼고 전부다 — 클라이언트도 그렇게 판단한다.
  */
-const herd = { armed: false, at: 0, pending: [], times: [], failed: 0, last: 0 };
+const herd = { armed: false, at: 0, pending: [], times: [], failed: 0, last: 0, byType: {} };
 
 await Promise.all(
   Array.from({ length: SOCKETS }, (_, i) =>
     new Promise((done) => {
-      const ws = new WebSocket(`${BASE.replace(/^http/, "ws")}/ws/${code}`);
+      const who = players[i];
+      const ws = new WsClient(`${BASE.replace(/^http/, "ws")}/ws/${code}`, {
+        headers: who?.cookie ? { cookie: who.cookie } : {},
+      });
       const timer = setTimeout(done, 15_000);
-      ws.onopen = () => {
+      ws.on("open", () => {
         opened++;
         clearTimeout(timer);
         done();
-      };
-      /*
-       * 여기 소켓은 **익명이다.** Worker 는 세션 쿠키에서 참가자를 읽어 `x-player-id` 를 붙이는데,
-       * 노드의 WebSocket 은 핸드셰이크에 쿠키를 못 싣는다. 그래서 받는 사람에게만 가는
-       * `poke` 신호는 이 소켓에 닿지 않는다 — 콕이 부르는 재조회는 아래 ③ 에서 직접 만든다.
-       */
-      ws.onmessage = (e) => {
-        if (JSON.parse(e.data).type !== "phase") return;
-        received++;
-        firstAt ||= performance.now();
-        if (!herd.armed || !players[i]) return;
+      });
+      ws.on("message", (raw) => {
+        let ev;
+        try {
+          ev = JSON.parse(raw.toString());
+        } catch {
+          return;
+        }
+        if (ev.type === "pong") return;
+        if (ev.type === "phase") {
+          received++;
+          firstAt ||= performance.now();
+        }
+        if (!herd.armed || !who) return;
+        herd.byType[ev.type] = (herd.byType[ev.type] ?? 0) + 1;
         herd.pending.push(
-          players[i].call("/me").then((res) => {
+          who.call("/me").then((res) => {
             herd.times.push(res.took);
             if (res.status !== 200) herd.failed++;
             herd.last = performance.now();
           }),
         );
-      };
-      ws.onerror = () => {
+      });
+      ws.on("error", () => {
         clearTimeout(timer);
         done();
-      };
+      });
       sockets.push(ws);
     }),
   ),
 );
-console.log(`  연결 ${opened}/${SOCKETS}`);
+console.log(`  연결 ${opened}/${SOCKETS} (참가자 세션으로)`);
 
 // ⑤ 사전 투표 시작 — 다시 읽기 herd 와 콕 쓰기 큐가 겹치는 구간
 console.log(`\n③ 사전 투표 시작 ${BURST ? "(버스트 — 전원 동시)" : `(현실 — 콕이 ${SPREAD_MS / 1000}초에 걸쳐 흩어진다)`}`);
@@ -285,17 +309,11 @@ herd.at = performance.now();
 const pokeTimes = [];
 const pokeStarts = [];
 let pokeFailed = 0;
-/**
- * **콕 한 건은 쓰기 1 + 읽기 1 이다.**
- *
- * 받은 사람에게 `poke` 신호가 가고(toPlayer), 그 화면은 신호 종류를 가리지 않고
- * 한 벌을 다시 읽는다 — 부분 갱신을 만들지 않기로 했기 때문이다 (ADR-26).
- * 여기 소켓은 익명이라 그 신호를 못 받으니, 받았을 때 일어날 읽기를 직접 만들어 같이 싣는다.
+/*
+ * **콕 한 건은 쓰기 1 + 읽기 1 이다.** 받은 사람에게 `poke` 신호가 가고(toPlayer),
+ * 그 화면은 신호 종류를 가리지 않고 한 벌을 다시 읽는다 (ADR-26).
+ * 소켓이 참가자 세션으로 붙어 있으므로 그 읽기는 위 herd 에 **실제로** 잡힌다.
  */
-const echoes = [];
-const echoTimes = [];
-let echoFailed = 0;
-
 await Promise.all(
   players.map(async (me, n) => {
     if (!BURST && players.length > 1) await sleep((n / (players.length - 1)) * SPREAD_MS);
@@ -305,27 +323,15 @@ await Promise.all(
       pokeStarts.push(performance.now());
       const res = await me.call("/poke", { method: "POST", body: { toId: target.id } });
       pokeTimes.push(res.took);
-      if (res.status !== 200) {
-        pokeFailed++;
-        continue;
-      }
-      // 기다리지 않는다 — 받은 사람 화면이 알아서 다시 읽는 것이라 보낸 쪽과 무관하게 흐른다
-      echoes.push(
-        target.call("/me").then((r) => {
-          echoTimes.push(r.took);
-          if (r.status !== 200) echoFailed++;
-        }),
-      );
+      if (res.status !== 200) pokeFailed++;
     }
   }),
 );
 const pokeDone = performance.now();
-await Promise.all(echoes);
 
-// 늦게 도착한 신호까지 받아준 뒤 재조회를 마저 기다린다
+// 늦게 도착한 신호까지 받아준 뒤 재조회를 마저 기다린다 (herd 는 ③-2 에서 계속 쓴다)
 await sleep(1000);
 await Promise.all(herd.pending);
-herd.armed = false;
 
 console.log(`  전환 응답      ${ms(shift.took)}`);
 report(
@@ -335,10 +341,47 @@ report(
     (herd.last ? ` · 마지막 ${ms(herd.last - herd.at)}` : ""),
 );
 report("콕(쓰기)", pokeTimes, `${pokeFailed ? `실패 ${pokeFailed}건` : "실패 0"} · 마지막 ${ms(pokeDone - herd.at)}`);
-report("콕이 부른 읽기", echoTimes, echoFailed ? `실패 ${echoFailed}건` : "실패 0");
+// 신호 종류별로 몇 번의 재조회가 나갔나. 콕이 부른 것과 단계 전환이 부른 것이 여기서 갈린다
+console.log(
+  `  재조회 출처     ${Object.entries(herd.byType).map(([t, n]) => `${t} ${n}건`).join(" · ") || "없음"}`,
+);
 // 이 줄이 이 구간의 요점이다. 0 이면 겹치지 않은 것이고, 그러면 이 시나리오를 잰 게 아니다
 const overlapped = herd.last ? pokeStarts.filter((t) => t < herd.last).length : 0;
 console.log(`  겹침           재조회가 끝나기 전에 들어간 콕 ${overlapped}/${pokeStarts.length}건`);
+
+// ⑤-2 내 정보 고치기 — 저장 한 번이 몇 명의 재조회를 부르나
+//
+// 고치기는 **등록 중에만** 열린다 (ADR-31). 그래서 잠깐 되돌려서 잰다.
+// 여기서 보는 건 지연이 아니라 **퍼짐**이다 — 저장 하나가 전원을 다시 읽게 만들면
+// 참가자 화면이 똑같이 그려질 변화에 인원수만큼의 읽기가 붙는다.
+console.log("\n③-2 내 정보 고치기 (저장 한 번이 부르는 재조회)");
+await host(`/host/events/${eventId}/phase`, { method: "POST", body: { to: "reg" } });
+await sleep(1500); // 되돌림 신호가 부른 재조회가 지나가길 기다린다
+
+herd.byType = {};
+herd.pending = [];
+herd.times = [];
+const editors = players.slice(0, Math.min(5, players.length));
+const editTimes = [];
+let editFailed = 0;
+for (const [n, who] of editors.entries()) {
+  const res = await who.call("/me", { method: "PUT", body: { ...who.input, nickname: `고침${hangulSeq(n)}` } });
+  editTimes.push(res.took);
+  if (res.status !== 200) editFailed++;
+}
+await sleep(1500);
+await Promise.all(herd.pending);
+
+const fanout = Object.values(herd.byType).reduce((a, b) => a + b, 0);
+report("고치기(쓰기)", editTimes, editFailed ? `실패 ${editFailed}건` : "실패 0");
+console.log(
+  `  참가자 재조회   ${fanout}건 — 저장 ${editors.length}회 × 소켓 ${opened}개 중` +
+    ` (운영자에게만 가면 0 이다)`,
+);
+
+await host(`/host/events/${eventId}/phase`, { method: "POST", body: { to: "prevote" } });
+await sleep(1000);
+herd.armed = false;
 
 // ⑤ 자리 배정 — 무료 플랜 CPU 10ms 를 넘기면 여기서 500 이 뜬다
 console.log("\n④ 자리 배정 (CPU 10ms 관문)");
