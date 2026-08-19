@@ -172,7 +172,7 @@ function Loaded({
             />
           )}
           {tab === "fortune" && <FortuneTab state={state} reload={reload} />}
-          {tab === "me" && <Me state={state} reload={reload} />}
+          {tab === "me" && <Me state={state} source={source} reload={reload} />}
         </div>
 
         <nav className="tabbar">

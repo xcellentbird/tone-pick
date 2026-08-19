@@ -4,8 +4,8 @@
  * 화면 컴포넌트와 자료 통로를 갈라둔다. 화면은 "무엇을 그리나" 만 알고,
  * 세션·요청 경로는 이 통로가 안다 — 테스트가 가짜 통로를 끼워 화면만 따로 검사한다.
  */
-import type { MyPokeState, ParticipantState } from "../../shared/types.ts";
-import { api, post } from "./api.ts";
+import type { MyPokeState, ParticipantState, Player, RegisterInput } from "../../shared/types.ts";
+import { api, post, put } from "./api.ts";
 
 export interface ParticipantSource {
   /** 다시 읽기의 기준. 이 값이 바뀌면 화면이 처음부터 다시 불러온다 */
@@ -15,6 +15,8 @@ export interface ParticipantSource {
   load(): Promise<ParticipantState>;
   poke(toId: string): Promise<MyPokeState>;
   ackSeat(round: number): Promise<void>;
+  /** 내 정보 고치기. 등록과 같은 입력이라 **전화번호는 여기 없다** (ADR-31) */
+  saveProfile(input: RegisterInput): Promise<Player>;
 }
 
 /** 본인 세션. 참가자 식별은 URL 이 아니라 HttpOnly 쿠키로 한다 */
@@ -27,5 +29,6 @@ export function sessionSource(code: string): ParticipantSource {
     ackSeat: async (round) => {
       await post("/seat/ack", { round });
     },
+    saveProfile: (input) => put<Player>("/me", input),
   };
 }

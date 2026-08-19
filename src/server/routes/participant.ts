@@ -188,16 +188,21 @@ participantRoutes.post("/fortune", async (c) => {
   return response ?? c.json(value);
 });
 
-/** 매력 세 줄 고치기. 사전 투표가 열리기 전까지만 열려 있다 (ADR-27) */
-participantRoutes.put("/me/charms", async (c) => {
+/**
+ * 내 정보 고치기. 사전 투표가 열리기 전까지만 열려 있다 (ADR-31).
+ *
+ * 입력은 등록과 같은 모양이다 — **전화번호는 그 모양에 없다** (ADR-15).
+ * 고칠 사람은 쿠키에서 온다. 본문에 담긴 id 는 읽지 않는다.
+ */
+participantRoutes.put("/me", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");
-  const body = (await c.req.json().catch(() => ({}))) as { charms?: unknown };
-  if (!Array.isArray(body.charms)) return apiError(c, "bad_request");
+  const input = (await c.req.json().catch(() => ({}))) as RegisterInput;
+  const nickTaken = registerMessage(String(input.nickname ?? ""));
   const { value, response } = unwrap(
     c,
-    await seat.stub.editCharms(seat.playerId, body.charms.map(String), serverNow()),
-    (error) => (error === "closed" ? ME.charmsLocked : undefined),
+    await seat.stub.editProfile(seat.playerId, input, serverNow()),
+    (error) => (error === "closed" ? ME.locked : nickTaken(error)),
   );
   return response ?? c.json(value);
 });

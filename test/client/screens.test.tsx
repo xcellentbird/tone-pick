@@ -12,8 +12,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
-import { ENTRY, ENV_BANNER, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
-import type { MyPokeState, ParticipantState } from "../../src/shared/types.ts";
+import { BTN, ENTRY, ENV_BANNER, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
+import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
@@ -52,6 +52,7 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
       age: 30,
       gender: "M",
       phone: "01000000000",
+      instagram: "na_gram",
       mbti: "ENFP",
       charms: ["하나", "둘", "셋"],
       createdAt: 1,
@@ -63,9 +64,9 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
 }
 
 function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & {
-  calls: { poke: string[]; ack: number[] };
+  calls: { poke: string[]; ack: number[]; saved: RegisterInput[] };
 } {
-  const calls = { poke: [] as string[], ack: [] as number[] };
+  const calls = { poke: [] as string[], ack: [] as number[], saved: [] as RegisterInput[] };
   return {
     key: "test",
     calls,
@@ -76,6 +77,10 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
     },
     ackSeat: async (round) => {
       calls.ack.push(round);
+    },
+    saveProfile: async (input) => {
+      calls.saved.push(input);
+      return { ...participantState().me, ...input };
     },
     ...over,
   };
@@ -606,6 +611,100 @@ describe("상단 바", () => {
       </MemoryRouter>,
     );
     await screen.findByText("테스트 파티");
+  });
+});
+
+// ─────────────────────────────────────────── 내 정보 고치기
+
+/**
+ * 고치는 길은 **하나뿐이다** (ADR-31). 기본 정보와 매력이 함께 폼이 되고,
+ * 사전 투표가 열리면 함께 잠긴다. 전화번호는 그 폼에 들어가지 않는다 (ADR-15).
+ */
+describe("내 정보 고치기", () => {
+  const renderMe = (over: Partial<ParticipantState> = {}, src?: ReturnType<typeof fakeSource>) =>
+    render(
+      <MemoryRouter>
+        <ParticipantView
+          source={src ?? fakeSource({ load: async () => participantState(over) })}
+          tab="me"
+          onTab={() => {}}
+          onProfile={() => {}}
+        />
+      </MemoryRouter>,
+    );
+
+  /** 등록 중인 회차. 명단이 아직 열리지 않아 아무도 내 정보를 보지 않았다 */
+  const reg = { event: { ...participantState().event, phase: "reg" as const } };
+
+  it("★ 고치기는 하나뿐이고, 기본 정보와 매력이 함께 폼이 된다", async () => {
+    renderMe(reg);
+    fireEvent.click(await screen.findByText(ME.edit));
+
+    // 한 번 눌렀는데 둘 다 폼이 됐다
+    expect(screen.getByLabelText(ME.labels.nickname)).toBeTruthy();
+    expect(screen.getByLabelText(`${ME.labels.charms} 1`)).toBeTruthy();
+    // 저장도 하나다 — 매력만 따로 저장하는 버튼은 없다
+    expect(screen.getAllByText(BTN.save).length).toBe(1);
+  });
+
+  it("★ 전화번호는 편집 모드에서도 칸이 아니다", async () => {
+    renderMe(reg);
+    fireEvent.click(await screen.findByText(ME.edit));
+
+    // 파티의 문이라 고칠 수 없다 — 값은 보이되 입력 칸은 없다
+    expect(screen.queryByLabelText(ME.labels.phone)).toBeNull();
+    expect(screen.getByText(ME.phoneFixed)).toBeTruthy();
+  });
+
+  it("★ 사전 투표가 열린 뒤에는 왜 못 고치는지 말한다", async () => {
+    // 버튼만 조용히 사라지면 "내 화면만 이상한가" 가 된다
+    renderMe();
+    await screen.findByText(ME.locked);
+    expect(screen.queryByText(ME.edit)).toBeNull();
+  });
+
+  it("고친 것을 저장하면 통로로 나간다", async () => {
+    const src = fakeSource({ load: async () => participantState(reg) });
+    renderMe(reg, src);
+    fireEvent.click(await screen.findByText(ME.edit));
+
+    fireEvent.change(screen.getByLabelText(ME.labels.nickname), { target: { value: "고친닉" } });
+    fireEvent.click(screen.getByText(BTN.save));
+
+    await waitFor(() => expect(src.calls.saved.length).toBe(1));
+    // 전화번호는 보낸 것에도 없다 — 입력 모양에 자리가 없다
+    expect(src.calls.saved[0].nickname).toBe("고친닉");
+    expect(Object.keys(src.calls.saved[0])).not.toContain("phone");
+  });
+
+  it("취소하면 고치던 입력이 버려진다", async () => {
+    renderMe(reg);
+    fireEvent.click(await screen.findByText(ME.edit));
+    fireEvent.change(screen.getByLabelText(ME.labels.nickname), { target: { value: "버려질닉" } });
+    fireEvent.click(screen.getByText(BTN.cancel));
+
+    // 다시 들어가면 저장돼 있던 값이다
+    fireEvent.click(await screen.findByText(ME.edit));
+    expect((screen.getByLabelText(ME.labels.nickname) as HTMLInputElement).value).toBe("나");
+  });
+
+  it("닉네임이 겹치면 그 칸에 알리고 입력값은 지우지 않는다", async () => {
+    const src = fakeSource({
+      load: async () => participantState(reg),
+      saveProfile: async () => {
+        throw new ApiError(409, "nick_taken", REGISTER.err.nickTaken("겹친닉"));
+      },
+    });
+    renderMe(reg, src);
+    fireEvent.click(await screen.findByText(ME.edit));
+
+    const input = screen.getByLabelText(ME.labels.nickname) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "겹친닉" } });
+    fireEvent.click(screen.getByText(BTN.save));
+
+    await screen.findByText(REGISTER.err.nickTaken("겹친닉"));
+    // 고치던 화면 그대로다 — 입력값이 살아 있어야 한 글자만 바꿔 다시 저장한다
+    expect(input.value).toBe("겹친닉");
   });
 });
 
