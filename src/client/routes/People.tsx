@@ -132,8 +132,11 @@ export default function People({ state, source, reload, profileId, onProfile }: 
       */}
       {list.length > 0 && (
         <div className="row between">
-          <span className="small dim">{agesHidden ? PEOPLE.agesAtParty : ""}</span>
-          {open && <span className="small dim">{STATUS.roundLeft(budget.max - budget.used)}</span>}
+          {/* 둘은 **한 줄**이다. 좁은 폰에서도 접히지 않게 왼쪽이 먼저 줄고, 남은 콕은 제 폭을 지킨다 */}
+          <span className="small dim grow ellipsis">{agesHidden ? PEOPLE.agesAtParty : ""}</span>
+          {open && (
+            <span className="small dim nowrap">{STATUS.roundLeft(budget.max - budget.used)}</span>
+          )}
         </div>
       )}
 
