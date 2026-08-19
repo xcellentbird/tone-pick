@@ -6,13 +6,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, TABS_PARTICIPANT } from "../../shared/copy.ts";
-import type { ParticipantState, PublicEvent } from "../../shared/types.ts";
+import type { ParticipantState } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
 import { sessionSource, type ParticipantSource } from "../lib/participant.ts";
 import { useLoad } from "../lib/useLoad.ts";
-import { ApiError, api } from "../lib/api.ts";
+import { ApiError } from "../lib/api.ts";
 import { Overlays, useOverlay } from "../ui/Overlays.tsx";
 import People from "./People.tsx";
 import Me from "./Me.tsx";
@@ -245,26 +245,13 @@ function Greeting({ text }: { text: string }) {
  */
 function Failed({ error, code }: { error: ApiError; code?: string }) {
   const navigate = useNavigate();
-  /**
-   * 세션이 이 회차의 것이 아니다 — 다른 회차에 등록했거나 만료됐다.
-   * 문 앞으로 돌려보내되 **코드를 회차 아이디로 바꿔서** 보낸다.
+  /*
+   * 세션이 이 회차의 것이 아니면(401) 예전에는 코드로 회차를 되찾아 문 앞으로 보냈다.
+   * 그 길을 닫았다 — **코드로 회차를 찾는 창구가 곧 링크를 내주는 창구**였기 때문이다
+   * (`by-code` 응답에 회차 아이디가 들어 있어서, 30비트 코드를 뚫으면 64비트 링크가 나왔다).
    *
-   * `/j` 는 아이디 경로다 (ADR-13). 코드를 그대로 넘기면 아이디로 대조하는 서버가
-   * 못 찾아서 "그런 회차가 없어요" 로 끝난다 — 회차는 멀쩡한데 없다고 말하는 셈이다.
-   * 입장 화면(Entry)이 쓰는 순서와 같다: 코드로 회차를 찾고, 아이디로 이동한다.
+   * 이제는 참가 링크로 다시 들어오면 된다. 링크는 운영자가 뿌린 그대로 남아 있다.
    */
-  useEffect(() => {
-    if (!code || error.status !== 401) return;
-    let alive = true;
-    api<PublicEvent>(`/events/by-code/${code}`)
-      .then((found) => alive && navigate(`/j/${found.id}`, { replace: true }))
-      // 코드마저 못 찾으면 이 화면의 문구가 비로소 맞는 말이 된다
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [code, error.status, navigate]);
-
   const removed = error.status === 404;
   return (
     <div className="screen">

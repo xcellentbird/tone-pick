@@ -63,10 +63,13 @@ export default function Join() {
 
   return (
     <div className="screen">
+      {/*
+        **`이전` 버튼을 두지 않는다.** 이 화면에 오는 길은 참가 링크 하나뿐이고,
+        링크로 온 사람에게는 앱 안에 돌아갈 자리가 없다 — 예전엔 여기서 코드 입력 화면으로
+        보냈는데, 링크만 받은 사람은 알지도 못하는 코드를 요구받는 막다른 길이었다.
+        브라우저 뒤로 가기로 링크를 받은 자리(카톡)로 돌아가는 게 맞는 동작이다.
+      */}
       <header>
-        <button className="btn ghost" onClick={() => navigate("/")}>
-          {BTN.back}
-        </button>
         <h1 className="grow">{SCREEN_TITLE.join}</h1>
       </header>
 
