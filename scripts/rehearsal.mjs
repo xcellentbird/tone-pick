@@ -5,8 +5,17 @@
  *
  * 재는 것
  *   · 동시 등록 — 회차 DO 는 요청을 순차 처리한다. 100명이 한꺼번에 오면 여기서 줄을 선다
+ *   · **사전 투표 시작** — 이 앱에서 가장 무거운 순간이다. 아래 참고
  *   · 자리 배정 — 무료 플랜 요청당 CPU 10ms. 넘치면 500(1102)이 뜬다. 성패가 곧 답이다
  *   · 브로드캐스트 — 소켓 100개에 단계 전환이 몇 개나, 얼마나 빨리 닿나
+ *
+ * **왜 사전 투표 시작이 가장 무거운가** — 읽기 herd 와 쓰기 큐가 겹치는 유일한 지점이다.
+ * 실시간은 "다시 읽어라" 신호로만 쓰므로(ADR-26) 전환 한 번이 곧 N번의 재조회가 되고,
+ * 그 화면을 본 사람들이 곧바로 콕을 찌르기 시작한다. 회차 DO 는 읽기에는 강하지만
+ * 쓰기는 줄을 선다 — 그래서 이 둘이 겹치는 구간만 따로 잰다.
+ *
+ * 판정은 사람이 한다. 이 스크립트는 숫자를 찍을 뿐 통과·실패를 정하지 않는다 —
+ * 지연은 리전·콜드 스타트·네트워크로 흔들려서 임계값을 걸면 곧 아무도 안 믿게 된다.
  *
  * ⚠️ 연습용 환경에서만 돈다. 프로덕션이면 시작하지 않는다 (아래 guard).
  *    QA 에도 실제 사람의 전화번호를 넣지 마라 — 여기서 만드는 번호는 전부 가짜다.
@@ -19,6 +28,15 @@ const TABLES = Number(process.env.TABLES ?? 12);
 const SOCKETS = Number(process.env.SOCKETS ?? PEOPLE);
 const WIDTH = Number(process.env.WIDTH ?? 25);
 const KEEP = process.argv.includes("--keep");
+/**
+ * 사전 투표가 열린 뒤 사람들이 콕을 찌르기 시작하는 데 걸리는 시간.
+ *
+ * **기본은 현실이다.** 전원이 같은 순간에 누르는 일은 없다 — 화면을 보고, 명단을 훑고,
+ * 그러다 누른다. 최악만 재면 "몇 초 걸린다"만 남고 **정상이 어떤 모양인지 기준선이 안 생긴다.**
+ * `--burst` 는 그 최악(전원 동시)을 따로 보고 싶을 때 쓴다.
+ */
+const SPREAD_MS = Number(process.env.SPREAD ?? 5) * 1000;
+const BURST = process.argv.includes("--burst");
 
 /**
  * 닉네임·실명에 숫자를 쓸 수 없다 (nicknameProblem/realNameProblem) — 일련번호를 한글로 읽는다.
@@ -27,7 +45,8 @@ const KEEP = process.argv.includes("--keep");
 const hangulSeq = (n) => String(n).replace(/[0-9]/g, (d) => "영일이삼사오육칠팔구"[Number(d)]);
 
 if (!BASE || !PIN) {
-  console.error("사용법: MASTER_PIN=**** node scripts/rehearsal.mjs <주소> [--keep]");
+  console.error("사용법: MASTER_PIN=**** node scripts/rehearsal.mjs <주소> [--keep] [--burst]");
+  console.error("  PEOPLE=50 인원 · WIDTH=25 등록 동시성 · SPREAD=5 콕이 흩어지는 초 · TABLES=12");
   process.exit(1);
 }
 
@@ -68,6 +87,8 @@ function client() {
     };
   };
 }
+
+const sleep = (n) => new Promise((r) => setTimeout(r, n));
 
 /** 한꺼번에 다 던지지 않고 폭을 정해 밀어넣는다. 파티장에서도 동시에 100명이 누르진 않는다 */
 async function pool(items, width, run) {
@@ -113,6 +134,8 @@ const made = await host("/host/events", {
     requestId: `rehearsal-${stamp}`,
   },
 });
+// ⚠️ maxPre 3 은 기본값(DEFAULTS.maxPre = 1)의 **세 배**다. 일부러 무겁게 잡은 값이라
+//    여기 나오는 콕 숫자를 실제 파티의 사전 투표 부하로 읽으면 안 된다 — 1/3 로 보면 된다
 if (made.status !== 200) {
   console.error("❌ 회차를 만들지 못했습니다:", made.body);
   process.exit(1);
@@ -165,8 +188,18 @@ const sockets = [];
 let opened = 0;
 let received = 0;
 let firstAt = 0;
+
+/**
+ * 소켓 i 를 참가자 i 와 짝지어, 신호를 받으면 **그 사람의 세션으로 한 벌을 다시 읽는다.**
+ *
+ * 화면이 실제로 하는 일이다 (ADR-26 — 실시간은 "다시 읽어라" 신호로만 쓴다).
+ * 이벤트 개수만 세면 부하의 절반을 안 재는 셈이다. 신호 하나가 곧 N번의 GET 이고,
+ * 그 N 번이 이어지는 콕 쓰기와 겹치는 것이 사전 투표 시작 구간의 전부다.
+ */
+const herd = { armed: false, at: 0, pending: [], times: [], failed: 0, last: 0 };
+
 await Promise.all(
-  Array.from({ length: SOCKETS }, () =>
+  Array.from({ length: SOCKETS }, (_, i) =>
     new Promise((done) => {
       const ws = new WebSocket(`${BASE.replace(/^http/, "ws")}/ws/${code}`);
       const timer = setTimeout(done, 15_000);
@@ -176,10 +209,17 @@ await Promise.all(
         done();
       };
       ws.onmessage = (e) => {
-        if (JSON.parse(e.data).type === "phase") {
-          received++;
-          firstAt ||= performance.now();
-        }
+        if (JSON.parse(e.data).type !== "phase") return;
+        received++;
+        firstAt ||= performance.now();
+        if (!herd.armed || !players[i]) return;
+        herd.pending.push(
+          players[i].call("/me").then((res) => {
+            herd.times.push(res.took);
+            if (res.status !== 200) herd.failed++;
+            herd.last = performance.now();
+          }),
+        );
       };
       ws.onerror = () => {
         clearTimeout(timer);
@@ -191,23 +231,54 @@ await Promise.all(
 );
 console.log(`  연결 ${opened}/${SOCKETS}`);
 
-// ⑤ 콕 — 사람마다 3회씩
-console.log("\n③ 콕");
-await host(`/host/events/${eventId}/phase`, { method: "POST", body: { to: "prevote" } });
+// ⑤ 사전 투표 시작 — 다시 읽기 herd 와 콕 쓰기 큐가 겹치는 구간
+console.log(`\n③ 사전 투표 시작 ${BURST ? "(버스트 — 전원 동시)" : `(현실 — 콕이 ${SPREAD_MS / 1000}초에 걸쳐 흩어진다)`}`);
 const men = players.filter((p) => p.gender === "M");
 const women = players.filter((p) => p.gender === "F");
+
+herd.armed = true;
+const shift = await host(`/host/events/${eventId}/phase`, { method: "POST", body: { to: "prevote" } });
+herd.at = performance.now();
+
+/*
+ * **재조회가 끝나기를 기다리지 않는다.** 겹치는 것이 이 구간의 전부다 —
+ * 기다렸다 찌르면 읽기와 쓰기를 따로 잰 것이지 이 순간을 잰 게 아니다.
+ * 여기서는 WIDTH 를 쓰지 않는다. 사람은 정해진 폭이 아니라 자기 때가 되면 누른다.
+ */
 const pokeTimes = [];
+const pokeStarts = [];
 let pokeFailed = 0;
-await pool(players, WIDTH, async (me) => {
-  const targets = me.gender === "M" ? women : men;
-  for (let k = 0; k < 3; k++) {
-    const target = targets[(players.indexOf(me) + k * 7) % targets.length];
-    const res = await me.call("/poke", { method: "POST", body: { toId: target.id } });
-    pokeTimes.push(res.took);
-    if (res.status !== 200) pokeFailed++;
-  }
-});
-report("콕", pokeTimes, pokeFailed ? `실패 ${pokeFailed}건` : "실패 0");
+await Promise.all(
+  players.map(async (me, n) => {
+    if (!BURST && players.length > 1) await sleep((n / (players.length - 1)) * SPREAD_MS);
+    const targets = me.gender === "M" ? women : men;
+    for (let k = 0; k < 3; k++) {
+      const target = targets[(n + k * 7) % targets.length];
+      pokeStarts.push(performance.now());
+      const res = await me.call("/poke", { method: "POST", body: { toId: target.id } });
+      pokeTimes.push(res.took);
+      if (res.status !== 200) pokeFailed++;
+    }
+  }),
+);
+const pokeDone = performance.now();
+
+// 늦게 도착한 신호까지 받아준 뒤 재조회를 마저 기다린다
+await sleep(1000);
+await Promise.all(herd.pending);
+herd.armed = false;
+
+console.log(`  전환 응답      ${ms(shift.took)}`);
+report(
+  "다시 읽기",
+  herd.times,
+  `${herd.failed ? `실패 ${herd.failed}건` : "실패 0"}` +
+    (herd.last ? ` · 마지막 ${ms(herd.last - herd.at)}` : ""),
+);
+report("콕", pokeTimes, `${pokeFailed ? `실패 ${pokeFailed}건` : "실패 0"} · 마지막 ${ms(pokeDone - herd.at)}`);
+// 이 줄이 이 구간의 요점이다. 0 이면 겹치지 않은 것이고, 그러면 이 시나리오를 잰 게 아니다
+const overlapped = herd.last ? pokeStarts.filter((t) => t < herd.last).length : 0;
+console.log(`  겹침           재조회가 끝나기 전에 들어간 콕 ${overlapped}/${pokeStarts.length}건`);
 
 // ⑤ 자리 배정 — 무료 플랜 CPU 10ms 를 넘기면 여기서 500 이 뜬다
 console.log("\n④ 자리 배정 (CPU 10ms 관문)");
