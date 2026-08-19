@@ -93,12 +93,17 @@ export default function People({ state, source, reload, profileId, onProfile }: 
 
   return (
     <>
-      {/* 필터는 **전체 폭**을 쓴다. 옆에 글자를 붙이면 알약 컨테이너와 맨 글자가 한 줄에서
-          서로 다른 층위로 읽히고, 늘어난 필터와 오른쪽 글자 사이에 빈 공간이 남는다 */}
+      {/*
+        필터는 **전체 폭**을 쓴다. 옆에 글자를 붙이면 알약 컨테이너와 맨 글자가 한 줄에서
+        서로 다른 층위로 읽히고, 늘어난 필터와 오른쪽 글자 사이에 빈 공간이 남는다.
+
+        **기본값이 왼쪽이다** — `전체` 가 기본이라(ADR-17) 켜져 있는 쪽이 먼저 읽혀야 한다.
+        인원 수는 `전체` 에 붙는다. 상단 바에 있던 것을 **세는 대상이 있는 자리**로 옮겼다.
+      */}
       <div className="choice">
         {[
+          { on: false, label: PEOPLE.everyone, count: state.event.playerCount },
           { on: true, label: PEOPLE.onlyOpposite },
-          { on: false, label: PEOPLE.everyone },
         ].map((opt) => (
           <button
             key={opt.label}
@@ -107,6 +112,7 @@ export default function People({ state, source, reload, profileId, onProfile }: 
             onClick={() => setOnlyOpposite(opt.on)}
           >
             {opt.label}
+            {opt.count !== undefined && <span className="filterCount"> {opt.count}</span>}
           </button>
         ))}
       </div>

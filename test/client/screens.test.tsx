@@ -616,6 +616,43 @@ describe("상단 바", () => {
     expect(screen.getAllByText(UNIT.times(2))).toHaveLength(1);
   });
 
+  it("★ 회차 이름이 길어도 카운트다운을 밀어내지 않는다", async () => {
+    /*
+     * 실기기에서 났던 것 — `108th TONE PARTY🔥 …` 처럼 이름이 길면 옆의 것들이 다 같이
+     * 쪼그라들어 `1명` 도 `파티까지` 도 두 줄로 접혔다. **줄어드는 건 이름 하나뿐이어야 한다.**
+     */
+    renderParticipant(
+      fakeSource({
+        load: async () =>
+          participantState({
+            event: { ...participantState().event, name: "108th TONE PARTY🔥 아주아주 긴 회차 이름입니다" },
+          }),
+      }),
+    );
+    const name = await screen.findByText(/108th TONE PARTY/);
+    // 이름과 카운트다운이 **다른 칸**에 있다. 한 칸에 있으면 같이 줄어든다
+    expect(name.closest(".where")).toBeTruthy();
+    expect(name.closest(".until")).toBeNull();
+    expect(document.querySelector(".statusbar .until")).toBeTruthy();
+  });
+
+  it("★ 인원 수는 상단이 아니라 참가자 탭의 '전체' 옆에 있다", async () => {
+    // 세는 대상이 있는 자리에 숫자가 있어야 한다
+    renderParticipant(fakeSource());
+    const all = await screen.findByText(PEOPLE.everyone);
+    expect(all.querySelector(".filterCount")?.textContent?.trim()).toBe("2");
+    expect(document.querySelector(".statusbar")?.textContent).not.toContain("2명");
+  });
+
+  it("켜져 있는 쪽이 먼저 읽힌다 — '전체' 가 왼쪽이다", async () => {
+    // 기본값은 전체다 (ADR-17). 기본이 오른쪽에 있으면 눈이 한 번 더 확인한다
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/); // 자료가 올라온 뒤에 센다
+    const buttons = [...document.querySelectorAll(".choice button")].map((b) => b.textContent?.trim());
+    expect(buttons[0]).toContain(PEOPLE.everyone);
+    expect(buttons[1]).toContain(PEOPLE.onlyOpposite);
+  });
+
   it("★ 회차 이름은 상단 바 한 곳에만 있다", async () => {
     // 어느 탭에 있든 보인다 — "내가 지금 어느 파티에 있나" 는 아무 때나 확인하고 싶은 것이다
     const { rerender } = renderParticipant(fakeSource());
