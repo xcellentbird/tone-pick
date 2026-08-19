@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { BTN, ME, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
 import type { MatchInfo, ParticipantState, Phase, Player, PublicPlayer } from "../../shared/types.ts";
+import type { Tab } from "./Participant.tsx";
 import { canPoke } from "../../shared/phase.ts";
 import { rosterOpen, toPublic } from "../../shared/types.ts";
 import { ApiError } from "../lib/api.ts";
@@ -25,9 +26,10 @@ interface Props {
   reload: () => void;
   profileId?: string;
   onProfile: (playerId: string | null) => void;
+  onTab: (tab: Tab) => void;
 }
 
-export default function People({ state, source, reload, profileId, onProfile }: Props) {
+export default function People({ state, source, reload, profileId, onProfile, onTab }: Props) {
   // 동성에게도 찌를 수 있는 회차라면 처음부터 전체를 보여준다 — 반쪽만 보이면 설정이 무색해진다
   const sameGenderOk = state.event.config.allowSameGender !== false;
   const [onlyOpposite, setOnlyOpposite] = useState(!sameGenderOk);
@@ -106,7 +108,7 @@ export default function People({ state, source, reload, profileId, onProfile }: 
         **눌리지 않는 내 콕 버튼**으로 읽힌다. 사이에 필터 줄이 들어가면 그 오해가 사라진다.
       */}
       <div className="row">
-        <MyCard me={state.me} phase={state.event.phase} />
+        <MyCard me={state.me} phase={state.event.phase} onOpen={() => onTab("me")} />
         {/* 폭은 남들 줄의 👉 칸과 같다. 그래야 카드 오른쪽 끝이 아래와 맞는다 */}
         {open && (
           <div className="mineCell">
@@ -272,14 +274,19 @@ export default function People({ state, source, reload, profileId, onProfile }: 
  * 등록 중에 그대로 부르면 나이가 나오는데 정작 사전 투표에서는 안 보인다 —
  * 그래서 **남들이 나를 처음 보게 되는 상태**로 바꿔서 부른다.
  *
- * 누를 수 없다. 매력 전문과 내가 낸 것 전부는 내 정보 탭에 있고,
- * 프로필 시트는 `roster` 에서 상대를 찾는데 거기 나는 없다.
+ * **누르면 내 정보 탭으로 간다.** 남들 카드는 눌러서 프로필 시트를 여는데,
+ * 여기서 같은 시트를 열 수는 없다 — 시트는 `roster` 에서 상대를 찾고 거기 나는 없다.
+ * 그렇다고 혼자 못 누르는 카드로 두면, 이 줄에서 더 보고 싶은 것(매력 전문·내가 낸 것 전부)이
+ * 어디 있는지 알 길이 없다. 그게 이미 **내 정보 탭**에 있으니 거기로 보낸다.
+ *
+ * 탭 이동은 `onTab` 이 맡는다 — push/replace 규칙이 거기 한 곳에 있다 (`docs/ROUTES.md`).
+ * 여기서 `navigate` 를 직접 부르면 그 규칙이 두 곳으로 갈라진다.
  */
-function MyCard({ me, phase }: { me: Player; phase: Phase }) {
+function MyCard({ me, phase, onOpen }: { me: Player; phase: Phase; onOpen: () => void }) {
   const seenAs: Phase = phase === "party" || phase === "done" ? phase : "prevote";
   const shown = toPublic(me, seenAs);
   return (
-    <div className="person grow">
+    <button type="button" className="person grow" onClick={onOpen}>
       {/* "나" 는 아바타 위에 얹는다. 이름 줄은 닉네임·나이·MBTI 로 이미 꽉 차 있다 */}
       <span className="avatarMine">
         <Avatar nickname={shown.nickname} gender={shown.gender} />
@@ -299,7 +306,13 @@ function MyCard({ me, phase }: { me: Player; phase: Phase }) {
           ))}
         </span>
       </span>
-    </div>
+      {/*
+        화살표 같은 표시는 붙이지 않는다 — 이 줄에만 붙으면 남들 카드보다 더 눌러도 되는 것처럼
+        보인다. 둘 다 눌리는 카드다. 다만 **어디로 가는지는 글자로** 말해야 해서,
+        보이지 않는 한 줄로 목적지를 남긴다.
+      */}
+      <span className="srOnly">{PEOPLE.mineOpen}</span>
+    </button>
   );
 }
 
