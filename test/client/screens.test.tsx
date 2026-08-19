@@ -87,10 +87,10 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
   };
 }
 
-function renderParticipant(source: ParticipantSource, profileId?: string) {
+function renderParticipant(source: ParticipantSource, profileId?: string, onTab: (t: string) => void = () => {}) {
   return render(
     <MemoryRouter>
-      <ParticipantView source={source} tab="people" profileId={profileId} onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
+      <ParticipantView source={source} tab="people" profileId={profileId} onTab={onTab} onProfile={() => {}} onEdit={() => {}} />
     </MemoryRouter>,
   );
 }
@@ -1031,6 +1031,33 @@ describe("참가자 탭 · 내 카드", () => {
     const { container } = at("reg");
     await screen.findByText(PEOPLE.mine);
     expect(container.querySelector(".choice")).toBeNull();
+  });
+
+  it("★ 내 카드를 누르면 내 정보 탭으로 간다", async () => {
+    /*
+     * 남들 카드는 눌러서 프로필 시트를 연다. 내 카드는 그 시트를 열 수 없고
+     * (시트는 `roster` 에서 상대를 찾는데 거기 나는 없다), 그렇다고 혼자 안 눌리면
+     * 여기서 더 보고 싶은 것(매력 전문·내가 낸 것 전부)이 어디 있는지 알 길이 없다.
+     */
+    const went: string[] = [];
+    renderParticipant(fakeSource(), undefined, (t) => went.push(t));
+    fireEvent.click((await screen.findByText(PEOPLE.mine)).closest("button")!);
+    expect(went).toEqual(["me"]);
+  });
+
+  it("★ 어디로 가는지 글자로 말한다 — 카드 내용을 덮지 않는다", async () => {
+    /*
+     * 화살표를 붙이면 이 줄만 남들 카드보다 더 눌러도 되는 것처럼 보인다.
+     * 그렇다고 `aria-label` 로 덮으면 "내가 남들에게 어떻게 보이나" 가
+     * 스크린리더에게만 사라진다 — 하필 이 카드가 있는 이유가 그건데.
+     */
+    renderParticipant(fakeSource());
+    const card = (await screen.findByText(PEOPLE.mine)).closest("button")!;
+    expect(card.getAttribute("aria-label")).toBeNull();
+    expect(card.querySelector(".srOnly")?.textContent).toBe(PEOPLE.mineOpen);
+    // 닉네임과 매력은 그대로 읽힌다
+    expect(card.textContent).toContain("달빛");
+    expect(card.textContent).toContain("하나");
   });
 
   it("★ 내 카드에는 콕 버튼이 없다", async () => {

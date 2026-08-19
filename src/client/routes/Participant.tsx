@@ -190,6 +190,7 @@ function Loaded({
               reload={reload}
               profileId={profileId}
               onProfile={onProfile}
+              onTab={onTab}
             />
           )}
           {tab === "fortune" && <FortuneTab state={state} reload={reload} />}
