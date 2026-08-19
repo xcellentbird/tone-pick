@@ -752,16 +752,25 @@ describe("참가자 탭 · 내 카드", () => {
     at("reg");
     await screen.findByText(PEOPLE.mine);
     expect(screen.queryByText("30")).toBeNull();
-    expect(screen.getByText(PEOPLE.mineLater)).toBeTruthy();
     // 남의 명단은 여전히 비어 있고, 그 사실을 말하는 문구도 그대로다 (줄바꿈이 있어 첫 줄로 찾는다)
     expect(screen.getByText(new RegExp(PEOPLE.notOpenYet.split("\n")[0]))).toBeTruthy();
+    // 볼 사람이 없으면 목록 머리 줄도 없다
+    expect(screen.queryByText(PEOPLE.agesAtParty)).toBeNull();
   });
 
-  it("★ 감출 게 없어지면 안내 줄도 사라진다", async () => {
-    // 파티가 시작되면 나이·MBTI 가 남들에게도 보인다 — 그때는 할 말이 없다
+  it("★ 목록 머리는 왼쪽 안내 · 오른쪽 남은 콕 한 줄이다", async () => {
+    // 오른쪽 정렬이 성립하는 건 왼쪽에 짝이 있어서다 — 짝이 사라지면 떠 보인다
+    renderParticipant(fakeSource());
+    const hint = await screen.findByText(PEOPLE.agesAtParty);
+    const left = screen.getByText(STATUS.roundLeft(2));
+    expect(hint.parentElement).toBe(left.parentElement);
+  });
+
+  it("★ 감출 게 없어지면 안내가 사라진다", async () => {
+    // 파티가 시작되면 나이·MBTI 를 볼 수 있다 — 그때는 할 말이 없다
     at("party");
     await screen.findByText(PEOPLE.mine);
-    expect(screen.queryByText(PEOPLE.mineLater)).toBeNull();
+    expect(screen.queryByText(PEOPLE.agesAtParty)).toBeNull();
   });
 
   it("★ 이성만 보기를 켜도 내 카드는 사라지지 않는다", async () => {
