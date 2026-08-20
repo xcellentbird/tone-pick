@@ -644,9 +644,23 @@ export interface ActionCopy {
 }
 
 /** 단계 전환 확인. 참가자 전원의 화면이 바뀌므로 무엇이 달라지는지 항목별로 보여준다 */
+/**
+ * 파티 시작 확인창의 자리 줄. **숫자로 말한다** (규칙 4).
+ * 자리가 없으면 무엇이 벌어지는지까지 적는다 — 그게 이 줄을 넣은 이유다.
+ */
+function seatedLine(seated: number, players: number): string {
+  if (seated === 0) return "아직 없어요 — 시작하면 참가자에게 '자리를 기다리는 중' 만 보입니다";
+  if (seated < players) return `${players}명 중 ${seated}명 — 나머지는 자리 탭에서 앉힐 수 있어요`;
+  return `${players}명 전원`;
+}
+
 export function phaseAction(
   to: Phase,
-  v: { code: string; maxPre: number; maxParty: number },
+  /**
+   * `seated`·`players` 는 **파티 시작 확인창에서만** 쓴다. 버튼 글자만 필요한 자리는
+   * 안 넘겨도 된다 — 빠뜨리면 "아직 없어요" 가 뜬다. 조용히 틀리는 쪽보다 낫다.
+   */
+  v: { code: string; maxPre: number; maxParty: number; seated?: number; players?: number },
 ): ActionCopy | null {
   switch (to) {
     case "reg":
@@ -673,6 +687,14 @@ export function phaseAction(
         btn: "파티 시작",
         title: "사전 투표를 마감하고 파티를 시작할까요?",
         facts: [
+          /*
+           * **자리를 맨 위에 둔다.** 파티 시작은 곧 자리 알림이기도 하다 —
+           * 미리 짜둔 자리가 이 버튼으로 참가자에게 나간다 (슬라이스 12).
+           * 자리 없이 시작하면 전원이 "자리가 정해지면 알려드려요" 만 보게 되는데,
+           * 예전에는 운영자가 그걸 **누른 뒤에야** 알았다. 막지는 않는다 —
+           * 자리 없이 여는 회차도 있다.
+           */
+          ["배정된 자리", seatedLine(v.seated ?? 0, v.players ?? 0)],
           ["사전 투표", "지금 순위로 마감됩니다"],
           ["콕 예산", `파티용으로 1인당 ${v.maxParty}회가 새로 지급됩니다`],
           ["기존 콕", "사전 투표에서 찌른 건 그대로 남습니다"],

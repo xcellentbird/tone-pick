@@ -21,6 +21,22 @@
  *    QA 에도 실제 사람의 전화번호를 넣지 마라 — 여기서 만드는 번호는 전부 가짜다.
  */
 import WsClient from "ws";
+import { Agent, setGlobalDispatcher } from "undici";
+
+/**
+ * **연결 풀을 열어둔다. 이걸 안 하면 측정 도구가 병목이 된다.**
+ *
+ * Node 의 `fetch` 는 원본(origin)마다 연결을 아껴 쓴다. 요청이 200ms 짜리일 때는
+ * 티가 안 나지만, 운세처럼 **한 건이 5초를 붙드는** 요청이 섞이면 뒤엣것이 앞엣것의
+ * 연결을 기다린다 — 그러면 서버가 아니라 **여기가** 줄을 세운 것이다.
+ *
+ * 실제로 그렇게 속았다. 콕 25건 동시가 4,900ms 로 찍혀 "DO 쓰기 5건/초" 라는 결론이 나왔는데,
+ * 프로세스를 25개로 쪼개 던지니 **861ms · 창 1.4초**(≈18건/초)였다. 서버는 멀쩡했다.
+ * 운세는 더 심해서 27,875ms 가 5,941ms 로 내려갔다.
+ *
+ * 파티장에서는 폰 50대가 각자 자기 연결로 온다. 도구도 그래야 한다.
+ */
+setGlobalDispatcher(new Agent({ connections: 256, pipelining: 0 }));
 
 const BASE = process.argv[2]?.replace(/\/$/, "");
 const PIN = process.env.MASTER_PIN;
@@ -45,6 +61,11 @@ const BURST = process.argv.includes("--burst");
  */
 const READ_MS = Number(process.env.READWINDOW ?? 1) * 1000;
 /**
+ * 운세를 여는 사람들이 흩어지는 폭. 파티가 막 시작된 직후라 다 같이 열지는 않지만
+ * 짧은 시간에 몰린다 — 30초는 "진행자가 오늘의 운세를 안내한 직후" 를 흉내 낸 값이다.
+ */
+const FORTUNE_MS = Number(process.env.FORTUNE ?? 30) * 1000;
+/**
  * 콕 상한. 기본 3 은 실제 기본값(`DEFAULTS` 의 사전 1 · 파티 2)보다 **일부러 무겁게** 잡은 값이다.
  *
  * 쓰기 총량이 곧 이 구간의 길이라서(150건 ÷ 5건/초 ≈ 30초) 이 숫자가 결과를 지배한다.
@@ -62,6 +83,7 @@ const hangulSeq = (n) => String(n).replace(/[0-9]/g, (d) => "영일이삼사오�
 if (!BASE || !PIN) {
   console.error("사용법: MASTER_PIN=**** node scripts/rehearsal.mjs <주소> [--keep] [--burst]");
   console.error("  PEOPLE=50 인원 · WIDTH=25 등록 동시성 · SPREAD=5 콕이 흩어지는 초 · TABLES=12");
+  console.error("  FORTUNE=30 운세를 여는 사람들이 흩어지는 초");
   process.exit(1);
 }
 
@@ -411,8 +433,42 @@ const me = players[0];
 const state = await me.call("/me");
 console.log(`  참가자 화면 ${ms(state.took)} · 명단 ${state.body.roster?.length ?? 0}명`);
 
-// ⑦ 앱 복귀 — 서버 이벤트 없이 읽기만 몰린다
-console.log(`\n⑥ 앱 복귀 (읽기 ${players.length}건이 ${READ_MS / 1000}초 안에)`);
+/*
+ * ⑦ 오늘의 운세·미션 — **파티 시작 직후 유일하게 새로 몰리는 쓰기다.**
+ *
+ * 1인당 쓰기 2건이고(운세 저장 + 미션 저장), 그 둘 사이에 LLM 호출이 끼어 있다.
+ * 호출은 DO 밖에서 하므로 회차를 막지 않고, 호출마다 걸리는 시간이 달라 **쓰기 도착이
+ * 저절로 흩어진다** — 반대로 키가 없으면 규칙 문구가 즉시 돌아와 그 흩어짐이 사라진다.
+ * 실패 경로가 더 몰리는 구조라, 재보는 값이 여기에 있다.
+ *
+ * 읽기는 좁은 것(`fortuneContext`)을 쓴다. 예전엔 명단 전체를 빚는 읽기였다.
+ */
+console.log(`\n⑦ 오늘의 운세·미션 (${players.length}명이 ${FORTUNE_MS / 1000}초 안에 연다 — 1인당 쓰기 2건)`);
+
+const fortuneTimes = [];
+const missionTimes = [];
+let fortuneFail = 0;
+let ruleBased = 0;
+const fortuneAt = performance.now();
+await Promise.all(
+  players.map(async (who, n) => {
+    if (players.length > 1) await sleep((n / (players.length - 1)) * FORTUNE_MS);
+    const f = await who.call("/fortune", { method: "POST", body: { birth: "19930707" } });
+    fortuneTimes.push(f.took);
+    if (f.status !== 200) return void fortuneFail++;
+    if (f.body?.fallback) ruleBased++;
+    // 사람은 운세를 읽고 나서 카드를 뒤집는다. 그 사이를 비워둔다
+    await sleep(1500 + (n % 7) * 400);
+    const m = await who.call("/fortune/mission", { method: "POST" });
+    missionTimes.push(m.took);
+    if (m.status !== 200) fortuneFail++;
+  }),
+);
+report("운세", fortuneTimes, `${fortuneFail ? `실패 ${fortuneFail}건` : "실패 0"} · 규칙 문구 ${ruleBased}건`);
+report("미션", missionTimes, `창 ${ms(performance.now() - fortuneAt)}`);
+
+// ⑧ 앱 복귀 — 서버 이벤트 없이 읽기만 몰린다
+console.log(`\n⑧ 앱 복귀 (읽기 ${players.length}건이 ${READ_MS / 1000}초 안에)`);
 console.log('   운영자가 "다들 폰 확인하세요" 라고 말하는 순간. 브로드캐스트가 없어 서버는 원인을 모른다');
 
 const calm = await burstReads(players, READ_MS);
@@ -438,8 +494,8 @@ report(
   `${busy.failed ? `실패 ${busy.failed}건` : "실패 0"} · 창 ${ms(busy.span)} · 콕 ${wrote}건과 겹침`,
 );
 
-// ⑧ 재연결 — 소켓이 한꺼번에 끊겼다 붙는다
-console.log(`\n⑦ 재연결 (소켓 ${players.length}개가 ${READ_MS / 1000}초 안에 다시 붙는다)`);
+// ⑨ 재연결 — 소켓이 한꺼번에 끊겼다 붙는다
+console.log(`\n⑨ 재연결 (소켓 ${players.length}개가 ${READ_MS / 1000}초 안에 다시 붙는다)`);
 console.log("   배포·하이버네이션으로 한꺼번에 끊겼을 때. 클라이언트 백오프에 지터가 없어 파도가 겹친다");
 
 for (const ws of sockets) {

@@ -18,7 +18,16 @@ import { formatWhen } from "../../shared/time.ts";
 import { noticesOf } from "../lib/notices.ts";
 import type { Tab } from "./Participant.tsx";
 
-export default function Home({ state, onTab }: { state: ParticipantState; onTab: (tab: Tab) => void }) {
+export default function Home({
+  state,
+  onTab,
+  onSeat,
+}: {
+  state: ParticipantState;
+  onTab: (tab: Tab) => void;
+  /** 자리 카드를 누르면 확인 화면을 다시 연다 (슬라이스 12) */
+  onSeat: () => void;
+}) {
   const { phase } = state.event;
   const seat = state.seat;
   const revealed = phase === "done";
@@ -68,13 +77,18 @@ export default function Home({ state, onTab }: { state: ParticipantState; onTab:
           ))}
       </div>
 
-      {/* 자리는 파티장에서 몸을 움직이게 하는 정보다. 숫자를 크게 */}
+      {/*
+        자리는 파티장에서 몸을 움직이게 하는 정보다. 숫자를 크게.
+
+        **눌러서 전체 화면을 다시 연다** (슬라이스 12) — 확인창을 실수로 눌러 넘긴 사람이
+        테이블 번호를 다시 볼 자리가 여기뿐이다.
+      */}
       {seat ? (
-        <div className="card stack">
+        <button className="card stack seatCard" onClick={onSeat}>
           <div className="kicker">{SEAT.sectionTitle}</div>
           <div style={{ fontSize: 28, fontWeight: 800 }}>{SEAT.banner(seat.table)}</div>
           <div className="small dim">{SEAT.ack.mates(seat.mates, seat.men)}</div>
-        </div>
+        </button>
       ) : (
         !revealed && <p className="tiny dim center">{HOME.seatWaiting}</p>
       )}
