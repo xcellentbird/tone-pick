@@ -132,11 +132,21 @@ a {
   text-decoration: none;
 }
 
+/*
+ * 버튼은 **글이 아니라 손잡이**다.
+ *
+ * iOS 는 버튼 안 글자를 길게 누르면 선택 메뉴(복사·공유)와 돋보기를 띄운다.
+ * 콕처럼 연달아 누르는 버튼에서는 두 번째 탭이 그 메뉴를 여는 일이 생긴다 —
+ * 파티장에서 손가락이 급할수록 잘 걸린다.
+ */
 button {
   min-height: var(--tap);
   min-width: var(--tap);
   font-family: inherit;
   cursor: pointer;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* ─────────────────────────── 화면 뼈대 */

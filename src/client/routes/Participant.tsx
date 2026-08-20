@@ -50,7 +50,7 @@ interface ViewProps {
    * 아직 안 본 것이라서 주소를 바꿀 일이 아니다.
    */
   seatOpen?: boolean;
-  onSeat: (on: boolean) => void;
+  onSeat: (on: boolean, opts?: { replace?: boolean }) => void;
 }
 
 /** URL 이 상태를 들고 있는 진짜 참가자 화면 */
@@ -97,7 +97,13 @@ export default function Participant() {
       // 시트 열기는 push, 닫기는 뒤로 가기 — 안드로이드 백 버튼으로 닫혀야 한다
       onProfile={(id) => (id ? navigate(`${base}/p/${id}`) : navigate(-1))}
       seatOpen={seatOpen}
-      onSeat={(on) => (on ? navigate(`${base}/seat`) : navigate(-1))}
+      /*
+       * 편집과 같다 — **닫기는 뒤로 가기**이되, 주소를 직접 연 사람에게는 뒤로 갈 자리가 없다.
+       * 그때 `navigate(-1)` 은 앱을 벗어난다. iOS 는 가장자리 스와이프가 뒤로 가기라 더 쉽게 걸린다.
+       */
+      onSeat={(on, opts) =>
+        on ? navigate(`${base}/seat`) : opts?.replace ? navigate(base, { replace: true }) : navigate(-1)
+      }
       editing={editing}
       // 편집도 같다. 뒤로 가기가 곧 취소이고, 고치던 입력은 버려진다 (취소 버튼과 같은 동작)
       onEdit={(on, opts) =>
@@ -167,6 +173,15 @@ function Loaded({
       setAcked((list) => list.filter((r) => r !== round));
     }
   }, [source, state.seat, reload]);
+
+  /*
+   * 자리 화면 주소를 열었는데 보여줄 자리가 없다 (파티 전이거나 아직 안 앉았다).
+   * 빈 주소에 남겨두지 않고 홈으로 **갈아끼운다** — 뒤로 가기가 아니다.
+   * 주소를 직접 연 사람에게는 뒤로 갈 자리가 없어서 앱을 벗어난다 (편집과 같은 이유).
+   */
+  useEffect(() => {
+    if (seatOpen && !state.seat) onSeat(false, { replace: true });
+  }, [seatOpen, state.seat, onSeat]);
 
   // 발표가 끝났으면 자리 이동 확인을 띄우지 않는다 (FLOWS.md)
   const needsSeatAck =
