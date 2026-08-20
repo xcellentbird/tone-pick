@@ -21,6 +21,22 @@
  *    QA 에도 실제 사람의 전화번호를 넣지 마라 — 여기서 만드는 번호는 전부 가짜다.
  */
 import WsClient from "ws";
+import { Agent, setGlobalDispatcher } from "undici";
+
+/**
+ * **연결 풀을 열어둔다. 이걸 안 하면 측정 도구가 병목이 된다.**
+ *
+ * Node 의 `fetch` 는 원본(origin)마다 연결을 아껴 쓴다. 요청이 200ms 짜리일 때는
+ * 티가 안 나지만, 운세처럼 **한 건이 5초를 붙드는** 요청이 섞이면 뒤엣것이 앞엣것의
+ * 연결을 기다린다 — 그러면 서버가 아니라 **여기가** 줄을 세운 것이다.
+ *
+ * 실제로 그렇게 속았다. 콕 25건 동시가 4,900ms 로 찍혀 "DO 쓰기 5건/초" 라는 결론이 나왔는데,
+ * 프로세스를 25개로 쪼개 던지니 **861ms · 창 1.4초**(≈18건/초)였다. 서버는 멀쩡했다.
+ * 운세는 더 심해서 27,875ms 가 5,941ms 로 내려갔다.
+ *
+ * 파티장에서는 폰 50대가 각자 자기 연결로 온다. 도구도 그래야 한다.
+ */
+setGlobalDispatcher(new Agent({ connections: 256, pipelining: 0 }));
 
 const BASE = process.argv[2]?.replace(/\/$/, "");
 const PIN = process.env.MASTER_PIN;
