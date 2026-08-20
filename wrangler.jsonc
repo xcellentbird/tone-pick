@@ -13,10 +13,23 @@
 
   // Vite 빌드 결과를 정적 자산으로. SPA 라우팅을 위해 404 는 index.html 로.
   // /api 와 /ws 는 정적 자산 매칭보다 Worker 가 먼저 봐야 한다 — 안 그러면 index.html 이 돌아온다.
+  /*
+   * 화면 상태를 URL 로 들고 있으므로(ROUTES.md) 어느 주소로 들어와도 index.html 이 떠야 한다.
+   * 그게 single-page-application 의 일이다.
+   *
+   * ⚠️ 그런데 그 폴백은 **없는 자산에도 똑같이 걸린다.** 옛 index.html 을 들고 있는 브라우저가
+   * 사라진 번들(/assets/index-옛해시.js)을 달라고 하면 HTML 이 200 으로 돌아오고,
+   * 브라우저는 HTML 을 JS 모듈로 실행하지 않는다 — **JS 도 CSS 도 안 붙어 하얀 화면이 된다.**
+   * 게다가 그 응답이 /assets/ 규칙을 타고 1년짜리 immutable 로 캐시된다.
+   *
+   * 그래서 /assets/* 는 워커가 먼저 받아 없으면 404 로 끊는다 (src/server/index.ts).
+   * 404 는 브라우저가 "새로고침하면 되는 것" 으로 다루지만, HTML 200 은 그러지 못한다.
+   */
   "assets": {
     "directory": "./dist/client",
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/ws/*"]
+    "run_worker_first": ["/api/*", "/ws/*", "/assets/*"]
   },
 
   // 회차 1개 = Durable Object 1개.
@@ -72,8 +85,9 @@
       },
       "assets": {
         "directory": "./dist/client",
+        "binding": "ASSETS",
         "not_found_handling": "single-page-application",
-        "run_worker_first": ["/api/*", "/ws/*"]
+        "run_worker_first": ["/api/*", "/ws/*", "/assets/*"]
       },
       "durable_objects": {
         "bindings": [
