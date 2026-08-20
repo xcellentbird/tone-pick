@@ -108,7 +108,9 @@
 
 html, body, #root {
   margin: 0;
-  height: 100dvh; /* iOS 주소창 때문에 100vh 는 어긋난다 */
+  /* iOS 주소창 때문에 100vh 는 어긋난다. 다만 dvh 를 모르는 옛 사파리(15.3 이하)를 위해 함께 둔다 */
+  height: 100vh;
+  height: 100dvh;
   background: var(--bg);
   color: var(--fg);
   font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif;
@@ -152,6 +154,7 @@ button {
 .screen {
   display: flex;
   flex-direction: column;
+  height: calc(100vh - var(--kb));
   height: calc(100dvh - var(--kb));
   overflow: hidden;
   /* 오로라는 화면에 고정이다. 목록과 함께 흐르면 스크롤이 어지럽다 */
@@ -186,6 +189,8 @@ button {
   padding: var(--pad);
   padding-bottom: calc(var(--pad) * 2);
   -webkit-overflow-scrolling: touch;
+  /* iOS 의 고무줄 스크롤이 바깥으로 번지지 않게. 목록 끝에서 화면 전체가 딸려 오지 않는다 */
+  overscroll-behavior: contain;
 }
 
 /*
@@ -834,6 +839,10 @@ button {
   font-family: inherit;
 }
 
+/*
+ * 자리 알림은 화면을 통째로 덮는다. **노치와 홈 인디케이터를 피한다** —
+ * 가운데 정렬이라 대개 안 닿지만, 작은 화면에 글이 길면 가장자리까지 온다.
+ */
 .takeover {
   position: fixed;
   inset: 0;
@@ -844,6 +853,8 @@ button {
   justify-content: center;
   gap: var(--gap-lg);
   padding: calc(var(--pad) * 2);
+  padding-top: max(calc(var(--pad) * 2), env(safe-area-inset-top));
+  padding-bottom: max(calc(var(--pad) * 2), env(safe-area-inset-bottom));
   text-align: center;
 }
 
