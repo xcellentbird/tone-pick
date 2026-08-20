@@ -81,9 +81,19 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
     onEvent({ type: "reconnect" });
   }
 
+  /**
+   * **iOS 사파리는 페이지를 얼렸다 되살린다** (bfcache). 뒤로 가기로 돌아오거나
+   * 오래 백그라운드에 있다 오면 소켓은 이미 죽었는데 `visibilitychange` 가 안 올 수 있다.
+   * 그 사이 놓친 것은 서버가 다시 밀어주지 않으므로 (ADR-26) 여기서 잡는다.
+   *
+   * 없어도 심장박동이 25초 안에 알아채지만, 그 25초는 파티장에서 화면을 믿는 시간이다.
+   */
+  const onShow = (e: PageTransitionEvent) => e.persisted && onVisible();
+
   open();
   beat = setInterval(heartbeat, PING_MS);
   document.addEventListener("visibilitychange", onVisible);
+  window.addEventListener("pageshow", onShow);
 
   return {
     send(msg: ClientEvent) {
@@ -94,6 +104,7 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
       clearTimeout(timer);
       clearInterval(beat);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onShow);
       ws?.close();
     },
   };

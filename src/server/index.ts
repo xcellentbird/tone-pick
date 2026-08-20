@@ -78,6 +78,30 @@ app.post("/api/__test__/now", async (c, next) => {
 app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
 
 /**
+ * 사라진 번들은 **404 여야 한다.**
+ *
+ * 화면 상태가 전부 URL 에 있어서(ROUTES.md) 어느 주소로 들어와도 `index.html` 이 떠야 하고,
+ * 그게 `not_found_handling: single-page-application` 의 일이다. 그런데 그 폴백은
+ * **없는 자산에도 똑같이 걸린다.**
+ *
+ * 옛 `index.html` 을 들고 있는 브라우저가 사라진 번들(`/assets/index-옛해시.js`)을
+ * 달라고 하면 HTML 이 200 으로 돌아온다. 브라우저는 HTML 을 JS 모듈로 실행하지 않으므로
+ * **JS 도 CSS 도 안 붙어 하얀 화면이 된다.** 게다가 그 응답이 `/assets/` 규칙을 타고
+ * **1년짜리 immutable** 로 캐시된다 — 잘못된 답이 오래 남는다.
+ *
+ * 404 는 다르다. 브라우저가 "다시 받으면 되는 것" 으로 다루고, 캐시도 안 한다.
+ * 배포 직후 옛 화면을 열어둔 사람은 새로고침 한 번으로 돌아온다.
+ */
+app.all("/assets/*", async (c) => {
+  const res = await c.env.ASSETS.fetch(c.req.raw);
+  // 자산 자리에서 HTML 이 돌아왔다면 그건 그 파일이 없다는 뜻이다 (SPA 폴백)
+  if (res.headers.get("content-type")?.includes("text/html")) {
+    return c.text("not found", 404, { "cache-control": "no-store" });
+  }
+  return res;
+});
+
+/**
  * 개인정보 파기.  하루 한 번, 보관 기간이 지난 회차를 지운다.
  *
  * 참가자에게 실명과 전화번호를 받아놓고 언제까지 들고 있을지 정해두지 않는 건 그 자체가 사고다.
