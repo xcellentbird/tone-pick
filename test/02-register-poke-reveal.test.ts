@@ -1589,6 +1589,58 @@ describe("되돌리기", () => {
   });
 });
 
+// ─────────────────────────────────────────── 자리가 보이는 때 (슬라이스 12)
+
+/**
+ * 운영자가 자리를 **미리 짤 수 있어야** 한다. 예전에는 짜는 순간 참가자에게 나가서,
+ * 파티가 시작된 뒤에 급히 배정하게 됐다 — 피하려던 바로 그 상황이다.
+ */
+describe("자리는 파티가 시작돼야 보인다", () => {
+  async function withSeats() {
+    const ev = await freshEvent();
+    const me = await join(ev, { gender: "M" });
+    for (let i = 0; i < 3; i++) await join(ev, { gender: i % 2 === 0 ? "F" : "M" });
+    await setPhase(ev.id, "prevote");
+    // 사전 투표 중에 미리 짜둔다
+    await api(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, final: false },
+    });
+    const pub = await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
+    expect(pub.status).toBe(200);
+    return { ev, me };
+  }
+
+  it("★ 사전 투표 중에 발행해도 참가자 응답에 자리가 없다", async () => {
+    /*
+     * **화면에서 감추는 것으로는 부족하다** — 개발자 도구를 여는 참가자가 있다.
+     * 남의 테이블까지 보이면 누가 어디 앉는지가 파티 전에 다 새어 나간다.
+     */
+    const { me } = await withSeats();
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.seat).toBeUndefined();
+    expect(JSON.stringify(state.body)).not.toContain("\"table\"");
+  });
+
+  it("★ 파티가 시작되면 그 순간 보인다", async () => {
+    // 단계 전환 방송이 이미 전원 재조회를 부른다 — 파티 시작 버튼이 그대로 자리 알림이다
+    const { ev, me } = await withSeats();
+    await setPhase(ev.id, "party");
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.seat?.table).toBeGreaterThan(0);
+    // 아직 확인 전이라야 전체 화면이 뜬다
+    expect(state.body.seat?.acked).toBe(false);
+  });
+
+  it("★ 발표 후에도 자리는 남는다", async () => {
+    // 매칭 상대와 같은 테이블이었는지를 발표 화면이 쓴다 (MatchInfo.sameTable)
+    const { ev, me } = await withSeats();
+    await setPhase(ev.id, "party");
+    await setPhase(ev.id, "done");
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.seat?.table).toBeGreaterThan(0);
+  });
+});
+
 // ─────────────────────────────────────────── 앉힌 자리 고치기 (슬라이스 11)
 
 /**
@@ -1604,11 +1656,16 @@ describe("앉힌 자리 고치기", () => {
   const rounds = async (id: string) =>
     (await api<{ seatings: Round[] }>(`/api/host/events/${id}/state`, { cookie: master })).body.seatings;
 
-  /** 남녀 셋씩 여섯 명을 두 테이블에 앉히고 발행까지 한다 */
+  /**
+   * 남녀 셋씩 여섯 명을 두 테이블에 앉히고 발행까지 한다.
+   * **파티까지 보낸다** — 자리는 파티가 시작돼야 참가자 응답에 나온다 (슬라이스 12).
+   */
   async function seated(final = false) {
     const ev = await freshEvent();
     const ids: string[] = [];
     for (let i = 0; i < 6; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
     await api(`/api/host/events/${ev.id}/seating`, {
       method: "POST", cookie: master, body: { tableCount: 2, final },
     });

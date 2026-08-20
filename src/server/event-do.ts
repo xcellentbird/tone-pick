@@ -593,7 +593,7 @@ export class EventDO extends DurableObject {
             .map((p) => toPublic(p, meta.phase))
         : [],
       poke: await this.pokeState(playerId, meta),
-      seat: this.mySeat(playerId),
+      seat: this.mySeat(playerId, meta.phase),
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
       ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),
     });
@@ -1146,7 +1146,7 @@ export class EventDO extends DurableObject {
     const matches: MatchInfo[] = [];
     if (meta.phase === "done") {
       const { mutual } = this.pairs();
-      const mySeat = this.mySeat(playerId);
+      const mySeat = this.mySeat(playerId, meta.phase);
       const last = this.lastPublished();
       for (const [a, b] of mutual) {
         const otherId = a === playerId ? b : b === playerId ? a : null;
@@ -1224,7 +1224,21 @@ export class EventDO extends DurableObject {
     return this.seatings().filter((s) => s.status === "published").at(-1);
   }
 
-  private mySeat(playerId: string): MySeat | undefined {
+  /**
+   * 내 자리. **파티가 시작돼야 나간다.**
+   *
+   * 예전에는 단계를 안 봐서, 운영자가 사전 투표 중에 발행하면 그 순간 참가자 화면에
+   * 테이블 번호가 뜨고 전체 화면 확인창이 덮쳤다. 그래서 **미리 짜둘 수가 없었고**,
+   * 파티가 시작된 뒤에 급히 배정하게 됐다 — 피하려던 바로 그 상황이다.
+   *
+   * 이제 미리 짜둬도 조용하다. 그리고 **파티 시작 버튼이 그대로 자리 알림이 된다** —
+   * 단계 전환 방송이 이미 전원 재조회를 부르므로 (ADR-26) 새 장치가 필요 없다.
+   *
+   * 발표 후에도 남긴다. 매칭 상대와 같은 테이블이었는지를 발표 화면이 쓴다 (`MatchInfo.sameTable`).
+   * **화면에서 감추는 것으로는 부족하다** — 개발자 도구를 여는 참가자가 있다.
+   */
+  private mySeat(playerId: string, phase: Phase): MySeat | undefined {
+    if (phase !== "party" && phase !== "done") return undefined;
     const last = this.lastPublished();
     if (!last) return undefined;
     const mine = last.seats.find((s) => s.playerId === playerId);

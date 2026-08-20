@@ -43,6 +43,14 @@ interface ViewProps {
    */
   editing?: boolean;
   onEdit: (on: boolean, opts?: { replace?: boolean }) => void;
+  /**
+   * 자리 확인 화면을 **다시 연** 상태 (슬라이스 12). 뒤로 가기로 닫힌다.
+   *
+   * 자동으로 뜨는 쪽(`needsSeatAck`)은 라우트가 아니다 — 참가자가 연 게 아니라
+   * 아직 안 본 것이라서 주소를 바꿀 일이 아니다.
+   */
+  seatOpen?: boolean;
+  onSeat: (on: boolean) => void;
 }
 
 /** URL 이 상태를 들고 있는 진짜 참가자 화면 */
@@ -66,6 +74,8 @@ export default function Participant() {
   const profileId = location.pathname.includes("/p/")
     ? decodeURIComponent(location.pathname.split("/p/")[1])
     : undefined;
+  // 자리 화면을 **다시 여는** 길. 자동으로 뜨는 쪽은 라우트가 아니다 — 참가자가 연 게 아니다
+  const seatOpen = location.pathname.endsWith("/seat");
 
   return (
     <ParticipantView
@@ -86,6 +96,8 @@ export default function Participant() {
       profileId={profileId}
       // 시트 열기는 push, 닫기는 뒤로 가기 — 안드로이드 백 버튼으로 닫혀야 한다
       onProfile={(id) => (id ? navigate(`${base}/p/${id}`) : navigate(-1))}
+      seatOpen={seatOpen}
+      onSeat={(on) => (on ? navigate(`${base}/seat`) : navigate(-1))}
       editing={editing}
       // 편집도 같다. 뒤로 가기가 곧 취소이고, 고치던 입력은 버려진다 (취소 버튼과 같은 동작)
       onEdit={(on, opts) =>
@@ -130,6 +142,8 @@ function Loaded({
   onProfile,
   editing,
   onEdit,
+  seatOpen,
+  onSeat,
   welcome,
   state,
   reload,
@@ -182,7 +196,7 @@ function Loaded({
               </span>
             </button>
           )}
-          {tab === "home" && <Home state={state} onTab={onTab} />}
+          {tab === "home" && <Home state={state} onTab={onTab} onSeat={() => onSeat(true)} />}
           {tab === "people" && (
             <People
               state={state}
@@ -214,7 +228,15 @@ function Loaded({
           ))}
         </nav>
 
+        {/*
+          아직 안 본 사람에게는 **자동으로** 덮치고 확인을 받는다.
+          이미 본 사람이 홈에서 다시 연 경우(`/seat`)에는 닫기만 있다 —
+          이미 센 사람을 또 세면 `acks` 가 뜻을 잃는다.
+        */}
         {needsSeatAck && state.seat && <SeatTakeover seat={state.seat} onAck={ack} />}
+        {!needsSeatAck && seatOpen && state.seat && (
+          <SeatTakeover seat={state.seat} onClose={() => onSeat(false)} />
+        )}
       </div>
     </Overlays>
   );
