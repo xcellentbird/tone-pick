@@ -285,6 +285,30 @@ describe("참가자 화면 · 자리", () => {
     expect(opened).toEqual([true]);
   });
 
+  it("★ 보여줄 자리가 없는데 주소만 열렸으면 홈으로 갈아끼운다", async () => {
+    /*
+     * `/e/:code/seat` 를 직접 열거나 새로고침한 뒤 닫으면 뒤로 갈 자리가 없다 —
+     * `navigate(-1)` 은 앱을 벗어난다. iOS 는 가장자리 스와이프가 뒤로 가기라 더 쉽게 걸린다.
+     * 편집 라우트가 같은 이유로 `replace` 를 쓴다 (ADR-31).
+     */
+    const calls: Array<[boolean, boolean | undefined]> = [];
+    render(
+      <MemoryRouter>
+        <ParticipantView
+          source={fakeSource()}
+          tab="home"
+          seatOpen
+          onTab={() => {}}
+          onProfile={() => {}}
+          onEdit={() => {}}
+          onSeat={(on, opts) => calls.push([on, opts?.replace])}
+        />
+      </MemoryRouter>,
+    );
+    // 픽스처에는 자리가 없다 — 뒤로 가기가 아니라 갈아끼우기여야 한다
+    await waitFor(() => expect(calls).toEqual([[false, true]]));
+  });
+
   it("★ 다시 연 화면에서는 확인을 다시 받지 않는다", async () => {
     // 이미 센 사람을 또 세면 `acks` 가 "이 자리를 안다" 라는 뜻을 잃는다
     const source = fakeSource({ load: async () => participantState({ seat: { ...seat, acked: true } }) });
