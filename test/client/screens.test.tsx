@@ -89,7 +89,7 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
 function renderParticipant(source: ParticipantSource, profileId?: string, onTab: (t: string) => void = () => {}) {
   return render(
     <MemoryRouter>
-      <ParticipantView source={source} tab="people" profileId={profileId} onTab={onTab} onProfile={() => {}} onEdit={() => {}} />
+      <ParticipantView source={source} tab="people" profileId={profileId} onTab={onTab} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
     </MemoryRouter>,
   );
 }
@@ -256,6 +256,56 @@ describe("참가자 화면 · 자리", () => {
     await waitFor(() => expect(screen.getByText(SEAT.ack.submit)).toBeTruthy());
   });
 
+  it("★ 이미 확인한 사람은 홈에서 다시 열 수 있다", async () => {
+    /*
+     * 늦게 도착해 앱을 처음 켠 사람에게 전체 화면이 덮치면 **반사적으로 누르기 쉽다.**
+     * 그때 테이블 번호를 못 읽고 사라진다. 막는 쪽(확인을 어렵게)으로 풀면
+     * 나머지 사람이 불편해지므로, 되돌릴 수 있게 한다 (슬라이스 12).
+     */
+    const opened: boolean[] = [];
+    const source = fakeSource({ load: async () => participantState({ seat: { ...seat, acked: true } }) });
+    render(
+      <MemoryRouter>
+        <ParticipantView
+          source={source}
+          tab="home"
+          onTab={() => {}}
+          onProfile={() => {}}
+          onEdit={() => {}}
+          onSeat={(on) => opened.push(on)}
+        />
+      </MemoryRouter>,
+    );
+    // 확인했으므로 전체 화면은 안 뜬다
+    await screen.findByText(SEAT.banner(2));
+    expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+
+    // 홈의 자리 카드를 누르면 다시 열린다
+    fireEvent.click(screen.getByText(SEAT.banner(2)).closest("button")!);
+    expect(opened).toEqual([true]);
+  });
+
+  it("★ 다시 연 화면에서는 확인을 다시 받지 않는다", async () => {
+    // 이미 센 사람을 또 세면 `acks` 가 "이 자리를 안다" 라는 뜻을 잃는다
+    const source = fakeSource({ load: async () => participantState({ seat: { ...seat, acked: true } }) });
+    render(
+      <MemoryRouter>
+        <ParticipantView
+          source={source}
+          tab="home"
+          seatOpen
+          onTab={() => {}}
+          onProfile={() => {}}
+          onEdit={() => {}}
+          onSeat={() => {}}
+        />
+      </MemoryRouter>,
+    );
+    await screen.findByText(SEAT.ack.headline(2));
+    expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+    expect(screen.getByText(BTN.close)).toBeTruthy();
+  });
+
   it("★ 발표가 끝났으면 자리 이동 확인을 띄우지 않는다", async () => {
     const source = fakeSource({
       load: async () =>
@@ -283,7 +333,7 @@ describe("오늘 탭", () => {
   function renderFortune(source: ParticipantSource) {
     return render(
       <MemoryRouter>
-        <ParticipantView source={source} tab="fortune" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
+        <ParticipantView source={source} tab="fortune" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
       </MemoryRouter>,
     );
   }
@@ -521,7 +571,7 @@ describe("한 폰으로 두 회차", () => {
     });
     render(
       <MemoryRouter initialEntries={["/e/ABCDEF"]}>
-        <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
+        <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
       </MemoryRouter>,
     );
 
@@ -830,7 +880,7 @@ describe("상단 바", () => {
     // 내 정보 탭으로 옮겨도 여전히 한 곳뿐이다 (예전에는 그 탭 안에 또 있었다)
     rerender(
       <MemoryRouter>
-        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getAllByText("테스트 파티")).toHaveLength(1));
@@ -840,7 +890,7 @@ describe("상단 바", () => {
     // 라운드는 상단 바가, 콕 숫자는 참가자 탭이 맡는다
     render(
       <MemoryRouter>
-        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} />
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
       </MemoryRouter>,
     );
     await screen.findByText(ME.labels.nickname);
@@ -1121,6 +1171,7 @@ describe("내 정보 고치기", () => {
         <ParticipantView
           source={source}
           tab="me"
+          onSeat={() => {}}
           editing={location.pathname.endsWith("/me/edit")}
           onEdit={(on, opts) =>
             on
@@ -1261,7 +1312,7 @@ describe("탭 역할 분담", () => {
           tab={t}
           onTab={() => {}}
           onProfile={() => {}}
-          onEdit={() => {}}
+          onEdit={() => {}} onSeat={() => {}}
         />
       </MemoryRouter>,
     );

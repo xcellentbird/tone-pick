@@ -11,6 +11,7 @@
 | `/e/:code/people` | 참가자 탭 |
 | `/e/:code/p/:nick` | 프로필 시트 (모달) |
 | `/e/:code/me` | 내 정보 |
+| `/e/:code/seat` | 자리 확인 화면 **다시 열기** (슬라이스 12). 자동으로 뜨는 쪽은 주소가 없다 |
 | `/e/:code/me/edit` | 내 정보 고치기 — **등록 중에만.** 잠긴 뒤에 열면 내 정보로 되돌린다 |
 | `/host` | PIN |
 | `/host/events` `/host/defaults` | 회차 목록 · 기본 설정 |

@@ -50,6 +50,8 @@ export const router = createBrowserRouter([
   { path: "/e/:code/me/edit", element: <Participant /> },
   // 프로필 시트도 라우트다 — 뒤로 가기로 닫히게 하기 위해
   { path: "/e/:code/p/:pid", element: <Participant /> },
+  // 자리 확인 화면을 **다시 여는** 길 (슬라이스 12). 자동으로 뜨는 쪽은 주소가 없다
+  { path: "/e/:code/seat", element: <Participant /> },
 
   // 운영자
   { path: "/host", element: plain(<HostPin />) },
