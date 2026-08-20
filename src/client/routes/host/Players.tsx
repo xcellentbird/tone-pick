@@ -88,8 +88,11 @@ export default function Players() {
       <button
         className="btn ghost block"
         onClick={() => {
-          void navigator.clipboard?.writeText(`${location.origin}/j/${state.meta.id}`);
-          toast(HOST_UI.copied);
+          // 복사가 막히는 브라우저가 있다 (권한·구버전). 실패를 성공이라고 말하지 않는다
+          navigator.clipboard
+            ?.writeText(`${location.origin}/j/${state.meta.id}`)
+            .then(() => toast(HOST_UI.copied))
+            .catch(() => toast(HOST_UI.copyFailed));
         }}
       >
         {HOST_UI.entryLink}
