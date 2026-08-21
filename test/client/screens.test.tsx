@@ -935,6 +935,37 @@ describe("상단 바", () => {
     expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/)).toBeTruthy();
   });
 
+  const withSchedule = (phase: "reg" | "prevote", schedule: Record<string, number>) =>
+    fakeSource({
+      load: async () =>
+        participantState({
+          event: { ...participantState().event, phase, schedule },
+          ...(phase === "reg" ? { roster: [] } : {}),
+        }),
+    });
+
+  it("★ 등록 중에는 사전 투표까지를 센다 — 다음에 일어날 일이다", async () => {
+    /*
+     * 한동안 내내 파티만 셌다. 등록 기간이 며칠이라 `1일 2시간` 만 계속 보였고,
+     * 정작 참가자가 알고 싶은 건 **언제 콕을 찌를 수 있나** 였다.
+     */
+    renderParticipant(withSchedule("reg", { prevoteAt: Date.now() + 1_800_000, partyAt: Date.now() + 90_000_000 }));
+    await screen.findByText(PHASE_LABEL.reg);
+    expect(screen.getByText(STATUS.untilPrevote)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilParty)).toBeNull();
+  });
+
+  it("★ 사전 투표 시각이 지났는데 아직 등록 중이면 파티를 센다", async () => {
+    /*
+     * 예약이 걸려 있어도 운영자가 아직 안 넘겼을 수 있다. 지나간 시각을 세면 음수가 뜨고,
+     * 사람은 그 숫자를 **자기 시계가 틀린 걸로** 읽는다.
+     */
+    renderParticipant(withSchedule("reg", { prevoteAt: Date.now() - 60_000, partyAt: Date.now() + 3_600_000 }));
+    await screen.findByText(PHASE_LABEL.reg);
+    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilPrevote)).toBeNull();
+  });
+
   it("★ 남은 콕은 한 곳에만 — 콕을 찌르는 화면", async () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);

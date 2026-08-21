@@ -5,10 +5,14 @@
  * 다 같이 쪼그라들어 `1명` 도 `파티까지` 도 두 줄로 접혔다.
  * **줄어드는 건 이름 하나뿐이어야 한다.** 나머지는 `flex: none` 으로 제 폭을 지킨다.
  *
- * **숫자만 있는 타이머는 무엇을 세는지 알 수 없다.** 그래서 왼쪽에 "파티까지"를 붙인다.
+ * **숫자만 있는 타이머는 무엇을 세는지 알 수 없다.** 그래서 왼쪽에 무엇까지인지를 붙인다.
  *
- * 세는 곳은 파티 시작 하나뿐이다. 사전 투표 마감과 발표는 운영자가 손으로 누르는 것이라
- * 셀 수 있는 시각이 없다 — 없는 마감을 세어 보여주면 참가자가 그 숫자를 믿는다.
+ * 세는 것은 **다음에 일어날 일**이다 — 등록 중에는 사전 투표 시작, 사전 투표 중에는 파티 시작.
+ * 한동안 내내 파티만 셌는데, 등록 기간이 며칠이라 `1일 2시간` 만 계속 보였다.
+ * 정작 참가자가 알고 싶은 건 **언제 콕을 찌를 수 있나** 였다.
+ *
+ * 사전 투표 마감과 발표는 세지 않는다. 운영자가 손으로 누르는 것이라 셀 수 있는 시각이 없다 —
+ * 없는 마감을 세어 보여주면 참가자가 그 숫자를 믿는다 (ADR-14).
  * 하루 넘게 남았으면 초를 세지 않는다. `144:00:00` 은 읽는 사람이 다시 나눠야 한다.
  * 남은 콕은 여기 두지 않는다 — 콕을 찌르는 화면(참가자 탭)에 이미 있고, 두 곳에 같은 숫자가
  * 있으면 어느 쪽이 맞는지 눈이 한 번 더 확인하게 된다.
@@ -23,16 +27,29 @@
  * 남은 시간은 **서버 시각**에서 뺀다. 폰 시계를 바꿔 결과를 먼저 보는 걸 막기 위해.
  */
 import { PHASE_LABEL, STATUS } from "../../shared/copy.ts";
-import type { ParticipantState } from "../../shared/types.ts";
+import type { EventSchedule, ParticipantState } from "../../shared/types.ts";
 import { TICK_WINDOW, formatCountdown, formatDayHour } from "../../shared/time.ts";
 import { now } from "../lib/serverTime.ts";
 import { useTicker } from "../lib/useLoad.ts";
 
+/**
+ * 이 단계에서 셀 수 있고 **아직 안 지난** 것 중 가장 가까운 것.
+ *
+ * 예약 시각이 지났는데 운영자가 아직 안 넘겼을 수도 있다 — 그때는 그 다음 것을 센다.
+ * 지나간 시각을 세면 음수가 뜨고, 사람은 그 숫자를 자기 시계가 틀린 걸로 읽는다.
+ */
+function nextMark(phase: ParticipantState["event"]["phase"], schedule: EventSchedule, at: number) {
+  return [
+    { on: ["prep", "reg"], at: schedule.prevoteAt, label: STATUS.untilPrevote },
+    { on: ["prep", "reg", "prevote"], at: schedule.partyAt, label: STATUS.untilParty },
+  ].find((m) => m.on.includes(phase) && m.at && m.at > at);
+}
+
 export default function StatusBar({ state }: { state: ParticipantState }) {
   const { name, phase, schedule } = state.event;
   // 파티가 시작되면 셀 것이 없다. 그 뒤로는 단계 이름만 남는다
-  const before = phase === "prep" || phase === "reg" || phase === "prevote";
-  const left = before && schedule.partyAt ? schedule.partyAt - now() : 0;
+  const mark = nextMark(phase, schedule, now());
+  const left = mark?.at ? mark.at - now() : 0;
   // 하루 넘게 남았으면 1초마다 다시 그릴 이유가 없다
   useTicker(left > 0 && left <= TICK_WINDOW);
 
@@ -46,7 +63,7 @@ export default function StatusBar({ state }: { state: ParticipantState }) {
 
       {left > 0 && (
         <span className="until">
-          <span className="tiny dim">{STATUS.untilParty}</span>
+          <span className="tiny dim">{mark?.label}</span>
           {left <= TICK_WINDOW ? (
             /* 초가 바뀌어도 줄이 들썩이지 않게 고정폭 숫자로 */
             <span className="countdown">{formatCountdown(left)}</span>
