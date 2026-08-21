@@ -4,6 +4,7 @@ import { RouterProvider } from "react-router";
 import { router } from "./router.tsx";
 import { useKeyboardInset } from "./lib/keyboard.ts";
 import EnvBadge from "./ui/EnvBadge.tsx";
+import Boom from "./ui/Boom.tsx";
 import "./styles/theme.css";
 
 /**
@@ -17,7 +18,13 @@ function App() {
     <>
       {/* 라우터 밖에 둔다 — 어느 화면에 있든 한 번만 뜬다 */}
       <EnvBadge />
-      <RouterProvider router={router} />
+      {/*
+        경계도 라우터 **바깥**이다. 라우팅 자체가 터진 경우까지 덮어야 하고,
+        여기서 막지 못하면 React 가 트리를 통째로 걷어내 하얀 화면이 된다.
+      */}
+      <Boom>
+        <RouterProvider router={router} />
+      </Boom>
     </>
   );
 }

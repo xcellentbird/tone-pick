@@ -1,3 +1,4 @@
+import { FAIL } from "../../shared/copy.ts";
 import { syncFromResponse } from "./serverTime.ts";
 
 /**
@@ -16,11 +17,26 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    credentials: "include", // 세션은 HttpOnly 쿠키. 전화번호를 URL 에 노출하지 않는다
-    ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      credentials: "include", // 세션은 HttpOnly 쿠키. 전화번호를 URL 에 노출하지 않는다
+      ...init,
+      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    });
+  } catch {
+    /*
+     * 서버에 **닿지도 못했다** — 망이 끊겼거나 폰이 절전에서 막 깨어났거나.
+     *
+     * 감싸지 않으면 날 `TypeError` 가 올라가고, 화면은 `userMessage` 가 없어
+     * `ENTRY.notFound`("그런 회차가 없어요") 로 떨어진다. 잠깐 끊긴 참가자에게
+     * **"네 링크가 잘못됐다"** 고 말하는 셈이다 — 그 사람은 링크를 의심하고
+     * 운영자에게 엉뚱한 걸 묻는다.
+     *
+     * 상태 코드는 0 이다. HTTP 응답이 아예 없었다는 뜻이라 어떤 숫자와도 겹치지 않는다.
+     */
+    throw new ApiError(0, "offline", FAIL.offline);
+  }
   syncFromResponse(res);
 
   const text = await res.text();

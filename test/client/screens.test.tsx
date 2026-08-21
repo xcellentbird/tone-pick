@@ -12,14 +12,15 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
-import { BTN, ENTRY, ENV_BANNER, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
+import { BTN, ENTRY, ENV_BANNER, FAIL, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
-import { ApiError } from "../../src/client/lib/api.ts";
+import { ApiError, api } from "../../src/client/lib/api.ts";
 import EnvBadge from "../../src/client/ui/EnvBadge.tsx";
+import Boom from "../../src/client/ui/Boom.tsx";
 import { useKeyboardInset } from "../../src/client/lib/keyboard.ts";
 
 afterEach(cleanup);
@@ -93,6 +94,58 @@ function renderParticipant(source: ParticipantSource, profileId?: string, onTab:
     </MemoryRouter>,
   );
 }
+
+// ─────────────────────────────────────────── 실패했을 때
+
+/**
+ * 하얀 화면을 남기지 않는다. 실패에도 **다음 할 일**이 있어야 한다 —
+ * 그리고 파티장에는 운영자가 눈앞에 있으므로, 막다른 길이 아니라 사람에게 이어진다.
+ */
+describe("오류 화면", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("★ 망이 끊기면 ApiError 로 감싼다 — 날 TypeError 를 올려보내지 않는다", async () => {
+    /*
+     * 감싸지 않으면 `userMessage` 가 없어 화면이 `ENTRY.notFound`("그런 회차가 없어요") 로
+     * 떨어진다 — 잠깐 끊긴 참가자에게 **"네 링크가 잘못됐다"** 고 말하는 셈이다.
+     * 그 사람은 링크를 의심하며 운영자에게 엉뚱한 걸 묻는다.
+     */
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    await expect(api("/me")).rejects.toMatchObject({ status: 0, userMessage: FAIL.offline });
+  });
+
+  it("★ 망 문제일 때는 '처음으로' 가 아니라 '새로고침' 이다", async () => {
+    // 회차를 잘못 찾아온 게 아니라 망이 흔들린 것이다. 할 일은 다시 시도하는 것이다
+    const source = fakeSource({
+      load: async () => {
+        throw new ApiError(0, "offline", FAIL.offline);
+      },
+    });
+    renderParticipant(source);
+    await screen.findByText(new RegExp(FAIL.offline.split("\n")[0]));
+    expect(screen.getByText(FAIL.retry)).toBeTruthy();
+    expect(screen.getByText(FAIL.askHost)).toBeTruthy();
+    expect(screen.queryByText(BTN.home)).toBeNull();
+  });
+
+  it("★ 컴포넌트가 던져도 하얀 화면이 되지 않는다", () => {
+    // React 는 컴포넌트가 던지면 트리를 통째로 걷어낸다. 경계가 그 자리를 메운다
+    const Bomb = () => {
+      throw new Error("boom");
+    };
+    // 경계가 잡은 오류는 React 가 콘솔에도 찍는다 — 테스트 출력만 조용히 시킨다
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <Boom>
+        <Bomb />
+      </Boom>,
+    );
+    expect(screen.getByText(FAIL.title)).toBeTruthy();
+    expect(screen.getByText(FAIL.retry)).toBeTruthy();
+    expect(screen.getByText(FAIL.askHost)).toBeTruthy();
+    quiet.mockRestore();
+  });
+});
 
 // ─────────────────────────────────────────── 입장
 
