@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { BTN, ENTRY, TABS_PARTICIPANT } from "../../shared/copy.ts";
+import { BTN, ENTRY, FAIL, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
@@ -291,13 +291,20 @@ function Failed({ error, code }: { error: ApiError; code?: string }) {
    * 이제는 참가 링크로 다시 들어오면 된다. 링크는 운영자가 뿌린 그대로 남아 있다.
    */
   const removed = error.status === 404;
+  /*
+   * 서버에 닿지도 못한 경우(status 0). **처음으로 보내면 안 된다** —
+   * 회차를 잘못 찾아온 게 아니라 망이 흔들린 것이라, 할 일은 다시 시도하는 것이다.
+   */
+  const offline = error.status === 0;
   return (
     <div className="screen">
       <div className="body stack center" style={{ justifyContent: "center" }}>
         <p className="dim pre">{error.userMessage ?? ENTRY.notFound}</p>
-        <button className="btn primary" onClick={() => navigate("/")}>
-          {removed ? ENTRY.reenter : BTN.home}
+        <button className="btn primary" onClick={() => (offline ? location.reload() : navigate("/"))}>
+          {offline ? FAIL.retry : removed ? ENTRY.reenter : BTN.home}
         </button>
+        {/* 파티장에는 운영자가 눈앞에 있다. 실패를 사람에게 넘길 수 있는 앱은 흔치 않다 */}
+        {offline && <p className="tiny dim">{FAIL.askHost}</p>}
       </div>
     </div>
   );
