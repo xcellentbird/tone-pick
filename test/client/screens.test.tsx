@@ -19,7 +19,7 @@ import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
-import { ApiError, api } from "../../src/client/lib/api.ts";
+import { ApiError, api, timeoutFor } from "../../src/client/lib/api.ts";
 import EnvBadge from "../../src/client/ui/EnvBadge.tsx";
 import Boom from "../../src/client/ui/Boom.tsx";
 import { useKeyboardInset } from "../../src/client/lib/keyboard.ts";
@@ -113,6 +113,23 @@ describe("오류 화면", () => {
      */
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
     await expect(api("/me")).rejects.toMatchObject({ status: 0, userMessage: FAIL.offline });
+  });
+
+  it("★ 매달린 요청을 끊는다 — 운세만 더 오래 기다린다", () => {
+    /*
+     * `fetch` 에는 기본 시간 제한이 없다. 약전계에서 요청이 나갔다 매달리면 브라우저가
+     * 포기할 때까지 수십 초에서 몇 분이고, 그동안 참가자는 어두운 빈 화면만 본다 —
+     * 오류 화면을 만들어놓고 정작 필요한 때 안 뜨는 셈이다.
+     *
+     * 운세는 **뒤집는 순간 LLM 을 부른다** (미리 안 만든다 — ADR-20).
+     * 서버가 12초에 규칙 문구로 떨어뜨리므로, 짧게 잡으면 정상인 걸 우리가 먼저 끊는다.
+     */
+    expect(timeoutFor("/me")).toBe(timeoutFor("/poke"));
+    expect(timeoutFor("/fortune")).toBeGreaterThan(timeoutFor("/me"));
+    // 미션도 같은 경로다
+    expect(timeoutFor("/fortune/mission")).toBe(timeoutFor("/fortune"));
+    // 서버가 12초에 폴백을 주므로 그보다 넉넉해야 한다
+    expect(timeoutFor("/fortune")).toBeGreaterThan(13_000);
   });
 
   it("★ 망 문제일 때는 '처음으로' 가 아니라 '새로고침' 이다", async () => {

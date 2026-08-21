@@ -6,6 +6,27 @@ import { syncFromResponse } from "./serverTime.ts";
  * 실패는 `{ error, message }` 다 — `message` 는 서버가 `copy.ts` 에서 골라 담은 문장이라
  * 화면에서는 그대로 보여주면 된다. 여기서 문장을 새로 짓지 마라.
  */
+/**
+ * 요청이 **매달려 있을 때** 끊는 시간.
+ *
+ * `fetch` 에는 기본 시간 제한이 없다. 브라우저가 끊긴 걸 아는 경우(비행기 모드)는
+ * 곧바로 거부되지만, 약전계에서 요청이 나갔다 매달리면 **브라우저가 포기할 때까지
+ * 수십 초에서 몇 분** 걸린다. 그동안 참가자는 어두운 빈 화면을 보고 있고,
+ * 할 수 있는 일이 아무것도 없다 — 오류 화면을 만들어놓고 정작 필요한 때 안 뜨는 셈이다.
+ *
+ * **운세만 따로 잡는다.** 미리 만들어두지 않고 **뒤집는 순간 LLM 을 부르기 때문이다**
+ * (ADR-20 — 여는 동작이 있어야 오늘 것처럼 읽힌다. 게다가 생년월일이 그때 들어온다).
+ * 서버가 12초에 규칙 문구로 떨어뜨리므로 최악이 ~13초인데, 10초로 끊으면
+ * **정상인 운세를 우리가 먼저 끊는다.**
+ */
+const TIMEOUT_MS = 10_000;
+const SLOW_MS = 25_000;
+
+/** 이 경로로 시작하면 오래 기다린다. `/fortune` 과 `/fortune/mission` 이 함께 걸린다 */
+export function timeoutFor(path: string): number {
+  return path.startsWith("/fortune") ? SLOW_MS : TIMEOUT_MS;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -22,6 +43,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     res = await fetch(`/api${path}`, {
       credentials: "include", // 세션은 HttpOnly 쿠키. 전화번호를 URL 에 노출하지 않는다
       ...init,
+      /*
+       * 매달린 요청을 끊는다. **`...init` 뒤에 둔다** — 앞에 두면 호출자가 `init` 을
+       * 넘기는 순간 신호가 조용히 덮이고, 시간 제한이 사라진 걸 아무도 모른다.
+       *
+       * `?.` 는 이 정적 메서드가 없는 옛 사파리를 위한 것이다. 없으면 `undefined` 가
+       * 들어가고, 시간 제한만 없어질 뿐 요청은 그대로 나간다.
+       */
+      signal: AbortSignal.timeout?.(timeoutFor(path)),
       headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
     });
   } catch {
@@ -32,6 +61,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
      * `ENTRY.notFound`("그런 회차가 없어요") 로 떨어진다. 잠깐 끊긴 참가자에게
      * **"네 링크가 잘못됐다"** 고 말하는 셈이다 — 그 사람은 링크를 의심하고
      * 운영자에게 엉뚱한 걸 묻는다.
+     *
+     * **시간 초과도 여기로 온다** (`AbortSignal.timeout` 은 거부로 떨어진다).
+     * 참가자가 할 일은 둘 다 같으므로 — 다시 시도 — 문구를 나누지 않는다.
      *
      * 상태 코드는 0 이다. HTTP 응답이 아예 없었다는 뜻이라 어떤 숫자와도 겹치지 않는다.
      */
