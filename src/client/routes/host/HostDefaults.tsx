@@ -31,7 +31,7 @@ export default function HostDefaults() {
   useEffect(() => setForm(loaded.data), [loaded.data]);
 
   // 불러오는 중은 빈 화면이 맞다. 실패는 갈라준다 — 빈 화면은 무엇을 해야 할지 말하지 않는다
-  if (loaded.error) return <LoadFailed error={loaded.error} />;
+  if (loaded.error) return <LoadFailed error={loaded.error} onRetry={loaded.reload} busy={loaded.loading} />;
   if (!form) return <div className="screen" />;
 
   const set = <K extends keyof Defaults,>(key: K, value: Defaults[K]) => {

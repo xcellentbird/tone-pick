@@ -147,9 +147,9 @@ describe("오류 화면", () => {
     });
     renderParticipant(source);
     // 곧바로 뜨지 않는다 — 몇 번 더 붙어보고 나서다
-    expect(screen.queryByText(FAIL.retry)).toBeNull();
+    expect(screen.queryByText(FAIL.reconnect)).toBeNull();
     await pump(4000);
-    expect(screen.getByText(FAIL.retry)).toBeTruthy();
+    expect(screen.getByText(FAIL.reconnect)).toBeTruthy();
     expect(screen.getByText(new RegExp(FAIL.offline.split("\n")[0]))).toBeTruthy();
     expect(screen.getByText(FAIL.askHost)).toBeTruthy();
     expect(screen.queryByText(BTN.home)).toBeNull();
@@ -178,14 +178,14 @@ describe("오류 화면", () => {
      * **고장 난 앱을 본다.** 그 사이에는 평소의 불러오는 화면 그대로여야 한다.
      */
     await act(async () => void (await vi.advanceTimersByTimeAsync(500)));
-    expect(screen.queryByText(FAIL.retry)).toBeNull();
+    expect(screen.queryByText(FAIL.reconnect)).toBeNull();
 
     // 무선이 올라왔다. 아무것도 누르지 않는다
     down = false;
     await pump(1000);
     expect(screen.getByText(PEOPLE.mine)).toBeTruthy();
     // 오류 화면은 **끝내 한 번도 뜨지 않았다**
-    expect(screen.queryByText(FAIL.retry)).toBeNull();
+    expect(screen.queryByText(FAIL.reconnect)).toBeNull();
     vi.useRealTimers();
   });
 
@@ -214,7 +214,62 @@ describe("오류 화면", () => {
 
     // 보던 화면 그대로다
     expect(screen.getByText(PEOPLE.mine)).toBeTruthy();
-    expect(screen.queryByText(FAIL.retry)).toBeNull();
+    expect(screen.queryByText(FAIL.reconnect)).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("★ 오류 화면에 갇히지 않는다 — 앱으로 돌아오면 타이머 없이도 다시 붙는다", async () => {
+    /*
+     * **"가끔 넘어가서 안 돌아온다" 가 여기였다.** 안드로이드는 화면을 끌 때 탭을 얼리는데,
+     * 얼어 있는 동안 예약해둔 다시 시도 타이머는 멈추고 깨어날 때 살아 돌아온다는 보장이 없다.
+     * 그러면 다시 붙을 길이 하나도 없는 채로 오류 화면에 남는다.
+     *
+     * 그래서 앱으로 돌아오는 순간을 직접 듣는다. **시계를 한 번도 밀지 않고** 돌아와야 한다.
+     */
+    vi.useFakeTimers();
+    let down = true;
+    const source = fakeSource({
+      load: async () => {
+        if (down) throw new ApiError(0, "offline", FAIL.offline);
+        return participantState();
+      },
+    });
+    renderParticipant(source);
+    await pump(4000);
+    expect(screen.getByText(FAIL.reconnect)).toBeTruthy();
+
+    // 폰을 다시 켰다. 타이머는 얼어 있다고 보고 한 번도 밀지 않는다
+    down = false;
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(async () => {});
+    expect(screen.getByText(PEOPLE.mine)).toBeTruthy();
+    vi.useRealTimers();
+  });
+
+  it("★ 망 문제에 페이지를 다시 받지 않는다 — 요청 하나만 다시 보낸다", async () => {
+    /*
+     * `location.reload()` 는 앱을 통째로 버리고 index.html 부터 다시 받는다 —
+     * **망이 흔들리는 바로 그 순간에 가장 하면 안 되는 일이다.** 실패하면 브라우저의
+     * 오류 화면으로 넘어가고, 거기서는 우리가 할 수 있는 게 없다.
+     */
+    vi.useFakeTimers();
+    let down = true;
+    const load = vi.fn(async () => {
+      if (down) throw new ApiError(0, "offline", FAIL.offline);
+      return participantState();
+    });
+    const reload = vi.fn();
+    vi.stubGlobal("location", { ...window.location, reload });
+    renderParticipant(fakeSource({ load }));
+    await pump(4000);
+
+    down = false;
+    await act(async () => void fireEvent.click(screen.getByText(FAIL.reconnect)));
+    await act(async () => {});
+    expect(screen.getByText(PEOPLE.mine)).toBeTruthy();
+    expect(reload).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
 

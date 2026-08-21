@@ -25,13 +25,27 @@ import type { ApiError } from "../lib/api.ts";
  * 401·403 은 PIN 화면으로 되돌리지만(`useAuthRedirect`) 그 밖의 실패는 아무 데도 안 갔고,
  * **파티 중에 콘솔이 통째로 비어버렸다.** 단계도 못 넘기고 자리도 못 본다.
  */
-export function LoadFailed({ error }: { error: ApiError | null }) {
+export function LoadFailed({
+  error,
+  onRetry,
+  busy,
+}: {
+  error: ApiError | null;
+  /** 망 문제일 때는 요청만 다시 보낸다. 페이지를 다시 받으면 그 길에서 또 걸린다 */
+  onRetry?: () => void;
+  busy?: boolean;
+}) {
+  const offline = error?.status === 0 && !!onRetry;
   return (
     <div className="screen">
       <div className="body stack center" style={{ justifyContent: "center" }}>
         <p className="dim pre">{error?.userMessage ?? FAIL.title}</p>
-        <button className="btn primary" onClick={() => location.reload()}>
-          {FAIL.retry}
+        <button
+          className="btn primary"
+          disabled={offline && busy}
+          onClick={() => (offline ? onRetry() : location.reload())}
+        >
+          {offline ? (busy ? FAIL.reconnecting : FAIL.reconnect) : FAIL.retry}
         </button>
       </div>
     </div>

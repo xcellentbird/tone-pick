@@ -140,7 +140,7 @@ export function ParticipantView(props: ViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source.liveCode, failed]);
 
-  if (state.error) return <Failed error={state.error} code={code} />;
+  if (state.error) return <Failed error={state.error} code={code} onRetry={state.reload} busy={state.loading} />;
   if (!state.data) return <div className="screen" />;
   return <Loaded {...props} state={state.data} reload={state.reload} />;
 }
@@ -286,7 +286,18 @@ function Greeting({ text }: { text: string }) {
  * 404 를 "그런 회차가 없어요" 로 뭉뚱그리면 참가자는 링크를 의심하고 운영자에게
  * 엉뚱한 걸 묻는다. 지워진 사람은 명단에 남아 있으면 다시 들어올 수 있으니 그 길을 준다.
  */
-function Failed({ error, code }: { error: ApiError; code?: string }) {
+function Failed({
+  error,
+  code,
+  onRetry,
+  busy,
+}: {
+  error: ApiError;
+  code?: string;
+  /** 앱 안에서 요청만 다시 보낸다. 페이지를 다시 받지 않는다 */
+  onRetry: () => void;
+  busy: boolean;
+}) {
   const navigate = useNavigate();
   /*
    * 세션이 이 회차의 것이 아니면(401) 예전에는 코드로 회차를 되찾아 문 앞으로 보냈다.
@@ -301,12 +312,22 @@ function Failed({ error, code }: { error: ApiError; code?: string }) {
    * 회차를 잘못 찾아온 게 아니라 망이 흔들린 것이라, 할 일은 다시 시도하는 것이다.
    */
   const offline = error.status === 0;
+  /*
+   * **망 문제에 `location.reload()` 를 걸면 안 된다.** 앱을 통째로 버리고 `index.html`
+   * 부터 다시 받는 일인데, 망이 흔들리는 바로 그 순간에 가장 하면 안 되는 것이다.
+   * 실패하면 브라우저의 오류 화면으로 넘어가고 거기서는 우리가 할 수 있는 게 없다.
+   * 요청 하나만 다시 보내면 된다 — 성공하면 그 자리에서 화면이 돌아온다.
+   */
   return (
     <div className="screen">
       <div className="body stack center" style={{ justifyContent: "center" }}>
         <p className="dim pre">{error.userMessage ?? ENTRY.notFound}</p>
-        <button className="btn primary" onClick={() => (offline ? location.reload() : navigate("/"))}>
-          {offline ? FAIL.retry : removed ? ENTRY.reenter : BTN.home}
+        <button
+          className="btn primary"
+          disabled={offline && busy}
+          onClick={() => (offline ? onRetry() : navigate("/"))}
+        >
+          {offline ? (busy ? FAIL.reconnecting : FAIL.reconnect) : removed ? ENTRY.reenter : BTN.home}
         </button>
         {/* 파티장에는 운영자가 눈앞에 있다. 실패를 사람에게 넘길 수 있는 앱은 흔치 않다 */}
         {offline && <p className="tiny dim">{FAIL.askHost}</p>}

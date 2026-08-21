@@ -131,7 +131,7 @@ describe("운영자 콘솔이 비어버리지 않는다", () => {
     renderConsole();
     for (let i = 0; i < 6; i++) await act(async () => void (await vi.advanceTimersByTimeAsync(4000)));
     expect(screen.getByText(new RegExp(FAIL.offline.split("\n")[0]))).toBeTruthy();
-    expect(screen.getByText(FAIL.retry)).toBeTruthy();
+    expect(screen.getByText(FAIL.reconnect)).toBeTruthy();
     vi.useRealTimers();
   });
 
