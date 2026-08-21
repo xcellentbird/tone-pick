@@ -44,6 +44,13 @@
   // 무료 플랜에서 쓰려면 반드시 SQLite 백엔드로 마이그레이션해야 한다
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EventDO", "RegistryDO"] }],
 
+  /*
+   * 운영 카운터. **회차 DO 밖에 쌓이는 유일한 자료다** — 무엇을 넣는지가 곧
+   * 개인정보 경계라, 규칙은 `src/server/metrics.ts` 주석에 있다.
+   * 운영 카운터는 넣고 결과 통계(매칭·콕·순위)는 넣지 않는다.
+   */
+  "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "tone_pick_ops" }],
+
   // 개인정보 파기. 04:00 KST — 파티가 도는 시간대를 피한다
   "triggers": { "crons": ["0 19 * * *"] },
 
@@ -83,6 +90,7 @@
         // 오늘의 연애운. 키(OPENAI_API_KEY)는 시크릿으로만 넣는다 — 여기 적으면 그대로 공개된다
         "LLM_MODEL": "gpt-5.6-luna"
       },
+      "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "tone_pick_ops_qa" }],
       "assets": {
         "directory": "./dist/client",
         "binding": "ASSETS",

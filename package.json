@@ -17,7 +17,8 @@
     "rehearsal": "node scripts/rehearsal.mjs",
     "check": "npm run typecheck && npm run check:copy && npm run check:config",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "ops": "node scripts/ops.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",
