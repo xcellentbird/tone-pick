@@ -729,8 +729,18 @@ button {
 .statusbar.phase-done .phase { color: var(--ok); }
 
 /* 초가 바뀔 때마다 숫자 폭이 달라지면 줄이 들썩인다 */
+/*
+ * 카운트다운. **왼쪽 단계 이름(`.phase`)과 같은 크기**다.
+ *
+ * 20px 이던 시절에는 이 숫자가 머리에서 제일 큰 글자였다 — 회차 이름보다도 컸다.
+ * 참가자가 먼저 읽어야 하는 건 "어느 파티에 있고 지금 무슨 단계인가" 이고,
+ * 남은 시간은 그 옆에 붙는 것이다. 숫자가 크면 조급함이 화면의 주인이 된다.
+ *
+ * 고정폭 숫자(`tabular-nums`)는 그대로 둔다. 초가 바뀔 때마다 폭이 흔들리면
+ * 옆의 것들이 1초마다 들썩인다.
+ */
 .statusbar .countdown {
-  font-size: 20px;
+  font-size: 13px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
