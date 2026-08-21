@@ -18,6 +18,16 @@ interface Load<T> {
 /** 닿지 못했을 때 다시 시도하기까지. 두 배씩 늘리되 이만큼에서 멈춘다 */
 const RETRY_CAP_MS = 8_000;
 
+/**
+ * 이만큼 못 붙고 나서야 오류 화면을 올린다. 1초 + 2초 = **약 3초**다.
+ *
+ * 폰을 다시 켤 때의 실패는 대개 1초짜리다 — 그걸 오류로 올리면 사람은
+ * 스스로 나은 것을 보지 못하고 **고장 난 앱을 본다.** 그래서 그 사이에는
+ * 평소의 불러오는 화면을 그대로 둔다. 반대로 영영 감추지도 않는다 —
+ * 정말 망이 없는 사람은 자기가 왜 못 들어가는지 알아야 한다.
+ */
+const QUIET_TRIES = 3;
+
 export function useLoad<T>(load: () => Promise<T>, deps: unknown[] = []): Load<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
@@ -26,7 +36,8 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[] = []): Load<T
   const alive = useRef(true);
   /** 몇 번째 실행인가. 되불러오기가 겹쳤을 때 늦게 온 옛 응답이 새 것을 덮지 않게 한다 */
   const run = useRef(0);
-  const tries = useRef(0);
+  /** 연달아 몇 번 못 붙었나. 닿지 못한 실패만 센다 */
+  const [misses, setMisses] = useState(0);
   const fn = useRef(load);
   fn.current = load;
 
@@ -42,10 +53,13 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[] = []): Load<T
         if (!latest()) return;
         setData(value);
         setError(null);
+        setMisses(0);
       })
       .catch((e: unknown) => {
         if (!latest()) return;
-        setError(e instanceof ApiError ? e : new ApiError(0, "network"));
+        const err = e instanceof ApiError ? e : new ApiError(0, "network");
+        setError(err);
+        setMisses((n) => (err.status === 0 ? n + 1 : 0));
       })
       .finally(() => latest() && setLoading(false));
     return () => {
@@ -70,11 +84,8 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[] = []): Load<T
    * 정말 망이 없는 폰이 배터리를 태우지 않게 한다.
    */
   useEffect(() => {
-    if (error?.status !== 0) {
-      tries.current = 0;
-      return;
-    }
-    const wait = Math.min(RETRY_CAP_MS, 1000 * 2 ** tries.current++);
+    if (error?.status !== 0) return;
+    const wait = Math.min(RETRY_CAP_MS, 1000 * 2 ** (misses - 1));
     const timer = setTimeout(reload, wait);
     // 망이 돌아온 걸 브라우저가 알려주면 기다리지 않는다
     const now = () => {
@@ -86,9 +97,24 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[] = []): Load<T
       clearTimeout(timer);
       window.removeEventListener("online", now);
     };
-  }, [error, reload]);
+  }, [error, misses, reload]);
 
-  return { data, error, loading, reload, set: setData };
+  /**
+   * **닿지 못한 실패는 "실패"가 아니라 "아직"이다.** 화면에 올리기 전에 두 번 더 붙어본다.
+   *
+   * 두 경우를 다르게 다룬다.
+   *
+   *   보던 화면이 있다   버리지 않는다. 뒤에서 조용히 다시 붙는다
+   *   아직 아무것도 없다  평소의 불러오는 화면으로 두다가, 계속 안 되면 그제야 오류
+   *
+   * 앞 칸이 중요하다 — 폰을 켜는 순간의 1초짜리 실패에 **보고 있던 탭과 자리를 통째로
+   * 빼앗을** 이유가 없다. 스스로 낫는 걸 사람이 볼 필요는 더더욱 없다.
+   *
+   * 서버가 **거절한** 실패(401·404)는 그대로 올린다. 그건 기다린다고 달라지지 않는다.
+   */
+  const shown = error?.status !== 0 ? error : data === null && misses >= QUIET_TRIES ? error : null;
+
+  return { data, error: shown, loading, reload, set: setData };
 }
 
 /** 1초마다 다시 그린다. 카운트다운처럼 시간이 흘러야 하는 화면에서만 쓴다 */
