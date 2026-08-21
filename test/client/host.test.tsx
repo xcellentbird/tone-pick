@@ -4,7 +4,7 @@
  * 특히 단계 전환 — 참가자 전원의 화면이 바뀌는 행동이라 확인창이 **무엇이 어떻게 바뀌는지**
  * 항목으로 보여줘야 하고, 확인을 누르기 전에는 아무 일도 일어나면 안 된다.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { FAIL, GENDER, HOST_UI, phaseAction, schedDiff } from "../../src/shared/copy.ts";
@@ -121,10 +121,18 @@ describe("운영자 콘솔이 비어버리지 않는다", () => {
    * 빈 화면은 무엇이 잘못됐는지도, 다음에 뭘 해야 하는지도 말하지 않는다.
    */
   it("★ 망이 끊겨도 빈 화면이 아니라 다시 시도할 길을 준다", async () => {
+    /*
+     * 닿지 못한 실패는 곧바로 올리지 않는다 — 기기가 깨어나는 순간의 1초짜리 실패에
+     * 콘솔을 통째로 갈아치울 이유가 없다. 다만 **영영 감추지도 않는다.**
+     * 정말 망이 없는 운영자는 자기가 왜 못 보는지 알아야 한다.
+     */
+    vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
     renderConsole();
-    await screen.findByText(new RegExp(FAIL.offline.split("\n")[0]));
-    expect(screen.getByText(FAIL.retry)).toBeTruthy();
+    for (let i = 0; i < 6; i++) await act(async () => void (await vi.advanceTimersByTimeAsync(4000)));
+    expect(screen.getByText(new RegExp(FAIL.offline.split("\n")[0]))).toBeTruthy();
+    expect(screen.getByText(FAIL.reconnect)).toBeTruthy();
+    vi.useRealTimers();
   });
 
   it("★ 서버가 500 을 줘도 마찬가지다", async () => {
