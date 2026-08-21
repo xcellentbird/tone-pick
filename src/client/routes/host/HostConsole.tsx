@@ -9,6 +9,7 @@ import type { HostState } from "../../../shared/types.ts";
 import { api } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
+import { LoadFailed } from "../../ui/Boom.tsx";
 import { connect } from "../../lib/realtime.ts";
 import { Overlays } from "../../ui/Overlays.tsx";
 
@@ -38,6 +39,14 @@ export default function HostConsole() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
 
+  /*
+   * **빈 화면을 남기지 않는다.** 401·403 은 위에서 PIN 화면으로 되돌리지만,
+   * 망이 끊기거나 서버가 500 을 주면 여기까지 온다 — 예전에는 빈 `.screen` 이라
+   * 파티 중에 콘솔이 통째로 비어버렸다. 단계도 못 넘기고 자리도 못 본다.
+   *
+   * 아직 불러오는 중일 때는 빈 화면이 맞다. 실패했을 때만 갈라준다.
+   */
+  if (loaded.error) return <LoadFailed error={loaded.error} />;
   if (!loaded.data) return <div className="screen" />;
   const base = `/host/${id}`;
   // 현황 탭이 스택의 바닥이다. 다른 탭에서 뒤로 가면 현황으로 온다 (참가자 화면과 같은 규칙)

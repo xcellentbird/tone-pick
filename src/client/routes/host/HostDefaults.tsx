@@ -17,6 +17,7 @@ import { DEFAULTS, LIMITS } from "../../../shared/constants.ts";
 import { ApiError, api, post, put } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
+import { LoadFailed } from "../../ui/Boom.tsx";
 import { useOverlay } from "../../ui/Overlays.tsx";
 
 export default function HostDefaults() {
@@ -29,6 +30,8 @@ export default function HostDefaults() {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => setForm(loaded.data), [loaded.data]);
 
+  // 불러오는 중은 빈 화면이 맞다. 실패는 갈라준다 — 빈 화면은 무엇을 해야 할지 말하지 않는다
+  if (loaded.error) return <LoadFailed error={loaded.error} />;
   if (!form) return <div className="screen" />;
 
   const set = <K extends keyof Defaults,>(key: K, value: Defaults[K]) => {
