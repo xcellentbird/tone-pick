@@ -14,6 +14,7 @@ import { ENTRY, FORTUNE, ME } from "../../shared/copy.ts";
 import { canOpenFortune } from "../../shared/phase.ts";
 import { fortuneInput, missionInput, validBirth } from "../../shared/fortune.ts";
 import { makeFortune, makeMission } from "../fortune.ts";
+import { count } from "../metrics.ts";
 import { normalizePhone } from "../../shared/constants.ts";
 import { todayIn } from "../../shared/time.ts";
 import {
@@ -75,13 +76,25 @@ participantRoutes.post("/events/:id/enter", async (c) => {
 
   const body = (await c.req.json().catch(() => ({}))) as { phone?: string };
   const phone = normalizePhone(String(body.phone ?? ""));
-  if (phone.length < 9) return apiError(c, "bad_request", ENTRY.phoneBad);
+  if (phone.length < 9) {
+    count(c.env, id, { kind: "enter", outcome: "bad_phone" });
+    return apiError(c, "bad_request", ENTRY.phoneBad);
+  }
 
-  const { value, response } = unwrap(
-    c,
-    await eventStub(c.env, id).checkEntry(phone, await ipHash(c, id), serverNow()),
-    enterMessage,
-  );
+  const checked = await eventStub(c.env, id).checkEntry(phone, await ipHash(c, id), serverNow());
+  /*
+   * **입장 결과를 센다.** 명단 문제는 조용히 쌓인다 — 참가자는 "안 되네" 하고 말지
+   * 운영자에게 매번 말하지 않는다. 어제 iPhone 연락처의 `+82` 번호가 명단에 잘못
+   * 들어간 것도 이 숫자가 있었으면 보였다.
+   *
+   * 번호도 사람도 담지 않는다. **결과 한 글자만** 센다 (`metrics.ts`).
+   */
+  count(c.env, id, {
+    kind: "enter",
+    outcome: checked.ok ? "ok" : checked.error === "too_many" ? "too_many" : "not_invited",
+  });
+
+  const { value, response } = unwrap(c, checked, enterMessage);
   if (response) return response;
 
   const result = value as EnterResult;
@@ -195,6 +208,8 @@ participantRoutes.post("/fortune", async (c) => {
    */
   const now = serverNow();
   const made = await makeFortune(c.env, fortuneInput(ctx.value.me, todayIn(now), birth), now);
+  // LLM 이 조용히 죽어도 화면은 멀쩡히 뜬다 (ADR-20). 그래서 세지 않으면 아무도 모른다
+  count(c.env, seat.eventId, { kind: "fortune", outcome: made.fallback ? "fallback" : "llm" });
   const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, made));
   return response ?? c.json(value);
 });
@@ -253,7 +268,8 @@ participantRoutes.post("/seat/ack", async (c) => {
 async function seatOf(c: Ctx) {
   const scope = await playerScope(c);
   if (scope?.kind !== "player") return null;
-  return { playerId: scope.playerId, stub: eventStub(c.env, scope.eventId) };
+  // eventId 도 함께 준다 — 지표가 회차별로 쌓이려면 필요하다 (사람은 안 담는다)
+  return { playerId: scope.playerId, eventId: scope.eventId, stub: eventStub(c.env, scope.eventId) };
 }
 
 /** 이미 등록한 사람의 세션. 번호로 그 사람을 찾는다 */

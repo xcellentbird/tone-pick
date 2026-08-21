@@ -2,7 +2,7 @@
  * 회차 목록. 운영자 PIN 하나로 모든 회차가 여기 보인다 (ADR-12).
  */
 import { useNavigate } from "react-router";
-import { HOST_UI, PHASE_LABEL, SCREEN_TITLE, UNIT } from "../../../shared/copy.ts";
+import { FAIL, HOST_UI, PHASE_LABEL, SCREEN_TITLE, UNIT } from "../../../shared/copy.ts";
 import type { EventSummary } from "../../../shared/types.ts";
 import { api } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
@@ -38,6 +38,8 @@ export default function HostEvents() {
       </div>
 
       <div className="body stack">
+        {/* 실패를 "회차가 없다" 로 보여주지 않는다 — 있는데 못 불러온 것과 없는 것은 다르다 */}
+        {list.error && !list.data && <p className="dim center pre">{list.error.userMessage ?? FAIL.title}</p>}
         {list.data?.length === 0 && <p className="dim center">{HOST_UI.noEvents}</p>}
 
         {list.data?.map((ev) => (

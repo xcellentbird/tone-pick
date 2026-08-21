@@ -13,6 +13,11 @@ export interface Env {
   EVENT: DurableObjectNamespace<EventDO>;
   REGISTRY: DurableObjectNamespace<RegistryDO>;
   ASSETS: Fetcher;
+  /**
+   * 운영 카운터가 쌓이는 곳 (`metrics.ts`). **없어도 앱은 돈다** —
+   * 지표는 있으면 좋은 것이지 없으면 안 되는 게 아니다. 테스트·로컬에는 없다.
+   */
+  METRICS?: AnalyticsEngineDataset;
   MASTER_PIN: string;
   SESSION_SECRET: string;
   /** "1" 일 때만 테스트 전용 라우트를 **등록**한다. 런타임 분기가 아니라 존재 자체를 없앤다 */

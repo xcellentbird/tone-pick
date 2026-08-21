@@ -1,7 +1,7 @@
 {
   "name": "tone-pick",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,7 +17,8 @@
     "rehearsal": "node scripts/rehearsal.mjs",
     "check": "npm run typecheck && npm run check:copy && npm run check:config",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "ops": "node scripts/ops.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",
