@@ -16,6 +16,27 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { FAIL } from "../../shared/copy.ts";
+import type { ApiError } from "../lib/api.ts";
+
+/**
+ * 불러오지 못했을 때의 화면. **빈 화면을 남기지 않는다.**
+ *
+ * 운영자 콘솔이 이걸 안 쓰고 `<div className="screen" />` 을 돌려주고 있었다 —
+ * 401·403 은 PIN 화면으로 되돌리지만(`useAuthRedirect`) 그 밖의 실패는 아무 데도 안 갔고,
+ * **파티 중에 콘솔이 통째로 비어버렸다.** 단계도 못 넘기고 자리도 못 본다.
+ */
+export function LoadFailed({ error }: { error: ApiError | null }) {
+  return (
+    <div className="screen">
+      <div className="body stack center" style={{ justifyContent: "center" }}>
+        <p className="dim pre">{error?.userMessage ?? FAIL.title}</p>
+        <button className="btn primary" onClick={() => location.reload()}>
+          {FAIL.retry}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default class Boom extends Component<{ children: ReactNode }, { dead: boolean }> {
   state = { dead: false };
