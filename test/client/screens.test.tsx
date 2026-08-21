@@ -9,6 +9,7 @@
  *   · 발표가 끝나면 자리 이동 확인이 화면을 덮지 않는다
  *   · 코드가 틀려도 입력값을 지우지 않는다
  */
+import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
@@ -126,6 +127,23 @@ describe("오류 화면", () => {
     expect(screen.getByText(FAIL.retry)).toBeTruthy();
     expect(screen.getByText(FAIL.askHost)).toBeTruthy();
     expect(screen.queryByText(BTN.home)).toBeNull();
+  });
+
+  it("★ 번들이 안 붙었을 때의 화면은 **늦게** 나타난다", () => {
+    /*
+     * `index.html` 안에 있으니 브라우저가 먼저 그리고 React 가 뜨면서 덮는다.
+     * 늦추지 않으면 **정상 경로에서 매번 "화면을 불러오지 못했어요" 가 번쩍인다** —
+     * 멀쩡히 도는 앱이 매번 실패했다고 말하면, 진짜 실패했을 때 아무도 안 믿는다.
+     *
+     * 문구와 늦추기는 **짝이다.** 하나만 남으면 거짓 경고가 되거나 화면이 영영 안 뜬다.
+     * JS 로 늦추지 않는다 — 번들이 안 붙은 상황을 위한 자리라 스크립트에 기댈 수 없다.
+     */
+    // vitest 는 저장소 뿌리에서 돈다. happy-dom 안에서는 import.meta.url 이 file: 이 아니다
+    const html = readFileSync("index.html", "utf8");
+    expect(html).toContain("화면을 불러오지 못했어요");
+    expect(html).toMatch(/\.bootFail\s*\{[^}]*opacity:\s*0/);
+    expect(html).toMatch(/animation:\s*bootFailIn\s+0s\s+\ds/);
+    expect(html).toContain('class="bootFail"');
   });
 
   it("★ 컴포넌트가 던져도 하얀 화면이 되지 않는다", () => {
