@@ -695,12 +695,27 @@ button {
 }
 
 /* 위: 회차 이름 · 아래: 단계. 이름만 말줄임한다 */
+/*
+ * 머리는 **두 행짜리 표**다. 왼쪽은 `회차 이름 / 단계`, 오른쪽은 `무엇까지 / 남은 시간`.
+ *
+ * 두 열의 글자 크기가 다르므로(15·13 vs 12·13) 그냥 두면 행마다 높이가 제각각이고,
+ * 두 덩어리가 각자 떠 있는 것처럼 보인다. **행 높이를 못 박아** 줄을 맞춘다 —
+ * 그래야 왼쪽 두 줄과 오른쪽 두 줄의 총 높이가 같아지고 밑줄이 나란해진다.
+ *
+ * 글자 크기를 바꿀 때 이 값도 같이 본다. 크기만 바꾸면 다시 어긋난다.
+ */
+.statusbar .where,
+.statusbar .until { gap: 1px; }
+.statusbar .event,
+.statusbar .until > :first-child { line-height: 20px; }
+.statusbar .phase,
+.statusbar .until > :last-child { line-height: 16px; }
+
 .statusbar .where {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
 }
 .statusbar .event {
   font-size: 15px;
@@ -718,7 +733,6 @@ button {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 1px;
   white-space: nowrap;
 }
 
