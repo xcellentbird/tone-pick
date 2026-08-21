@@ -146,6 +146,44 @@ describe("오류 화면", () => {
     expect(screen.queryByText(BTN.home)).toBeNull();
   });
 
+  it("★ 닿지 못한 실패는 스스로 돌아온다 — 새로고침을 누르게 만들지 않는다", async () => {
+    /*
+     * 안드로이드는 화면을 끄면 탭을 얼리고 데이터 무선을 내린다. 켜는 순간 앱이
+     * 다시 읽는데(ADR-26) 무선이 아직 안 올라와 있어서 거부된다. 망은 1초 뒤에
+     * 멀쩡해지는데 화면은 오류에 머물러 있었다 — 참가자가 손으로 새로고침을
+     * 눌러야만 빠져나오는 막다른 길이었다.
+     */
+    vi.useFakeTimers();
+    let down = true;
+    const source = fakeSource({
+      load: async () => {
+        if (down) throw new ApiError(0, "offline", FAIL.offline);
+        return participantState();
+      },
+    });
+    renderParticipant(source);
+    await vi.waitFor(() => expect(screen.getByText(FAIL.retry)).toBeTruthy());
+
+    // 무선이 올라왔다. 아무것도 누르지 않는다
+    down = false;
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.waitFor(() => expect(screen.queryByText(FAIL.retry)).toBeNull());
+    vi.useRealTimers();
+  });
+
+  it("★ 서버가 거절한 실패는 다시 묻지 않는다 — 401 을 무한히 되풀이하지 않는다", async () => {
+    // 다시 물어도 같은 답이다. `status 0` 만이 시간이 답인 실패다
+    vi.useFakeTimers();
+    const load = vi.fn(async () => {
+      throw new ApiError(401, "unauthorized", ENTRY.notFound);
+    });
+    renderParticipant(fakeSource({ load }));
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(load).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it("★ 번들이 안 붙었을 때의 화면은 **늦게** 나타난다", () => {
     /*
      * `index.html` 안에 있으니 브라우저가 먼저 그리고 React 가 뜨면서 덮는다.
