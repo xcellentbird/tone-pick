@@ -126,8 +126,13 @@ export function ParticipantView(props: ViewProps) {
    *
    * 실패한 화면에서는 붙들지 않는다 — 다른 회차 주소를 열어둔 폰이 그 회차 소켓을 쥔 채
    * 신호가 올 때마다 다시 읽고 또 401 을 받는다. 여기서 다시 읽어봐야 나올 게 없다.
+   *
+   * **닿지 못한 실패(`status 0`)는 그 실패가 아니다.** 서버가 거절한 게 아니라 망이
+   * 흔들린 것이라, 여기서 소켓까지 놓으면 스스로 돌아올 길이 함께 끊긴다 —
+   * 안드로이드에서 화면을 껐다 켠 참가자가 오류 화면에 갇힌 게 이것이었다.
+   * 소켓은 알아서 다시 붙고(`realtime.ts`), 붙는 순간 화면을 따라잡게 한다.
    */
-  const failed = !!state.error;
+  const failed = !!state.error && state.error.status !== 0;
   useEffect(() => {
     if (!source.liveCode || failed) return;
     const socket = connect(source.liveCode, () => state.reload());
