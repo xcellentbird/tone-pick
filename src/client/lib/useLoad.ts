@@ -87,15 +87,28 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[] = []): Load<T
     if (error?.status !== 0) return;
     const wait = Math.min(RETRY_CAP_MS, 1000 * 2 ** (misses - 1));
     const timer = setTimeout(reload, wait);
-    // 망이 돌아온 걸 브라우저가 알려주면 기다리지 않는다
-    const now = () => {
+    /*
+     * **타이머만 믿으면 안 된다.** 안드로이드는 화면을 끌 때 탭을 얼리는데, 얼어 있는 동안
+     * 예약해둔 타이머는 멈추고 깨어날 때 살아 돌아온다는 보장이 없다. 그러면 다시 붙을
+     * 길이 하나도 없는 채로 오류 화면에 남는다 — 이게 "가끔 넘어가서 안 돌아온다" 였다.
+     *
+     * 그래서 **앱으로 돌아오는 순간을 직접 듣는다.** 소켓도 같은 일을 하지만
+     * (`realtime.ts`) 소켓이 죽어 있거나 아직 안 붙었으면 그 길도 없다.
+     * 다시 붙는 길을 하나에 걸지 않는다.
+     */
+    const wake = () => {
+      if (document.visibilityState !== "visible") return;
       clearTimeout(timer);
       reload();
     };
-    window.addEventListener("online", now);
+    window.addEventListener("online", wake);
+    window.addEventListener("pageshow", wake);
+    document.addEventListener("visibilitychange", wake);
     return () => {
       clearTimeout(timer);
-      window.removeEventListener("online", now);
+      window.removeEventListener("online", wake);
+      window.removeEventListener("pageshow", wake);
+      document.removeEventListener("visibilitychange", wake);
     };
   }, [error, misses, reload]);
 

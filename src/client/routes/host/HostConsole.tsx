@@ -46,7 +46,7 @@ export default function HostConsole() {
    *
    * 아직 불러오는 중일 때는 빈 화면이 맞다. 실패했을 때만 갈라준다.
    */
-  if (loaded.error) return <LoadFailed error={loaded.error} />;
+  if (loaded.error) return <LoadFailed error={loaded.error} onRetry={loaded.reload} busy={loaded.loading} />;
   if (!loaded.data) return <div className="screen" />;
   const base = `/host/${id}`;
   // 현황 탭이 스택의 바닥이다. 다른 탭에서 뒤로 가면 현황으로 온다 (참가자 화면과 같은 규칙)
