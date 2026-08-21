@@ -17,6 +17,15 @@
  * 판정은 사람이 한다. 이 스크립트는 숫자를 찍을 뿐 통과·실패를 정하지 않는다 —
  * 지연은 리전·콜드 스타트·네트워크로 흔들려서 임계값을 걸면 곧 아무도 안 믿게 된다.
  *
+ * **도달 시간을 어디까지 재는가** — 이 스크립트는 **서버에서 이 프로세스까지**만 잰다.
+ * 실제 폰에는 통신망 지연과 **무선 모듈이 절전에서 깨어나는 시간(100~300ms)** 이 더 붙고,
+ * 잠긴 폰·백그라운드 탭은 브라우저가 소켓을 재우므로 아예 이 숫자가 적용되지 않는다
+ * (그때는 앱으로 돌아올 때 다시 읽는다). **사람이 화면을 보고 있을 때의 값이다.**
+ *
+ * 사용자에게 1초를 목표로 예산을 이렇게 쪼갰다 —
+ *   우리 몫 300ms (방송 100 · 재조회 처리 150 · 렌더 50) + 네트워크.
+ *   파티장 wifi 가 아니라 모바일 데이터라 네트워크가 예측 가능하고, 약 400ms 가 남는다.
+ *
  * ⚠️ 연습용 환경에서만 돈다. 프로덕션이면 시작하지 않는다 (아래 guard).
  *    QA 에도 실제 사람의 전화번호를 넣지 마라 — 여기서 만드는 번호는 전부 가짜다.
  */
@@ -94,6 +103,26 @@ const pct = (list, p) => {
   const s = [...list].sort((a, b) => a - b);
   return s[Math.min(s.length - 1, Math.floor((s.length - 1) * p))] ?? 0;
 };
+/**
+ * 방송이 **얼마나 고르게** 닿았나 = 마지막 사람 − 첫 사람.
+ *
+ * **절대값을 목표선에 대지 않는다.** 여기서 재는 도달 시각에는 이 스크립트의 망 지연과
+ * TLS 악수가 통째로 들어 있어서(연결을 아껴 쓰지 않으므로 바닥이 ~470ms 다),
+ * 그걸 500ms 와 견주면 **앱이 아니라 측정 도구를 나무라게 된다.**
+ *
+ * 퍼짐은 다르다 — 50개 소켓이 같은 망 조건을 공유하므로 **차이는 순수하게 서버 몫**이다.
+ * 파티에서 걱정되는 건 "마지막 사람만 못 받는 것" 이고, 그 답이 이 숫자다.
+ *
+ * 사용자에게 1초를 목표로 한 예산에서 우리 몫은 300ms 다
+ * (방송 100 · 재조회 처리 150 · 렌더 50). 퍼짐은 그중 방송 몫을 보는 값이라 100ms 를 넘으면 본다.
+ */
+const SPREAD_GOAL = 100;
+const spread = (times) => {
+  if (times.length < 2) return "";
+  const gap = Math.max(...times) - Math.min(...times);
+  return ` · 퍼짐 ${ms(gap)}${gap > SPREAD_GOAL ? "  ⚠️" : "  ✓"}`;
+};
+
 const report = (label, times, extra = "") =>
   times.length === 0
     ? console.log(`  ${label.padEnd(14)} 기록 없음  ${extra}`)
@@ -253,8 +282,26 @@ report("등록", regTimes, regFailed ? `실패 ${regFailed}건` : "실패 0");
 console.log("\n② 실시간 연결");
 const sockets = [];
 let opened = 0;
-let received = 0;
-let firstAt = 0;
+
+/**
+ * **도달 시각을 종류별로 전부 모은다.**
+ *
+ * 예전에는 `첫 도달` 하나만 봤다. 그건 "가장 빠른 사람"이라 쉰 번째 사람이 3초에
+ * 받아도 안 보인다. 파티에서 중요한 건 **마지막 사람**이다 —
+ * 운영자가 "자리로 이동하세요" 라고 말했는데 한 명이 못 봤으면 그 사람만 남는다.
+ *
+ * 시계는 하나만 쓴다. `mark()` 로 기준을 찍고 도달까지를 같은 프로세스에서 잰다 —
+ * 서버 시계와 맞출 필요가 없고, **운영자가 누른 순간부터** 재므로 사람이 겪는 시간 그대로다.
+ */
+const arrive = { at: 0, by: {} };
+const mark = () => {
+  arrive.at = performance.now();
+  arrive.by = {};
+};
+const seen = (type) => {
+  if (!arrive.at) return;
+  (arrive.by[type] ??= []).push(performance.now() - arrive.at);
+};
 
 /**
  * 소켓을 **그 참가자의 것으로** 붙인다.
@@ -290,10 +337,7 @@ await Promise.all(
           return;
         }
         if (ev.type === "pong") return;
-        if (ev.type === "phase") {
-          received++;
-          firstAt ||= performance.now();
-        }
+        seen(ev.type);
         if (!herd.armed || !who) return;
         herd.byType[ev.type] = (herd.byType[ev.type] ?? 0) + 1;
         herd.pending.push(
@@ -419,15 +463,14 @@ if (draft.status === 200) {
 const published = await host(`/host/events/${eventId}/seating/publish`, { method: "POST" });
 console.log(`  발송 ${ms(published.took)} (소켓 ${opened}개로 퍼짐)`);
 
-// ⑥ 발표 — 브로드캐스트 도달률
+// ⑥ 발표 — 브로드캐스트 도달 분포
 console.log("\n⑤ 발표");
-received = 0;
-firstAt = 0;
-const startedAt = performance.now();
+mark();
 const done = await host(`/host/events/${eventId}/phase`, { method: "POST", body: { to: "party" } });
 await new Promise((r) => setTimeout(r, 3000));
-console.log(`  전환 ${ms(done.took)} · 단계 알림 ${received}/${opened} 도달` +
-  (firstAt ? ` · 첫 도달 ${ms(firstAt - startedAt)}` : ""));
+console.log(`  전환 ${ms(done.took)}`);
+const hits = arrive.by.phase ?? [];
+report("단계 알림", hits, `${hits.length}/${opened} 도달${spread(hits)}`);
 
 const me = players[0];
 const state = await me.call("/me");
