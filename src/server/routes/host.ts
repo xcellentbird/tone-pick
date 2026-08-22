@@ -5,6 +5,7 @@
  */
 import { Hono } from "hono";
 import type {
+  AnnounceInput,
   CreateEventInput,
   Defaults,
   EventConfig,
@@ -222,6 +223,40 @@ hostRoutes.delete("/events/:id/players/:pid", async (c) => {
   if (gate.response) return gate.response;
   const { response } = unwrap(c, await gate.stub.deletePlayer(c.req.param("pid")));
   return response ?? c.json({ ok: true });
+});
+
+// ─────────────────────────────────── 운영자가 보내는 알림 (슬라이스 14)
+
+hostRoutes.post("/events/:id/announcements", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  // 바깥에서 온 값이라 Partial 이다. 모양은 계약(AnnounceInput)이 정한다
+  const body = await json<Partial<AnnounceInput>>(c);
+  const { value, response } = unwrap(
+    c,
+    await gate.stub.announce({ text: String(body.text ?? ""), poll: body.poll }, serverNow()),
+  );
+  return response ?? c.json(value);
+});
+
+/** 닫기·다시 열기. **되돌릴 수 있으므로 확인창이 없다** — 길도 하나면 된다 */
+hostRoutes.put("/events/:id/announcements/:aid", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const body = await json<{ open?: unknown }>(c);
+  if (typeof body.open !== "boolean") return apiError(c, "bad_request");
+  const { value, response } = unwrap(
+    c,
+    await gate.stub.setAnnouncementOpen(c.req.param("aid"), body.open, serverNow()),
+  );
+  return response ?? c.json(value);
+});
+
+hostRoutes.delete("/events/:id/announcements/:aid", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { response } = unwrap(c, await gate.stub.removeAnnouncement(c.req.param("aid")));
+  return response ?? c.body(null, 204);
 });
 
 // ─────────────────────────────────── 자리

@@ -41,6 +41,7 @@ const STATE: ParticipantState = {
   },
   roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["가", "나", "다"] }],
   poke: { budget: { pre: { max: 3, used: 1 }, party: { max: 3, used: 0 } }, sentTo: {}, receivedCount: 0, matches: [] },
+  announcements: [],
 };
 
 /** 실제 라우터와 같은 모양으로 — 네 경로가 모두 같은 화면을 그린다 */
