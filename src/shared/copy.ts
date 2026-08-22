@@ -1021,6 +1021,18 @@ export const HOST_UI = {
     discard: "취소",
     /** 계산은 그대로, 사람만 다시 섞는다 */
     shuffle: "자리 섞기",
+    /**
+     * 이번 라운드에서만 뺄 사람 (슬라이스 11 후속).
+     *
+     * **참가자에게 붙는 상태가 아니다.** 노쇼는 다음 라운드에 나타날 수 있고,
+     * 온 사람이 잠깐 빠질 수도 있다 — 그래서 `안 온 사람` 이나 `불참` 이라고 쓰지 않는다.
+     */
+    exclude: "이번 라운드에서 뺄 사람",
+    excludeNone: (total: number) => `${total}명 전원 배정`,
+    excludeSome: (seated: number, out: number) => `${seated}명 배정 · ${out}명 제외`,
+    /** 한 사람의 지금 상태. 색만으로 말하지 않는다 */
+    excludeIn: "배정",
+    excludeOut: "제외",
     /** 고른 테이블 수가 어떤 자리를 만드는지 미리 */
     preview: (per: number, men: number) => `테이블당 ${per}명 · 남 ${men} / 여 ${per - men}`,
     finalNote: (pairs: number) => `서로 찌른 ${pairs}쌍을 같은 테이블에 앉힙니다.`,

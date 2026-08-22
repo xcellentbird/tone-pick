@@ -473,4 +473,12 @@ export interface HostState {
 export interface SeatingInput {
   tableCount: number;
   final: boolean;
+  /**
+   * **이번 라운드에서만** 뺄 사람. 참가자에게 붙는 상태가 아니라 이 요청의 값이다 —
+   * 노쇼는 다음 라운드에 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다.
+   *
+   * 뺀 사람은 자리가 없다. 배정한 뒤 한 명씩 빼는 길(`unseat`)과 결과는 같지만,
+   * **자리 배치가 처음부터 온 사람만으로 짜인다** — 그게 이 값이 있는 이유다.
+   */
+  exclude?: string[];
 }

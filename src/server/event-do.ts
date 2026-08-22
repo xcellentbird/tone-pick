@@ -901,7 +901,12 @@ export class EventDO extends DurableObject {
   // ─────────────────────────── 자리
 
   /** 초안 생성. 참가자에게는 보이지 않으므로 확인 없이 몇 번이든 다시 만든다 (ADR-6) */
-  async makeSeating(tableCount: number, final: boolean, now: number): Promise<Result<SeatingRound>> {
+  async makeSeating(
+    tableCount: number,
+    final: boolean,
+    now: number,
+    exclude: string[] = [],
+  ): Promise<Result<SeatingRound>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (meta.phase === "done") return fail("closed");
@@ -909,7 +914,14 @@ export class EventDO extends DurableObject {
       return fail("bad_request");
     }
 
-    const players = this.players();
+    /*
+     * **이번 라운드에서만** 뺀다. 참가자에게 붙는 상태를 만들지 않는다 —
+     * 노쇼는 다음 라운드에 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다.
+     *
+     * `buildSeating` 은 그대로다. 명단이 짧아질 뿐이라 순수 함수를 건드릴 일이 없다.
+     */
+    const out = new Set(exclude);
+    const players = this.players().filter((p) => !out.has(p.id));
     if (players.length < tableCount * 2) return fail("bad_request");
 
     const published = this.seatings().filter((s) => s.status === "published");
