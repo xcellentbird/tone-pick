@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { BTN, ENTRY, FAIL, TABS_PARTICIPANT } from "../../shared/copy.ts";
+import { BTN, ENTRY, FAIL, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
@@ -18,6 +18,8 @@ import People from "./People.tsx";
 import Me from "./Me.tsx";
 import Home from "./Home.tsx";
 import SeatTakeover from "../ui/SeatTakeover.tsx";
+import Sheet from "../ui/Sheet.tsx";
+import Help from "../ui/Help.tsx";
 import { canOpenFortune } from "../../shared/phase.ts";
 import FortuneTab from "./Fortune.tsx";
 import StatusBar from "../ui/StatusBar.tsx";
@@ -51,6 +53,14 @@ interface ViewProps {
    */
   seatOpen?: boolean;
   onSeat: (on: boolean, opts?: { replace?: boolean }) => void;
+  /**
+   * 파티 룰 도움말. 라우트라 뒤로 가기로 닫힌다.
+   *
+   * 자리 확인창과 달리 **되돌릴 자리가 없는 경우를 걱정하지 않아도 된다** —
+   * 주소를 직접 열 일이 없고, 열더라도 볼 것이 늘 있다.
+   */
+  helpOpen?: boolean;
+  onHelp: (on: boolean) => void;
 }
 
 /** URL 이 상태를 들고 있는 진짜 참가자 화면 */
@@ -76,6 +86,8 @@ export default function Participant() {
     : undefined;
   // 자리 화면을 **다시 여는** 길. 자동으로 뜨는 쪽은 라우트가 아니다 — 참가자가 연 게 아니다
   const seatOpen = location.pathname.endsWith("/seat");
+  // 도움말도 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md)
+  const helpOpen = location.pathname.endsWith("/help");
 
   return (
     <ParticipantView
@@ -97,6 +109,8 @@ export default function Participant() {
       // 시트 열기는 push, 닫기는 뒤로 가기 — 안드로이드 백 버튼으로 닫혀야 한다
       onProfile={(id) => (id ? navigate(`${base}/p/${id}`) : navigate(-1))}
       seatOpen={seatOpen}
+      helpOpen={helpOpen}
+      onHelp={(on) => (on ? navigate(`${base}/help`) : navigate(-1))}
       /*
        * 편집과 같다 — **닫기는 뒤로 가기**이되, 주소를 직접 연 사람에게는 뒤로 갈 자리가 없다.
        * 그때 `navigate(-1)` 은 앱을 벗어난다. iOS 는 가장자리 스와이프가 뒤로 가기라 더 쉽게 걸린다.
@@ -173,6 +187,8 @@ function Loaded({
   state,
   reload,
   setPoke,
+  helpOpen,
+  onHelp,
 }: ViewProps & { state: ParticipantState; reload: () => void; setPoke: (poke: MyPokeState) => void }) {
   const [acked, setAcked] = useState<number[]>([]);
   const banner = bannerOf(noticesOf(state), now());
@@ -213,7 +229,7 @@ function Loaded({
       <div className="screen">
         {/* 스크롤해도 남는 자리다. 여기엔 반복해서 볼 것만 둔다 */}
         <header className="bar">
-          <StatusBar state={state} />
+          <StatusBar state={state} onHelp={() => onHelp(true)} />
         </header>
 
         <div className="body stack">
@@ -273,6 +289,11 @@ function Loaded({
         {!needsSeatAck && seatOpen && state.seat && (
           <SeatTakeover seat={state.seat} onClose={() => onSeat(false)} />
         )}
+
+        {/* 파티 룰 도움말. 어느 탭에서 열든 같은 것이 뜬다 */}
+        <Sheet open={!!helpOpen} onClose={() => onHelp(false)} title={HELP.title}>
+          <Help state={state} />
+        </Sheet>
       </div>
     </Overlays>
   );

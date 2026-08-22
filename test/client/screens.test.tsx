@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
-import { BTN, ENTRY, ENV_BANNER, FAIL, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
+import { BTN, ENTRY, ENV_BANNER, FAIL, HELP, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
@@ -94,10 +94,16 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
   };
 }
 
-function renderParticipant(source: ParticipantSource, profileId?: string, onTab: (t: string) => void = () => {}) {
+function renderParticipant(
+  source: ParticipantSource,
+  profileId?: string,
+  onTab: (t: string) => void = () => {},
+  tab: "home" | "people" | "me" | "fortune" = "people",
+  helpOpen = false,
+) {
   return render(
     <MemoryRouter>
-      <ParticipantView source={source} tab="people" profileId={profileId} onTab={onTab} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
+      <ParticipantView source={source} tab={tab} profileId={profileId} onTab={onTab} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={helpOpen} onHelp={() => {}} />
     </MemoryRouter>,
   );
 }
@@ -562,6 +568,37 @@ describe("참가자 화면 · 콕", () => {
 
 // ─────────────────────────────────────────── 자리
 
+describe("파티 룰 도움말", () => {
+  /**
+   * 이 화면의 값어치는 **운영자가 가리킬 곳이 생기는 것**이다 —
+   * "앱에서 물음표 눌러보세요" 가 통하려면 찾아 들어가지 않아도 되는 자리에 있어야 한다.
+   */
+  it("★ 물음표는 어느 탭에서든 보인다", async () => {
+    for (const tab of ["home", "people", "me"] as const) {
+      cleanup();
+      renderParticipant(fakeSource(), undefined, () => {}, tab);
+      await screen.findByLabelText(HELP.open);
+    }
+  });
+
+  it("★ 콕 횟수는 회차 설정에서 온다 — 문구에 숫자를 박아두지 않는다", async () => {
+    /*
+     * 회차마다 다른 값이다. 도움말이 `3회` 라고 말하는데 실제로 5회면
+     * 그 순간 도움말 전체를 못 믿게 된다.
+     */
+    const state = participantState();
+    state.event.config = { maxPre: 7, maxParty: 9 };
+    renderParticipant(fakeSource({ load: async () => state }), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.count.a(7, 9));
+  });
+
+  it("★ 지금 단계를 색이 아니라 글자로도 말한다", async () => {
+    // 매칭 표시와 같은 규칙이다 — 색만으로 말하면 화면 낭독기에는 아무 말도 안 된다
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.nowHere);
+  });
+});
+
 describe("참가자 화면 · 어깨너머 가리기", () => {
   afterEach(() => window.localStorage.clear());
 
@@ -683,6 +720,7 @@ describe("참가자 화면 · 자리", () => {
     render(
       <MemoryRouter>
         <ParticipantView
+          onHelp={() => {}}
           source={source}
           tab="home"
           onTab={() => {}}
@@ -711,6 +749,7 @@ describe("참가자 화면 · 자리", () => {
     render(
       <MemoryRouter>
         <ParticipantView
+          onHelp={() => {}}
           source={fakeSource()}
           tab="home"
           seatOpen
@@ -731,6 +770,7 @@ describe("참가자 화면 · 자리", () => {
     render(
       <MemoryRouter>
         <ParticipantView
+          onHelp={() => {}}
           source={source}
           tab="home"
           seatOpen
@@ -773,7 +813,7 @@ describe("오늘 탭", () => {
   function renderFortune(source: ParticipantSource) {
     return render(
       <MemoryRouter>
-        <ParticipantView source={source} tab="fortune" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
+        <ParticipantView source={source} tab="fortune" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
   }
@@ -1011,7 +1051,7 @@ describe("한 폰으로 두 회차", () => {
     });
     render(
       <MemoryRouter initialEntries={["/e/ABCDEF"]}>
-        <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
+        <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
 
@@ -1351,7 +1391,7 @@ describe("상단 바", () => {
     // 내 정보 탭으로 옮겨도 여전히 한 곳뿐이다 (예전에는 그 탭 안에 또 있었다)
     rerender(
       <MemoryRouter>
-        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getAllByText("테스트 파티")).toHaveLength(1));
@@ -1361,7 +1401,7 @@ describe("상단 바", () => {
     // 라운드는 상단 바가, 콕 숫자는 참가자 탭이 맡는다
     render(
       <MemoryRouter>
-        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
     await screen.findByText(ME.labels.nickname);
@@ -1640,6 +1680,7 @@ describe("내 정보 고치기", () => {
       const navigate = useNavigate();
       return (
         <ParticipantView
+          onHelp={() => {}}
           source={source}
           tab="me"
           onSeat={() => {}}
@@ -1779,6 +1820,7 @@ describe("탭 역할 분담", () => {
     render(
       <MemoryRouter>
         <ParticipantView
+          onHelp={() => {}}
           source={fakeSource({ load: async () => participantState(over) })}
           tab={t}
           onTab={() => {}}
