@@ -169,6 +169,21 @@ participantRoutes.post("/poke", async (c) => {
 });
 
 /**
+ * A/B 투표에 한 표 (슬라이스 14).
+ *
+ * **갱신된 알림 하나를 돌려준다.** 화면은 이 값을 그대로 쓰고 다시 읽지 않는다 —
+ * 서버가 방금 준 답을 버리고 또 묻지 않는 게 슬라이스 17 에서 배운 것이다.
+ */
+participantRoutes.post("/vote", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const body = (await c.req.json().catch(() => ({}))) as { id?: string; choice?: string };
+  if (!body.id || (body.choice !== "a" && body.choice !== "b")) return apiError(c, "bad_request");
+  const { value, response } = unwrap(c, await seat.stub.vote(seat.playerId, body.id, body.choice));
+  return response ?? c.json(value);
+});
+
+/**
  * 오늘의 연애운을 연다 (ADR-20).
  *
  * 이미 연 사람에게는 저장된 것을 그대로 준다 — 열 때마다 달라지면 전부 거짓말이 된다.

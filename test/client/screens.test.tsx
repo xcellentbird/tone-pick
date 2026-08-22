@@ -66,6 +66,7 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE_STATE,
+    announcements: [],
     ...over,
   };
 }
