@@ -680,11 +680,10 @@ button {
 .noteRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: var(--gap);
   min-height: 20px;
 }
-.noteRow > .small { min-width: 0; }
+.noteRow > .small { flex: 1; min-width: 0; }
 /*
  * 토글은 **왼쪽 안내문과 같은 13px** 이다. 크면 안내문보다 먼저 눈에 들어오는데,
  * 이 버튼은 **눈에 띄지 않는 게 일**이라 그 자체로 설계 실패다.
@@ -693,12 +692,18 @@ button {
  * 눈으로 재는 크기와 손가락이 닿는 크기는 같을 필요가 없다.
  */
 .coverToggle {
+  /*
+   * **`.pokeCell` 과 같은 62px** 이라 콕 버튼 세로줄 한가운데에 선다.
+   * 오른쪽 끝에 붙이면 아래 버튼들과 어긋나 보인다 — 이 버튼이 무엇을 가리는지를
+   * 자리 자체가 말해주는 게 낫다.
+   */
   flex: none;
+  width: 62px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin: -12px -8px;
-  padding: 12px 8px;
+  justify-content: center;
+  margin: -12px 0;
+  padding: 12px 0;
   border: 0;
   background: none;
   color: var(--dim);
