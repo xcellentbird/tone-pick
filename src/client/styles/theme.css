@@ -659,29 +659,50 @@ button {
  * 도움말 물음표. 상단 두 칸(이름·카운트다운) 옆에 **제 폭을 지키며** 선다 —
  * 줄어드는 건 회차 이름 하나뿐이라는 규칙은 그대로다.
  */
+/*
+ * 도움말 물음표.
+ *
+ * ⚠️ **전역 `button { min-width: var(--tap) }` 이 상자를 부풀린다.** `width: 22px` 을 써도
+ * 44px 아래로 안 내려간다 — 실제로 그것 때문에 "너비가 안 줄어든다" 가 두 번 나왔다.
+ *
+ * 그 규칙은 지키는 게 맞다(손가락이 닿아야 한다). 그래서 **누르는 것과 보이는 것을 나눈다** —
+ * 버튼이 44×44 로 탭 영역을 맡고, 안쪽 span 이 보이는 상자를 맡는다.
+ * 눈으로 재는 크기와 손가락이 닿는 크기는 같을 필요가 없다.
+ *
+ * 세로 음수 여백은 44px 이 헤더를 밀어 키우지 않게 한다 (상단 두 줄이 20+16=36px 이다).
+ */
 .helpBtn {
   flex: none;
-  /*
-   * **동그라미가 아니라 모서리 둥근 네모다.** 이 화면의 다른 것들(카드·버튼·칩)이
-   * 전부 그 모양이라, 혼자 동그라면 눌러야 하는 것처럼 튀어 보인다 —
-   * 이 버튼은 필요한 사람만 찾으면 되는 것이다.
-   */
-  width: 22px;
-  height: 30px;
-  margin-left: 8px;
+  min-width: 0;
+  width: var(--tap);
+  height: var(--tap);
+  margin: -4px 0;
+  padding: 0;
+  border: 0;
+  background: none;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+/*
+ * 보이는 상자. **동그라미가 아니라 모서리 둥근 네모다** — 이 화면의 다른 것들
+ * (카드·버튼·칩)이 전부 그 모양이라, 혼자 동그라면 눌러야 하는 것처럼 튀어 보인다.
+ * 이 버튼은 필요한 사람만 찾으면 되는 것이다.
+ */
+.helpBtn > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 30px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: none;
   color: var(--dim);
-  font-family: inherit;
   font-size: 15px;
-  /* 칸이 좁아진 만큼 글자가 버텨줘야 한다. 이 앱에서 가장 굵은 단계다 */
   font-weight: 800;
   line-height: 1;
 }
+
 
 /* 세 단계 그림. 글보다 그림이 빠른 유일한 질문이 "언제 뭐가 일어나나" 다 */
 .helpSteps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
