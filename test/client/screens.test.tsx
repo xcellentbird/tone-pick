@@ -286,6 +286,36 @@ describe("오류 화면", () => {
     vi.useRealTimers();
   });
 
+  it("★ 서버 탓을 링크 탓으로 돌리지 않는다", async () => {
+    /*
+     * `apiError()` 는 `message` 를 **선택**으로 둔다. 설명 없이 나가는 실패가 흔한데,
+     * 화면이 그때마다 "그런 회차가 없어요" 로 떨어졌다 — 500 도, 401 도, 429 도.
+     *
+     * 참가자는 멀쩡한 링크를 의심하고 운영자에게 엉뚱한 걸 묻는다.
+     * `status 0` 에서 이미 한 번 고친 실수인데 이 경로가 남아 있었다.
+     */
+    renderParticipant(fakeSource({ load: async () => { throw new ApiError(500, "server_misconfigured"); } }));
+    await screen.findByText(FAIL.title);
+    expect(screen.queryByText(ENTRY.notFound)).toBeNull();
+    // 참가자가 할 수 있는 게 없다. 눈앞의 운영자에게 넘긴다
+    expect(screen.getByText(FAIL.askHost)).toBeTruthy();
+  });
+
+  it("★ 링크를 탓하는 건 404 하나뿐이다", async () => {
+    // 회차는 멀쩡하고 본인이 빠진 것이다 — 그때만 다시 입장할 길을 준다
+    renderParticipant(fakeSource({ load: async () => { throw new ApiError(404, "not_found"); } }));
+    await screen.findByText(ENTRY.notFound);
+    expect(screen.getByText(ENTRY.reenter)).toBeTruthy();
+  });
+
+  it("★ 세션이 끊겨도 링크를 탓하지 않는다", async () => {
+    // 401 은 회차가 없는 게 아니라 내 세션이 이 회차의 것이 아닌 것이다
+    renderParticipant(fakeSource({ load: async () => { throw new ApiError(401, "unauthorized"); } }));
+    await screen.findByText(FAIL.title);
+    expect(screen.queryByText(ENTRY.notFound)).toBeNull();
+    expect(screen.getByText(BTN.home)).toBeTruthy();
+  });
+
   it("★ 번들이 안 붙었을 때의 화면은 **늦게** 나타난다", () => {
     /*
      * `index.html` 안에 있으니 브라우저가 먼저 그리고 React 가 뜨면서 덮는다.

@@ -328,6 +328,21 @@ function Failed({
    * 회차를 잘못 찾아온 게 아니라 망이 흔들린 것이라, 할 일은 다시 시도하는 것이다.
    */
   const offline = error.status === 0;
+  /** 세션이 이 회차의 것이 아니다. 참가 링크로 다시 들어오면 된다 */
+  const sessionGone = error.status === 401 || error.status === 403;
+  /*
+   * 서버가 답은 했는데 우리 것이 아니다 — 500 이거나, 설명 없이 온 무엇이든.
+   *
+   * **이 전부가 "그런 회차가 없어요" 로 떨어지고 있었다.** `apiError()` 는 `message` 를
+   * 선택으로 두므로 설명 없이 나가는 실패가 흔한데, 화면은 그때 링크를 탓했다.
+   * 참가자는 멀쩡한 링크를 의심하고 운영자에게 엉뚱한 걸 묻는다 —
+   * `status 0` 에서 이미 한 번 고친 실수인데 **이 경로가 남아 있었다.**
+   *
+   * 그래서 되묻는 순서를 뒤집었다. 기본값은 "회차가 없다" 가 아니라
+   * **"우리가 못 불러왔다"** 이고, 링크를 탓하는 건 **404 하나뿐**이다.
+   * 서버 탓일 때는 눈앞의 운영자에게 넘긴다 — 참가자가 할 수 있는 게 없다.
+   */
+  const broken = !offline && !removed && !sessionGone;
   /*
    * **망 문제에 `location.reload()` 를 걸면 안 된다.** 앱을 통째로 버리고 `index.html`
    * 부터 다시 받는 일인데, 망이 흔들리는 바로 그 순간에 가장 하면 안 되는 것이다.
@@ -337,16 +352,24 @@ function Failed({
   return (
     <div className="screen">
       <div className="body stack center" style={{ justifyContent: "center" }}>
-        <p className="dim pre">{error.userMessage ?? ENTRY.notFound}</p>
+        <p className="dim pre">{error.userMessage ?? (removed ? ENTRY.notFound : FAIL.title)}</p>
         <button
           className="btn primary"
           disabled={offline && busy}
-          onClick={() => (offline ? onRetry() : navigate("/"))}
+          onClick={() => (offline ? onRetry() : broken ? location.reload() : navigate("/"))}
         >
-          {offline ? (busy ? FAIL.reconnecting : FAIL.reconnect) : removed ? ENTRY.reenter : BTN.home}
+          {offline
+            ? busy
+              ? FAIL.reconnecting
+              : FAIL.reconnect
+            : broken
+              ? FAIL.retry
+              : removed
+                ? ENTRY.reenter
+                : BTN.home}
         </button>
         {/* 파티장에는 운영자가 눈앞에 있다. 실패를 사람에게 넘길 수 있는 앱은 흔치 않다 */}
-        {offline && <p className="tiny dim">{FAIL.askHost}</p>}
+        {(offline || broken) && <p className="tiny dim">{FAIL.askHost}</p>}
       </div>
     </div>
   );
