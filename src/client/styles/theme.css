@@ -666,7 +666,7 @@ button {
    * 전부 그 모양이라, 혼자 동그라면 눌러야 하는 것처럼 튀어 보인다 —
    * 이 버튼은 필요한 사람만 찾으면 되는 것이다.
    */
-  width: 26px;
+  width: 22px;
   height: 30px;
   margin-left: 8px;
   display: flex;
@@ -678,7 +678,8 @@ button {
   color: var(--dim);
   font-family: inherit;
   font-size: 15px;
-  font-weight: 700;
+  /* 칸이 좁아진 만큼 글자가 버텨줘야 한다. 이 앱에서 가장 굵은 단계다 */
+  font-weight: 800;
   line-height: 1;
 }
 
