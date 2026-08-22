@@ -1663,6 +1663,81 @@ describe("자리는 파티가 시작돼야 보인다", () => {
  *
  * 이제 초안이든 발행된 것이든 같은 조작 셋을 받는다 — 맞교환 · 앉히기 · 자리 비우기.
  */
+describe("매칭이 어떻게 이루어졌나 (운영자만)", () => {
+  /**
+   * 라운드로 그냥 나누면 **합이 안 맞는다.** 한쪽은 사전에, 다른 쪽은 파티에서 찌른 쌍은
+   * 어느 라운드의 매칭도 아니면서 통합에는 들어가기 때문이다.
+   * 그래서 통합을 네 갈래로 쪼갠다 — 넷의 합이 늘 통합 매칭 수와 같아야 한다.
+   */
+  const kinds = async (id: string) =>
+    (await api<{ mutual: Array<[string, string]>; matchRounds: Record<string, string> }>(
+      `/api/host/events/${id}/state`, { cookie: master },
+    )).body;
+
+  const poke = (cookie: string | null, toId: string) =>
+    api("/api/poke", { method: "POST", cookie, body: { toId } });
+
+  /** a|b 는 아이디를 사전순으로 붙인 키다 */
+  const key = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+
+  it("★ 넷의 합이 통합 매칭 수와 같다", async () => {
+    const ev = await freshEvent();
+    const [a, b, c, d] = [
+      await join(ev, { gender: "M" }), await join(ev, { gender: "F" }),
+      await join(ev, { gender: "M" }), await join(ev, { gender: "F" }),
+    ];
+    await setPhase(ev.id, "prevote");
+    await poke(a.cookie, b.id);            // 사전 서로
+    await poke(b.cookie, a.id);
+    await poke(c.cookie, d.id);            // c 는 사전에만
+    await setPhase(ev.id, "party");
+    await poke(d.cookie, c.id);            // d 는 파티에서 → 엇갈림
+    await poke(a.cookie, c.id);            // 한쪽만. 매칭 아님
+
+    const { mutual, matchRounds } = await kinds(ev.id);
+    expect(Object.keys(matchRounds)).toHaveLength(mutual.length);
+    expect(matchRounds[key(a.id, b.id)]).toBe("pre");
+    expect(matchRounds[key(c.id, d.id)]).toBe("crossed");
+  });
+
+  it("★ 파티에서만 이루어진 매칭을 가려낸다 — 이 파티가 만든 것이다", async () => {
+    const ev = await freshEvent();
+    const [a, b] = [await join(ev, { gender: "M" }), await join(ev, { gender: "F" })];
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+    await poke(a.cookie, b.id);
+    await poke(b.cookie, a.id);
+    expect((await kinds(ev.id)).matchRounds[key(a.id, b.id)]).toBe("party");
+  });
+
+  it("★ 사전에도 파티에도 서로 찔렀으면 둘 다다", async () => {
+    const ev = await freshEvent();
+    const [a, b] = [await join(ev, { gender: "M" }), await join(ev, { gender: "F" })];
+    await setPhase(ev.id, "prevote");
+    await poke(a.cookie, b.id);
+    await poke(b.cookie, a.id);
+    await setPhase(ev.id, "party");
+    await poke(a.cookie, b.id);
+    await poke(b.cookie, a.id);
+    expect((await kinds(ev.id)).matchRounds[key(a.id, b.id)]).toBe("both");
+  });
+
+  it("★ 참가자에게 나가는 것은 그대로다 — 운영자만 더 본다", async () => {
+    // mutual 에는 커플 자리 배정이 매달려 있고, 발표 결과도 라운드를 나누지 않는다
+    const ev = await freshEvent();
+    const [a, b] = [await join(ev, { gender: "M" }), await join(ev, { gender: "F" })];
+    await setPhase(ev.id, "prevote");
+    await poke(a.cookie, b.id);
+    await setPhase(ev.id, "party");
+    await poke(b.cookie, a.id);           // 엇갈렸지만 매칭은 매칭이다
+    await setPhase(ev.id, "done");
+
+    const seen = await api<ParticipantState>(`/api/me?event=${ev.id}`, { cookie: a.cookie });
+    expect(seen.body.poke.matches).toHaveLength(1);
+    expect(JSON.stringify(seen.body)).not.toContain("crossed");
+  });
+});
+
 describe("앉힌 자리 고치기", () => {
   type Round = { round: number; seats: Array<{ playerId: string; table: number }>; acks: string[] };
   const seatOp = (id: string, op: string, body: Record<string, unknown>) =>
