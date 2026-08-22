@@ -196,16 +196,13 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       */}
       {list.length > 0 && (
         <div className="noteRow">
-          <span className="small dim ellipsis">
-            {covered ? PEOPLE.coveredNote : agesHidden ? PEOPLE.agesAtParty : ""}
-          </span>
+          <span className="small dim ellipsis">{agesHidden ? PEOPLE.agesAtParty : ""}</span>
           <button
             type="button"
             className="coverToggle"
             aria-pressed={covered}
             onClick={() => setCovered(!covered)}
           >
-            <span aria-hidden>{covered ? "👀" : "🙈"}</span>
             {covered ? PEOPLE.uncover : PEOPLE.cover}
           </button>
         </div>
