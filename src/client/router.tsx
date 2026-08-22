@@ -35,13 +35,15 @@ import { Overlays } from "./ui/Overlays.tsx";
 /** 확인창·토스트가 필요한 화면은 각자 감싼다. 여기서는 단순한 화면만 감싸준다 */
 const plain = (element: React.ReactElement) => <Overlays>{element}</Overlays>;
 
-export const router = createBrowserRouter([
-  { path: "/", element: plain(<Entry />) },
-
-  // 참가자
-  // 참가 링크는 **회차 아이디**를 가리킨다. 입장 코드는 링크에 담지 않는다 (ADR-13)
-  { path: "/j/:id", element: plain(<Join />) },
-  { path: "/j/:id/register/:step", element: plain(<Register />) },
+/**
+ * 참가자 화면의 경로들. **테스트가 이 표를 그대로 쓴다.**
+ *
+ * 예전에는 테스트가 "실제 라우터와 같은 모양으로" 베껴 갖고 있었는데,
+ * 그러면 여기 새 경로를 넣는 걸 잊어도 테스트는 자기 사본으로 통과한다 —
+ * 실제로 `/help` 가 그렇게 빠져서 참가자에게 "찾을 수 없어요" 가 떴다.
+ * 베낀 표는 언젠가 반드시 어긋난다.
+ */
+export const PARTICIPANT_ROUTES = [
   { path: "/e/:code", element: <Participant /> },
   { path: "/e/:code/fortune", element: <Participant /> },
   { path: "/e/:code/people", element: <Participant /> },
@@ -52,6 +54,20 @@ export const router = createBrowserRouter([
   { path: "/e/:code/p/:pid", element: <Participant /> },
   // 자리 확인 화면을 **다시 여는** 길 (슬라이스 12). 자동으로 뜨는 쪽은 주소가 없다
   { path: "/e/:code/seat", element: <Participant /> },
+  // 파티 룰 도움말. 시트도 라우트라 **여기 없으면 "찾을 수 없어요" 로 떨어진다**
+  { path: "/e/:code/help", element: <Participant /> },
+  // 파티 룰 도움말. 시트도 라우트라 **여기 없으면 "찾을 수 없어요" 로 떨어진다**
+
+];
+
+export const router = createBrowserRouter([
+  { path: "/", element: plain(<Entry />) },
+
+  // 참가자
+  // 참가 링크는 **회차 아이디**를 가리킨다. 입장 코드는 링크에 담지 않는다 (ADR-13)
+  { path: "/j/:id", element: plain(<Join />) },
+  { path: "/j/:id/register/:step", element: plain(<Register />) },
+  ...PARTICIPANT_ROUTES,
 
   // 운영자
   { path: "/host", element: plain(<HostPin />) },

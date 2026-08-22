@@ -661,14 +661,19 @@ button {
  */
 .helpBtn {
   flex: none;
-  width: 32px;
-  height: 32px;
+  /*
+   * **동그라미가 아니라 모서리 둥근 네모다.** 이 화면의 다른 것들(카드·버튼·칩)이
+   * 전부 그 모양이라, 혼자 동그라면 눌러야 하는 것처럼 튀어 보인다 —
+   * 이 버튼은 필요한 사람만 찾으면 되는 것이다.
+   */
+  width: 26px;
+  height: 30px;
   margin-left: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 8px;
   background: none;
   color: var(--dim);
   font-family: inherit;
