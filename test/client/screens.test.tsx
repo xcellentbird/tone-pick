@@ -404,6 +404,83 @@ describe("참가자 화면 · 콕", () => {
     await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
   });
 
+  it("★ 확인을 누르면 서버를 기다리지 않고 그 자리에서 바뀐다", async () => {
+    /*
+     * 예전에는 왕복을 두 번 — 보내고, 화면 전체를 다시 읽고 — 기다린 뒤에야 버튼이 바뀌었다.
+     * 그동안 화면이 아무 말도 안 해서 **사람이 다시 눌렀다.** 콕 상한이 있는 앱에서
+     * 그건 가벼운 문제가 아니다.
+     *
+     * 그래서 **서버 응답을 붙잡아둔 채로** 확인한다 — "빨라졌다" 가 아니라
+     * "기다리지 않는다" 를 재야 한다.
+     */
+    let release!: (v: MyPokeState) => void;
+    const source = fakeSource({
+      poke: async () => new Promise<MyPokeState>((r) => (release = r)),
+    });
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    await screen.findByText(POKE.confirm.title(1));
+    fireEvent.click(screen.getByText(POKE.confirm.submit));
+
+    // 서버는 아직 답하지 않았다. 그런데 화면은 이미 2회다
+    await screen.findByText("2");
+    // 남은 콕도 함께 줄어 있다 (3 - 2 = 1)
+    expect(screen.getAllByText(UNIT.times(1)).length).toBeGreaterThan(0);
+
+    // 이제 서버가 답한다 — 그 값이 이긴다
+    release({ ...POKE_STATE, sentTo: { her: 7 } });
+    await screen.findByText("7");
+  });
+
+  it("★ 서버가 거절하면 되돌린다 — 쓰지도 않은 콕이 쓴 것으로 남지 않는다", async () => {
+    const source = fakeSource({
+      poke: async () => {
+        throw new ApiError(409, "closed", POKE.blocked.closed);
+      },
+    });
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    await screen.findByText(POKE.confirm.title(1));
+    fireEvent.click(screen.getByText(POKE.confirm.submit));
+
+    // 잠깐 2회로 보였다가 1회로 돌아온다
+    await screen.findByText(POKE.blocked.closed);
+    await waitFor(() => expect(screen.queryByText("2")).toBeNull());
+    expect(screen.getByText("1")).toBeTruthy();
+  });
+
+  it("★ 보내는 중에는 두 번 보내지 않는다", async () => {
+    /*
+     * 예전에는 왕복이 **우연히** 막고 있었다 — 느려서가 아니라 버튼이 안 바뀌어서
+     * 누를 마음이 안 들었을 뿐이다. 즉시 바뀌게 만들면 그 우연이 사라진다.
+     * 이걸 빼면 이 슬라이스는 콕을 두 번 보내는 기능이 된다.
+     */
+    let release!: (v: MyPokeState) => void;
+    const source = fakeSource({
+      poke: async (toId) => {
+        source.calls.poke.push(toId);
+        return new Promise<MyPokeState>((r) => (release = r));
+      },
+    });
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    await screen.findByText(POKE.confirm.title(1));
+    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
+
+    // 답이 오기 전에 또 누른다
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    await screen.findByText(POKE.confirm.title(2));
+    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
+
+    release(POKE_STATE);
+  });
+
   it("되돌리기는 지금 화면에 없다 — 확인창도 되돌릴 수 없다고 말한다", async () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);

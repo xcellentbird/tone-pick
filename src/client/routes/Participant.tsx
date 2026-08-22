@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, FAIL, TABS_PARTICIPANT } from "../../shared/copy.ts";
-import type { ParticipantState } from "../../shared/types.ts";
+import type { MyPokeState, ParticipantState } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
@@ -133,6 +133,20 @@ export function ParticipantView(props: ViewProps) {
    * 소켓은 알아서 다시 붙고(`realtime.ts`), 붙는 순간 화면을 따라잡게 한다.
    */
   const failed = !!state.error && state.error.status !== 0;
+
+  /*
+   * **내 콕 한 칸만** 갈아끼우는 통로 (슬라이스 17). 화면이 서버 답을 기다리지 않고
+   * 그 자리에서 바뀌게 한다.
+   *
+   * `set` 을 통째로 내려보내지 않는 이유가 여기 있다 — 그러면 받은 쪽에서 무엇이든
+   * 갈아끼울 수 있고, ADR-26 의 예외가 조용히 넓어진다. 통로가 좁으면 넓힐 때
+   * 이 줄을 고쳐야 해서 눈에 띈다.
+   */
+  const setPoke = useCallback(
+    (poke: MyPokeState) => state.set((cur) => (cur ? { ...cur, poke } : cur)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.set],
+  );
   useEffect(() => {
     if (!source.liveCode || failed) return;
     const socket = connect(source.liveCode, () => state.reload());
@@ -142,7 +156,7 @@ export function ParticipantView(props: ViewProps) {
 
   if (state.error) return <Failed error={state.error} code={code} onRetry={state.reload} busy={state.loading} />;
   if (!state.data) return <div className="screen" />;
-  return <Loaded {...props} state={state.data} reload={state.reload} />;
+  return <Loaded {...props} state={state.data} reload={state.reload} setPoke={setPoke} />;
 }
 
 function Loaded({
@@ -158,7 +172,8 @@ function Loaded({
   welcome,
   state,
   reload,
-}: ViewProps & { state: ParticipantState; reload: () => void }) {
+  setPoke,
+}: ViewProps & { state: ParticipantState; reload: () => void; setPoke: (poke: MyPokeState) => void }) {
   const [acked, setAcked] = useState<number[]>([]);
   const banner = bannerOf(noticesOf(state), now());
 
@@ -222,6 +237,7 @@ function Loaded({
               state={state}
               source={source}
               reload={reload}
+              setPoke={setPoke}
               profileId={profileId}
               onProfile={onProfile}
               onTab={onTab}

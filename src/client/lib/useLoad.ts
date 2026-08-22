@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { ApiError } from "./api.ts";
 
 interface Load<T> {
@@ -6,7 +6,8 @@ interface Load<T> {
   error: ApiError | null;
   loading: boolean;
   reload: () => void;
-  set: (value: T) => void;
+  /** 불러온 자료를 화면 쪽에서 갈아끼운다. 갱신 함수도 받는다 — 되돌리려면 이전 값이 필요하다 */
+  set: Dispatch<SetStateAction<T | null>>;
 }
 
 /**
