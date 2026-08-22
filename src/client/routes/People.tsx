@@ -7,11 +7,12 @@
  * 콕은 확인을 거친다 — 예산이 줄고 상대에게 알림이 간다 (ADR-6).
  * 되돌리기는 지금 화면에 두지 않는다. 그래서 확인창이 "되돌릴 수 없다"고 분명히 말한다.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { BTN, ME, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
-import type { MatchInfo, ParticipantState, Phase, Player, PublicPlayer } from "../../shared/types.ts";
+import type { MatchInfo, MyPokeState, ParticipantState, Phase, Player, PublicPlayer } from "../../shared/types.ts";
 import type { Tab } from "./Participant.tsx";
 import { canPoke } from "../../shared/phase.ts";
+import { afterPoke } from "../../shared/poke.ts";
 import { rosterOpen, toPublic } from "../../shared/types.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
@@ -24,12 +25,14 @@ interface Props {
   state: ParticipantState;
   source: ParticipantSource;
   reload: () => void;
+  /** 내 콕 한 칸만 갈아끼운다. 서버를 기다리지 않고 화면을 먼저 바꾸는 통로다 */
+  setPoke: (poke: MyPokeState) => void;
   profileId?: string;
   onProfile: (playerId: string | null) => void;
   onTab: (tab: Tab) => void;
 }
 
-export default function People({ state, source, reload, profileId, onProfile, onTab }: Props) {
+export default function People({ state, source, reload, setPoke, profileId, onProfile, onTab }: Props) {
   // 동성에게도 찌를 수 있는 회차라면 처음부터 전체를 보여준다 — 반쪽만 보이면 설정이 무색해진다
   const sameGenderOk = state.event.config.allowSameGender !== false;
   const [onlyOpposite, setOnlyOpposite] = useState(!sameGenderOk);
@@ -64,6 +67,13 @@ export default function People({ state, source, reload, profileId, onProfile, on
     .slice()
     .sort((a, b) => Number(matched.has(b.id)) - Number(matched.has(a.id)));
 
+  /*
+   * 보내는 중에는 다시 안 보낸다. 예전에는 **왕복이 우연히 막고 있었다** —
+   * 느려서가 아니라 버튼이 안 바뀌어서 누를 마음이 안 들었을 뿐이다.
+   * 즉시 바뀌게 만들면 그 우연이 사라진다.
+   */
+  const sending = useRef(false);
+
   async function send(target: PublicPlayer) {
     const already = state.poke.sentTo[target.id] ?? 0;
     if (!open) return toast(POKE.blocked.closed);
@@ -82,12 +92,30 @@ export default function People({ state, source, reload, profileId, onProfile, on
         ],
       },
       async () => {
+        /*
+         * **누른 즉시 바뀐다** (슬라이스 17). 예전에는 왕복을 두 번 —
+         * 보내고, 화면 전체를 다시 읽고 — 기다린 뒤에야 버튼이 바뀌었다.
+         * 그동안 화면이 아무 말도 안 해서 **사람이 다시 눌렀다.**
+         * 콕 상한이 있는 앱에서 그건 가벼운 문제가 아니다.
+         *
+         * 서버 답이 오면 그 값으로 덮어쓴다 — **서버가 항상 이긴다.**
+         * 다른 기기에서 이미 찔렀거나 운영자가 상한을 바꿨을 수 있다.
+         * 그래서 `reload()` 가 통째로 없어졌다. 서버가 방금 준 답을 버리고
+         * 다시 묻고 있던 것뿐이었다.
+         */
+        if (sending.current) return;
+        sending.current = true;
+        const before = state.poke;
+        setPoke(afterPoke(before, target.id, round));
         try {
-          await source.poke(target.id);
+          setPoke(await source.poke(target.id));
           toast(POKE.sent(target.nickname));
-          reload();
         } catch (e) {
+          // 되돌리지 않으면 **쓰지도 않은 콕이 쓴 것으로 보인다**
+          setPoke(before);
           toast(e instanceof ApiError && e.userMessage ? e.userMessage : POKE.blocked.closed);
+        } finally {
+          sending.current = false;
         }
       },
     );
