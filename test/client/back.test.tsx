@@ -11,9 +11,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { HOME, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
+import { HELP, HOME, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
 import type { ParticipantState } from "../../src/shared/types.ts";
-import Participant from "../../src/client/routes/Participant.tsx";
+import { PARTICIPANT_ROUTES } from "../../src/client/router.tsx";
 
 afterEach(cleanup);
 
@@ -44,18 +44,13 @@ const STATE: ParticipantState = {
   announcements: [],
 };
 
-/** 실제 라우터와 같은 모양으로 — 네 경로가 모두 같은 화면을 그린다 */
+/**
+ * **진짜 라우터의 표를 그대로 쓴다.** 베껴 두면 언젠가 어긋난다 —
+ * 실제로 `/help` 를 표에 안 넣었는데 테스트는 자기 사본으로 통과했고,
+ * 참가자에게는 "찾을 수 없어요" 가 떴다.
+ */
 function participantRouter(start = "/e/ABCDEF") {
-  return createMemoryRouter(
-    [
-      { path: "/e/:code", element: <Participant /> },
-      { path: "/e/:code/people", element: <Participant /> },
-      { path: "/e/:code/alerts", element: <Participant /> },
-      { path: "/e/:code/me", element: <Participant /> },
-      { path: "/e/:code/p/:pid", element: <Participant /> },
-    ],
-    { initialEntries: [start] },
-  );
+  return createMemoryRouter(PARTICIPANT_ROUTES, { initialEntries: [start] });
 }
 
 const tab = (key: "home" | "people" | "me") =>
@@ -117,5 +112,29 @@ describe("참가자 화면 · 뒤로 가기", () => {
     // 시트만 닫히고 목록이 남는다
     await router.navigate(-1);
     expect(router.state.location.pathname).toBe("/e/ABCDEF/people");
+  });
+});
+
+describe("도움말", () => {
+  it("★ 주소로 열면 도움말이 뜬다 — 라우터 표에 빠져 있으면 여기서 걸린다", async () => {
+    /*
+     * 시트도 라우트다. 화면 쪽에서 경로를 읽는 코드만 넣고 **라우터 표에 안 넣으면**
+     * 참가자에게 "찾을 수 없어요" 가 뜬다. 실제로 그렇게 나갔다.
+     */
+    render(<RouterProvider router={participantRouter("/e/ABCDEF/help")} />);
+    await screen.findByText(HELP.title);
+  });
+
+  it("★ 뒤로 가면 도움말만 닫힌다", async () => {
+    const router = participantRouter();
+    render(<RouterProvider router={router} />);
+    await screen.findByText(HOME.news);
+
+    fireEvent.click(screen.getByLabelText(HELP.open));
+    await screen.findByText(HELP.title);
+
+    router.navigate(-1);
+    await waitFor(() => expect(screen.queryByText(HELP.title)).toBeNull());
+    expect(router.state.location.pathname).toBe("/e/ABCDEF");
   });
 });
