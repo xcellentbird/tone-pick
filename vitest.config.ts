@@ -41,6 +41,8 @@ export default defineConfig({
         test: {
           name: "client",
           environment: "happy-dom",
+          // happy-dom 에 없는 브라우저 API 를 채운다 (localStorage)
+          setupFiles: ["test/client/setup.ts"],
           include: ["test/client/*.test.tsx"],
         },
       },
