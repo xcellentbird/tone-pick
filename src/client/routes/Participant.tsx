@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, FAIL, TABS_PARTICIPANT } from "../../shared/copy.ts";
-import type { ParticipantState } from "../../shared/types.ts";
+import type { MyPokeState, ParticipantState } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
@@ -133,6 +133,20 @@ export function ParticipantView(props: ViewProps) {
    * 소켓은 알아서 다시 붙고(`realtime.ts`), 붙는 순간 화면을 따라잡게 한다.
    */
   const failed = !!state.error && state.error.status !== 0;
+
+  /*
+   * **내 콕 한 칸만** 갈아끼우는 통로 (슬라이스 17). 화면이 서버 답을 기다리지 않고
+   * 그 자리에서 바뀌게 한다.
+   *
+   * `set` 을 통째로 내려보내지 않는 이유가 여기 있다 — 그러면 받은 쪽에서 무엇이든
+   * 갈아끼울 수 있고, ADR-26 의 예외가 조용히 넓어진다. 통로가 좁으면 넓힐 때
+   * 이 줄을 고쳐야 해서 눈에 띈다.
+   */
+  const setPoke = useCallback(
+    (poke: MyPokeState) => state.set((cur) => (cur ? { ...cur, poke } : cur)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.set],
+  );
   useEffect(() => {
     if (!source.liveCode || failed) return;
     const socket = connect(source.liveCode, () => state.reload());
@@ -142,7 +156,7 @@ export function ParticipantView(props: ViewProps) {
 
   if (state.error) return <Failed error={state.error} code={code} onRetry={state.reload} busy={state.loading} />;
   if (!state.data) return <div className="screen" />;
-  return <Loaded {...props} state={state.data} reload={state.reload} />;
+  return <Loaded {...props} state={state.data} reload={state.reload} setPoke={setPoke} />;
 }
 
 function Loaded({
@@ -158,7 +172,8 @@ function Loaded({
   welcome,
   state,
   reload,
-}: ViewProps & { state: ParticipantState; reload: () => void }) {
+  setPoke,
+}: ViewProps & { state: ParticipantState; reload: () => void; setPoke: (poke: MyPokeState) => void }) {
   const [acked, setAcked] = useState<number[]>([]);
   const banner = bannerOf(noticesOf(state), now());
 
@@ -222,6 +237,7 @@ function Loaded({
               state={state}
               source={source}
               reload={reload}
+              setPoke={setPoke}
               profileId={profileId}
               onProfile={onProfile}
               onTab={onTab}
@@ -312,6 +328,21 @@ function Failed({
    * 회차를 잘못 찾아온 게 아니라 망이 흔들린 것이라, 할 일은 다시 시도하는 것이다.
    */
   const offline = error.status === 0;
+  /** 세션이 이 회차의 것이 아니다. 참가 링크로 다시 들어오면 된다 */
+  const sessionGone = error.status === 401 || error.status === 403;
+  /*
+   * 서버가 답은 했는데 우리 것이 아니다 — 500 이거나, 설명 없이 온 무엇이든.
+   *
+   * **이 전부가 "그런 회차가 없어요" 로 떨어지고 있었다.** `apiError()` 는 `message` 를
+   * 선택으로 두므로 설명 없이 나가는 실패가 흔한데, 화면은 그때 링크를 탓했다.
+   * 참가자는 멀쩡한 링크를 의심하고 운영자에게 엉뚱한 걸 묻는다 —
+   * `status 0` 에서 이미 한 번 고친 실수인데 **이 경로가 남아 있었다.**
+   *
+   * 그래서 되묻는 순서를 뒤집었다. 기본값은 "회차가 없다" 가 아니라
+   * **"우리가 못 불러왔다"** 이고, 링크를 탓하는 건 **404 하나뿐**이다.
+   * 서버 탓일 때는 눈앞의 운영자에게 넘긴다 — 참가자가 할 수 있는 게 없다.
+   */
+  const broken = !offline && !removed && !sessionGone;
   /*
    * **망 문제에 `location.reload()` 를 걸면 안 된다.** 앱을 통째로 버리고 `index.html`
    * 부터 다시 받는 일인데, 망이 흔들리는 바로 그 순간에 가장 하면 안 되는 것이다.
@@ -321,16 +352,24 @@ function Failed({
   return (
     <div className="screen">
       <div className="body stack center" style={{ justifyContent: "center" }}>
-        <p className="dim pre">{error.userMessage ?? ENTRY.notFound}</p>
+        <p className="dim pre">{error.userMessage ?? (removed ? ENTRY.notFound : FAIL.title)}</p>
         <button
           className="btn primary"
           disabled={offline && busy}
-          onClick={() => (offline ? onRetry() : navigate("/"))}
+          onClick={() => (offline ? onRetry() : broken ? location.reload() : navigate("/"))}
         >
-          {offline ? (busy ? FAIL.reconnecting : FAIL.reconnect) : removed ? ENTRY.reenter : BTN.home}
+          {offline
+            ? busy
+              ? FAIL.reconnecting
+              : FAIL.reconnect
+            : broken
+              ? FAIL.retry
+              : removed
+                ? ENTRY.reenter
+                : BTN.home}
         </button>
         {/* 파티장에는 운영자가 눈앞에 있다. 실패를 사람에게 넘길 수 있는 앱은 흔치 않다 */}
-        {offline && <p className="tiny dim">{FAIL.askHost}</p>}
+        {(offline || broken) && <p className="tiny dim">{FAIL.askHost}</p>}
       </div>
     </div>
   );

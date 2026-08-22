@@ -3,5 +3,7 @@
   "compilerOptions": {
     "types": ["@cloudflare/vitest-pool-workers/types", "@cloudflare/workers-types"]
   },
-  "include": ["./**/*.ts", "../src/server/**/*.ts", "../src/shared/**/*.ts"]
+  "include": ["./**/*.ts", "../src/server/**/*.ts", "../src/shared/**/*.ts"],
+  // 화면 테스트는 DOM 이 있는 tsconfig.json 이 맡는다. 여기 워커 타입으로는 window 를 모른다
+  "exclude": ["./client"]
 }

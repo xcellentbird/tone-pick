@@ -21,7 +21,12 @@ import type {
   Invite,
   MatchInfo,
   MyPokeState,
+  AnnounceInput,
+  Announcement,
+  HostAnnouncement,
   ParticipantState,
+  PollChoice,
+  PublicAnnouncement,
   Phase,
   Player,
   Poke,
@@ -92,6 +97,21 @@ CREATE TABLE IF NOT EXISTS fortunes (
   player_id TEXT PRIMARY KEY,   -- 1인 1회. 다시 열어도 같은 운세가 나온다
   json      TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS announcements (
+  id         TEXT PRIMARY KEY,
+  at         INTEGER NOT NULL,
+  text       TEXT NOT NULL,
+  poll_a     TEXT,                 -- 있으면 A/B 투표다
+  poll_b     TEXT,
+  closed_at  INTEGER
+);
+CREATE TABLE IF NOT EXISTS votes (
+  ann_id    TEXT NOT NULL,
+  player_id TEXT NOT NULL,
+  choice    TEXT NOT NULL CHECK (choice IN ('a','b')),
+  PRIMARY KEY (ann_id, player_id)   -- 한 사람 한 표. 다시 고르면 옮겨간다
+);
+CREATE INDEX IF NOT EXISTS votes_ann ON votes(ann_id);
 CREATE TABLE IF NOT EXISTS seatings (
   round        INTEGER PRIMARY KEY,
   table_count  INTEGER NOT NULL,
@@ -596,6 +616,7 @@ export class EventDO extends DurableObject {
       seat: this.mySeat(playerId, meta.phase),
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
       ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),
+      announcements: this.publicAnnouncements(playerId),
     });
   }
 
@@ -694,7 +715,133 @@ export class EventDO extends DurableObject {
       pokeUsedMax,
       seatings: this.seatings(),
       invites: this.invites(),
+      announcements: this.hostAnnouncements(),
     });
+  }
+
+  // ─────────────────────────── 운영자가 보내는 알림 (슬라이스 14)
+
+  /**
+   * 참가자에게 내려가는 모양. **표의 주인은 여기 없다** — 숫자 둘과 *내* 선택뿐이다.
+   *
+   * 한 사람 한 표를 지키려 `votes` 에 짝을 저장하지만, 그 짝은 어떤 응답에도 실리지 않는다.
+   * **운영자 응답에도 없다** — 운영자는 전체를 보지만 *누가 9시를 골랐나* 를 알 이유가 없고,
+   * 응답에 없으면 화면이 실수로라도 보여줄 수 없다.
+   */
+  private publicAnnouncements(playerId: string): PublicAnnouncement[] {
+    const counts = this.voteCounts();
+    const mine = new Map(
+      this.rows<{ ann_id: string; choice: PollChoice }>(
+        "SELECT ann_id, choice FROM votes WHERE player_id = ?",
+        playerId,
+      ).map((r) => [r.ann_id, r.choice]),
+    );
+    return this.announcementRows().map((r) => ({
+      id: r.id,
+      at: r.at,
+      text: r.text,
+      ...(r.poll_a !== null && r.poll_b !== null
+        ? {
+            poll: {
+              a: r.poll_a,
+              b: r.poll_b,
+              count: counts.get(r.id) ?? { a: 0, b: 0 },
+              ...(mine.has(r.id) ? { mine: mine.get(r.id)! } : {}),
+              closed: r.closed_at !== null,
+            },
+          }
+        : {}),
+    }));
+  }
+
+  private hostAnnouncements(): HostAnnouncement[] {
+    const counts = this.voteCounts();
+    return this.announcementRows().map((r) => ({
+      ...toAnnouncement(r),
+      count: counts.get(r.id) ?? { a: 0, b: 0 },
+    }));
+  }
+
+  /** 보낸다. 투표면 **열려 있던 투표를 먼저 닫는다** — 열린 투표는 한 번에 하나다 */
+  announce(input: AnnounceInput, now: number): Result<HostAnnouncement> {
+    const text = input.text?.trim() ?? "";
+    if (!text) return fail("bad_request");
+    const a = input.poll?.a.trim() ?? "";
+    const b = input.poll?.b.trim() ?? "";
+    if (input.poll && (!a || !b)) return fail("bad_request");
+
+    if (input.poll) {
+      // 둘이 동시에 열려 있으면 참가자는 무엇에 답할지, 운영자는 어느 집계를 볼지 헷갈린다.
+      // **텍스트 알림은 닫지 않는다** — 글 하나 보냈다고 투표가 끝나면 운영자가 놀란다
+      this.ctx.storage.sql.exec("UPDATE announcements SET closed_at = ? WHERE poll_a IS NOT NULL AND closed_at IS NULL", now);
+    }
+    const id = randomHex(8);
+    this.ctx.storage.sql.exec(
+      "INSERT INTO announcements (id, at, text, poll_a, poll_b) VALUES (?, ?, ?, ?, ?)",
+      id,
+      now,
+      text,
+      input.poll ? a : null,
+      input.poll ? b : null,
+    );
+    this.broadcast({ type: "notice" });
+    return ok(this.hostAnnouncements().find((x) => x.id === id)!);
+  }
+
+  /** 닫기·다시 열기. **되돌릴 수 있으므로 확인창이 없다** */
+  setAnnouncementOpen(id: string, open: boolean, now: number): Result<HostAnnouncement> {
+    const row = this.announcementRows().find((r) => r.id === id);
+    if (!row) return fail("not_found");
+    this.ctx.storage.sql.exec("UPDATE announcements SET closed_at = ? WHERE id = ?", open ? null : now, id);
+    this.broadcast({ type: "notice" });
+    return ok(this.hostAnnouncements().find((x) => x.id === id)!);
+  }
+
+  /**
+   * 지운다. **표도 함께 지운다** — 남겨두면 같은 자리에 온 다음 투표에 옛 표가 섞인다.
+   * 참가자 화면은 파생이라 지우기만 하면 따라온다 (ADR-4).
+   */
+  removeAnnouncement(id: string): Result<true> {
+    const row = this.announcementRows().find((r) => r.id === id);
+    if (!row) return fail("not_found");
+    this.ctx.storage.sql.exec("DELETE FROM votes WHERE ann_id = ?", id);
+    this.ctx.storage.sql.exec("DELETE FROM announcements WHERE id = ?", id);
+    this.broadcast({ type: "notice" });
+    return ok(true);
+  }
+
+  /** 한 표. 다시 부르면 **옮겨간다** — 마음을 바꾸는 건 실패가 아니다 */
+  vote(playerId: string, id: string, choice: PollChoice): Result<PublicAnnouncement> {
+    if (!this.player(playerId)) return fail("not_found");
+    const row = this.announcementRows().find((r) => r.id === id);
+    if (!row || row.poll_a === null) return fail("not_found");
+    if (row.closed_at !== null) return fail("closed");
+
+    this.ctx.storage.sql.exec(
+      "INSERT INTO votes (ann_id, player_id, choice) VALUES (?, ?, ?)" +
+        " ON CONFLICT(ann_id, player_id) DO UPDATE SET choice = excluded.choice",
+      id,
+      playerId,
+      choice,
+    );
+    this.broadcast({ type: "notice" });
+    return ok(this.publicAnnouncements(playerId).find((x) => x.id === id)!);
+  }
+
+  private announcementRows(): AnnRow[] {
+    return this.rows<AnnRow>("SELECT * FROM announcements ORDER BY at DESC, id DESC");
+  }
+
+  private voteCounts(): Map<string, { a: number; b: number }> {
+    const out = new Map<string, { a: number; b: number }>();
+    for (const r of this.rows<{ ann_id: string; choice: PollChoice; n: number }>(
+      "SELECT ann_id, choice, COUNT(*) AS n FROM votes GROUP BY ann_id, choice",
+    )) {
+      const cur = out.get(r.ann_id) ?? { a: 0, b: 0 };
+      cur[r.choice] = Number(r.n);
+      out.set(r.ann_id, cur);
+    }
+    return out;
   }
 
   // ─────────────────────────── 오늘의 연애운 (ADR-20)
@@ -754,7 +901,12 @@ export class EventDO extends DurableObject {
   // ─────────────────────────── 자리
 
   /** 초안 생성. 참가자에게는 보이지 않으므로 확인 없이 몇 번이든 다시 만든다 (ADR-6) */
-  async makeSeating(tableCount: number, final: boolean, now: number): Promise<Result<SeatingRound>> {
+  async makeSeating(
+    tableCount: number,
+    final: boolean,
+    now: number,
+    exclude: string[] = [],
+  ): Promise<Result<SeatingRound>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (meta.phase === "done") return fail("closed");
@@ -762,7 +914,14 @@ export class EventDO extends DurableObject {
       return fail("bad_request");
     }
 
-    const players = this.players();
+    /*
+     * **이번 라운드에서만** 뺀다. 참가자에게 붙는 상태를 만들지 않는다 —
+     * 노쇼는 다음 라운드에 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다.
+     *
+     * `buildSeating` 은 그대로다. 명단이 짧아질 뿐이라 순수 함수를 건드릴 일이 없다.
+     */
+    const out = new Set(exclude);
+    const players = this.players().filter((p) => !out.has(p.id));
     if (players.length < tableCount * 2) return fail("bad_request");
 
     const published = this.seatings().filter((s) => s.status === "published");
@@ -1280,6 +1439,27 @@ export class EventDO extends DurableObject {
 }
 
 // ─────────────────────────── 순수 헬퍼
+
+interface AnnRow {
+  id: string;
+  at: number;
+  text: string;
+  /** null 이면 텍스트 알림, 값이 있으면 A/B 투표다 */
+  poll_a: string | null;
+  poll_b: string | null;
+  closed_at: number | null;
+}
+
+function toAnnouncement(r: AnnRow): Announcement {
+  return {
+    id: r.id,
+    at: r.at,
+    text: r.text,
+    ...(r.poll_a !== null && r.poll_b !== null
+      ? { poll: { a: r.poll_a, b: r.poll_b, ...(r.closed_at !== null ? { closedAt: r.closed_at } : {}) } }
+      : {}),
+  };
+}
 
 interface PlayerRow {
   id: string;

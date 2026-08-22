@@ -66,6 +66,7 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE_STATE,
+    announcements: [],
     ...over,
   };
 }
@@ -286,6 +287,36 @@ describe("오류 화면", () => {
     vi.useRealTimers();
   });
 
+  it("★ 서버 탓을 링크 탓으로 돌리지 않는다", async () => {
+    /*
+     * `apiError()` 는 `message` 를 **선택**으로 둔다. 설명 없이 나가는 실패가 흔한데,
+     * 화면이 그때마다 "그런 회차가 없어요" 로 떨어졌다 — 500 도, 401 도, 429 도.
+     *
+     * 참가자는 멀쩡한 링크를 의심하고 운영자에게 엉뚱한 걸 묻는다.
+     * `status 0` 에서 이미 한 번 고친 실수인데 이 경로가 남아 있었다.
+     */
+    renderParticipant(fakeSource({ load: async () => { throw new ApiError(500, "server_misconfigured"); } }));
+    await screen.findByText(FAIL.title);
+    expect(screen.queryByText(ENTRY.notFound)).toBeNull();
+    // 참가자가 할 수 있는 게 없다. 눈앞의 운영자에게 넘긴다
+    expect(screen.getByText(FAIL.askHost)).toBeTruthy();
+  });
+
+  it("★ 링크를 탓하는 건 404 하나뿐이다", async () => {
+    // 회차는 멀쩡하고 본인이 빠진 것이다 — 그때만 다시 입장할 길을 준다
+    renderParticipant(fakeSource({ load: async () => { throw new ApiError(404, "not_found"); } }));
+    await screen.findByText(ENTRY.notFound);
+    expect(screen.getByText(ENTRY.reenter)).toBeTruthy();
+  });
+
+  it("★ 세션이 끊겨도 링크를 탓하지 않는다", async () => {
+    // 401 은 회차가 없는 게 아니라 내 세션이 이 회차의 것이 아닌 것이다
+    renderParticipant(fakeSource({ load: async () => { throw new ApiError(401, "unauthorized"); } }));
+    await screen.findByText(FAIL.title);
+    expect(screen.queryByText(ENTRY.notFound)).toBeNull();
+    expect(screen.getByText(BTN.home)).toBeTruthy();
+  });
+
   it("★ 번들이 안 붙었을 때의 화면은 **늦게** 나타난다", () => {
     /*
      * `index.html` 안에 있으니 브라우저가 먼저 그리고 React 가 뜨면서 덮는다.
@@ -404,6 +435,83 @@ describe("참가자 화면 · 콕", () => {
     await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
   });
 
+  it("★ 확인을 누르면 서버를 기다리지 않고 그 자리에서 바뀐다", async () => {
+    /*
+     * 예전에는 왕복을 두 번 — 보내고, 화면 전체를 다시 읽고 — 기다린 뒤에야 버튼이 바뀌었다.
+     * 그동안 화면이 아무 말도 안 해서 **사람이 다시 눌렀다.** 콕 상한이 있는 앱에서
+     * 그건 가벼운 문제가 아니다.
+     *
+     * 그래서 **서버 응답을 붙잡아둔 채로** 확인한다 — "빨라졌다" 가 아니라
+     * "기다리지 않는다" 를 재야 한다.
+     */
+    let release!: (v: MyPokeState) => void;
+    const source = fakeSource({
+      poke: async () => new Promise<MyPokeState>((r) => (release = r)),
+    });
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    await screen.findByText(POKE.confirm.title(1));
+    fireEvent.click(screen.getByText(POKE.confirm.submit));
+
+    // 서버는 아직 답하지 않았다. 그런데 화면은 이미 2회다
+    await screen.findByText("2");
+    // 남은 콕도 함께 줄어 있다 (3 - 2 = 1)
+    expect(screen.getAllByText(UNIT.times(1)).length).toBeGreaterThan(0);
+
+    // 이제 서버가 답한다 — 그 값이 이긴다
+    release({ ...POKE_STATE, sentTo: { her: 7 } });
+    await screen.findByText("7");
+  });
+
+  it("★ 서버가 거절하면 되돌린다 — 쓰지도 않은 콕이 쓴 것으로 남지 않는다", async () => {
+    const source = fakeSource({
+      poke: async () => {
+        throw new ApiError(409, "closed", POKE.blocked.closed);
+      },
+    });
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    await screen.findByText(POKE.confirm.title(1));
+    fireEvent.click(screen.getByText(POKE.confirm.submit));
+
+    // 잠깐 2회로 보였다가 1회로 돌아온다
+    await screen.findByText(POKE.blocked.closed);
+    await waitFor(() => expect(screen.queryByText("2")).toBeNull());
+    expect(screen.getByText("1")).toBeTruthy();
+  });
+
+  it("★ 보내는 중에는 두 번 보내지 않는다", async () => {
+    /*
+     * 예전에는 왕복이 **우연히** 막고 있었다 — 느려서가 아니라 버튼이 안 바뀌어서
+     * 누를 마음이 안 들었을 뿐이다. 즉시 바뀌게 만들면 그 우연이 사라진다.
+     * 이걸 빼면 이 슬라이스는 콕을 두 번 보내는 기능이 된다.
+     */
+    let release!: (v: MyPokeState) => void;
+    const source = fakeSource({
+      poke: async (toId) => {
+        source.calls.poke.push(toId);
+        return new Promise<MyPokeState>((r) => (release = r));
+      },
+    });
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    await screen.findByText(POKE.confirm.title(1));
+    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
+
+    // 답이 오기 전에 또 누른다
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    await screen.findByText(POKE.confirm.title(2));
+    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
+
+    release(POKE_STATE);
+  });
+
   it("되돌리기는 지금 화면에 없다 — 확인창도 되돌릴 수 없다고 말한다", async () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
@@ -453,6 +561,86 @@ describe("참가자 화면 · 콕", () => {
 });
 
 // ─────────────────────────────────────────── 자리
+
+describe("참가자 화면 · 어깨너머 가리기", () => {
+  afterEach(() => window.localStorage.clear());
+
+  /** 찌른 버튼과 안 찌른 버튼을 집어온다. POKE_STATE 는 her 를 1회 찔렀다 */
+  function pokeButtons() {
+    return screen.getAllByRole("button").filter((b) => b.className.includes("pokeBtn"));
+  }
+
+  it("★ 가리면 찌른 버튼과 안 찌른 버튼이 구별되지 않는다", async () => {
+    /*
+     * 이 슬라이스의 **유일한 불변식**이다. 그래서 "숫자가 없다" 가 아니라
+     * **"두 버튼이 같다"** 를 잰다 — 숫자만 지우면 .on 의 그라데이션이 그대로 남고,
+     * 멀리서 새는 건 숫자가 아니라 그 색이다.
+     */
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+
+    // 가리기 전: 찌른 쪽만 다르게 생겼다
+    expect(pokeButtons().some((b) => b.className.includes("on"))).toBe(true);
+    expect(screen.getByText("1")).toBeTruthy();
+
+    fireEvent.click(screen.getByText(PEOPLE.cover));
+
+    const shapes = new Set(pokeButtons().map((b) => b.className + "|" + b.textContent));
+    expect(shapes.size).toBe(1);                                   // 전부 같은 모습이다
+    expect(pokeButtons().some((b) => b.className.includes("on"))).toBe(false);
+    expect(screen.queryByText("1")).toBeNull();
+  });
+
+  it("★ 가린 동안에는 찌를 수 없다 — 확인창도 안 뜬다", async () => {
+    // 남이 보는 중에 👉 를 누르면 **지금** 찌르는 상대가 실시간으로 샌다
+    const source = fakeSource();
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+    fireEvent.click(screen.getByText(PEOPLE.cover));
+
+    fireEvent.click(pokeButtons()[0]);
+    expect(screen.queryByText(POKE.confirm.submit)).toBeNull();
+    expect(source.calls.poke).toEqual([]);
+  });
+
+  it("★ 프로필 시트도 함께 덮인다", async () => {
+    // People.tsx 에 같은 컨트롤이 **두 군데**다. 목록만 고치면 눌러본 순간 그대로 보인다
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+    fireEvent.click(screen.getByText(PEOPLE.cover));
+    cleanup();
+
+    // 가린 채로 프로필을 연다
+    renderParticipant(fakeSource(), "her");
+    await screen.findByText(PEOPLE.charmTitle);
+    expect(screen.queryByLabelText(POKE.confirm.submit)).toBeNull();
+    expect(screen.getAllByLabelText(PEOPLE.coveredPoke).length).toBeGreaterThan(1);
+  });
+
+  it("★ 파티가 시작돼 안내문이 사라져도 버튼은 남는다", async () => {
+    /*
+     * 처음 요청받은 자리가 정확히 그때 사라진다 — agesHidden 이 파티 단계에서 false 다.
+     * 그런데 **어깨너머가 가장 위험한 때가 그때다.** 다들 한 테이블에 앉아 있다.
+     */
+    renderParticipant(fakeSource({ load: async () => participantState({ event: { ...participantState().event, phase: "party" } }) }));
+    await screen.findByText(/그녀/);
+    expect(screen.queryByText(PEOPLE.agesAtParty)).toBeNull();   // 안내문은 없고
+    expect(screen.getByText(PEOPLE.cover)).toBeTruthy();          // 버튼은 있다
+  });
+
+  it("★ 기기에 남는다 — 탭을 옮겼다 와도 가려져 있다", async () => {
+    // 다시 읽기 한 번에 풀리면 **가린 사람이 그걸 모른 채 다닌다.** 최악의 실패다
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+    fireEvent.click(screen.getByText(PEOPLE.cover));
+    cleanup();
+
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+    expect(screen.getByText(PEOPLE.uncover)).toBeTruthy();
+    expect(pokeButtons().some((b) => b.className.includes("on"))).toBe(false);
+  });
+});
 
 describe("참가자 화면 · 자리", () => {
   const seat = { round: 1, table: 2, final: false, mates: 6, men: 3, acked: false };

@@ -1687,6 +1687,59 @@ describe("앉힌 자리 고치기", () => {
     return { ev, ids, round: pub.body };
   }
 
+  it("★ 이번 라운드에서 뺀 사람은 자리가 없다", async () => {
+    /*
+     * 노쇼가 나오면 배정하고 나서 한 명씩 빼는 길(`unseat`)도 있지만,
+     * 그때 자리 배치는 **안 온 사람 기준으로 이미 짜여 있다.**
+     * 처음부터 온 사람만으로 짜라고 있는 값이다.
+     */
+    const ev = await freshEvent();
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+
+    // 남녀 한 명씩 뺀다 — 성비가 어긋나면 배정 자체가 이상해진다
+    const out = [ids[0], ids[1]];
+    const made = await api<Round>(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, final: false, exclude: out },
+    });
+    expect(made.status, JSON.stringify(made.body)).toBe(200);
+    expect(made.body.seats).toHaveLength(4);
+    expect(made.body.seats.some((x) => out.includes(x.playerId))).toBe(false);
+  });
+
+  it("★ 뺀 사람은 참가자 상태로 남는다 — 지우는 것과 다른 일이다", async () => {
+    // 지우면 받은 콕과 매칭이 함께 날아간다 (ADR-29). 자리만 없는 것이어야 한다
+    const ev = await freshEvent();
+    const people: Array<{ id: string; cookie: string | null }> = [];
+    for (let i = 0; i < 6; i++) people.push(await join(ev, { gender: i % 2 === 0 ? "M" : "F" }));
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+    await api(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, final: false, exclude: [people[0].id] },
+    });
+    await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
+
+    const seen = await api<ParticipantState>(`/api/me?event=${ev.id}`, { cookie: people[0].cookie });
+    expect(seen.status).toBe(200);
+    expect(seen.body.seat).toBeUndefined();
+    expect(seen.body.me.id).toBe(people[0].id);
+  });
+
+  it("빼고 나서 사람이 모자라면 배정하지 않는다", async () => {
+    // 테이블 하나에 최소 두 명이다. 빼는 바람에 모자라면 그 자리에서 막는다
+    const ev = await freshEvent();
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+    const res = await api(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, final: false, exclude: [ids[0], ids[1]] },
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("★ 앉힐 테이블은 서버가 고른다 — 그 성별이 가장 덜 찬 곳으로", async () => {
     /*
      * 운영자가 테이블을 고르게 하면 그게 곧 **한 명만 옮기는 API** 다 (SEATING.md).

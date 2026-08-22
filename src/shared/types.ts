@@ -206,6 +206,11 @@ export type ServerEvent =
    * 남의 자리가 개발자 도구에 보이게 된다. 받은 쪽은 다시 읽어 자기 자리를 가져간다.
    */
   | { type: "seating"; round: number }
+  /**
+   * 운영자 알림이 움직였다 — 새 글·투표·표·닫기·지우기가 전부 이 하나다.
+   * **아무것도 싣지 않는다.** 받는 쪽은 어차피 다시 읽는다 (ADR-26).
+   */
+  | { type: "notice" }
   | { type: "reveal" }                                // 클라이언트가 다시 fetch 한다
   | { type: "pong"; serverTime: number }
   /**
@@ -368,6 +373,59 @@ export interface MySeat {
 }
 
 /** 참가자 화면 한 벌. 이 타입이 참가자 응답의 유일한 형태다 */
+// ─────────────────────────── 운영자가 보내는 알림 (슬라이스 14)
+
+export type PollChoice = "a" | "b";
+
+/**
+ * **운영자가 보낸 것.** 참가자 소식(`Notice`)은 이것에서 파생된다 — 이름을 겹치게 짓지 마라.
+ * 둘을 구분 못 하게 되는 순간 "알림을 저장한다" 로 읽히고, 읽음 플래그가 뒤따라온다.
+ *
+ * 회차 DO 안에만 둔다. 자유 텍스트라 개인정보가 섞일 수 있고,
+ * 파기는 DO 하나 지우는 일로 끝나야 한다.
+ */
+export interface Announcement {
+  id: string;
+  at: number;
+  /** 텍스트 알림이면 이게 전부. 투표면 질문이다 */
+  text: string;
+  /** 있으면 A/B 투표다. **선택지에 사람을 넣지 마라** — 시나리오 14 의 첫 규칙이다 */
+  poll?: { a: string; b: string; closedAt?: number };
+}
+
+/**
+ * 참가자에게 내려가는 모양.
+ *
+ * **누가 무엇을 골랐는지는 여기 없다** — 숫자 둘과 *내* 선택뿐이다.
+ * 한 사람 한 표를 지키려 `playerId → choice` 를 저장하긴 하지만,
+ * 그 짝은 **어떤 응답에도 실리지 않는다. 운영자 응답에도.**
+ * 응답에 없으면 화면이 실수로라도 보여줄 수 없다.
+ */
+export interface PublicAnnouncement {
+  id: string;
+  at: number;
+  text: string;
+  poll?: {
+    a: string;
+    b: string;
+    count: { a: number; b: number };
+    /** 아직 안 골랐으면 없다 */
+    mine?: PollChoice;
+    closed: boolean;
+  };
+}
+
+/** 운영자 화면용. 집계만 더 붙는다 — 표의 주인은 여전히 아무 데도 안 나온다 */
+export interface HostAnnouncement extends Announcement {
+  count: { a: number; b: number };
+}
+
+/** 운영자가 보낼 때 넘기는 값. `poll` 이 없으면 텍스트 알림이다 */
+export interface AnnounceInput {
+  text: string;
+  poll?: { a: string; b: string };
+}
+
 export interface ParticipantState {
   event: PublicEventState;
   me: Player;              // 본인이 입력한 값이므로 본인에게는 그대로 보여준다
@@ -376,6 +434,8 @@ export interface ParticipantState {
   seat?: MySeat;
   /** 오늘의 연애운. 한 번 열면 그대로 남는다 — 아직 안 열었으면 없다 */
   fortune?: Fortune;
+  /** 운영자가 보낸 알림. 최신순 (슬라이스 14) */
+  announcements: PublicAnnouncement[];
 }
 
 /** 등록 응답. 같은 번호로 다시 들어온 경우 `resumed` 로 알린다 (REGISTER.welcomeBack) */
@@ -405,10 +465,20 @@ export interface HostState {
   seatings: SeatingRound[];
   /** 초대 명단. 참가자 응답에는 절대 실리지 않는다 */
   invites: Invite[];
+  /** 운영자가 보낸 알림. 최신순 */
+  announcements: HostAnnouncement[];
 }
 
 /** 자리 초안 생성 입력. 테이블 수는 설정이 아니라 이 요청의 값이다 (ADR-5) */
 export interface SeatingInput {
   tableCount: number;
   final: boolean;
+  /**
+   * **이번 라운드에서만** 뺄 사람. 참가자에게 붙는 상태가 아니라 이 요청의 값이다 —
+   * 노쇼는 다음 라운드에 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다.
+   *
+   * 뺀 사람은 자리가 없다. 배정한 뒤 한 명씩 빼는 길(`unseat`)과 결과는 같지만,
+   * **자리 배치가 처음부터 온 사람만으로 짜인다** — 그게 이 값이 있는 이유다.
+   */
+  exclude?: string[];
 }

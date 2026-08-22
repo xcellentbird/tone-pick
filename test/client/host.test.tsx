@@ -66,6 +66,7 @@ function hostState(over: Partial<HostState["meta"]> = {}): HostState {
     pokeUsedMax: { pre: 1, party: 0 },
     seatings: [],
     invites: [],
+    announcements: [],
   };
 }
 

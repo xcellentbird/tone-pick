@@ -16,7 +16,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
-import type { SeatingRound } from "../../../shared/types.ts";
+import type { Player, SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
@@ -62,10 +62,10 @@ export default function Seats() {
   const published = state.seatings.filter((s) => s.status === "published");
   const revealed = state.meta.phase === "done";
 
-  async function make(final: boolean, tableCount: number) {
+  async function make(final: boolean, tableCount: number, exclude: string[]) {
     setBusy(true);
     try {
-      await post(base, { tableCount, final });
+      await post(base, { tableCount, final, exclude });
       navigate(here, { replace: true });
       reload();
     } catch (e) {
@@ -227,13 +227,12 @@ export default function Seats() {
 
       <Sheet open={!!mode} onClose={() => navigate(-1)} title={HOST_UI.seats.tableCount}>
         <TablePicker
-          people={state.players.length}
-          men={state.players.filter((p) => p.gender === "M").length}
+          players={state.players}
           pairs={state.mutual.length}
           final={mode === "final"}
           start={lastTableCount}
           busy={busy}
-          onGo={(count) => make(mode === "final", count)}
+          onGo={(count, exclude) => make(mode === "final", count, exclude)}
         />
       </Sheet>
 
@@ -309,28 +308,73 @@ export default function Seats() {
  * 되돌리는 일을 반복하게 된다.
  */
 function TablePicker({
-  people,
-  men,
+  players,
   pairs,
   final,
   start,
   busy,
   onGo,
 }: {
-  people: number;
-  men: number;
+  players: Player[];
   pairs: number;
   final: boolean;
   start: number;
   busy: boolean;
-  onGo: (tableCount: number) => void;
+  onGo: (tableCount: number, exclude: string[]) => void;
 }) {
   const [count, setCount] = useState(start);
+  /*
+   * **이번 라운드에서만** 뺀다. 참가자에게 붙는 상태를 만들지 않는다 —
+   * 노쇼는 다음 라운드에 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다.
+   * 그래서 시트를 닫으면 함께 사라진다.
+   */
+  const [out, setOut] = useState<Set<string>>(new Set());
+  const [open, setOpen] = useState(false);
+  const seated = players.filter((p) => !out.has(p.id));
+  const people = seated.length;
+  const men = seated.filter((p) => p.gender === "M").length;
   const per = count > 0 ? people / count : 0;
   const perMen = count > 0 ? men / count : 0;
 
   return (
     <div className="stack">
+      {/*
+        뺄 사람을 **테이블 수보다 먼저** 고른다. 아래 `테이블당 N명` 이 이 선택으로
+        곧바로 다시 계산되므로, 순서가 뒤집히면 방금 읽은 숫자가 틀린 것이 된다.
+        평소에는 접어둔다 — 대부분의 라운드는 전원 배정이다.
+      */}
+      <button type="button" className="fact" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <span className="grow">{HOST_UI.seats.exclude}</span>
+        <span className={out.size > 0 ? "" : "dim"}>
+          {out.size > 0
+            ? HOST_UI.seats.excludeSome(people, out.size)
+            : HOST_UI.seats.excludeNone(players.length)}
+        </span>
+      </button>
+      {open && (
+        <div className="stack">
+          {players.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className={`fact ${out.has(p.id) ? "" : "on"}`}
+              aria-pressed={!out.has(p.id)}
+              onClick={() =>
+                setOut((s) => {
+                  const next = new Set(s);
+                  next.has(p.id) ? next.delete(p.id) : next.add(p.id);
+                  return next;
+                })
+              }
+            >
+              <Avatar nickname={p.nickname} gender={p.gender} size="sm" />
+              <span className="grow">{p.nickname}</span>
+              <span className="dim">{out.has(p.id) ? HOST_UI.seats.excludeOut : HOST_UI.seats.excludeIn}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <Num
         label={HOST_UI.seats.tableCount}
         value={count}
@@ -348,7 +392,11 @@ function TablePicker({
       {/* 커플 자리는 목적이 하나다. 몇 쌍을 붙이려는 참인지 여기서 말한다 */}
       {final && <p className="small dim">{HOST_UI.seats.finalNote(pairs)}</p>}
 
-      <button className={`btn block ${final ? "gold" : "primary"}`} disabled={busy} onClick={() => onGo(count)}>
+      <button
+        className={`btn block ${final ? "gold" : "primary"}`}
+        disabled={busy}
+        onClick={() => onGo(count, [...out])}
+      >
         {final ? HOST.seating.makeFinal : HOST_UI.seats.make}
       </button>
     </div>
