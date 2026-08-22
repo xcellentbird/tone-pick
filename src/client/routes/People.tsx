@@ -13,6 +13,7 @@ import type { MatchInfo, MyPokeState, ParticipantState, Phase, Player, PublicPla
 import type { Tab } from "./Participant.tsx";
 import { canPoke } from "../../shared/phase.ts";
 import { afterPoke } from "../../shared/poke.ts";
+import { useCovered } from "../lib/covered.ts";
 import { rosterOpen, toPublic } from "../../shared/types.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
@@ -73,6 +74,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
    * 즉시 바뀌게 만들면 그 우연이 사라진다.
    */
   const sending = useRef(false);
+  const [covered, setCovered] = useCovered();
 
   async function send(target: PublicPlayer) {
     const already = state.poke.sentTo[target.id] ?? 0;
@@ -186,11 +188,39 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
         콕을 쓰는 세로줄에 얼마나 남았는지가 함께 있는 게 맞다.
         볼 사람이 없으면 이 줄도 없다.
       */}
-      {list.length > 0 && agesHidden && <span className="small dim">{PEOPLE.agesAtParty}</span>}
+      {/*
+        **이 줄은 단계와 무관하게 남는다** (슬라이스 16). 예전에는 안내문이 있을 때만 그렸는데,
+        그러면 파티가 시작되는 순간 줄이 통째로 사라지면서 가리기 버튼도 함께 없어졌다 —
+        **어깨너머가 가장 위험한 때가 정확히 그때다.** 다들 한 테이블에 앉아 있다.
+        이제 안내문은 이 줄의 왼쪽 칸일 뿐이고, 비어 있어도 줄은 남는다.
+      */}
+      {list.length > 0 && (
+        <div className="noteRow">
+          <span className="small dim ellipsis">
+            {covered ? PEOPLE.coveredNote : agesHidden ? PEOPLE.agesAtParty : ""}
+          </span>
+          <button
+            type="button"
+            className="coverToggle"
+            aria-pressed={covered}
+            onClick={() => setCovered(!covered)}
+          >
+            <span aria-hidden>{covered ? "👀" : "🙈"}</span>
+            {covered ? PEOPLE.uncover : PEOPLE.cover}
+          </button>
+        </div>
+      )}
 
       <div className="stack">
         {list.map((p) => {
-          const match = matched.get(p.id);
+          /*
+           * 가린 동안은 매칭 표시도 덮는다. 두 사람에게는 공개된 사이지만
+           * **옆 사람에게는 아니다.**
+           *
+           * 다만 **정렬 순서는 그대로 둔다.** 순서까지 되돌리면 토글할 때마다 목록이
+           * 통째로 재배열되는데, 그 움직임이 옆 사람 눈을 끄는 게 순서가 흘리는 것보다 크다.
+           */
+          const match = covered ? undefined : matched.get(p.id);
           return (
             <div className="row" key={p.id}>
               <button className={`person grow ${match ? "matched" : ""}`} onClick={() => onProfile(p.id)}>
@@ -220,7 +250,12 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
                 </span>
               </button>
               {!revealed && (
-                <PokeControls count={state.poke.sentTo[p.id] ?? 0} disabled={!open} onSend={() => send(p)} />
+                <PokeControls
+                  count={state.poke.sentTo[p.id] ?? 0}
+                  disabled={!open}
+                  covered={covered}
+                  onSend={() => send(p)}
+                />
               )}
             </div>
           );
@@ -264,6 +299,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
                 <PokeControls
                   count={state.poke.sentTo[profile.id] ?? 0}
                   disabled={!open}
+                  covered={covered}
                   onSend={() => send(profile)}
                 />
               )}
@@ -379,12 +415,34 @@ function Contact({ match }: { match: MatchInfo }) {
 function PokeControls({
   count,
   disabled,
+  covered,
   onSend,
 }: {
   count: number;
   disabled: boolean;
+  /** 어깨너머 가리기 (슬라이스 16) */
+  covered?: boolean;
   onSend: () => void;
 }) {
+  /*
+   * **찌른 버튼과 안 찌른 버튼이 구별되지 않아야 한다.** 이 슬라이스의 유일한 불변식이다.
+   *
+   * 그래서 `count` 를 받기 전에 통째로 갈라져 나간다 — 아래에서 클래스만 지우는 식이면
+   * 언젠가 누가 조건을 하나 더 붙이고 그 틈으로 다시 샌다.
+   * 여기서는 **셀 수 있는 것이 애초에 안 들어온다.**
+   *
+   * 멀리서 새는 건 숫자가 아니라 `.on` 의 분홍→보라 그라데이션이다. 그것부터 없앤다.
+   * 누를 수는 없다 — 남이 보는 중에 👉 를 누르면 *지금* 찌르는 상대가 실시간으로 샌다.
+   */
+  if (covered) {
+    return (
+      <div className="pokeCell">
+        <button className="pokeBtn covered" disabled aria-label={PEOPLE.coveredPoke}>
+          <span aria-hidden>🙈</span>
+        </button>
+      </div>
+    );
+  }
   /**
    * 카드와 **같은 키, 같은 모서리**다. 44px 알약이던 시절에는 74px 카드 옆에서
    * 혼자 작고 동그래서 짝이 안 맞았다 — 지금은 한 줄이 두 덩어리로 읽힌다.

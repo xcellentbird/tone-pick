@@ -531,6 +531,86 @@ describe("참가자 화면 · 콕", () => {
 
 // ─────────────────────────────────────────── 자리
 
+describe("참가자 화면 · 어깨너머 가리기", () => {
+  afterEach(() => window.localStorage.clear());
+
+  /** 찌른 버튼과 안 찌른 버튼을 집어온다. POKE_STATE 는 her 를 1회 찔렀다 */
+  function pokeButtons() {
+    return screen.getAllByRole("button").filter((b) => b.className.includes("pokeBtn"));
+  }
+
+  it("★ 가리면 찌른 버튼과 안 찌른 버튼이 구별되지 않는다", async () => {
+    /*
+     * 이 슬라이스의 **유일한 불변식**이다. 그래서 "숫자가 없다" 가 아니라
+     * **"두 버튼이 같다"** 를 잰다 — 숫자만 지우면 .on 의 그라데이션이 그대로 남고,
+     * 멀리서 새는 건 숫자가 아니라 그 색이다.
+     */
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+
+    // 가리기 전: 찌른 쪽만 다르게 생겼다
+    expect(pokeButtons().some((b) => b.className.includes("on"))).toBe(true);
+    expect(screen.getByText("1")).toBeTruthy();
+
+    fireEvent.click(screen.getByText(PEOPLE.cover));
+
+    const shapes = new Set(pokeButtons().map((b) => b.className + "|" + b.textContent));
+    expect(shapes.size).toBe(1);                                   // 전부 같은 모습이다
+    expect(pokeButtons().some((b) => b.className.includes("on"))).toBe(false);
+    expect(screen.queryByText("1")).toBeNull();
+  });
+
+  it("★ 가린 동안에는 찌를 수 없다 — 확인창도 안 뜬다", async () => {
+    // 남이 보는 중에 👉 를 누르면 **지금** 찌르는 상대가 실시간으로 샌다
+    const source = fakeSource();
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+    fireEvent.click(screen.getByText(PEOPLE.cover));
+
+    fireEvent.click(pokeButtons()[0]);
+    expect(screen.queryByText(POKE.confirm.submit)).toBeNull();
+    expect(source.calls.poke).toEqual([]);
+  });
+
+  it("★ 프로필 시트도 함께 덮인다", async () => {
+    // People.tsx 에 같은 컨트롤이 **두 군데**다. 목록만 고치면 눌러본 순간 그대로 보인다
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+    fireEvent.click(screen.getByText(PEOPLE.cover));
+    cleanup();
+
+    // 가린 채로 프로필을 연다
+    renderParticipant(fakeSource(), "her");
+    await screen.findByText(PEOPLE.charmTitle);
+    expect(screen.queryByLabelText(POKE.confirm.submit)).toBeNull();
+    expect(screen.getAllByLabelText(PEOPLE.coveredPoke).length).toBeGreaterThan(1);
+  });
+
+  it("★ 파티가 시작돼 안내문이 사라져도 버튼은 남는다", async () => {
+    /*
+     * 처음 요청받은 자리가 정확히 그때 사라진다 — agesHidden 이 파티 단계에서 false 다.
+     * 그런데 **어깨너머가 가장 위험한 때가 그때다.** 다들 한 테이블에 앉아 있다.
+     */
+    renderParticipant(fakeSource({ load: async () => participantState({ event: { ...participantState().event, phase: "party" } }) }));
+    await screen.findByText(/그녀/);
+    expect(screen.queryByText(PEOPLE.agesAtParty)).toBeNull();   // 안내문은 없고
+    expect(screen.getByText(PEOPLE.cover)).toBeTruthy();          // 버튼은 있다
+  });
+
+  it("★ 기기에 남는다 — 탭을 옮겼다 와도 가려져 있다", async () => {
+    // 다시 읽기 한 번에 풀리면 **가린 사람이 그걸 모른 채 다닌다.** 최악의 실패다
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+    fireEvent.click(screen.getByText(PEOPLE.cover));
+    cleanup();
+
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+    expect(screen.getByText(PEOPLE.uncover)).toBeTruthy();
+    expect(pokeButtons().some((b) => b.className.includes("on"))).toBe(false);
+  });
+});
+
 describe("참가자 화면 · 자리", () => {
   const seat = { round: 1, table: 2, final: false, mates: 6, men: 3, acked: false };
 
