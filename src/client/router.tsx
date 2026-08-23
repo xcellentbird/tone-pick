@@ -64,9 +64,12 @@ export const router = createBrowserRouter([
   { path: "/", element: plain(<Entry />) },
 
   // 참가자
-  // 참가 링크는 **회차 아이디**를 가리킨다. 입장 코드는 링크에 담지 않는다 (ADR-13)
-  { path: "/j/:id", element: plain(<Join />) },
-  { path: "/j/:id/register/:step", element: plain(<Register />) },
+  /*
+   * 참가 링크는 **회차 아이디 + 그 사람의 토큰**이다 (ADR-32). 입장 코드는 담지 않는다 (ADR-13).
+   * **토큰 없는 `/j/:id` 를 되살리지 마라** — 번호를 아는 사람이 그 사람이 되던 구멍이 그것이었다.
+   */
+  { path: "/j/:id/:token", element: plain(<Join />) },
+  { path: "/j/:id/:token/register/:step", element: plain(<Register />) },
   ...PARTICIPANT_ROUTES,
 
   // 운영자

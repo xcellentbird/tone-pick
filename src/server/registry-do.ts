@@ -98,6 +98,8 @@ export class RegistryDO extends DurableObject {
       maxParty: next.maxParty,
       regOpenBeforeD: next.regOpenBeforeD,
       prevoteBeforeH: next.prevoteBeforeH,
+      // 빈 문구를 저장하면 안내문이 링크 없이 나간다. 비면 기본 문구로 되돌린다
+      inviteTemplate: next.inviteTemplate?.trim() ? next.inviteTemplate : DEFAULTS.inviteTemplate,
     };
     await this.save(snap);
     return snap.defaults;

@@ -15,7 +15,6 @@ import { canOpenFortune } from "../../shared/phase.ts";
 import { fortuneInput, missionInput, validBirth } from "../../shared/fortune.ts";
 import { makeFortune, makeMission } from "../fortune.ts";
 import { count } from "../metrics.ts";
-import { normalizePhone } from "../../shared/constants.ts";
 import { todayIn } from "../../shared/time.ts";
 import {
   INVITE_COOKIE,
@@ -45,11 +44,20 @@ export const participantRoutes = new Hono<{ Bindings: Env }>();
 /**
  * 참가 링크가 여는 화면. 회차 이름과 단계만 준다 — **입장 코드는 주지 않는다**.
  *
- * 링크는 "어느 파티인가"까지만 알려주고, 문을 여는 건 **초대 명단에 있는 전화번호**다 (ADR-15).
+ * **토큰이 있어야 열린다** (ADR-32). 경로에서 토큰을 빼는 것만으로는 모자랐다 —
+ * 이 응답이 열려 있으면 **회차 아이디만으로 파티 이름·일정이 나온다.**
+ * `by-code` 오라클을 걷어낸 것과 같은 종류라, 길을 하나 막을 때 옆문도 같이 본다.
+ *
+ * 회차가 없든 토큰이 틀렸든 **같은 답**이다. 가르면 그 구분이 곧 답이 된다.
  */
 participantRoutes.get("/events/by-id/:id", async (c) => {
   const id = c.req.param("id");
-  if (!(await registry(c.env).hasEvent(id))) return apiError(c, "not_found", ENTRY.notFound);
+  const link = String(c.req.query("t") ?? "").trim();
+  if (!link || !(await registry(c.env).hasEvent(id))) return apiError(c, "not_found", ENTRY.notFound);
+
+  const owner = await eventStub(c.env, id).phoneByToken(link);
+  if (!owner.ok || !owner.value) return apiError(c, "not_found", ENTRY.notFound);
+
   const { value, response } = unwrap(c, await eventStub(c.env, id).publicAt(serverNow()), () => ENTRY.notFound);
   return response ?? c.json(value);
 });
@@ -72,16 +80,19 @@ participantRoutes.get("/events/by-id/:id", async (c) => {
  */
 participantRoutes.post("/events/:id/enter", async (c) => {
   const id = c.req.param("id");
-  if (!(await registry(c.env).hasEvent(id))) return apiError(c, "not_found", ENTRY.notFound);
+  const body = (await c.req.json().catch(() => ({}))) as { token?: string };
+  const link = String(body.token ?? "").trim();
 
-  const body = (await c.req.json().catch(() => ({}))) as { phone?: string };
-  const phone = normalizePhone(String(body.phone ?? ""));
-  if (phone.length < 9) {
-    count(c.env, id, { kind: "enter", outcome: "bad_phone" });
-    return apiError(c, "bad_request", ENTRY.phoneBad);
+  /*
+   * **없는 회차도 "초대되지 않았어요" 라고 답한다** (S-A4). 여기서 `not_found` 를 주면
+   * "그런 회차가 없다" 와 "너는 명단에 없다" 가 갈리고, 그 갈림이 곧 답이 된다.
+   */
+  if (!link || !(await registry(c.env).hasEvent(id))) {
+    count(c.env, id, { kind: "enter", outcome: "not_invited" });
+    return apiError(c, "forbidden", ENTRY.notInvited);
   }
 
-  const checked = await eventStub(c.env, id).checkEntry(phone, await ipHash(c, id), serverNow());
+  const checked = await eventStub(c.env, id).checkEntry(link, await ipHash(c, id), serverNow());
   /*
    * **입장 결과를 센다.** 명단 문제는 조용히 쌓인다 — 참가자는 "안 되네" 하고 말지
    * 운영자에게 매번 말하지 않는다. 어제 iPhone 연락처의 `+82` 번호가 명단에 잘못
@@ -98,11 +109,19 @@ participantRoutes.post("/events/:id/enter", async (c) => {
   if (response) return response;
 
   const result = value as EnterResult;
-  // 이미 등록을 마친 사람에게는 곧바로 참가자 세션을 준다. 번호가 곧 재접속 키다
+  /*
+   * 번호는 **토큰에서** 꺼낸다. 참가자는 번호를 치지 않는다 (ADR-32) —
+   * 그래야 등록 폼도, 그 앞의 문도 명단에 없는 번호를 만들 수 없다.
+   */
+  const owner = await eventStub(c.env, id).phoneByToken(link);
+  const phone = owner.ok ? (owner.value ?? "") : "";
+  if (!phone) return apiError(c, "forbidden", ENTRY.notInvited);
+
+  // 이미 등록을 마친 사람에게는 곧바로 참가자 세션을 준다
   const scope = result.registered
     ? await playerScopeFor(c, id, phone)
     : ({ kind: "invited", eventId: id, phone } as const);
-  if (!scope) return apiError(c, "not_found", ENTRY.notFound);
+  if (!scope) return apiError(c, "forbidden", ENTRY.notInvited);
 
   const token = await signSession(scope, c.env.SESSION_SECRET, serverNow());
   const cookie = scope.kind === "player" ? PLAYER_COOKIE : INVITE_COOKIE;

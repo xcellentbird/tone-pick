@@ -23,6 +23,7 @@ export default function Settings() {
   const meta = state.meta;
 
   const [name, setName] = useState(meta.name);
+  const [place, setPlace] = useState("");
   const [maxPre, setMaxPre] = useState(meta.config.maxPre);
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
   const [allowSameGender, setAllowSameGender] = useState(meta.config.allowSameGender !== false);
@@ -36,6 +37,7 @@ export default function Settings() {
     setMaxParty(meta.config.maxParty);
     setAllowSameGender(meta.config.allowSameGender !== false);
     setRetentionDays(meta.config.retentionDays ?? RETENTION_DAYS);
+    setPlace(meta.place ?? "");
     setSchedule(meta.schedule);
   }, [meta]);
 
@@ -49,6 +51,7 @@ export default function Settings() {
       if (before !== after) facts.push([label, `${before} → ${after}`]);
     };
     changed(HOST_UI.fields.name, meta.name, name);
+    changed(HOST_UI.fields.place, meta.place ?? "—", place || "—");
     changed(HOST_UI.fields.maxPre, UNIT.times(meta.config.maxPre), UNIT.times(maxPre));
     changed(HOST_UI.fields.maxParty, UNIT.times(meta.config.maxParty), UNIT.times(maxParty));
     changed(
@@ -75,6 +78,7 @@ export default function Settings() {
     try {
       await put<EventMeta>(`/host/events/${meta.id}`, {
         name,
+        place,
         config: { maxPre, maxParty, allowSameGender, retentionDays },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
@@ -111,6 +115,12 @@ export default function Settings() {
       <div className="field">
         <label htmlFor="sname">{HOST_UI.fields.name}</label>
         <input id="sname" value={name} onChange={(e) => setName(e.target.value)} />
+      </div>
+      {/* 장소는 안내문에만 쓰인다 (ADR-32). 오타가 나기 쉬워 고칠 길을 둔다 */}
+      <div className="field">
+        <label htmlFor="splace">{HOST_UI.fields.place}</label>
+        <input id="splace" value={place} onChange={(e) => setPlace(e.target.value)} />
+        <span className="tiny dim">{HOST_UI.fields.placeHint}</span>
       </div>
       {/* 입장 코드는 만든 뒤에 바꾸지 않는다 (ADR-22) — 이미 나간 안내와 어긋난다 */}
       <div className="field">

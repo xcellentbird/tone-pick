@@ -44,6 +44,7 @@ export default function HostWizard() {
   const requestId = useMemo(() => `w-${Date.now()}-${Math.random().toString(36).slice(2)}`, []);
 
   const [name, setName] = useState("");
+  const [place, setPlace] = useState("");
   const [openNow, setOpenNow] = useState(false);
   const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
   const [regOpenAt, setRegOpenAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.regOpenBeforeD * DAY);
@@ -91,6 +92,7 @@ export default function HostWizard() {
     try {
       const body: CreateEventInput = {
         name: name.trim(),
+        place: place.trim(),
         partyAt,
         regOpenAt: openNow ? "now" : regOpenAt,
         prevoteAt,
@@ -145,6 +147,13 @@ export default function HostWizard() {
                 value={toLocalInput(partyAt)}
                 onChange={(e) => changeParty(e.target.value)}
               />
+            </div>
+
+            {/* "언제·어디서" 는 한 화면에 있다 (ADR-32). 장소는 안내문에만 쓰인다 */}
+            <div className="field">
+              <label htmlFor="place">{HOST_UI.fields.place}</label>
+              <input id="place" value={place} onChange={(e) => setPlace(e.target.value)} />
+              <span className="tiny dim">{HOST_UI.fields.placeHint}</span>
             </div>
 
             <div className="field">

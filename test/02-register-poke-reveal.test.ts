@@ -13,7 +13,14 @@ import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ENTRY, ME, POKE, REGISTER, hangulSeq } from "../src/shared/copy.ts";
 import { ENTRY_TRIES, formatPhone, typedPhone } from "../src/shared/constants.ts";
-import type { EventMeta, ParticipantState, Player, RegisterInput, RegisterResult } from "../src/shared/types.ts";
+import type {
+  EventMeta,
+  Invite,
+  ParticipantState,
+  Player,
+  RegisterInput,
+  RegisterResult,
+} from "../src/shared/types.ts";
 
 const MASTER_PIN = "1234";
 const HOUR = 3600_000;
@@ -88,20 +95,22 @@ function person(over: Partial<RegisterInput> = {}): RegisterInput {
 }
 
 /** 초대 명단은 **더하고 빼기만** 있다. 통째로 갈아치우는 길은 두지 않았다 */
-async function invite(eventId: string, phone: string) {
-  const res = await api(`/api/host/events/${eventId}/invites`, {
+async function invite(eventId: string, phone: string): Promise<string> {
+  const res = await api<Invite[]>(`/api/host/events/${eventId}/invites`, {
     method: "POST",
     cookie: master,
     body: { phones: [phone] },
   });
   expect(res.status).toBe(200);
+  // 번호를 넣는 순간 그 줄에 토큰이 생긴다 — 그게 이 사람의 참가 링크다 (ADR-32)
+  return res.body.find((i) => i.phone === phone)!.token;
 }
 
-/** 문을 두드려 통과한다. 통과하면 서버가 쿠키를 준다 */
-async function enter(eventId: string, phone: string) {
+/** 문을 두드려 통과한다. **번호가 아니라 토큰이다** (ADR-32) */
+async function enter(eventId: string, token: string) {
   return api<{ registered: boolean; code?: string }>(`/api/events/${eventId}/enter`, {
     method: "POST",
-    body: { phone },
+    body: { token },
   });
 }
 
@@ -109,9 +118,9 @@ async function enter(eventId: string, phone: string) {
 async function join(ev: EventMeta, over: Partial<RegisterInput> = {}) {
   const phone = nextPhone();
   const input = person(over);
-  await invite(ev.id, phone);
+  const token = await invite(ev.id, phone);
 
-  const gate = await enter(ev.id, phone);
+  const gate = await enter(ev.id, token);
   expect(gate.status, JSON.stringify(gate.body)).toBe(200);
 
   const res = await api<RegisterResult>("/api/register", {
@@ -120,7 +129,7 @@ async function join(ev: EventMeta, over: Partial<RegisterInput> = {}) {
     body: input,
   });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
-  return { cookie: res.cookie, id: res.body.state.me.id, input, phone, resumed: res.body.resumed };
+  return { cookie: res.cookie, id: res.body.state.me.id, input, phone, token, resumed: res.body.resumed };
 }
 
 async function setPhase(id: string, to: string) {
@@ -135,8 +144,7 @@ describe("등록", () => {
     const ev = await freshEvent();
     await join(ev, { nickname: "겹치는닉" });
     const phone = nextPhone();
-    await invite(ev.id, phone);
-    const gate = await enter(ev.id, phone);
+    const gate = await enter(ev.id, await invite(ev.id, phone));
     const res = await api<{ error: string; message: string }>("/api/register", {
       method: "POST",
       cookie: gate.cookie,
@@ -160,8 +168,7 @@ describe("등록", () => {
     // 매칭되면 서로에게 공개되는 연락 수단이라 (ADR-19) 없이는 매칭이 반쪽이 된다
     const ev = await freshEvent();
     const phone = nextPhone();
-    await invite(ev.id, phone);
-    const gate = await enter(ev.id, phone);
+    const gate = await enter(ev.id, await invite(ev.id, phone));
 
     for (const instagram of [undefined, "", "  ", "한글아이디", "no spaces!"]) {
       const res = await api("/api/register", {
@@ -178,8 +185,7 @@ describe("등록", () => {
     const ev = await freshEvent();
     for (const pasted of ["@my.id", "https://www.instagram.com/my.id?igsh=abc", "instagram.com/my.id/"]) {
       const phone = nextPhone();
-      await invite(ev.id, phone);
-      const gate = await enter(ev.id, phone);
+      const gate = await enter(ev.id, await invite(ev.id, phone));
       const res = await api<RegisterResult>("/api/register", {
         method: "POST",
         cookie: gate.cookie,
@@ -195,8 +201,7 @@ describe("등록", () => {
     // 연락 카드에 존재하지 않는 계정이 뜬다 — 조용히 틀리느니 오류가 낫다
     const ev = await freshEvent();
     const phone = nextPhone();
-    await invite(ev.id, phone);
-    const gate = await enter(ev.id, phone);
+    const gate = await enter(ev.id, await invite(ev.id, phone));
     for (const pasted of [
       "https://www.instagram.com/p/DAbC123xyz/",
       "https://www.instagram.com/reel/xyz987/",
@@ -221,8 +226,7 @@ describe("등록", () => {
     ];
     for (const bad of over) {
       const phone = nextPhone();
-      await invite(ev.id, phone);
-      const gate = await enter(ev.id, phone);
+      const gate = await enter(ev.id, await invite(ev.id, phone));
       const res = await api("/api/register", {
         method: "POST",
         cookie: gate.cookie,
@@ -235,8 +239,7 @@ describe("등록", () => {
   it("닉네임은 한 글자부터, 한글·영문만 받는다", async () => {
     const ev = await freshEvent();
     const phone = nextPhone();
-    await invite(ev.id, phone);
-    const gate = await enter(ev.id, phone);
+    const gate = await enter(ev.id, await invite(ev.id, phone));
 
     for (const nickname of ["", "닉!네임", "닉 네임", "nick_name", "★별빛", "달빛3", "2세"]) {
       const res = await api("/api/register", {
@@ -267,8 +270,7 @@ describe("등록", () => {
   it("실명에는 숫자를 넣을 수 없다", async () => {
     const ev = await freshEvent();
     const phone = nextPhone();
-    await invite(ev.id, phone);
-    const gate = await enter(ev.id, phone);
+    const gate = await enter(ev.id, await invite(ev.id, phone));
 
     const res = await api("/api/register", {
       method: "POST",
@@ -282,8 +284,7 @@ describe("등록", () => {
     // macOS·iOS 의 일부 경로는 한글을 NFD 로 준다 — 눈에는 같은 "달빛"인데 코드포인트가 다르다
     const ev = await freshEvent();
     const phone = nextPhone();
-    await invite(ev.id, phone);
-    const gate = await enter(ev.id, phone);
+    const gate = await enter(ev.id, await invite(ev.id, phone));
 
     const res = await api<RegisterResult>("/api/register", {
       method: "POST",
@@ -299,8 +300,7 @@ describe("등록", () => {
     // 폼을 우회해 API 로 바로 쏘는 참가자 — 검증이 크래시 통로가 되면 안 된다
     const ev = await freshEvent();
     const phone = nextPhone();
-    await invite(ev.id, phone);
-    const gate = await enter(ev.id, phone);
+    const gate = await enter(ev.id, await invite(ev.id, phone));
 
     for (const bad of [
       { nickname: ["달빛"] },
@@ -322,7 +322,7 @@ describe("등록", () => {
     const ev = await freshEvent();
     const first = await join(ev, { nickname: "처음닉" });
     // 같은 번호로 문을 다시 두드리면 곧바로 참가자 세션이 나온다 — 등록 폼을 다시 채우지 않는다
-    const back = await enter(ev.id, first.phone);
+    const back = await enter(ev.id, first.token);
     expect(back.status).toBe(200);
     expect(back.body.registered).toBe(true);
     expect(back.body.code).toBe(ev.code);
@@ -387,11 +387,12 @@ describe("입장 명단", () => {
     expect(formatPhone("01012345678")).toBe("010-1234-5678");
   });
 
-  it("★ 명단에 없는 번호는 들어올 수 없다", async () => {
+  it("★ 명단에 없는 토큰으로는 들어올 수 없다", async () => {
     const ev = await freshEvent();
     await invite(ev.id, "01011112222");
 
-    const res = await enter(ev.id, "01099998888");
+    // 번호를 아는 것은 이제 아무 힘이 없다. 문을 여는 건 그에게 배달된 토큰뿐이다 (ADR-32)
+    const res = await enter(ev.id, "f".repeat(32));
     expect(res.status).toBe(403);
     expect(res.cookie).toBeNull();
     expect((res.body as unknown as { message: string }).message).toBe(ENTRY.notInvited);
@@ -401,12 +402,12 @@ describe("입장 명단", () => {
     expect(reg.status).toBe(401);
   });
 
-  it("★ 명단에 있으면 통과하고, 등록 폼은 번호를 다시 묻지 않는다", async () => {
+  it("★ 자기 토큰이면 통과하고, 등록 폼은 번호를 묻지 않는다", async () => {
     const ev = await freshEvent();
     const phone = nextPhone();
-    await invite(ev.id, phone);
+    const token = await invite(ev.id, phone);
 
-    const gate = await enter(ev.id, phone);
+    const gate = await enter(ev.id, token);
     expect(gate.status).toBe(200);
     expect(gate.body.registered).toBe(false);
 
@@ -423,8 +424,7 @@ describe("입장 명단", () => {
   it("★ 폼으로 다른 번호를 밀어 넣어도 통과한 번호로 등록된다", async () => {
     const ev = await freshEvent();
     const phone = nextPhone();
-    await invite(ev.id, phone);
-    const gate = await enter(ev.id, phone);
+    const gate = await enter(ev.id, await invite(ev.id, phone));
 
     await api("/api/register", {
       method: "POST",
@@ -449,18 +449,18 @@ describe("입장 명단", () => {
     const out = await api(`/api/host/events/${ev.id}/invites/${me.phone}`, { method: "DELETE", cookie: master });
     expect(out.status).toBe(200);
 
-    const back = await enter(ev.id, me.phone);
+    const back = await enter(ev.id, me.token);
     expect(back.status).toBe(200);
     expect(back.body.registered).toBe(true);
   });
 
-  it("★ 문을 계속 두드리면 막힌다 — 주소록을 넣어보는 창구가 되면 안 된다", async () => {
+  it("★ 문을 계속 두드리면 막힌다 — 문은 여전히 인증 없이 열려 있다", async () => {
     const ev = await freshEvent();
     await invite(ev.id, nextPhone());
 
     let blocked = 0;
     for (let i = 0; i < ENTRY_TRIES.max + 2; i++) {
-      const res = await enter(ev.id, `0102000${String(1000 + i)}`);
+      const res = await enter(ev.id, String(i).padStart(32, "a"));
       if (res.status === 429) blocked++;
     }
     expect(blocked).toBeGreaterThan(0);
@@ -884,7 +884,7 @@ describe("참가자를 지웠을 때", () => {
 
     await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
     // 같은 번호로 다시 들어오면 새 사람이다. 앞사람의 운세를 물려받지 않는다
-    const back = await enter(ev.id, b.phone);
+    const back = await enter(ev.id, b.token);
     expect(back.body.registered).toBe(false);
   });
 
@@ -892,7 +892,7 @@ describe("참가자를 지웠을 때", () => {
     const { ev, b } = await pair();
     await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
 
-    const back = await enter(ev.id, b.phone);
+    const back = await enter(ev.id, b.token);
     expect(back.status).toBe(200);
     expect(back.body.registered).toBe(false);   // 등록 폼부터 다시
   });
@@ -902,7 +902,7 @@ describe("참가자를 지웠을 때", () => {
     await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
     await api(`/api/host/events/${ev.id}/invites/${b.phone}`, { method: "DELETE", cookie: master });
 
-    expect((await enter(ev.id, b.phone)).status).toBe(403);
+    expect((await enter(ev.id, b.token)).status).toBe(403);
   });
 
   it("★ 남은 사람의 받은 콕이 줄지 않는다 — 줄면 누가 찔렀는지 드러난다", async () => {

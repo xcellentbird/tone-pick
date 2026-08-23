@@ -1067,135 +1067,31 @@ describe("한 폰으로 두 회차", () => {
 
 describe("참가 링크", () => {
   /**
-   * 운영자는 링크를 한 번 뿌리고 참가자는 그 링크를 계속 다시 연다.
+   * 링크가 곧 신원이다 (ADR-32). **번호 칸은 없다** —
+   * 번호를 아는 사람이 그 사람이 될 수 있던 구멍을 그렇게 닫았다 (ADR-15 후기 2).
+   *
+   * 운영자는 사람마다 다른 링크를 1:1 로 보내고, 참가자는 그 링크를 계속 다시 연다.
    * 등록을 마친 사람에게 등록 화면을 다시 보여주면 "내가 등록이 안 됐나?" 하고
    * 두 번 등록하려 든다. 실제로 나온 신고다.
    */
   function renderJoin() {
     const router = createMemoryRouter(
       [
-        { path: "/j/:id", element: <Join /> },
-        { path: "/j/:id/register/:step", element: <div>{SCREEN_TITLE.register}</div> },
+        { path: "/j/:id/:token", element: <Join /> },
+        { path: "/j/:id/:token/register/:step", element: <div>{SCREEN_TITLE.register}</div> },
         { path: "/e/:code", element: <div>참가자 화면</div> },
       ],
-      { initialEntries: ["/j/e1"] },
+      { initialEntries: ["/j/e1/tok123"] },
     );
     return render(<RouterProvider router={router} />);
   }
 
-  /** 세션이 없어 전화번호 칸이 뜨는 상태 */
-  const atGate = () =>
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) =>
-        url.includes("/me")
-          ? new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 })
-          : new Response(
-              JSON.stringify({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true }),
-              { headers: { "content-type": "application/json" } },
-            ),
-      ),
-    );
-
-  it("★ 전화번호 칸은 010 이 채워진 채로 시작한다", async () => {
-    /*
-     * 거의 모든 번호가 010 이라 세 번의 탭을 아낀다. 다만 **칸 밖의 고정 접두사로 두지 않는다** —
-     * 칸이 여덟 자리짜리가 되면 브라우저 자동완성이 채운 열한 자리가 안 들어가고,
-     * 011 같은 옛 번호를 지우고 칠 수도 없어진다 (그 사람은 문 앞에서 막히는데 이유를 알 수 없다).
-     */
-    atGate();
-    renderJoin();
-    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
-    expect(input.value).toBe("010");
-    // 지우고 다른 번호를 칠 수 있다
-    fireEvent.change(input, { target: { value: "0112345678" } });
-    expect(input.value).toBe("011-2345-678");
-  });
-
-  it("★ 씨앗만 있는 칸에 포커스가 오면 010 이 선택된 채로 남지 않는다", async () => {
-    /*
-     * 브라우저가 `010` 을 **통째로 선택한 채** 포커스를 준다. 그대로 두면 다음에 누르는
-     * 숫자 하나가 그 세 글자를 덮어써서, 여덟 자리만 친 사람은 `010` 이 있는 줄 알고 보낸다.
-     * 운영자 명단 칸에서 같은 일이 나면 그 사람은 파티 당일 문 앞에서 막힌다.
-     */
-    atGate();
-    renderJoin();
-    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
-
-    input.setSelectionRange(0, input.value.length);
-    fireEvent.focus(input);
-    await new Promise((r) => requestAnimationFrame(() => r(null)));
-    expect(input.selectionStart).toBe(3);
-    expect(input.selectionEnd).toBe(3);
-  });
-
-  it("이미 친 번호가 있으면 전체 선택을 건드리지 않는다 — 다 지우고 다시 치려는 것이다", async () => {
-    atGate();
-    renderJoin();
-    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
-
-    fireEvent.change(input, { target: { value: "01012345678" } });
-    input.setSelectionRange(0, input.value.length);
-    fireEvent.focus(input);
-    await new Promise((r) => requestAnimationFrame(() => r(null)));
-    expect(input.selectionStart).toBe(0);
-    expect(input.selectionEnd).toBe(input.value.length);
-  });
-
-  it("★ 치는 대로 하이픈이 붙고, 자리가 덜 차면 보낼 수 없다", async () => {
-    atGate();
-    renderJoin();
-    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
-    const submit = screen.getByText(ENTRY.submit) as HTMLButtonElement;
-
-    fireEvent.change(input, { target: { value: "0101234" } });
-    expect(input.value).toBe("010-1234");
-    // 덜 찬 채로 보내면 돌아오는 건 "이 번호로는 들어갈 수 없어요" 하나뿐이라 이유를 알 수 없다
-    expect(submit.disabled).toBe(true);
-
-    fireEvent.change(input, { target: { value: "01012345678" } });
-    expect(input.value).toBe("010-1234-5678");
-    expect(submit.disabled).toBe(false);
-  });
-
-  it("자동완성이 채운 열한 자리도 그대로 받는다", async () => {
-    // 자동완성은 하이픈 없이 한 번에 넣는다. 세 번 아끼려다 열한 번을 잃으면 안 된다
-    atGate();
-    renderJoin();
-    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "010-9876-5432" } });
-    expect(input.value).toBe("010-9876-5432");
-  });
-
-  it("★ 이미 등록한 사람은 등록 화면이 아니라 자기 화면으로 간다", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        const body = url.includes("/me")
-          ? participantState()
-          : { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true };
-        return new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }),
-    );
-    renderJoin();
-    await screen.findByText("참가자 화면");
-  });
-
-  /**
-   * ★ 링크만으로는 들어올 수 없다 (ADR-15).
-   *
-   * 참가 링크는 단톡방에 돌고, 스크린샷으로도 퍼진다. 그 링크가 곧 입장이면
-   * 운영자가 부르지 않은 사람이 명단에 들어온다 —
-   * 문을 여는 건 **운영자가 미리 받아둔 전화번호**다. 코드는 옮겨 적을 수 있지만
-   * 남의 번호로는 들어올 수 없다.
-   */
   function stubGate(enter: { status: number; body: unknown }) {
+    const calls: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
+        calls.push(url);
         if (url.includes("/me")) {
           return new Response(JSON.stringify({ error: "unauthorized" }), {
             status: 401,
@@ -1214,37 +1110,42 @@ describe("참가 링크", () => {
         );
       }),
     );
+    return calls;
   }
 
-  it("★ 링크만 열면 회차만 보이고, 번호를 넣어야 등록으로 간다", async () => {
+  it("★ 번호를 묻지 않는다 — 링크를 열고 누르면 등록으로 간다", async () => {
     stubGate({ status: 200, body: { registered: false } });
     renderJoin();
 
-    // 방은 보인다
+    // 방이 보인다
     await screen.findByText("테스트 파티");
     // 등록으로 가는 문은 아직 닫혀 있다
     expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
-    expect(screen.getByText(ENTRY.gateNote)).toBeTruthy();
+    // **번호 칸이 없다.** 있으면 지인이 남의 번호로 그 사람이 될 수 있다
+    expect(document.querySelector('input[inputmode="tel"]')).toBeNull();
 
-    fireEvent.change(screen.getByLabelText(ENTRY.phoneLabel), { target: { value: "010-1234-5678" } });
-    fireEvent.click(screen.getByText(ENTRY.submit));
-
+    fireEvent.click(screen.getByText(ENTRY.start));
     expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
   });
 
-  it("★ 명단에 없는 번호는 문 앞에서 막히고, 입력값은 남는다", async () => {
+  it("★ 회차 조회도 토큰을 싣는다 — 아이디만으로 열리면 안 된다", async () => {
+    const calls = stubGate({ status: 200, body: { registered: false } });
+    renderJoin();
+    await screen.findByText("테스트 파티");
+
+    const info = calls.find((u) => u.includes("/events/by-id/"));
+    expect(info).toContain("t=tok123");
+  });
+
+  it("★ 통하지 않는 링크는 문 앞에서 막힌다", async () => {
     stubGate({ status: 403, body: { error: "not_invited", message: ENTRY.notInvited } });
     renderJoin();
     await screen.findByText("테스트 파티");
 
-    const input = screen.getByLabelText(ENTRY.phoneLabel) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "01099998888" } });
-    fireEvent.click(screen.getByText(ENTRY.submit));
+    fireEvent.click(screen.getByText(ENTRY.start));
 
     expect(await screen.findByText(ENTRY.notInvited)).toBeTruthy();
     expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
-    // 번호를 다시 치게 하지 않는다 (칸은 하이픈을 넣어 보여준다)
-    expect(input.value).toBe("010-9999-8888");
   });
 
   it("이미 등록한 사람은 등록 폼을 건너뛴다", async () => {
@@ -1252,10 +1153,25 @@ describe("참가 링크", () => {
     renderJoin();
     await screen.findByText("테스트 파티");
 
-    fireEvent.change(screen.getByLabelText(ENTRY.phoneLabel), { target: { value: "01012345678" } });
-    fireEvent.click(screen.getByText(ENTRY.submit));
-
+    fireEvent.click(screen.getByText(ENTRY.start));
     expect(await screen.findByText("참가자 화면")).toBeTruthy();
+  });
+
+  it("★ 세션이 살아 있으면 등록 화면이 아니라 자기 화면으로 간다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const body = url.includes("/me")
+          ? participantState()
+          : { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true };
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    renderJoin();
+    await screen.findByText("참가자 화면");
   });
 });
 

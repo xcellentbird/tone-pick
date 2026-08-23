@@ -97,6 +97,7 @@ function renderConsole(at = "/host/e1") {
         children: [
           { index: true, element: <Dash /> },
           { path: "players", element: <Players /> },
+          { path: "players/:pid", element: <Players /> },
           { path: "settings", element: <Settings /> },
         ],
       },
@@ -210,6 +211,73 @@ describe("운영자 콘솔", () => {
     expect(label(HOST_UI.players.filterAll)).toContain("2");
     expect(label(GENDER.M)).toContain("1");
     expect(label(GENDER.F)).toContain("1");
+  });
+
+  /*
+   * 번호 칸은 **운영자 명단에만** 남았다. 참가자 쪽은 링크가 신원이라 번호를 치지 않는다 (ADR-32).
+   * 그래도 이 칸의 동작은 그대로 중요하다 — 여기서 잘못 옮겨 적은 번호는 파티 당일에야 드러난다.
+   */
+  describe("명단 번호 칸", () => {
+    const field = async () => {
+      stubFetch(hostState());
+      // 명단 시트도 라우트다 (`/players/invites`) — 번호 칸은 그 안에 있다
+      renderConsole("/host/e1/players/invites");
+      return (await screen.findByLabelText(HOST_UI.invites.addLabel)) as HTMLInputElement;
+    };
+
+    it("★ 010 이 채워진 채로 시작하고, 지우고 다른 번호를 칠 수 있다", async () => {
+      /*
+       * 거의 모든 번호가 010 이라 세 번의 탭을 아낀다. 다만 **칸 밖의 고정 접두사로 두지 않는다** —
+       * 011 같은 옛 번호를 지우고 칠 수 없으면 그 사람은 문 앞에서 막힌다.
+       */
+      const input = await field();
+      expect(input.value).toBe("010");
+      fireEvent.change(input, { target: { value: "0112345678" } });
+      expect(input.value).toBe("011-2345-678");
+    });
+
+    it("★ 씨앗만 있는 칸에 포커스가 오면 010 이 선택된 채로 남지 않는다", async () => {
+      /*
+       * 브라우저가 `010` 을 **통째로 선택한 채** 포커스를 준다. 그대로 두면 다음에 누르는
+       * 숫자 하나가 그 세 글자를 덮어써서, 여덟 자리만 친 번호가 명단에 들어간다.
+       */
+      const input = await field();
+      input.setSelectionRange(0, input.value.length);
+      fireEvent.focus(input);
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      expect(input.selectionStart).toBe(3);
+      expect(input.selectionEnd).toBe(3);
+    });
+
+    it("이미 친 번호가 있으면 전체 선택을 건드리지 않는다 — 다 지우고 다시 치려는 것이다", async () => {
+      const input = await field();
+      fireEvent.change(input, { target: { value: "01012345678" } });
+      input.setSelectionRange(0, input.value.length);
+      fireEvent.focus(input);
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      expect(input.selectionStart).toBe(0);
+      expect(input.selectionEnd).toBe(input.value.length);
+    });
+
+    it("★ 치는 대로 하이픈이 붙고, 자리가 덜 차면 더할 수 없다", async () => {
+      const input = await field();
+      const submit = screen.getByText(HOST_UI.invites.addOne) as HTMLButtonElement;
+
+      fireEvent.change(input, { target: { value: "0101234" } });
+      expect(input.value).toBe("010-1234");
+      expect(submit.disabled).toBe(true);
+
+      fireEvent.change(input, { target: { value: "01012345678" } });
+      expect(input.value).toBe("010-1234-5678");
+      expect(submit.disabled).toBe(false);
+    });
+
+    it("자동완성이 채운 열한 자리도 그대로 받는다", async () => {
+      // 자동완성은 하이픈 없이 한 번에 넣는다. 세 번 아끼려다 열한 번을 잃으면 안 된다
+      const input = await field();
+      fireEvent.change(input, { target: { value: "010-9876-5432" } });
+      expect(input.value).toBe("010-9876-5432");
+    });
   });
 
   it("★ 운영자에게도 받은 콕은 보여주지 않는다", async () => {

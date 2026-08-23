@@ -1,4 +1,5 @@
 import type { Defaults } from "./types.ts";
+import { INVITE_TEMPLATE } from "./copy.ts";
 
 /**
  * 등록은 파티 **6일 전**에 연다. 한 주 전 주말에 알리고 평일 내내 모으는 리듬이다.
@@ -9,6 +10,7 @@ export const DEFAULTS: Defaults = {
   maxParty: 2,
   regOpenBeforeD: 6,
   prevoteBeforeH: 20,
+  inviteTemplate: INVITE_TEMPLATE,
 };
 
 /**
@@ -23,11 +25,13 @@ export const DEFAULTS: Defaults = {
 export function withDefaults(saved: Partial<Defaults> | null | undefined): Defaults {
   const num = (v: unknown, fallback: number) =>
     typeof v === "number" && Number.isFinite(v) ? v : fallback;
+  const text = (v: unknown, fallback: string) => (typeof v === "string" && v.trim() ? v : fallback);
   return {
     maxPre: num(saved?.maxPre, DEFAULTS.maxPre),
     maxParty: num(saved?.maxParty, DEFAULTS.maxParty),
     regOpenBeforeD: num(saved?.regOpenBeforeD, DEFAULTS.regOpenBeforeD),
     prevoteBeforeH: num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH),
+    inviteTemplate: text(saved?.inviteTemplate, DEFAULTS.inviteTemplate),
   };
 }
 
@@ -51,6 +55,8 @@ export const LIMITS = {
    * 파티 규모의 상한이 아니다 — 100명 파티 + 시연·리허설 여유가 들어가는 크기로 둔다.
    */
   inviteMax: 150,
+  /** 안내문 문구 상한. 문자 한 통에 들어가는 크기를 훌쩍 넘기지 않게 (ADR-32) */
+  inviteTemplateMax: 500,
   /** 테이블당 인원이 이 범위를 벗어나면 운영자에게 경고 */
   seatPerTable: { warnBelow: 2, warnAbove: 8 },
 } as const;

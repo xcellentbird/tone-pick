@@ -91,6 +91,23 @@ async function travelTo(at: number) {
   expect(res.status, "테스트 전용 시간 이동 라우트가 필요합니다 (docs/scenarios/01-surface.md)").toBe(200);
 }
 
+let inviteSeq = 0;
+
+/**
+ * 참가 링크 주소. **회차 정보 조회도 토큰을 요구한다** (ADR-32) —
+ * 아이디만으로 열리면 토큰을 만든 의미가 없다.
+ */
+async function linkTo(eventId: string): Promise<string> {
+  const phone = `0108000${String(1000 + ++inviteSeq)}`;
+  const added = await api<Array<{ phone: string; token: string }>>(`/api/host/events/${eventId}/invites`, {
+    method: "POST",
+    cookie: master,
+    body: { phones: [phone] },
+  });
+  const token = added.body.find((i) => i.phone === phone)!.token;
+  return `/api/events/by-id/${eventId}?t=${token}`;
+}
+
 let master: string | null = null;
 
 beforeEach(async () => {
@@ -221,7 +238,7 @@ describe("B. 회차 생성", () => {
     expect(res.body.phase).toBe("reg");
     expect(res.body.fired.reg).toBeGreaterThan(0);
     // And   그 코드로 즉시 입장할 수 있다
-    const pub = await api<PublicEvent>(`/api/events/by-id/${res.body.id}`);
+    const pub = await api<PublicEvent>(await linkTo(res.body.id));
     expect(pub.body.canRegister).toBe(true);
   });
 
@@ -313,7 +330,7 @@ describe("C. 입장 코드", () => {
     // Given 등록 중인 회차가 있다
     const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
     // When  코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
+    const res = await api<PublicEvent>(await linkTo(ev.body.id));
     // Then  200 이고 이름과 phase 를 받는다
     expect(res.status).toBe(200);
     expect(res.body.name).toBe(ev.body.name);
@@ -324,7 +341,7 @@ describe("C. 입장 코드", () => {
     // Given 등록 중인 회차가 있다
     const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
     // When  인증 없이 코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
+    const res = await api<PublicEvent>(await linkTo(ev.body.id));
     // 빈 응답이면 "비밀이 없다"가 저절로 참이 된다. 먼저 진짜 응답인지 확인한다
     expect(res.status).toBe(200);
     expect(res.body.name).toBe(ev.body.name);
@@ -340,11 +357,11 @@ describe("C. 입장 코드", () => {
   });
 
   it("S-C2b ★ 참가 링크 응답에 입장 코드가 없다", async () => {
-    // Given 등록 중인 회차가 있다. 참가 링크는 회차 아이디만 담는다 (ADR-13)
+    // Given 등록 중인 회차가 있다. 참가 링크는 회차 아이디 + 그 사람의 토큰이다 (ADR-32)
     const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
 
     // When  링크를 받은 사람이 인증 없이 그 회차를 연다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
+    const res = await api<PublicEvent>(await linkTo(ev.body.id));
     expect(res.status).toBe(200);
     expect(res.body.name).toBe(ev.body.name);
 
@@ -370,7 +387,7 @@ describe("C. 입장 코드", () => {
     const ev = await createEvent(master, { regOpenAt: at, prevoteAt: at + 24 * HOUR });
     expect(ev.body.phase).toBe("prep");
     // When  코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
+    const res = await api<PublicEvent>(await linkTo(ev.body.id));
     // Then  등록 불가이고 ENTRY.notOpenYet 형태의 안내가 온다
     expect(res.body.canRegister).toBe(false);
     expect(res.body.message).toMatch(/부터 등록이 열려요\.$/);
@@ -386,7 +403,7 @@ describe("C. 입장 코드", () => {
     });
     expect(done.status).toBe(200);
     // When  코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
+    const res = await api<PublicEvent>(await linkTo(ev.body.id));
     // Then  등록 불가이고 메시지는 ENTRY.finished 다
     expect(res.body.canRegister).toBe(false);
     expect(res.body.message).toBe(ENTRY.finished);
@@ -411,7 +428,7 @@ describe("D. 서버 시각", () => {
     expect(ev.body.phase).toBe("prep");
 
     // When  클라이언트가 자기 시각을 미래로 주장하며 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`, {
+    const res = await api<PublicEvent>(await linkTo(ev.body.id), {
       headers: { "x-client-now": String(at + 10 * HOUR), date: new Date(at + 10 * HOUR).toUTCString() },
     });
 
