@@ -94,7 +94,7 @@ export default function Join() {
             ) : (
               <>
                 <button className="btn primary block" disabled={busy} onClick={start}>
-                  {ENTRY.start}
+                  {found.data.registered ? ENTRY.reenter : ENTRY.start}
                 </button>
                 {error && <p className="err">{error}</p>}
               </>

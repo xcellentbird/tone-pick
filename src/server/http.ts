@@ -148,11 +148,14 @@ export async function playerScope(c: Ctx): Promise<AuthScope | null> {
   return scope?.kind === "player" ? scope : null;
 }
 
-/** 명단 확인은 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다 */
-export async function inviteScope(c: Ctx): Promise<{ eventId: string; phone: string } | null> {
-  const token = readCookie(c.req.header("cookie") ?? null, INVITE_COOKIE);
-  const scope = await readSession(token, c.env.SESSION_SECRET, serverNow());
-  return scope?.kind === "invited" ? { eventId: scope.eventId, phone: scope.phone } : null;
+/**
+ * 링크는 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다.
+ * **번호가 아니라 참가 토큰을 들고 있다** (ADR-32) — 번호는 회차 DO 안에서만 푼다.
+ */
+export async function inviteScope(c: Ctx): Promise<{ eventId: string; token: string } | null> {
+  const session = readCookie(c.req.header("cookie") ?? null, INVITE_COOKIE);
+  const scope = await readSession(session, c.env.SESSION_SECRET, serverNow());
+  return scope?.kind === "invited" ? { eventId: scope.eventId, token: scope.token } : null;
 }
 
 /** 운영자 권한은 한 종류뿐이다 — 운영자 PIN 을 통과했는가 (ADR-12) */
