@@ -24,6 +24,7 @@ import type {
   AnnounceInput,
   Announcement,
   HostAnnouncement,
+  MatchKind,
   ParticipantState,
   PollChoice,
   PublicAnnouncement,
@@ -764,6 +765,7 @@ export class EventDO extends DurableObject {
     }
     const pokeCount: Record<PokeRound, number> = { pre: 0, party: 0 };
     const pairs = new Set<string>();
+    const when = new Map<string, Set<PokeRound>>();
     for (const k of pokes) {
       sent[k.fromId] = (sent[k.fromId] ?? 0) + 1;
       received[k.toId] = (received[k.toId] ?? 0) + 1;
@@ -771,15 +773,23 @@ export class EventDO extends DurableObject {
       usedBy[k.round][k.fromId] = (usedBy[k.round][k.fromId] ?? 0) + 1;
       pokeCount[k.round]++;
       pairs.add(`${k.fromId}>${k.toId}`);
+      // 어느 라운드에 찔렀는지. 매칭이 **어떻게 이루어졌는가**를 가르는 데만 쓴다
+      const key = `${k.fromId}>${k.toId}`;
+      if (!when.has(key)) when.set(key, new Set());
+      when.get(key)!.add(k.round);
     }
     const pokeUsedMax: Record<PokeRound, number> = {
       pre: Math.max(0, ...Object.values(usedBy.pre)),
       party: Math.max(0, ...Object.values(usedBy.party)),
     };
     const mutual: Array<[string, string]> = [];
+    const matchRounds: Record<string, MatchKind> = {};
     for (const key of pairs) {
       const [a, b] = key.split(">");
-      if (a < b && pairs.has(`${b}>${a}`)) mutual.push([a, b]);
+      if (a < b && pairs.has(`${b}>${a}`)) {
+        mutual.push([a, b]);
+        matchRounds[`${a}|${b}`] = kindOf(when.get(key)!, when.get(`${b}>${a}`)!);
+      }
     }
 
     return ok({
@@ -791,6 +801,7 @@ export class EventDO extends DurableObject {
         .map(([id, count]) => ({ id, count }))
         .sort((a, b) => b.count - a.count),
       mutual,
+      matchRounds,
       pokeCount,
       pokeUsedMax,
       seatings: this.seatings(),
@@ -1426,24 +1437,33 @@ export class EventDO extends DurableObject {
    */
   private pairs() {
     const sent = new Map<string, number>();
-    for (const k of this.pokes()) sent.set(`${k.fromId}>${k.toId}`, (sent.get(`${k.fromId}>${k.toId}`) ?? 0) + 1);
+    // 어느 라운드에 찔렀는지. 매칭이 **어떻게 이루어졌는가**를 가르는 데만 쓴다
+    const when = new Map<string, Set<PokeRound>>();
+    for (const k of this.pokes()) {
+      const key = `${k.fromId}>${k.toId}`;
+      sent.set(key, (sent.get(key) ?? 0) + 1);
+      if (!when.has(key)) when.set(key, new Set());
+      when.get(key)!.add(k.round);
+    }
 
     const mutual: Array<[string, string]> = [];
     const oneWay: Array<[string, string]> = [];
     const strength: Record<string, number> = {};
+    const matchRounds: Record<string, MatchKind> = {};
     for (const key of sent.keys()) {
       const [a, b] = key.split(">");
       if (sent.has(`${b}>${a}`)) {
         if (a < b) {
           mutual.push([a, b]);
           strength[`${a}|${b}`] = (sent.get(key) ?? 0) + (sent.get(`${b}>${a}`) ?? 0);
+          matchRounds[`${a}|${b}`] = kindOf(when.get(key)!, when.get(`${b}>${a}`)!);
         }
       } else {
         oneWay.push([a, b]);
       }
     }
     mutual.sort((x, y) => strength[`${y[0]}|${y[1]}`] - strength[`${x[0]}|${x[1]}`]);
-    return { mutual, oneWay, strength };
+    return { mutual, oneWay, strength, matchRounds };
   }
 
   private seatings(): SeatingRound[] {
@@ -1519,6 +1539,19 @@ export class EventDO extends DurableObject {
 }
 
 // ─────────────────────────── 순수 헬퍼
+
+/**
+ * 매칭이 **어떻게 이루어졌는가**. 두 방향이 각각 어느 라운드에 있었는지로 가른다.
+ *
+ * 네 갈래가 빠짐없이 나뉜다 — 매칭이라는 건 두 방향이 다 있다는 뜻이라,
+ * 사전에도 아니고 파티에도 아니면 남는 건 **엇갈린 것**뿐이다.
+ * 그래서 합이 늘 통합 매칭 수와 같다.
+ */
+function kindOf(ab: Set<PokeRound>, ba: Set<PokeRound>): MatchKind {
+  const pre = ab.has("pre") && ba.has("pre");
+  const party = ab.has("party") && ba.has("party");
+  return pre && party ? "both" : pre ? "pre" : party ? "party" : "crossed";
+}
 
 interface AnnRow {
   id: string;

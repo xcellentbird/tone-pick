@@ -26,7 +26,7 @@
  *
  * 남은 시간은 **서버 시각**에서 뺀다. 폰 시계를 바꿔 결과를 먼저 보는 걸 막기 위해.
  */
-import { PHASE_LABEL, STATUS } from "../../shared/copy.ts";
+import { HELP, PHASE_LABEL, STATUS } from "../../shared/copy.ts";
 import type { EventSchedule, ParticipantState } from "../../shared/types.ts";
 import { TICK_WINDOW, formatCountdown, formatDayHour } from "../../shared/time.ts";
 import { now } from "../lib/serverTime.ts";
@@ -45,7 +45,7 @@ function nextMark(phase: ParticipantState["event"]["phase"], schedule: EventSche
   ].find((m) => m.on.includes(phase) && m.at && m.at > at);
 }
 
-export default function StatusBar({ state }: { state: ParticipantState }) {
+export default function StatusBar({ state, onHelp }: { state: ParticipantState; onHelp: () => void }) {
   const { name, phase, schedule } = state.event;
   // 파티가 시작되면 셀 것이 없다. 그 뒤로는 단계 이름만 남는다
   const mark = nextMark(phase, schedule, now());
@@ -72,6 +72,16 @@ export default function StatusBar({ state }: { state: ParticipantState }) {
           )}
         </span>
       )}
+
+      {/*
+        **모든 탭에서 항상 보이는 자리는 여기뿐이다.** 운영자가 "물음표 눌러보세요" 라고
+        말할 수 있으려면 찾아 들어가지 않아도 되는 곳에 있어야 한다.
+        파티가 시작되면 카운트다운이 사라져서(셀 것이 없다) 오히려 자리가 넉넉해진다 —
+        정작 사람들이 가장 헷갈리는 때가 그때다.
+      */}
+      <button type="button" className="helpBtn" aria-label={HELP.open} onClick={onHelp}>
+        <span aria-hidden>?</span>
+      </button>
     </div>
   );
 }

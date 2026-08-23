@@ -19,7 +19,7 @@ afterEach(cleanup);
 
 const HOUR = 3600_000;
 
-function hostState(over: Partial<HostState["meta"]> = {}): HostState {
+function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostState> = {}): HostState {
   return {
     meta: {
       id: "e1",
@@ -67,6 +67,8 @@ function hostState(over: Partial<HostState["meta"]> = {}): HostState {
     seatings: [],
     invites: [],
     announcements: [],
+    matchRounds: {},
+    ...more,
   };
 }
 
@@ -144,6 +146,29 @@ describe("운영자 콘솔이 비어버리지 않는다", () => {
     );
     renderConsole();
     await screen.findByText(FAIL.retry);
+  });
+});
+
+describe("매칭이 어떻게 이루어졌나", () => {
+  it("★ 네 갈래의 합이 통합 매칭 수와 같다 — 운영자가 덧셈으로 의심하지 않게", async () => {
+    /*
+     * 사전·파티·통합 세 숫자를 나란히 두면 3+5≠9 를 운영자가 먼저 눈치챈다.
+     * 엇갈린 쌍은 어느 라운드도 아니고, 둘 다인 쌍은 두 번 세어지기 때문이다.
+     */
+    stubFetch(
+      hostState({}, {
+        mutual: [["a", "b"], ["a", "c"], ["b", "c"], ["c", "d"]],
+        matchRounds: { "a|b": "pre", "a|c": "party", "b|c": "party", "c|d": "crossed" },
+      }),
+    );
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.mutualTitle(4));
+
+    expect(screen.getByText(HOST_UI.dash.mix.pre)).toBeTruthy();
+    // 사전 1 · 파티 2 · 둘 다 0 · 엇갈림 1 = 4
+    expect(screen.getAllByText("1쌍").length).toBe(2);
+    expect(screen.getByText("2쌍")).toBeTruthy();
+    expect(screen.getByText("0쌍")).toBeTruthy();
   });
 });
 
