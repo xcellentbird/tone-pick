@@ -12,6 +12,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import type {
+  Attendance,
   EventConfig,
   EventMeta,
   EventSchedule,
@@ -75,6 +76,7 @@ CREATE TABLE IF NOT EXISTS players (
   mbti       TEXT NOT NULL,
   charms     TEXT NOT NULL,          -- JSON string[3]
   created_at INTEGER NOT NULL,
+  attendance TEXT,                   -- 'arrived' | 'left'. 없으면 안 옴 (ADR-33)
   token      TEXT                    -- 등록할 때 초대 명단에서 복사해 온다 (ADR-32).
                                      -- 명단에서 지워져도 자기 링크로 계속 들어오게 하는 값이다
 );
@@ -174,6 +176,7 @@ export class EventDO extends DurableObject {
         "ALTER TABLE invites ADD COLUMN token TEXT",
         "ALTER TABLE invites ADD COLUMN sent_at INTEGER",
         "ALTER TABLE players ADD COLUMN token TEXT",
+        "ALTER TABLE players ADD COLUMN attendance TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token)",
         "CREATE INDEX IF NOT EXISTS players_token ON players(token)",
       ]) {
@@ -647,6 +650,17 @@ export class EventDO extends DurableObject {
     return ok({ state: state.value, resumed: !!before });
   }
 
+  /**
+   * 참석 상태를 바꾼다 (ADR-33). **찍는 길은 여기 하나뿐이다** — 운영자가 누른다.
+   * 되돌릴 수 있어서 확인창이 없고, 그래서 잘못 눌러도 잃는 게 없다.
+   */
+  async setAttendance(playerId: string, to: Attendance | null): Promise<Result<true>> {
+    const mine = this.rows<{ id: string }>("SELECT id FROM players WHERE id = ?", playerId)[0];
+    if (!mine) return fail("not_found");
+    this.ctx.storage.sql.exec("UPDATE players SET attendance = ? WHERE id = ?", to, playerId);
+    return ok(true);
+  }
+
   async deletePlayer(playerId: string): Promise<Result<true>> {
     const row = this.rows<PlayerRow>("SELECT * FROM players WHERE id = ?", playerId)[0];
     if (!row) return fail("not_found");
@@ -798,6 +812,14 @@ export class EventDO extends DurableObject {
     const here = new Set(players.map((p) => p.id));
     const pokes = this.pokes().filter((k) => here.has(k.fromId) && here.has(k.toId));
 
+    /** 참석 상태. **운영자 응답에만 실린다** (ADR-33) */
+    const attendance: Record<string, Attendance> = {};
+    for (const r of this.rows<{ id: string; attendance: string | null }>(
+      "SELECT id, attendance FROM players WHERE attendance IS NOT NULL",
+    )) {
+      if (r.attendance === "arrived" || r.attendance === "left") attendance[r.id] = r.attendance;
+    }
+
     const sent: Record<string, number> = {};
     const received: Record<string, number> = {};
     const preReceived: Record<string, number> = {};
@@ -850,6 +872,7 @@ export class EventDO extends DurableObject {
       pokeCount,
       pokeUsedMax,
       seatings: this.seatings(),
+      attendance,
       invites: this.invites(),
       announcements: this.hostAnnouncements(),
     });
