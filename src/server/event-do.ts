@@ -422,14 +422,35 @@ export class EventDO extends DurableObject {
     return ok(mine ? { registered: true, code: meta.code } : { registered: false });
   }
 
-  /** 토큰이 가리키는 번호. 입장 확인을 통과한 뒤 쿠키를 만들 때만 쓴다 */
-  async phoneByToken(token: string): Promise<Result<string | null>> {
+  /**
+  * 토큰이 가리키는 번호. **DO 안에서만 쓴다** — 이 값이 Worker 를 지나 쿠키로 나가면
+  * 번호를 치지 않기로 한 결정(ADR-32)이 브라우저에서 새어 나간다.
+  */
+  private phoneOf(token: string): string | null {
+    const clean = String(token ?? "").trim();
+    if (!clean) return null;
+    const inv = this.rows<{ phone: string }>("SELECT phone FROM invites WHERE token = ?", clean)[0];
+    if (inv) return inv.phone;
+    return this.rows<{ phone: string }>("SELECT phone FROM players WHERE token = ?", clean)[0]?.phone ?? null;
+  }
+
+  /**
+   * 이 토큰이 이 회차의 것인가, 그리고 그 주인이 이미 등록했나.
+   * **번호를 꺼내지 않는다** — 회차 정보를 여는 데 번호는 필요 없다.
+   */
+  async tokenState(token: string): Promise<Result<{ known: boolean; registered: boolean }>> {
+    const clean = String(token ?? "").trim();
+    if (!clean) return ok({ known: false, registered: false });
+    const registered = !!this.rows<{ id: string }>("SELECT id FROM players WHERE token = ?", clean)[0];
+    return ok({ known: registered || !!this.phoneOf(clean), registered });
+  }
+
+  /** 토큰의 주인이 이미 등록했다면 그 사람. 통과한 뒤 참가자 세션을 만들 때 쓴다 */
+  async playerIdByToken(token: string): Promise<Result<string | null>> {
     const clean = String(token ?? "").trim();
     if (!clean) return ok(null);
-    const inv = this.rows<{ phone: string }>("SELECT phone FROM invites WHERE token = ?", clean)[0];
-    if (inv) return ok(inv.phone);
-    const p = this.rows<{ phone: string }>("SELECT phone FROM players WHERE token = ?", clean)[0];
-    return ok(p?.phone ?? null);
+    const row = this.rows<{ id: string }>("SELECT id FROM players WHERE token = ?", clean)[0];
+    return ok(row?.id ?? null);
   }
 
   /** 번호로 그 사람을 찾는다. 입장 확인을 통과한 뒤 세션을 만들 때만 쓴다 */
@@ -591,7 +612,10 @@ export class EventDO extends DurableObject {
    * 예전에는 Worker 가 findByPhone → register → participantState 로 **세 번** 들어왔다.
    * 회차 DO 는 요청을 순차 처리하므로, 등록이 몰리는 순간 그 세 배가 그대로 줄이 된다.
    */
-  async registerAndLoad(input: RegisterInput, phone: string, now: number): Promise<Result<RegisterResult>> {
+  async registerAndLoad(input: RegisterInput, token: string, now: number): Promise<Result<RegisterResult>> {
+    // 번호는 **여기서** 푼다. 쿠키에는 토큰만 들어 있다 (ADR-32)
+    const phone = this.phoneOf(token);
+    if (!phone) return fail("not_invited") as Result<RegisterResult>;
     const before = this.rows<{ id: string }>("SELECT id FROM players WHERE phone = ?", phone)[0];
 
     const made = await this.register(input, phone, now);

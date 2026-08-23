@@ -55,11 +55,12 @@ participantRoutes.get("/events/by-id/:id", async (c) => {
   const link = String(c.req.query("t") ?? "").trim();
   if (!link || !(await registry(c.env).hasEvent(id))) return apiError(c, "not_found", ENTRY.notFound);
 
-  const owner = await eventStub(c.env, id).phoneByToken(link);
-  if (!owner.ok || !owner.value) return apiError(c, "not_found", ENTRY.notFound);
+  const link_ = await eventStub(c.env, id).tokenState(link);
+  if (!link_.ok || !link_.value.known) return apiError(c, "not_found", ENTRY.notFound);
 
   const { value, response } = unwrap(c, await eventStub(c.env, id).publicAt(serverNow()), () => ENTRY.notFound);
-  return response ?? c.json(value);
+  // 이미 등록한 사람에게 `등록하기` 라고 하면 두 번 등록하려 든다. 실제로 나온 신고다
+  return response ?? c.json({ ...value!, registered: link_.value.registered });
 });
 /*
  * 코드로 회차를 찾던 길(`/events/by-code/:code`)을 닫았다.
@@ -110,17 +111,13 @@ participantRoutes.post("/events/:id/enter", async (c) => {
 
   const result = value as EnterResult;
   /*
-   * 번호는 **토큰에서** 꺼낸다. 참가자는 번호를 치지 않는다 (ADR-32) —
-   * 그래야 등록 폼도, 그 앞의 문도 명단에 없는 번호를 만들 수 없다.
+   * **쿠키에 번호를 담지 않는다** (ADR-32). 세션은 서명만 하고 암호화하지 않아서
+   * 페이로드가 개발자 도구에 그대로 읽힌다 — 번호를 치지 않기로 했으면
+   * 번호가 브라우저에 남을 이유도 없다. 번호는 회차 DO 안에서만 푼다.
    */
-  const owner = await eventStub(c.env, id).phoneByToken(link);
-  const phone = owner.ok ? (owner.value ?? "") : "";
-  if (!phone) return apiError(c, "forbidden", ENTRY.notInvited);
-
-  // 이미 등록을 마친 사람에게는 곧바로 참가자 세션을 준다
   const scope = result.registered
-    ? await playerScopeFor(c, id, phone)
-    : ({ kind: "invited", eventId: id, phone } as const);
+    ? await playerScopeFor(c, id, link)
+    : ({ kind: "invited", eventId: id, token: link } as const);
   if (!scope) return apiError(c, "forbidden", ENTRY.notInvited);
 
   const token = await signSession(scope, c.env.SESSION_SECRET, serverNow());
@@ -139,7 +136,7 @@ participantRoutes.post("/register", async (c) => {
 
   const input = (await c.req.json().catch(() => ({}))) as RegisterInput;
   // 회차 DO 는 요청을 순차 처리한다. 등록이 몰리는 순간을 위해 왕복을 한 번으로 줄였다
-  const result = await eventStub(c.env, scope.eventId).registerAndLoad(input, scope.phone, serverNow());
+  const result = await eventStub(c.env, scope.eventId).registerAndLoad(input, scope.token, serverNow());
   const { value, response } = unwrap(c, result, registerMessage(String(input.nickname ?? "")));
   if (response) return response;
 
@@ -307,7 +304,7 @@ async function seatOf(c: Ctx) {
 }
 
 /** 이미 등록한 사람의 세션. 번호로 그 사람을 찾는다 */
-async function playerScopeFor(c: Ctx, eventId: string, phone: string) {
-  const found = await eventStub(c.env, eventId).playerIdByPhone(phone);
+async function playerScopeFor(c: Ctx, eventId: string, token: string) {
+  const found = await eventStub(c.env, eventId).playerIdByToken(token);
   return found.ok && found.value ? ({ kind: "player", eventId, playerId: found.value } as const) : null;
 }

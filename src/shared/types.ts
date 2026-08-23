@@ -197,8 +197,14 @@ export interface Defaults extends EventConfig {
  */
 export type AuthScope =
   | { kind: "player"; eventId: string; playerId: string }
-  /** 명단 확인을 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다 */
-  | { kind: "invited"; eventId: string; phone: string }
+  /**
+   * 링크를 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다.
+   *
+   * **전화번호를 담지 마라** (ADR-32). 세션은 서명만 하고 암호화하지 않아서,
+   * 개발자 도구를 여는 참가자에게 페이로드가 그대로 읽힌다. 번호는 회차 DO 안에서만 푼다 —
+   * 참가자가 번호를 치지 않기로 했으면 번호가 브라우저에 남을 이유도 없다.
+   */
+  | { kind: "invited"; eventId: string; token: string }
   | { kind: "master" };
 
 // ─────────────────────────── 실시간 (WebSocket)
@@ -280,6 +286,12 @@ export interface PublicEvent {
   retentionDays: number;
   /** 등록할 수 없을 때의 안내. copy.ts 의 ENTRY.* 를 쓴다 */
   message?: string;
+  /**
+   * 이 링크의 주인이 이미 등록했나. **자기 자신에 대한 답이라 새어 나갈 게 없다** —
+   * 토큰을 가진 사람에게만 이 응답이 열린다 (ADR-32).
+   * 화면이 `등록하기` 와 `다시 입장하기` 를 가르는 데 쓴다.
+   */
+  registered?: boolean;
 }
 
 export type ErrorCode =

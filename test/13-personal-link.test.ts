@@ -227,6 +227,42 @@ describe("A. 문", () => {
     expect(again.body.registered).toBe(true);
   });
 
+  it("S-A8 ★ 세션 쿠키 어디에도 전화번호가 없다", async () => {
+    /*
+     * 세션은 **서명만 하고 암호화하지 않는다** (auth.ts). HttpOnly 라 JS 로는 못 읽지만
+     * 개발자 도구 Application 탭에서는 페이로드가 그대로 읽힌다.
+     * 참가자가 번호를 치지 않기로 했으면(ADR-32) 번호가 브라우저에 남을 이유도 없다.
+     */
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    const row = await invite(ev.id, phone);
+
+    const read = (cookie: string | null) => {
+      expect(cookie, "쿠키가 있어야 이 테스트가 의미를 가진다").toBeTruthy();
+      const value = cookie!.slice(cookie!.indexOf("=") + 1);
+      const payload = value.split(".")[0];
+      return atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+    };
+
+    // 등록 전 — 초대 쿠키
+    const gate = await enter(ev.id, row.token);
+    expect(gate.status, JSON.stringify(gate.body)).toBe(200);
+    expect(read(gate.cookie)).not.toContain(phone);
+
+    // 등록 후 — 참가자 쿠키
+    const reg = await api<RegisterResult>("/api/register", {
+      method: "POST",
+      cookie: gate.cookie,
+      body: person(),
+    });
+    expect(reg.status, JSON.stringify(reg.body)).toBe(200);
+    expect(read(reg.cookie)).not.toContain(phone);
+
+    // 그래도 등록은 그 번호로 됐다 — 번호는 회차 DO 안에서만 풀린다
+    const list = await hostInvites(ev.id);
+    expect(list.find((i) => i.phone === phone)?.nickname).toBe(reg.body.state.me.nickname);
+  });
+
   it("S-A7 이미 등록한 사람은 곧바로 자기 화면으로 간다", async () => {
     const ev = await freshEvent();
     const row = await invite(ev.id, nextPhone());
@@ -236,6 +272,82 @@ describe("A. 문", () => {
     const again = await enter(ev.id, row.token);
     expect(again.body.registered).toBe(true);
     expect(again.body.code).toBe(ev.code);
+  });
+});
+
+// ─────────────────────────────────────────── A2. 한 기기, 여러 회차
+
+describe("A2. 한 기기로 여러 회차", () => {
+  /*
+   * 같은 사람이 여러 회차에 온다. **참가자 세션은 브라우저에 하나뿐**이라
+   * 다음 회차에 들어가면 앞의 세션이 덮인다 — 그래도 각자의 링크만 있으면 오갈 수 있어야 한다.
+   * 링크가 그 사람의 신원이라(ADR-32) 되찾는 데 다른 재료가 필요하지 않다.
+   */
+  it("S-A9 ★ 회차를 오가도 각자의 링크로 자기 화면에 돌아온다", async () => {
+    const a = await freshEvent();
+    const b = await freshEvent();
+    const phone = nextPhone();   // 같은 사람이 두 회차에 초대됐다
+    const linkA = (await invite(a.id, phone)).token;
+    const linkB = (await invite(b.id, phone)).token;
+
+    // A 에 등록한다
+    const gateA = await enter(a.id, linkA);
+    const regA = await api<RegisterResult>("/api/register", {
+      method: "POST",
+      cookie: gateA.cookie,
+      body: person(),
+    });
+    expect(regA.status, JSON.stringify(regA.body)).toBe(200);
+    expect((await api(`/api/me?event=${a.id}`, { cookie: regA.cookie })).status).toBe(200);
+
+    // B 에 등록한다 — 앞 세션을 들고 가도 B 의 링크가 이긴다
+    const gateB = await enter(b.id, linkB);
+    expect(gateB.status, JSON.stringify(gateB.body)).toBe(200);
+    const regB = await api<RegisterResult>("/api/register", {
+      method: "POST",
+      cookie: gateB.cookie,
+      body: person(),
+    });
+    expect(regB.status, JSON.stringify(regB.body)).toBe(200);
+
+    // 이제 B 의 세션이다. A 는 그 세션으로 열리지 않는다 — 자료가 섞이면 안 된다
+    expect((await api(`/api/me?event=${b.id}`, { cookie: regB.cookie })).status).toBe(200);
+    expect((await api(`/api/me?event=${a.id}`, { cookie: regB.cookie })).status).toBe(401);
+
+    // A 의 링크를 다시 열면 곧바로 A 로 돌아온다. 등록을 다시 하지 않는다
+    const backA = await enter(a.id, linkA);
+    expect(backA.body.registered).toBe(true);
+    expect(backA.body.code).toBe(a.code);
+    expect((await api(`/api/me?event=${a.id}`, { cookie: backA.cookie })).status).toBe(200);
+  });
+
+  it("S-A11 링크를 다시 연 사람에게 화면이 등록을 다시 시키지 않는다", async () => {
+    const ev = await freshEvent();
+    const link = (await invite(ev.id, nextPhone())).token;
+
+    // 아직 등록 전
+    const before = await api<PublicEvent>(`/api/events/by-id/${ev.id}?t=${link}`);
+    expect(before.body.registered).toBeFalsy();
+
+    const gate = await enter(ev.id, link);
+    await api<RegisterResult>("/api/register", { method: "POST", cookie: gate.cookie, body: person() });
+
+    // 등록한 뒤 — 화면이 `등록하기` 대신 `다시 입장하기` 를 고를 수 있어야 한다
+    const after = await api<PublicEvent>(`/api/events/by-id/${ev.id}?t=${link}`);
+    expect(after.body.registered).toBe(true);
+  });
+
+  it("S-A10 ★ 세션이 없어도 링크만 열면 자기 화면으로 돌아온다", async () => {
+    // 세션 만료와 같은 상태다 — 쿠키를 아예 들고 가지 않는다
+    const ev = await freshEvent();
+    const link = (await invite(ev.id, nextPhone())).token;
+    const gate = await enter(ev.id, link);
+    await api<RegisterResult>("/api/register", { method: "POST", cookie: gate.cookie, body: person() });
+
+    const back = await enter(ev.id, link);   // 쿠키 없음
+    expect(back.status).toBe(200);
+    expect(back.body.registered).toBe(true);
+    expect((await api(`/api/me?event=${ev.id}`, { cookie: back.cookie })).status).toBe(200);
   });
 });
 
