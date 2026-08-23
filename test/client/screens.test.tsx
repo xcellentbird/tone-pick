@@ -17,6 +17,7 @@ import { BTN, ENTRY, ENV_BANNER, FAIL, HELP, FORTUNE, HOME, ME, NOTICE, PEOPLE, 
 import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
+import Register from "../../src/client/routes/Register.tsx";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
 import { ApiError, api, timeoutFor } from "../../src/client/lib/api.ts";
@@ -1155,6 +1156,38 @@ describe("참가 링크", () => {
 
     fireEvent.click(screen.getByText(ENTRY.start));
     expect(await screen.findByText("참가자 화면")).toBeTruthy();
+  });
+
+  it("★ 등록을 마친 뒤 뒤로 가도 등록 폼이 다시 뜨지 않는다", async () => {
+    /*
+     * 완료할 때 `replace` 로 갈아끼우는 건 **마지막 스텝 한 칸뿐**이다.
+     * 스텝은 `push` 로 쌓이므로(`이전` 버튼이 그 히스토리를 쓴다) 1·2 스텝이 남는다.
+     * 홈에서 뒤로 가면 그 칸을 밟는데, 다 채워진 것처럼 보이는 폼을 보면 두 번 등록하려 든다.
+     */
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("/me")
+          ? new Response(JSON.stringify(participantState()), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            })
+          : new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
+      ),
+    );
+    const router = createMemoryRouter(
+      [
+        { path: "/j/:id/:token/register/:step", element: <Register /> },
+        { path: "/e/:code", element: <div>참가자 화면</div> },
+      ],
+      // 뒤로 가서 2스텝을 밟은 상태
+      { initialEntries: ["/j/e1/tok123/register/2"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    await screen.findByText("참가자 화면");
+    // 폼은 한 번도 보이지 않는다
+    expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
   });
 
   it("★ 세션이 살아 있으면 등록 화면이 아니라 자기 화면으로 간다", async () => {

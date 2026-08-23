@@ -2,8 +2,9 @@
  * 참가자 등록 3스텝.
  *
  * 지키는 것
- *  · 스텝 이동은 push — 뒤로 가기가 이전 스텝이다
- *  · 등록 완료는 replace — 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
+ *  · 스텝 이동은 push — 뒤로 가기가 이전 스텝이다 (`이전` 버튼이 그걸 쓴다)
+ *  · 등록 완료는 replace — 그런데 **replace 는 마지막 한 칸만 갈아끼운다.**
+ *    1·2 스텝은 히스토리에 남으므로, 이미 등록한 사람이 그 칸을 밟으면 홈으로 돌려보낸다
  *  · 에러는 **그 값을 입력한 자리에** 띄운다. 닉네임 중복이면 3스텝이 아니라 1스텝으로 되돌린다
  *  · 에러가 뜨면 그 칸으로 스크롤·포커스한다 — 3스텝은 길어서 화면 밖에 뜰 수 있다
  *  · 인스타의 @·URL 껍데기는 오류가 아니라 의도다 — 벗겨서 받는다 (normalizeInstagram)
@@ -13,9 +14,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared/copy.ts";
-import type { RegisterResult } from "../../shared/types.ts";
+import type { ParticipantState, RegisterResult } from "../../shared/types.ts";
 import { LIMITS, normalizeInstagram } from "../../shared/constants.ts";
-import { ApiError, post } from "../lib/api.ts";
+import { ApiError, api, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
 import type { ProfileDraft } from "../lib/profileForm.ts";
 import { EMPTY_DRAFT, toInput, validateProfile } from "../lib/profileForm.ts";
@@ -31,6 +32,24 @@ export default function Register() {
   const [error, setError] = useState<{ field: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const at = Math.min(3, Math.max(1, Number(step) || 1));
+  const [checking, setChecking] = useState(true);
+
+  /*
+   * **이미 등록을 마쳤으면 폼을 보여주지 않는다.**
+   *
+   * 완료할 때 `replace` 로 갈아끼우는 건 마지막 스텝 한 칸뿐이다. 스텝은 `push` 로 쌓이므로
+   * (`이전` 버튼이 그 히스토리를 쓴다) 1·2 스텝이 남고, 홈에서 뒤로 가면 등록 폼이 다시 떴다.
+   * 다 채워진 것처럼 보이는 폼을 보면 **두 번 등록하려 든다** — Join 화면이 하는 확인과 같은 것이다.
+   */
+  useEffect(() => {
+    let alive = true;
+    api<ParticipantState>(`/me?event=${encodeURIComponent(id)}`)
+      .then((state) => alive && navigate(`/e/${state.event.code}`, { replace: true }))
+      .catch(() => alive && setChecking(false));
+    return () => {
+      alive = false;
+    };
+  }, [id, navigate]);
 
   // 오류를 만든 칸으로 데려간다 — 키보드가 올라온 폰에서는 화면 밖 오류가 "아무 일도 없음"으로 보인다.
   // error.field 가 곧 요소 id 다. 서버 오류로 스텝을 되돌린 경우(nick_taken)도 이 효과가 받는다
@@ -95,6 +114,9 @@ export default function Register() {
     ) : null;
   const invalid = (field: string) =>
     error?.field === field ? ({ "aria-invalid": true, "aria-describedby": `${field}-err` } as const) : {};
+
+  // 확인하는 동안은 빈 화면이다. 폼을 먼저 그리면 이미 등록한 사람에게 한 번 번쩍인다 (Join 과 같다)
+  if (checking) return <div className="screen" />;
 
   return (
     <div className="screen">
