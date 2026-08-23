@@ -11,8 +11,14 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
-import type { Gender, Invite } from "../../../shared/types.ts";
+import type { EventMeta, Gender, Invite } from "../../../shared/types.ts";
+import type { Defaults } from "../../../shared/types.ts";
 import { LIMITS, PHONE_SEED, formatPhone, typedPhone } from "../../../shared/constants.ts";
+import { INVITE_TEMPLATE } from "../../../shared/copy.ts";
+import { renderInvite } from "../../../shared/invite.ts";
+import { formatWhen } from "../../../shared/time.ts";
+import { api } from "../../lib/api.ts";
+import { useLoad } from "../../lib/useLoad.ts";
 import { keepPhoneSeed } from "../../lib/phoneField.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
@@ -78,27 +84,10 @@ export default function Players() {
       </button>
 
       {/*
-        참가 링크는 **명단 바로 아래**다. 한동안 현황 탭에 있었는데, 문을 여는 건
-        링크가 아니라 그 위의 명단이라(ADR-15) 둘이 떨어져 있으면 순서가 보이지 않았다 —
-        번호를 넣고, 그 사람들에게 링크를 보낸다. 한 화면에서 이어서 하는 일이다.
-
-        **링크만 보내면 된다.** 입장 코드는 이제 어디에서도 입력받지 않는다.
-        운영자가 "코드도 알려줘야 하나" 하고 헤매지 않도록 그 사실을 여기서 못 박는다.
+        **링크를 통째로 복사하는 버튼은 없다** (ADR-32). 링크가 사람마다 달라서
+        한 번 복사해 단톡방에 뿌릴 수가 없다 — 그게 이 슬라이스의 요점이다.
+        안내문은 명단 시트 안에서 **행마다** 복사한다.
       */}
-      <button
-        className="btn ghost block"
-        onClick={() => {
-          // 복사가 막히는 브라우저가 있다 (권한·구버전). 실패를 성공이라고 말하지 않는다
-          navigator.clipboard
-            ?.writeText(`${location.origin}/j/${state.meta.id}`)
-            .then(() => toast(HOST_UI.copied))
-            .catch(() => toast(HOST_UI.copyFailed));
-        }}
-      >
-        {HOST_UI.entryLink}
-      </button>
-      <p className="tiny dim">{HOST_UI.entryLinkNote}</p>
-
       {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
       <div className="choice">
         {([["all", HOST_UI.players.filterAll], ["M", GENDER.M], ["F", GENDER.F]] as const).map(([key, label]) => (
@@ -164,6 +153,7 @@ export default function Players() {
 
       <Sheet open={atInvites} onClose={() => navigate(-1)} title={HOST_UI.invites.title}>
         <Invites
+          meta={state.meta}
           invites={state.invites}
           eventId={state.meta.id}
           onDone={(added) => {
@@ -187,10 +177,12 @@ export default function Players() {
  * 그 하나만 있으면 헷갈릴 자리가 없다. (API 는 배열을 받으므로 리허설 스크립트는 그대로 쓴다)
  */
 function Invites({
+  meta,
   invites,
   eventId,
   onDone,
 }: {
+  meta: EventMeta;
   invites: Invite[];
   eventId: string;
   /** 더한 수. 뺐으면 음수, 이미 있어서 아무 일도 없었으면 0 */
@@ -207,6 +199,39 @@ function Invites({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const known = new Set(invites.map((i) => i.phone));
+
+  const navigate = useNavigate();
+  const { toast } = useOverlay();
+  /*
+   * 안내문 문구는 **운영자 기본값**에 하나만 둔다 (ADR-32). 회차마다 다시 쓰지 않는다 —
+   * 회차마다 달라지는 것은 치환 자리가 채운다. 시트를 열 때만 읽으므로 왕복 하나가 늘 뿐이다.
+   */
+  const tpl = useLoad(() => api<Defaults>("/host/defaults"));
+  const template = tpl.data?.inviteTemplate ?? INVITE_TEMPLATE;
+
+  /** 그 사람의 안내문. **링크가 사람마다 다르므로 한 사람분씩 만든다** */
+  const noteFor = (i: Invite) =>
+    renderInvite(template, {
+      place: meta.place ?? "",
+      when: formatWhen(meta.schedule.partyAt),
+      link: `${location.origin}/j/${meta.id}/${i.token}`,
+    });
+
+  function copyNote(i: Invite) {
+    // 복사가 막히는 브라우저가 있다 (권한·구버전). 실패를 성공이라고 말하지 않는다
+    navigator.clipboard
+      ?.writeText(noteFor(i))
+      .then(() => toast(HOST_UI.copied))
+      .catch(() => toast(HOST_UI.copyFailed));
+  }
+
+  /** 보냄 표시. 되돌릴 수 있어서 확인창이 없다 */
+  async function toggleSent(i: Invite) {
+    await post(`/host/events/${eventId}/invites/${i.phone}/sent`, { sent: !i.sentAt });
+    onDone(0);
+  }
+
+  const left = invites.filter((i) => !i.sentAt).length;
 
   async function add(phones: string[], clear: () => void) {
     setBusy(true);
@@ -270,6 +295,23 @@ function Invites({
           <p className="kicker" style={{ marginTop: 8 }}>
             {HOST_UI.invites.count(invites.length, invites.filter((i) => i.nickname).length)}
           </p>
+
+          {/*
+            **미리보기가 확인창을 대신한다** — 복사는 되돌릴 수 있는 행동이라 확인을 붙이지 않고,
+            대신 무엇이 복사되는지를 눈앞에 둔다. 첫 사람 기준으로 그린다 (링크만 사람마다 다르다).
+          */}
+          <div className="card stack">
+            <div className="kicker">{HOST_UI.invite.preview}</div>
+            <p className="small pre" style={{ margin: 0 }}>{noteFor(invites[0])}</p>
+            {!meta.place && <p className="tiny warnText">{HOST_UI.invite.noPlace}</p>}
+            <div className="row between">
+              <span className="tiny dim">{left > 0 ? HOST_UI.invite.remaining(left) : HOST_UI.invite.allSent}</span>
+              <button className="btn ghost" onClick={() => navigate("/host/defaults")}>
+                {HOST_UI.invite.editTemplate}
+              </button>
+            </div>
+          </div>
+
           <div className="stack">
             {invites.map((i) => (
               <div className="row between" key={i.phone}>
@@ -278,6 +320,13 @@ function Invites({
                 <span className={`small ${i.nickname ? "okText" : "dim"}`}>
                   {i.nickname ? `${i.nickname} · ${HOST_UI.invites.joined}` : HOST_UI.invites.waiting}
                 </span>
+                {/* 보냄은 **글자로도** 말한다. 색만으로 구분하면 못 읽는 사람이 생긴다 */}
+                <button className="btn ghost" aria-pressed={!!i.sentAt} onClick={() => void toggleSent(i)}>
+                  {i.sentAt ? HOST_UI.invite.sent : HOST_UI.invite.notSent}
+                </button>
+                <button className="btn ghost" onClick={() => copyNote(i)}>
+                  {HOST_UI.invite.copy}
+                </button>
                 <button className="btn ghost" onClick={() => remove(i.phone)}>
                   {HOST_UI.invites.remove}
                 </button>

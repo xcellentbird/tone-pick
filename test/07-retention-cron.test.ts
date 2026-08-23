@@ -8,7 +8,7 @@ import { SELF, env } from "cloudflare:test";
 import worker from "../src/server/index.ts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RETENTION_DAYS } from "../src/shared/constants.ts";
-import type { EventMeta } from "../src/shared/types.ts";
+import type { Invite, EventMeta } from "../src/shared/types.ts";
 
 const DAY = 86400_000;
 
@@ -53,8 +53,23 @@ async function makeEvent(over: Record<string, unknown> = {}) {
     },
   });
   expect(res.status).toBe(200);
-  return res.body;
+  /*
+   * 회차 정보 조회는 **토큰을 요구한다** (ADR-32). 살아 있는지 물으려면 링크가 하나 있어야 하므로
+   * 여기서 미리 받아 둔다 — 파기된 뒤에 명단을 건드리면 그 DO 가 되살아난다.
+   */
+  const phone = `0109000${String(1000 + ++inviteSeq)}`;
+  const added = await api<Invite[]>(`/api/host/events/${res.body.id}/invites`, {
+    method: "POST",
+    cookie: master,
+    body: { phones: [phone] },
+  });
+  return { ...res.body, token: added.body.find((i) => i.phone === phone)!.token };
 }
+
+let inviteSeq = 0;
+
+/** 이 회차가 아직 살아 있나. 링크 하나로 묻는다 */
+const alive = (ev: { id: string; token: string }) => api(`/api/events/by-id/${ev.id}?t=${ev.token}`);
 
 /** 테스트 전용 시간 이동. 프로덕션에는 없는 라우트다 */
 const travelTo = (at: number) => api("/api/__test__/now", { method: "POST", body: { at } });
@@ -66,18 +81,18 @@ const wake = () =>
 describe("파기 Cron", () => {
   it("★ 보관 기간이 지난 회차는 입장 코드까지 사라진다", async () => {
     const ev = await makeEvent();
-    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(200);
+    expect((await alive(ev)).status).toBe(200);
 
     // 아직은 지울 때가 아니다
     await wake();
-    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(200);
+    expect((await alive(ev)).status).toBe(200);
 
     // 보관 기간을 넘긴 뒤 다시 깨어나면
     await travelTo(Date.now() + (RETENTION_DAYS + 2) * DAY);
     await wake();
     await login();   // 앞으로 돌린 시계 때문에 만료된 세션을 새로 받는다
 
-    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(404);
+    expect((await alive(ev)).status).toBe(404);
     expect((await api(`/api/host/events/${ev.id}`, { cookie: master })).status).toBe(404);
   });
 
@@ -88,7 +103,7 @@ describe("파기 Cron", () => {
     // 만든 지 오래된 것처럼 시계를 밀어도, 예약이 앞에 있으면 지우지 않는다
     await travelTo(Date.now() + (RETENTION_DAYS + 2) * DAY);
     await wake();
-    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(200);
+    expect((await alive(ev)).status).toBe(200);
   });
 
   it("★ 파기 대기 일수는 회차 설정을 따른다", async () => {
@@ -106,8 +121,8 @@ describe("파기 Cron", () => {
     await travelTo(Date.now() + 3 * DAY);
     await wake();
     await login();
-    expect((await api(`/api/events/by-id/${fast.id}`)).status).toBe(404);
-    expect((await api(`/api/events/by-id/${slow.id}`)).status).toBe(200);
+    expect((await alive(fast)).status).toBe(404);
+    expect((await alive(slow)).status).toBe(200);
   });
 
   it("파기 대기 일수는 정해진 범위 밖이면 거절한다", async () => {

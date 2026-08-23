@@ -160,6 +160,11 @@ export interface EventConfig {
 export interface EventMeta {
   id: string;
   name: string;
+  /**
+   * 파티 장소. **안내문 템플릿에만 쓰인다** (ADR-32) — 참가자 응답에는 싣지 않는다.
+   * 지금 운영이 그렇다: 장소는 운영자가 1:1 로 알린다.
+   */
+  place?: string;
   code: string;      // 6자리 입장 코드 (회차 간 유일)
   phase: Phase;
   fired: FiredMap;
@@ -172,6 +177,11 @@ export interface EventMeta {
 export interface Defaults extends EventConfig {
   regOpenBeforeD: number;   // 파티 N일 전에 등록 시작
   prevoteBeforeH: number;   // 파티 N시간 전에 사전 투표 시작
+  /**
+   * 참가자에게 보낼 안내문 (ADR-32). `{장소}` `{일시}` `{링크}` 를 회차가 채운다.
+   * **회차마다 다시 쓰지 않는다** — 회차별 덮어쓰기는 만들지 않았다.
+   */
+  inviteTemplate: string;
 }
 
 // ─────────────────────────── API
@@ -229,6 +239,8 @@ export type ClientEvent =
 /** 회차 생성 입력 */
 export interface CreateEventInput {
   name: string;
+  /** 파티 장소. 안내문에만 쓰인다 (ADR-32) */
+  place?: string;
   /** 생략하면 서버가 만든다. 직접 넘겼는데 이미 쓰는 코드면 거부한다 */
   code?: string;
   /** 파티 일시. 나머지 일정이 여기서 거꾸로 계산된다 */
@@ -302,6 +314,8 @@ export interface ApiErrorBody {
  */
 export interface EventPatch {
   name?: string;
+  /** 장소는 오타가 나기 쉬운 값이라 고칠 길을 함께 둔다 (ADR-32) */
+  place?: string;
   config?: EventConfig;
 }
 
@@ -328,6 +342,13 @@ export interface RegisterInput {
 export interface Invite {
   phone: string;
   addedAt: number;
+  /**
+   * 이 사람의 참가 링크(`/j/<회차id>/<토큰>`). **번호를 넣는 순간 생긴다** (ADR-32).
+   * 운영자 응답에만 실린다 — 참가자에게 남의 토큰이 가면 그 사람이 될 수 있다.
+   */
+  token: string;
+  /** 운영자가 안내문을 보냈다고 표시한 시각. 없으면 아직 안 보냈다 */
+  sentAt?: number;
   /** 이미 등록한 사람이면 그 닉네임. 운영자가 누가 왔는지 명단에서 바로 본다 */
   nickname?: string;
 }

@@ -41,7 +41,12 @@ describe("옛 모양으로 저장된 기본값", () => {
     expect(now.maxPre).toBe(5);
     expect(now.maxParty).toBe(9);
 
-    for (const v of Object.values(now)) expect(Number.isFinite(v)).toBe(true);
+    // 숫자 칸에 NaN 이 없다
+    for (const v of Object.values(now)) {
+      if (typeof v === "number") expect(Number.isFinite(v)).toBe(true);
+    }
+    // 안내문도 같은 이유로 비어 있으면 안 된다 — 빈 문구는 링크 없는 안내문이 된다 (ADR-32)
+    expect(now.inviteTemplate.trim().length).toBeGreaterThan(0);
   });
 
   it("모르는 항목은 버린다 — 옛 키를 들고 다니면 다음 사람이 쓰이는 줄 안다", () => {

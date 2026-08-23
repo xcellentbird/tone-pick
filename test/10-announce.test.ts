@@ -12,6 +12,7 @@ import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { hangulSeq } from "../src/shared/copy.ts";
 import type {
+  Invite,
   EventMeta,
   HostState,
   ParticipantState,
@@ -79,8 +80,14 @@ async function freshEvent(): Promise<EventMeta> {
 /** 명단에 넣고 → 입장하고 → 등록한다. 실제 참가자가 지나는 길 그대로다 */
 async function join(ev: EventMeta): Promise<{ cookie: string | null; id: string }> {
   const phone = `0102000${String(1000 + ++phoneSeq)}`;
-  await api(`/api/host/events/${ev.id}/invites`, { method: "POST", cookie: master, body: { phones: [phone] } });
-  const gate = await api(`/api/events/${ev.id}/enter`, { method: "POST", body: { phone } });
+  // 번호를 넣으면 그 줄에 토큰이 생기고, 문을 여는 건 그 토큰이다 (ADR-32)
+  const added = await api<Invite[]>(`/api/host/events/${ev.id}/invites`, {
+    method: "POST",
+    cookie: master,
+    body: { phones: [phone] },
+  });
+  const token = added.body.find((i) => i.phone === phone)!.token;
+  const gate = await api(`/api/events/${ev.id}/enter`, { method: "POST", body: { token } });
   expect(gate.status, JSON.stringify(gate.body)).toBe(200);
   const input: RegisterInput = {
     nickname: `투표${hangulSeq(phoneSeq)}`,

@@ -67,6 +67,7 @@ hostRoutes.put("/defaults", async (c) => {
       maxParty: body.maxParty,
       regOpenBeforeD: body.regOpenBeforeD,
       prevoteBeforeH: body.prevoteBeforeH,
+      inviteTemplate: String(body.inviteTemplate ?? "").slice(0, LIMITS.inviteTemplateMax),
     }),
   );
 });
@@ -116,9 +117,11 @@ hostRoutes.post("/events", async (c) => {
   });
   if (!reserved.ok) return apiError(c, "code_taken", HOST.pin.codeTaken);
 
+  const place = String(body.place ?? "").trim();
   const meta = await eventStub(c.env, reserved.id).init({
     id: reserved.id,
     name: body.name.trim(),
+    ...(place ? { place } : {}),
     code: reserved.code,
     phase: openNow ? "reg" : "prep",
     fired: openNow ? { reg: now } : {},
@@ -205,6 +208,21 @@ hostRoutes.post("/events/:id/invites", async (c) => {
     c,
     await gate.stub.addInvites(body.phones.map(String), serverNow()),
     () => HOST_UI.invites.tooMany(LIMITS.inviteMax),
+  );
+  return response ?? c.json(value);
+});
+
+/**
+ * 안내문을 보냈다고 표시한다 (ADR-32). **한 명씩 보내니 어디까지 갔는지 알아야 한다.**
+ * 되돌릴 수 있는 표시라 확인창은 없다.
+ */
+hostRoutes.post("/events/:id/invites/:phone/sent", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const body = await json<{ sent?: unknown }>(c);
+  const { value, response } = unwrap(
+    c,
+    await gate.stub.markSent(c.req.param("phone"), body.sent !== false, serverNow()),
   );
   return response ?? c.json(value);
 });

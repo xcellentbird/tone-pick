@@ -21,7 +21,7 @@ import type { Env } from "./http.ts";
 /** 재는 것. 늘리기 전에 위의 경계를 다시 읽어라 */
 export type Metric =
   /** 입장 시도의 끝. 명단 문제가 조용히 쌓이는 걸 여기서 본다 */
-  | { kind: "enter"; outcome: "ok" | "not_invited" | "too_many" | "bad_phone" }
+  | { kind: "enter"; outcome: "ok" | "not_invited" | "too_many" }
   /** 운세·미션이 규칙 문구로 떨어졌나. LLM 이 조용히 죽어도 화면은 멀쩡히 뜬다 */
   | { kind: "fortune"; outcome: "llm" | "fallback" };
 

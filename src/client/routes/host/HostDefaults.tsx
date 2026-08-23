@@ -109,6 +109,22 @@ export default function HostDefaults() {
           onChange={(v) => set("prevoteBeforeH", v)}
         />
 
+        {/*
+          안내문 문구 (ADR-32). **여기 하나만 둔다** — 회차마다 다시 쓰지 않는다.
+          회차마다 달라지는 장소·일시·링크는 치환 자리가 채운다.
+        */}
+        <div className="field">
+          <label htmlFor="inviteTemplate">{HOST_UI.invite.templateTitle}</label>
+          <textarea
+            id="inviteTemplate"
+            rows={5}
+            value={form.inviteTemplate}
+            maxLength={LIMITS.inviteTemplateMax}
+            onChange={(e) => set("inviteTemplate", e.target.value)}
+          />
+          <span className="tiny dim">{HOST_UI.invite.templateHint}</span>
+        </div>
+
         {error && <p className="err danger">{error}</p>}
 
         <button className="btn primary block" onClick={save}>

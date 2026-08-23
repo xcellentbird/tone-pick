@@ -25,7 +25,7 @@ type Draft = ProfileDraft;
 const EMPTY = EMPTY_DRAFT;
 
 export default function Register() {
-  const { id = "", step = "1" } = useParams();
+  const { id = "", token = "", step = "1" } = useParams();
   const navigate = useNavigate();
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<{ field: string; text: string } | null>(null);
@@ -55,7 +55,7 @@ export default function Register() {
     if (d !== draft) setDraft(d);
     const bad = validateProfile(d, at);
     if (bad) return setError(bad);
-    if (at < 3) return navigate(`/j/${id}/register/${at + 1}`);
+    if (at < 3) return navigate(`/j/${id}/${token}/register/${at + 1}`);
     submit();
   }
 
@@ -74,12 +74,12 @@ export default function Register() {
       if (e instanceof ApiError && e.code === "nick_taken") {
         // 닉네임 칸이 있는 1스텝으로 되돌린 뒤 띄운다. 입력값은 그대로 둔다
         setError({ field: "nickname", text: e.userMessage ?? REGISTER.err.nick });
-        navigate(`/j/${id}/register/1`);
+        navigate(`/j/${id}/${token}/register/1`);
         return;
       }
       // 초대 확인이 만료되면 폼을 계속 붙들고 있어봐야 소용없다. 문 앞으로 돌려보낸다
       if (e instanceof ApiError && e.status === 401) {
-        navigate(`/j/${id}`, { replace: true });
+        navigate(`/j/${id}/${token}`, { replace: true });
         return;
       }
       setError({ field: "form", text: e instanceof ApiError ? (e.userMessage ?? REGISTER.err.retry) : REGISTER.err.retry });

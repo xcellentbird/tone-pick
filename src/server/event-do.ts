@@ -73,8 +73,11 @@ CREATE TABLE IF NOT EXISTS players (
   instagram  TEXT NOT NULL,
   mbti       TEXT NOT NULL,
   charms     TEXT NOT NULL,          -- JSON string[3]
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  token      TEXT                    -- 등록할 때 초대 명단에서 복사해 온다 (ADR-32).
+                                     -- 명단에서 지워져도 자기 링크로 계속 들어오게 하는 값이다
 );
+CREATE INDEX IF NOT EXISTS players_token ON players(token);
 CREATE TABLE IF NOT EXISTS pokes (
   id      TEXT PRIMARY KEY,
   from_id TEXT NOT NULL,
@@ -86,8 +89,11 @@ CREATE INDEX IF NOT EXISTS pokes_from ON pokes(from_id, round);
 CREATE INDEX IF NOT EXISTS pokes_to   ON pokes(to_id);
 CREATE TABLE IF NOT EXISTS invites (
   phone    TEXT PRIMARY KEY,      -- 숫자만. 운영자가 미리 넣어두는 초대 명단
-  added_at INTEGER NOT NULL
+  added_at INTEGER NOT NULL,
+  token    TEXT,                  -- 이 사람의 참가 링크. 넣는 순간 생긴다 (ADR-32)
+  sent_at  INTEGER                -- 운영자가 안내문을 보냈다고 표시한 시각
 );
+CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token);
 CREATE TABLE IF NOT EXISTS entry_tries (
   ip_hash TEXT NOT NULL,          -- 접속지 해시. 원본 IP 는 저장하지 않는다
   at      INTEGER NOT NULL
@@ -154,6 +160,23 @@ export class EventDO extends DurableObject {
     super(ctx as never, env as never);
     ctx.blockConcurrencyWhile(async () => {
       ctx.storage.sql.exec(SCHEMA);
+      /*
+       * 옛 회차에는 토큰 칸이 없다. `CREATE TABLE IF NOT EXISTS` 는 이미 있는 표를 건드리지 않아서,
+       * 칸을 더하는 건 여기서 따로 해야 한다. **이미 있으면 던지므로 삼킨다** —
+       * 버전 표를 두는 것보다 이쪽이 싸고, 칸을 더하는 일은 되돌릴 게 없다.
+       */
+      // copy-ok — SQL 이지 화면 문구가 아니다
+      for (const sql of [
+        "ALTER TABLE invites ADD COLUMN token TEXT",
+        "ALTER TABLE invites ADD COLUMN sent_at INTEGER",
+        "ALTER TABLE players ADD COLUMN token TEXT",
+      ]) {
+        try {
+          ctx.storage.sql.exec(sql);
+        } catch {
+          /* 이미 있다 */
+        }
+      }
     });
   }
 
@@ -244,7 +267,7 @@ export class EventDO extends DurableObject {
   }
 
   async patchMeta(
-    patch: { name?: string; config?: EventConfig },
+    patch: { name?: string; place?: string; config?: EventConfig },
     now: number,
   ): Promise<Result<EventMeta>> {
     const meta = await this.touch(now);
@@ -252,6 +275,12 @@ export class EventDO extends DurableObject {
     if (patch.name !== undefined) {
       if (!patch.name.trim()) return fail("bad_request");
       meta.name = patch.name.trim();
+    }
+    // 장소는 지울 수도 있어야 한다 — 빈 문자열이면 없앤다 (안내문에서 자리만 빈다)
+    if (patch.place !== undefined) {
+      const place = patch.place.trim();
+      if (place) meta.place = place;
+      else delete meta.place;
     }
     if (patch.config) {
       const { maxPre, maxParty, allowSameGender } = patch.config;
@@ -335,8 +364,17 @@ export class EventDO extends DurableObject {
     const fresh = clean.filter((p) => !already.has(p));
     if (already.size + fresh.length > LIMITS.inviteMax) return fail("bad_request");
 
+    /*
+     * **토큰은 넣는 순간 생긴다. 그리고 그뿐이다** (S-B1).
+     * 여기서 안내를 보내면 붙여넣기 사고가 그대로 문자로 새어나가고, 되돌릴 방법이 없다.
+     */
     for (const phone of fresh) {
-      this.ctx.storage.sql.exec("INSERT INTO invites (phone, added_at) VALUES (?,?)", phone, now);
+      this.ctx.storage.sql.exec(
+        "INSERT INTO invites (phone, added_at, token) VALUES (?,?,?)",
+        phone,
+        now,
+        randomHex(16),
+      );
     }
     return ok(this.invites());
   }
@@ -347,15 +385,19 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * 입장 확인. 명단에 있는 번호만 통과한다.
+   * 입장 확인. **참가 링크의 토큰만 통과한다** (ADR-32).
+   *
+   * 번호를 받지 않는다 — 같은 파티에 오는 사람들은 서로 번호를 아는 사이라
+   * 번호는 열쇠가 못 된다. 토큰은 그 사람에게만 배달된 값이다.
    *
    * **이미 등록한 사람은 명단과 무관하게 통과한다.** 명단은 문이지 자격이 아니다 —
    * 운영자가 명단을 정리하다 이미 등록한 사람을 지웠다고 파티 중에 쫓겨나면 안 된다.
+   * 그래서 등록할 때 토큰을 `players` 에도 복사해 둔다.
    *
-   * 실패는 회차·접속지별로 센다. 이 문은 인증 없이 열려서, 제한이 없으면
-   * "이 번호가 이 파티에 있나"를 되묻는 창구가 된다 (constants.ts).
+   * 실패는 회차·접속지별로 센다. 문은 여전히 인증 없이 열려 있다 — 다만
+   * **"번호 넣어보기" 는 이제 일어나지 않는다.** 넣어볼 칸이 없다.
    */
-  async checkEntry(phone: string, ipHash: string, now: number): Promise<Result<EnterResult>> {
+  async checkEntry(token: string, ipHash: string, now: number): Promise<Result<EnterResult>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
 
@@ -364,9 +406,11 @@ export class EventDO extends DurableObject {
       this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM entry_tries WHERE ip_hash = ?", ipHash)[0]?.n ?? 0;
     if (tries >= ENTRY_TRIES.max) return fail("too_many");
 
-    const clean = normalizePhone(phone);
-    const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", clean)[0];
-    const invited = !!this.rows<{ phone: string }>("SELECT phone FROM invites WHERE phone = ?", clean)[0];
+    const clean = String(token ?? "").trim();
+    // 등록을 마친 사람이 먼저다 — 명단에서 지워졌어도 그의 토큰은 여기 남아 있다
+    const mine = clean ? this.rows<PlayerRow>("SELECT * FROM players WHERE token = ?", clean)[0] : undefined;
+    const invited =
+      !!clean && !!this.rows<{ phone: string }>("SELECT phone FROM invites WHERE token = ?", clean)[0];
 
     if (!mine && !invited) {
       this.ctx.storage.sql.exec("INSERT INTO entry_tries (ip_hash, at) VALUES (?,?)", ipHash, now);
@@ -377,6 +421,16 @@ export class EventDO extends DurableObject {
     return ok(mine ? { registered: true, code: meta.code } : { registered: false });
   }
 
+  /** 토큰이 가리키는 번호. 입장 확인을 통과한 뒤 쿠키를 만들 때만 쓴다 */
+  async phoneByToken(token: string): Promise<Result<string | null>> {
+    const clean = String(token ?? "").trim();
+    if (!clean) return ok(null);
+    const inv = this.rows<{ phone: string }>("SELECT phone FROM invites WHERE token = ?", clean)[0];
+    if (inv) return ok(inv.phone);
+    const p = this.rows<{ phone: string }>("SELECT phone FROM players WHERE token = ?", clean)[0];
+    return ok(p?.phone ?? null);
+  }
+
   /** 번호로 그 사람을 찾는다. 입장 확인을 통과한 뒤 세션을 만들 때만 쓴다 */
   async playerIdByPhone(phone: string): Promise<Result<string | null>> {
     const row = this.rows<{ id: string }>("SELECT id FROM players WHERE phone = ?", normalizePhone(phone))[0];
@@ -385,9 +439,28 @@ export class EventDO extends DurableObject {
 
   private invites(): Invite[] {
     const byPhone = new Map(this.players().map((p) => [p.phone, p.nickname]));
-    return this.rows<{ phone: string; added_at: number }>(
+    return this.rows<{ phone: string; added_at: number; token: string | null; sent_at: number | null }>(
       "SELECT * FROM invites ORDER BY added_at, phone",
-    ).map((r) => ({ phone: r.phone, addedAt: r.added_at, nickname: byPhone.get(r.phone) }));
+    ).map((r) => ({
+      phone: r.phone,
+      addedAt: r.added_at,
+      token: r.token ?? "",
+      ...(r.sent_at ? { sentAt: r.sent_at } : {}),
+      nickname: byPhone.get(r.phone),
+    }));
+  }
+
+  /**
+   * 안내문을 보냈다고 표시한다. **한 명씩 보내니 어디까지 갔는지 알아야 한다** (S-B3).
+   * 되돌릴 수 있는 표시라 확인창을 두지 않는다 — 잘못 눌러도 다시 누르면 그만이다.
+   */
+  async markSent(phone: string, sent: boolean, now: number): Promise<Result<Invite[]>> {
+    this.ctx.storage.sql.exec(
+      "UPDATE invites SET sent_at = ? WHERE phone = ?",
+      sent ? now : null,
+      normalizePhone(phone),
+    );
+    return ok(this.invites());
   }
 
   // ─────────────────────────── 참가자
@@ -413,6 +486,13 @@ export class EventDO extends DurableObject {
       createdAt: mine?.created_at ?? now,
     });
     if (!saved.ok) return saved;
+
+    /*
+     * **토큰을 이 사람에게 붙인다** (ADR-32). 명단에서 지워져도 자기 링크로 계속 들어온다 —
+     * "명단은 문이지 자격이 아니다" 를 지키는 자리가 여기다.
+     */
+    const tok = this.rows<{ token: string | null }>("SELECT token FROM invites WHERE phone = ?", phone)[0]?.token;
+    if (tok) this.ctx.storage.sql.exec("UPDATE players SET token = ? WHERE phone = ?", tok, phone);
 
     this.broadcast({ type: "roster" });
     return saved;
