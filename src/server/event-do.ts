@@ -78,7 +78,6 @@ CREATE TABLE IF NOT EXISTS players (
   token      TEXT                    -- 등록할 때 초대 명단에서 복사해 온다 (ADR-32).
                                      -- 명단에서 지워져도 자기 링크로 계속 들어오게 하는 값이다
 );
-CREATE INDEX IF NOT EXISTS players_token ON players(token);
 CREATE TABLE IF NOT EXISTS pokes (
   id      TEXT PRIMARY KEY,
   from_id TEXT NOT NULL,
@@ -94,7 +93,6 @@ CREATE TABLE IF NOT EXISTS invites (
   token    TEXT,                  -- 이 사람의 참가 링크. 넣는 순간 생긴다 (ADR-32)
   sent_at  INTEGER                -- 운영자가 안내문을 보냈다고 표시한 시각
 );
-CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token);
 CREATE TABLE IF NOT EXISTS entry_tries (
   ip_hash TEXT NOT NULL,          -- 접속지 해시. 원본 IP 는 저장하지 않는다
   at      INTEGER NOT NULL
@@ -162,21 +160,44 @@ export class EventDO extends DurableObject {
     ctx.blockConcurrencyWhile(async () => {
       ctx.storage.sql.exec(SCHEMA);
       /*
-       * 옛 회차에는 토큰 칸이 없다. `CREATE TABLE IF NOT EXISTS` 는 이미 있는 표를 건드리지 않아서,
-       * 칸을 더하는 건 여기서 따로 해야 한다. **이미 있으면 던지므로 삼킨다** —
-       * 버전 표를 두는 것보다 이쪽이 싸고, 칸을 더하는 일은 되돌릴 게 없다.
+       * 옛 회차에는 토큰 칸이 없다. `CREATE TABLE IF NOT EXISTS` 는 **이미 있는 표를 건드리지 않아서**,
+       * 칸을 더하는 건 여기서 따로 해야 한다. 이미 있으면 던지므로 삼킨다 —
+       * 버전 표를 두는 것보다 싸고, 칸을 더하는 일은 되돌릴 게 없다.
+       *
+       * ⚠️ **새 칸을 가리키는 인덱스를 `SCHEMA` 에 두지 마라.** 옛 표에는 그 칸이 아직 없어서
+       * `no such column` 으로 던지는데, `SCHEMA` 의 exec 는 이 try 밖이라 **DO 가 통째로 죽는다.**
+       * 회차 목록이 모든 회차를 훑기 때문에 화면 하나가 아니라 운영자 콘솔 전체가 멈췄다.
+       * 칸을 더한 **뒤에** 인덱스를 만든다. 순서가 곧 규칙이다.
        */
       // copy-ok — SQL 이지 화면 문구가 아니다
       for (const sql of [
         "ALTER TABLE invites ADD COLUMN token TEXT",
         "ALTER TABLE invites ADD COLUMN sent_at INTEGER",
         "ALTER TABLE players ADD COLUMN token TEXT",
+        "CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token)",
+        "CREATE INDEX IF NOT EXISTS players_token ON players(token)",
       ]) {
         try {
           ctx.storage.sql.exec(sql);
         } catch {
           /* 이미 있다 */
         }
+      }
+
+      /*
+       * **토큰 없는 명단 행은 아무도 못 쓰는 행이다.** 옛 회차의 초대 명단을 그대로 두면
+       * 그 파티는 문이 잠긴 채 남는다 — 운영자가 안내문을 다시 보내면 살아난다.
+       * 한 번만 돌고, 그 뒤로는 빈 UPDATE 다.
+       */
+      try {
+        const rows = ctx.storage.sql
+          .exec<{ phone: string }>("SELECT phone FROM invites WHERE token IS NULL OR token = ''")
+          .toArray();
+        for (const r of rows) {
+          ctx.storage.sql.exec("UPDATE invites SET token = ? WHERE phone = ?", randomHex(16), r.phone);
+        }
+      } catch {
+        /* 명단이 아직 없다 */
       }
     });
   }
