@@ -56,11 +56,18 @@ export const INVITE_COOKIE = "tp_inv";
 /**
  * 참가자 세션은 길게, 운영자 세션은 짧게.
  *
- * 참가자는 전날 등록하고 파티 당일에 다시 열어본다 — 12시간이면 그 사이에 끊긴다.
- * 끊겨도 전화번호로 재접속은 되지만, 파티장에서 폼을 다시 채우게 만들 이유가 없다.
+ * **7일이었는데 파티 당일에 딱 걸렸다.** 등록은 파티 6일 전에 열리므로
+ * (`DEFAULTS.regOpenBeforeD`) 첫날 등록한 사람은 파티 당일이 7일째다.
+ * 끊기면 참가 링크를 다시 찾아야 하는데, 그게 하필 파티장에서 일어난다.
+ *
+ * **30일로 둬도 실질 노출은 늘지 않는다** — 회차가 파티 사흘 뒤 파기되므로
+ * (`RETENTION_DAYS`) 세션이 살아 있어도 열리는 게 없다. 파기가 진짜 상한이다.
+ * Safari ITP 의 7일 상한은 `document.cookie` 로 심은 것에 걸린다.
+ * 이 쿠키는 서버가 `Set-Cookie` + `HttpOnly` 로 심으므로 대상이 아니다.
+ *
  * 운영자 세션은 전체 권한이라 반대로 짧게 둔다.
  */
-const TTL = { player: 7 * 24 * 3600_000, host: 12 * 3600_000 } as const;
+const TTL = { player: 30 * 24 * 3600_000, host: 12 * 3600_000 } as const;
 
 export function sessionTtl(scope: AuthScope): number {
   if (scope.kind === "player") return TTL.player;

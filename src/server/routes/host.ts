@@ -236,6 +236,19 @@ hostRoutes.delete("/events/:id/invites/:phone", async (c) => {
 
 // ─────────────────────────────────── 참가자 (운영자 시점)
 
+/**
+ * 참석 상태 (ADR-33). **찍는 길은 여기 하나뿐이다** — 운영자가 누른다.
+ * 되돌릴 수 있어서 확인창이 없다.
+ */
+hostRoutes.post("/events/:id/players/:pid/attendance", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const body = await json<{ to?: unknown }>(c);
+  const to = body.to === "arrived" || body.to === "left" ? body.to : null;
+  const { response } = unwrap(c, await gate.stub.setAttendance(c.req.param("pid"), to));
+  return response ?? c.json({ ok: true });
+});
+
 hostRoutes.delete("/events/:id/players/:pid", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
