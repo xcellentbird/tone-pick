@@ -52,18 +52,3 @@ export function canPoke(phase: Phase): boolean {
 export function canOpenFortune(phase: Phase): boolean {
   return phase === "party" || phase === "done";
 }
-
-/**
- * 이 회차를 지워도 되는 시각. 넘으면 회차 DO 를 통째로 버린다.
- *
- * 기준을 **가장 나중 시각**으로 잡는 게 핵심이다. 만든 날만 보면
- * 3주 뒤로 예약한 파티가 파티 전에 지워진다. 실제로 그럴 뻔한 계산이었다.
- */
-export function purgeDueAt(meta: Pick<EventMeta, "createdAt" | "fired" | "schedule">, retentionDays: number): number {
-  const marks = [
-    meta.createdAt,
-    ...Object.values(meta.fired),
-    ...Object.values(meta.schedule),
-  ].filter((t): t is number => typeof t === "number");
-  return Math.max(...marks) + retentionDays * 86400_000;
-}

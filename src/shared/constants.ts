@@ -2,7 +2,7 @@ import type { Defaults } from "./types.ts";
 import { INVITE_TEMPLATE } from "./copy.ts";
 
 /**
- * 등록은 **회차를 만드는 순간** 열린다 (ADR-36). 예약이 남은 건 매력 투표뿐이다 —
+ * 등록은 **회차를 만드는 순간** 열린다 (ADR-37). 예약이 남은 건 매력 투표뿐이다 —
  * 파티 **20시간 전**에 열어, 참가자가 전날 밤에 명단을 훑어볼 수 있게 한다.
  *
  * 장소는 **빈 값이 기본**이다. 늘 같은 곳에서 여는 모임이면 한 번 적어두고 쓴다.
@@ -51,8 +51,6 @@ export const LIMITS = {
   /** 매력 한 줄 상한. 문장으로 써도 좋지만 명단 카드가 견디는 크기까지만 */
   charmMax: 100,
   tableMax: 12,
-  /** 회차별 파기 대기 일수 범위. 기본은 `RETENTION_DAYS` */
-  retentionDays: { min: 1, max: 14 },
   /**
    * 한 회차 초대 명단 상한. 붙여넣기 사고로 수만 줄이 들어오는 걸 막는다.
    * 파티 규모의 상한이 아니다 — 100명 파티 + 시연·리허설 여유가 들어가는 크기로 둔다.
@@ -74,14 +72,6 @@ export const SEAT_W = {
   POKE_MUTUAL: 12,  // 상호 매칭 동석 보너스
   POKE_ONE: 4,      // 단방향 콕 동석 보너스
 } as const;
-
-/**
- * 회차를 얼마나 들고 있을 것인가.
- *
- * 파티 뒤 며칠은 참가자가 결과를 다시 본다. 그 뒤로는 실명과 전화번호를 들고 있을 이유가 없다 —
- * 이 앱이 참가자에게 요구한 것 중 가장 무거운 게 그 둘이다.
- */
-export const RETENTION_DAYS = 3;
 
 export const AGE_GAP = 10;
 export const REP_CAP_RATIO = 0.75;

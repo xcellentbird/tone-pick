@@ -36,7 +36,7 @@ describe("옛 모양으로 저장된 기본값", () => {
     const now = withDefaults(old);
 
     expect(now.prevoteBeforeH).toBe(DEFAULTS.prevoteBeforeH);
-    // 등록 시작 오프셋은 사라졌다 (ADR-36). 옛 키를 들고 다니지 않는다
+    // 등록 시작 오프셋은 사라졌다 (ADR-37). 옛 키를 들고 다니지 않는다
     expect(Object.keys(now)).not.toContain("regOpenBeforeD");
     // 장소는 없으면 빈 값 — "회차마다 다른 곳에서 연다" 는 뜻이다
     expect(now.place).toBe("");

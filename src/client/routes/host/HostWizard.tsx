@@ -5,7 +5,7 @@
  * 운영자가 실제로 아는 건 "언제 모이나" 하나뿐이고, 나머지는 그것에 딸린 값이다.
  * 파티 일시를 옮기면 아직 손대지 않은 값이 따라 움직인다. 직접 고친 값은 그대로 둔다.
  *
- * **등록 시작은 묻지 않는다** (ADR-36). 회차를 만드는 순간 열린다 —
+ * **등록 시작은 묻지 않는다** (ADR-37). 회차를 만드는 순간 열린다 —
  * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열어 지킬 것이 없었다.
  * 그래서 예약이 걸리는 전환은 **매력 투표 시작 하나뿐**이다.
  * 매력 투표 마감·파티 시작·발표는 현장에서 운영자가 누른다 (ADR-14).
@@ -42,7 +42,7 @@ export default function HostWizard() {
   const requestId = useMemo(() => `w-${Date.now()}-${Math.random().toString(36).slice(2)}`, []);
 
   const [name, setName] = useState("");
-  /** 늘 같은 곳에서 여는 모임이면 기본값이 채워 온다 (ADR-36). 회차마다 고칠 수 있다 */
+  /** 늘 같은 곳에서 여는 모임이면 기본값이 채워 온다 (ADR-37). 회차마다 고칠 수 있다 */
   const [place, setPlace] = useState("");
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
   const [allowUndo, setAllowUndo] = useState(true);
@@ -154,7 +154,7 @@ export default function HostWizard() {
               <span className="tiny dim">{HOST_UI.fields.placeHint}</span>
             </div>
 
-            {/* 등록 시작은 묻지 않는다 (ADR-36) — 만들면 곧바로 열린다. 그 사실만 한 줄로 알린다 */}
+            {/* 등록 시작은 묻지 않는다 (ADR-37) — 만들면 곧바로 열린다. 그 사실만 한 줄로 알린다 */}
             <div className="field">
               <label htmlFor="prevote">{HOST_UI.fields.prevoteAt}</label>
               <input

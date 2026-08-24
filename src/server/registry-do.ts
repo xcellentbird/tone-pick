@@ -96,7 +96,7 @@ export class RegistryDO extends DurableObject {
     snap.defaults = {
       maxPre: next.maxPre,
       maxParty: next.maxParty,
-      // 빈 장소는 그대로 둔다 — "회차마다 다른 곳에서 연다" 는 뜻이다 (ADR-36)
+      // 빈 장소는 그대로 둔다 — "회차마다 다른 곳에서 연다" 는 뜻이다 (ADR-37)
       place: next.place ?? "",
       prevoteBeforeH: next.prevoteBeforeH,
       // 빈 문구를 저장하면 안내문이 링크 없이 나간다. 비면 기본 문구로 되돌린다

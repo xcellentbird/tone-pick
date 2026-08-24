@@ -63,7 +63,7 @@ Then   401 이다
 
 ### S-B1 기본 설정을 물려받는다
 ```
-Given  기본값이 { maxPre: 1, maxParty: 2, regOpenBeforeD: 6, prevoteBeforeH: 20 } 다
+Given  기본값이 { maxPre: 1, maxParty: 2, prevoteBeforeH: 20 } 다   (regOpenBeforeD 는 ADR-37 에서 빠졌다)
 When   위저드를 연다
 Then   maxPre=1, maxParty=2 가 채워져 있다
 And    등록 시작은 **파티 6일 전**, 사전 투표 시작은 **파티 20시간 전**으로 채워져 있다
