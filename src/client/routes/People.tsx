@@ -47,7 +47,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
    * 닫히는 순간 화면이 저절로 바뀌지는 않는다 — 그때 누르면 서버가 같은 이유로 거절하고
    * `POKE.blocked` 가 뜬다. 1초마다 다시 그리는 것보다 그 편이 조용하다.
    */
-  const open = canPoke(state.event.phase, now(), state.event.schedule);
+  const open = canPoke(state.event.phase, now(), state.event.schedule, state.event.fired);
   /** 나이·MBTI 가 아직 안 열린 단계인가. `toPublic()` 이 여는 시점과 같아야 한다 (ADR-21) */
   const agesHidden = state.event.phase !== "party" && state.event.phase !== "done";
   /**

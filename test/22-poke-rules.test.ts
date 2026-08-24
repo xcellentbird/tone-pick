@@ -365,5 +365,43 @@ describe("매력 투표 마감", () => {
     // 없는 마감을 만들어 조용히 막지 않는다. 이 결정 전에 만든 회차가 프로덕션에 있다
     expect(canPoke("prevote", Date.now(), {})).toBe(true);
     expect(canPoke("prevote", Date.now(), { voteEndAt: Date.now() - 1 })).toBe(false);
+    // 운영자가 앞당겨 닫은 것도 같은 값이다 (ADR-39 후기)
+    expect(canPoke("prevote", Date.now(), {}, { voteEnd: Date.now() - 1 })).toBe(false);
+  });
+
+  /**
+   * 운영자가 마감을 **앞당겨도 단계는 그대로다** (ADR-39 후기).
+   *
+   * 넘기면 나이·MBTI(ADR-21)와 파티 콕이 함께 열려, **아직 아무도 안 온 자리에서
+   * 파티가 시작된 것**이 된다. 마감이 닫는 건 표를 더 낼 수 있는가 하나뿐이다.
+   */
+  it("★ 마감을 앞당겨도 단계는 매력 투표 그대로다", async () => {
+    const ev = await freshEvent({}, { voteEndAt: Date.now() + HOUR });
+    const me = await join(ev);
+    const her = await join(ev, "F");
+    await setPhase(ev.id, "prevote");
+    expect((await poke(her.cookie, me.id)).status).toBe(200);
+
+    const closed = await api<EventMeta>(`/api/host/events/${ev.id}/vote-end`, { method: "POST", cookie: master });
+    expect(closed.status, JSON.stringify(closed.body)).toBe(200);
+
+    // 단계는 그대로 — 나이·MBTI 도 파티 콕도 아직 열리지 않았다
+    expect(closed.body.phase).toBe("prevote");
+    expect(closed.body.fired.party).toBeUndefined();
+    // 표만 닫혔다
+    expect((await poke(her.cookie, me.id)).status).toBe(409);
+    // **예약은 기록으로 남는다** — 덮어쓰면 "예약은 몇 시였는데 언제 닫았다" 를 말할 수 없다
+    expect(closed.body.schedule.voteEndAt).toBeTypeOf("number");
+    expect(closed.body.fired.voteEnd).toBeTypeOf("number");
+    expect(closed.body.fired.voteEnd).not.toBe(closed.body.schedule.voteEndAt);
+  });
+
+  it("두 번 눌러도 처음 닫은 시각이 남는다", async () => {
+    const ev = await freshEvent({}, { voteEndAt: Date.now() + HOUR });
+    await setPhase(ev.id, "prevote");
+    const first = await api<EventMeta>(`/api/host/events/${ev.id}/vote-end`, { method: "POST", cookie: master });
+    const again = await api<EventMeta>(`/api/host/events/${ev.id}/vote-end`, { method: "POST", cookie: master });
+    expect(again.status).toBe(200);
+    expect(again.body.fired.voteEnd).toBe(first.body.fired.voteEnd);
   });
 });

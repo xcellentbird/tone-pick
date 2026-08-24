@@ -54,7 +54,7 @@ import {
   normalizePhone,
   realNameProblem,
 } from "../shared/constants.ts";
-import { PHASE_ORDER, canPoke, dueAt, dueTransition, rulesLocked, schedLocked } from "../shared/phase.ts";
+import { PHASE_ORDER, canPoke, dueAt, dueTransition, rulesLocked, schedLocked, voteClosed } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
@@ -275,6 +275,32 @@ export class EventDO extends DurableObject {
     await this.rearm(meta, now);
     this.broadcast({ type: "phase", phase: meta.phase, fired: meta.fired });
     if (to === "done") this.broadcast({ type: "reveal" });
+    return ok(meta);
+  }
+
+  /**
+   * 매력 투표를 **지금** 마감한다 (ADR-39 후기).
+   *
+   * 다른 단계 버튼과 같은 꼴이다 — 예약(`voteEndAt`)을 앞당긴다. 다만 **단계는 넘기지 않는다**:
+   * `phase` 는 `prevote` 그대로고, 나이·MBTI(ADR-21)도 파티 콕도 `파티 시작` 이 연다.
+   * 넘기면 아직 아무도 안 온 자리에서 파티가 시작된 것이 된다.
+   *
+   * **예약 시각은 덮어쓰지 않는다.** 실제로 닫은 시각만 `fired.voteEnd` 에 남긴다 —
+   * 지나간 예약은 기록이라, 덮으면 "예약은 20시였는데 19시에 닫았다" 를 말할 수 없다.
+   *
+   * 이미 닫혀 있으면 **아무 일도 하지 않는다** — 두 번 눌러도 처음 닫은 시각이 남아야 한다.
+   * 알람은 다시 걸지 않는다. 마감에는 알람이 없다 (`dueAt` 이 이 값을 모른다).
+   */
+  async closeVote(now: number): Promise<Result<EventMeta>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (meta.phase !== "prevote") return fail("bad_request");
+    if (voteClosed(meta.schedule, meta.fired, now)) return ok(meta);
+
+    meta.fired.voteEnd = now;
+    await this.ctx.storage.put("meta", meta);
+    // 참가자 화면은 콕 버튼이 닫힌 걸 그 자리에서 알아야 한다 — 단계 신호를 그대로 쓴다
+    this.broadcast({ type: "phase", phase: meta.phase, fired: meta.fired });
     return ok(meta);
   }
 
@@ -688,7 +714,7 @@ export class EventDO extends DurableObject {
   async poke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    if (!canPoke(meta.phase, now, meta.schedule)) return fail("closed");
+    if (!canPoke(meta.phase, now, meta.schedule, meta.fired)) return fail("closed");
 
     const me = this.player(fromId);
     const target = this.player(toId);
@@ -732,7 +758,7 @@ export class EventDO extends DurableObject {
   async unpoke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    if (!canPoke(meta.phase, now, meta.schedule)) return fail("closed");
+    if (!canPoke(meta.phase, now, meta.schedule, meta.fired)) return fail("closed");
 
     const round = roundOf(meta.phase);
     const allowed = round === "pre" ? meta.config.allowUndoPre !== false : meta.config.allowUndo !== false;
