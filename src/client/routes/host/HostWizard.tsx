@@ -141,7 +141,8 @@ export default function HostWizard() {
         </button>
         <div className="grow">
           <h1>{SCREEN_TITLE.hostWizard}</h1>
-          <div className="sub">{at}/3</div>
+          {/* 숫자만 있으면 몇 장 남았는지는 알아도 **지금 무엇을 정하는 중인지**는 모른다 */}
+          <div className="sub">{at}/3 · {HOST_UI.steps[at - 1]}</div>
         </div>
       </header>
 
@@ -152,33 +153,40 @@ export default function HostWizard() {
           운영자가 링크를 돌리고, 문은 초대 명단의 전화번호가 연다.
           코드는 만들어진 뒤 회차 목록과 콘솔 머리에서 볼 수 있다.
         */}
+        {/*
+          **1스텝은 기본 정보다** — 이 회차가 무엇이고 어디서 열리는지.
+          장소는 2스텝(일시)에 있었는데, 그 스텝이 **예약**만 다루게 되면서 여기로 왔다.
+          시각이 아닌 유일한 칸이 시각 넷 사이에 끼어 있으면 그 목록이 시간 순으로 안 읽힌다.
+        */}
         {at === 1 && (
-          <div className="field">
-            <label htmlFor="ename">{HOST_UI.fields.name}</label>
-            <input id="ename" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-        )}
-
-        {at === 2 && (
           <>
             <div className="field">
-              <label htmlFor="party">{HOST_UI.fields.partyAt}</label>
-              <input
-                id="party"
-                type="datetime-local"
-                step={SCHEDULE_STEP_MIN * 60}
-                value={toLocalInput(partyAt)}
-                onChange={(e) => changeParty(e.target.value)}
-              />
+              <label htmlFor="ename">{HOST_UI.fields.name}</label>
+              <input id="ename" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
-
-            {/* "언제·어디서" 는 한 화면에 있다 (ADR-32). 장소는 안내문에만 쓰인다 */}
+            {/* 장소는 안내문에만 쓰인다 (ADR-32) — 참가자 화면에는 안 나간다 */}
             <div className="field">
               <label htmlFor="place">{HOST_UI.fields.place}</label>
               <input id="place" value={place} onChange={(e) => setPlace(e.target.value)} />
               <span className="tiny dim">{HOST_UI.fields.placeHint}</span>
             </div>
+          </>
+        )}
 
+        {/*
+          **2스텝은 예약이다.** 네 시각을 **시간 순으로** 늘어놓는다 —
+          매력 투표 시작 → 마감 → 파티 시작 → 커플 발표.
+          그래야 읽는 사람이 어느 것이 먼저인지 다시 계산하지 않는다.
+
+          ⚠️ **넷 중 파티 시작만 예약이 아니다** (ADR-14). 운영자가 현황 탭에서 누른다.
+          그 사실은 목록 아래가 아니라 **그 칸에** 붙는다(`partyHint`) — 아래에 떠 있으면
+          어느 칸 이야기인지 알 수 없고, 넷 다 저절로 넘어가는 줄로 읽으면 파티가 영영 안 열린다.
+
+          **`partyAt` 은 여전히 기준점이다.** 셋째 자리에 있어도 이걸 옮기면 손대지 않은 칸이
+          따라 움직인다 (`changeParty`). 화면 순서와 계산 순서는 다른 이야기다.
+        */}
+        {at === 2 && (
+          <>
             {/* 등록 시작은 묻지 않는다 (ADR-38) — 만들면 곧바로 열린다. 그 사실만 한 줄로 알린다 */}
             <div className="field">
               <label htmlFor="prevote">{HOST_UI.fields.prevoteAt}</label>
@@ -191,7 +199,7 @@ export default function HostWizard() {
               />
             </div>
             {/*
-              매력 투표 마감 (ADR-39). **이 시각과 파티 일시 사이가 자리를 짜는 시간이다** —
+              매력 투표 마감 (ADR-39). **이 시각과 파티 시작 사이가 자리를 짜는 시간이다** —
               그래서 힌트가 몇 시인지가 아니라 그 사이에 무엇을 하는지를 말한다.
             */}
             <div className="field">
@@ -205,11 +213,21 @@ export default function HostWizard() {
               />
               <span className="tiny dim">{HOST_UI.fields.voteEndHint}</span>
             </div>
+            <div className="field">
+              <label htmlFor="party">{HOST_UI.fields.partyAt}</label>
+              <input
+                id="party"
+                type="datetime-local"
+                step={SCHEDULE_STEP_MIN * 60}
+                value={toLocalInput(partyAt)}
+                onChange={(e) => changeParty(e.target.value)}
+              />
+              <span className="tiny dim">{HOST_UI.fields.partyHint}</span>
+            </div>
             {/*
-              커플 발표 (ADR-43). **파티 뒤를 재는 유일한 칸이라 맨 아래에 둔다** — 일정 칸이
-              위에서 아래로 시간 순이면 어느 것이 먼저인지 다시 계산하지 않아도 된다.
-              힌트는 `파티를 시작해야 울린다` 를 말한다. 그걸 모르면 이 시각만 믿고
-              `파티 시작` 을 안 눌러서, 발표도 콕도 안 열린 채 시각만 지나간다.
+              커플 발표 (ADR-43). 힌트는 `파티를 시작해야 울린다` 를 말한다 —
+              그걸 모르면 이 시각만 믿고 `파티 시작` 을 안 눌러서,
+              발표도 콕도 안 열린 채 시각만 지나간다.
             */}
             <div className="field">
               <label htmlFor="reveal">{HOST_UI.fields.revealAt}</label>
@@ -222,7 +240,6 @@ export default function HostWizard() {
               />
               <span className="tiny dim">{HOST_UI.fields.revealHint}</span>
             </div>
-            <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
             <p className="tiny dim">{HOST_UI.regOpensNow}</p>
           </>
         )}
