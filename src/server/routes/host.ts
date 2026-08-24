@@ -199,6 +199,18 @@ hostRoutes.post("/events/:id/phase", async (c) => {
   return response ?? c.json(value);
 });
 
+/**
+ * 매력 투표를 지금 마감한다 (ADR-39 후기). **단계는 넘어가지 않는다** —
+ * 표만 닫히고 나이·MBTI 도 파티 콕도 `파티 시작` 이 연다.
+ * 시각은 **서버가 찍는다.** 운영자 폰이 빠르면 아직 열려 있는 걸 닫힌 것으로 만든다.
+ */
+hostRoutes.post("/events/:id/vote-end", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { value, response } = unwrap(c, await gate.stub.closeVote(serverNow()));
+  return response ?? c.json(value);
+});
+
 hostRoutes.delete("/events/:id", async (c) => {
   if (!isMaster(await hostScope(c))) return denied(c);
   const id = c.req.param("id");

@@ -21,12 +21,13 @@
 import {
   HOST_UI,
   UNREVEAL,
+  VOTE_END,
   phaseAction,
   schedDiff,
   type ActionCopy,
 } from "../../../shared/copy.ts";
 import type { Phase } from "../../../shared/types.ts";
-import { PHASE_ORDER, dueAt } from "../../../shared/phase.ts";
+import { PHASE_ORDER, dueAt, voteClosed } from "../../../shared/phase.ts";
 import { TICK_WINDOW, formatCountdown, formatDayHour, formatGap, formatWhen } from "../../../shared/time.ts";
 import { post } from "../../lib/api.ts";
 import Avatar from "../../ui/Avatar.tsx";
@@ -54,56 +55,80 @@ export default function Dash() {
    * 매력 투표 시작은 "언제 닫히나", 파티 시작은 "이미 닫혔나".
    * 서버 시각으로 잰다. 운영자 폰이 빠르면 아직 열려 있는 걸 닫혔다고 말한다.
    */
+  const closed = voteClosed(meta.schedule, meta.fired, now());
   const voteEnd = {
     voteEndText: meta.schedule.voteEndAt ? formatWhen(meta.schedule.voteEndAt) : undefined,
-    voteClosed: !!meta.schedule.voteEndAt && meta.schedule.voteEndAt <= now(),
+    voteClosed: closed,
   };
 
-  /*
-   * 단계 버튼이 하는 일은 **예약을 앞당기는 것**이다. 그래서 옆에 남은 시간이 함께 선다 —
-   * 가만히 두면 언제 저절로 넘어가는지 모르면 "지금 눌러도 되나" 를 판단할 수 없다.
+  /**
+   * 이 버튼이 하는 일은 **예약을 앞당기는 것**이다. 그래서 무엇을 앞당기는지와,
+   * 그 시각이 언제인지가 한 줄에 함께 선다 — 가만히 두면 언제 그렇게 되는지 모르면
+   * "지금 눌러도 되나" 를 판단할 수 없다.
    *
-   * 시각은 `dueAt` 한 곳에서 온다 (서버 알람과 같은 표다). **파티 시작에는 셀 것이 없다** —
-   * 예약이 없는 전환이라(ADR-14) 그 자리는 비워 둔다. 없는 시각을 지어내면
-   * 현장이 그 숫자를 따라가게 되고, 그게 ADR-14 가 막으려던 바로 그 일이다.
+   * | 지금 | 버튼 | 앞당기는 시각 | 가만히 두면 |
+   * |---|---|---|---|
+   * | `prep`·`reg` | 등록/매력 투표 시작 | `dueAt` | 저절로 넘어간다 (알람) |
+   * | `prevote` · 투표 열림 | **매력 투표 마감** | `voteEndAt` | 저절로 닫힌다 (ADR-39) |
+   * | `prevote` · 투표 닫힘 | 파티 시작 | `partyAt` | **아무 일도 없다** (ADR-14) |
+   * | `party` | 결과 발표 | `dueAt`(`revealAt`) | 저절로 넘어간다 (ADR-43) |
+   *
+   * 마지막 줄만 `auto` 가 아니다. 그 하나 때문에 아래 안내가 붙는다 —
+   * 넷 다 저절로 넘어가는 줄로 읽으면 **파티가 영영 안 열린다.**
    */
-  const until = (dueAt(meta) ?? 0) - now();
+  const step: { to: Phase | "voteEnd"; at?: number; auto: boolean } =
+    meta.phase === "prevote" && !closed
+      ? { to: "voteEnd", at: meta.schedule.voteEndAt, auto: true }
+      : meta.phase === "prevote"
+        ? { to: "party", at: meta.schedule.partyAt, auto: false }
+        : { to: nextPhase!, at: dueAt(meta) ?? undefined, auto: true };
+
+  const until = (step.at ?? 0) - now();
   const counting = until > 0;
 
-  /**
-   * 매력 투표 마감까지. **버튼이 아니라 줄이다** — 마감은 단계 전환이 아니라
-   * 시각이 내리는 판정이라(ADR-39) 앞당길 손잡이가 없다. 그래도 `prevote` 동안
-   * 다음에 일어날 일은 이것이라, 버튼 아래에서 그 사실을 말한다.
-   */
-  const untilVoteEnd = meta.phase === "prevote" && meta.schedule.voteEndAt ? meta.schedule.voteEndAt - now() : 0;
-
   // 하루 넘게 남았으면 1초마다 다시 그릴 이유가 없다 — `144:00:00` 은 읽는 사람이 다시 나눈다
-  const ticking = Math.max(counting ? until : 0, untilVoteEnd);
-  useTicker(ticking > 0 && ticking <= TICK_WINDOW);
+  useTicker(counting && until <= TICK_WINDOW);
 
   /** 남은 시간 한 조각. 하루 안쪽이면 초를 세고, 그보다 멀면 접는다 (홈 카운트다운과 같은 규칙) */
   const remain = (ms: number) => (ms <= TICK_WINDOW ? formatCountdown(ms) : formatDayHour(ms));
 
-  async function go(to: Phase) {
-    await post(`/host/events/${meta.id}/phase`, { to });
+  /** 그 버튼이 무엇을 하는지. 마감만 단계가 아니라 행동이라 따로 온다 */
+  const stepCopy =
+    step.to === "voteEnd"
+      ? VOTE_END
+      : phaseAction(step.to, { maxPre: meta.config.maxPre, maxParty: meta.config.maxParty });
+
+  /**
+   * **마감은 단계를 넘기지 않는다** (ADR-39) — 다른 길로 간다.
+   * 표만 닫히고 `phase` 는 `prevote` 그대로다. 나이·MBTI 와 파티 콕은 `파티 시작` 이 연다.
+   */
+  async function go(to: Phase | "voteEnd") {
+    if (to === "voteEnd") await post(`/host/events/${meta.id}/vote-end`);
+    else await post(`/host/events/${meta.id}/phase`, { to });
     reload();
   }
 
-  function ask(to: Phase) {
+  function ask(to: Phase | "voteEnd") {
     // 마지막으로 발행한 라운드에 몇 명이 앉아 있나. 초안은 아직 참가자에게 안 나갔으므로 세지 않는다
     const published = state.seatings.filter((s) => s.status === "published");
-    const copy = phaseAction(to, {
-      maxPre: meta.config.maxPre,
-      maxParty: meta.config.maxParty,
-      seated: published.at(-1)?.seats.length ?? 0,
-      players: players.length,
-      ...voteEnd,
-    });
+    const copy =
+      to === "voteEnd"
+        ? VOTE_END
+        : phaseAction(to, {
+            maxPre: meta.config.maxPre,
+            maxParty: meta.config.maxParty,
+            seated: published.at(-1)?.seats.length ?? 0,
+            players: players.length,
+            ...voteEnd,
+          });
     if (!copy) return;
 
     const facts = [...copy.facts];
-    // 예약이 걸리는 전환은 매력 투표 시작 하나뿐이다 (ADR-36). 나머지는 비교할 시각이 없다
-    const scheduled = to === "prevote" ? meta.schedule.prevoteAt : undefined;
+    /*
+     * 예약을 앞당기는 것이면 얼마나 이른지 한 줄 붙는다. 둘뿐이다 —
+     * 매력 투표 **시작**(ADR-36)과 **마감**(ADR-39 후기). 파티 시작·발표는 비교할 예약이 없다.
+     */
+    const scheduled = to === "prevote" ? meta.schedule.prevoteAt : to === "voteEnd" ? meta.schedule.voteEndAt : undefined;
     if (scheduled) {
       const gap = scheduled - now();
       const line = schedDiff(to, {
@@ -116,7 +141,7 @@ export default function Dash() {
     run({ ...copy, facts }, to);
   }
 
-  function run(copy: ActionCopy, to: Phase) {
+  function run(copy: ActionCopy, to: Phase | "voteEnd") {
     confirm(copy, async () => {
       await go(to);
       toast(copy.btn);
@@ -125,25 +150,24 @@ export default function Dash() {
 
   return (
     <div className="stack">
-      {nextPhase && (
-        <button className="btn primary block phaseBtn" onClick={() => ask(nextPhase)}>
-          <span>{phaseAction(nextPhase, { maxPre: meta.config.maxPre, maxParty: meta.config.maxParty })?.btn}</span>
-          {/* 예약이 있는 전환에만 붙는다. 없으면 자리도 만들지 않는다 — 빈 칸은 무엇을 세다 멈춘 것처럼 보인다 */}
+      {stepCopy && (
+        <button className="btn primary block phaseBtn" onClick={() => ask(step.to)}>
+          <span>{stepCopy.btn}</span>
+          {/* 셀 시각이 없으면 자리도 만들지 않는다 — 빈 칸은 무엇을 세다 멈춘 것처럼 보인다 */}
           {counting && <span className="due">{remain(until)}</span>}
         </button>
       )}
       {/*
-        매력 투표 마감. **버튼 아래 한 줄이다** — 앞당길 수 있는 전환이 아니다 (ADR-39).
-        마감돼야 첫 자리를 짤 수 있어서, 그 시각과 파티 일시 사이가 곧 짜는 시간이다.
+        **파티 시작 옆 숫자만 뜻이 다르다** — 나머지는 "가만히 두면 그때 넘어간다" 인데
+        이건 그냥 파티 일시다 (ADR-14). 그 사실을 여기서 말하지 않으면 넷 다 저절로
+        넘어가는 줄로 읽히고, 그러면 **파티가 영영 안 열린다.**
       */}
-      {meta.phase === "prevote" && (
-        <p className="tiny dim">
-          {untilVoteEnd > 0
-            ? HOST_UI.dash.untilVoteEnd(remain(untilVoteEnd))
-            : meta.schedule.voteEndAt
-              ? HOST_UI.dash.voteClosed
-              : HOST_UI.dash.noVoteEnd}
-        </p>
+      {counting && !step.auto && <p className="tiny dim">{HOST_UI.dash.partyManual}</p>}
+      {/* 마감된 뒤에는 **다음에 할 수 있는 일**을 말한다. 시각만으로는 무엇을 하라는지 모른다 */}
+      {meta.phase === "prevote" && closed && <p className="tiny dim">{HOST_UI.dash.voteClosed}</p>}
+      {/* 마감 시각이 없는 옛 회차 — 버튼을 눌러야 닫힌다는 걸 그 자리에서 알린다 */}
+      {meta.phase === "prevote" && !closed && !meta.schedule.voteEndAt && (
+        <p className="tiny dim">{HOST_UI.dash.noVoteEnd}</p>
       )}
       {meta.phase === "done" && (
         <button className="btn danger block" onClick={() => run(UNREVEAL, "party")}>

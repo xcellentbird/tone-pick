@@ -1077,6 +1077,22 @@ export const UNREVEAL: ActionCopy = {
 };
 
 /**
+ * 매력 투표 마감 (ADR-39 후기). **단계가 아니라 행동이라** `phaseAction` 이 아니라 여기 있다.
+ *
+ * 확인창이 답해야 하는 건 "무엇이 안 바뀌는가" 다 — 마감을 누르면 파티가 시작되는 줄 알고
+ * 멈칫하는 자리이기 때문이다. 그래서 **단계 줄이 facts 에 있다.**
+ */
+export const VOTE_END: ActionCopy = {
+  btn: "매력 투표 마감",
+  title: "매력 투표를 지금 마감할까요?",
+  facts: [
+    ["참가자", "지금 순위로 마감돼요 — 더는 표를 낼 수 없습니다"],
+    ["단계", "매력 투표 그대로예요 — 나이·MBTI 도 파티 콕도 아직 열리지 않습니다"],
+    ["자리", "이제 첫 자리를 짤 수 있어요"],
+  ],
+};
+
+/**
  * 수동 진행이 예약과 얼마나 어긋나는지 한 줄로. 시간 포맷은 호출부에서 만들어 넘긴다.
  *
  * **예약이 걸리는 전환은 매력 투표 시작 하나뿐이다** (ADR-36) — 나머지는 null 이다.
@@ -1084,10 +1100,11 @@ export const UNREVEAL: ActionCopy = {
  * "예약된 등록 시작" 이라고 말하면 없던 예약을 있었던 것처럼 말하게 된다.
  */
 export function schedDiff(
-  to: Phase,
+  to: Phase | "voteEnd",
   v: { atText: string; gapText: string; direction: "early" | "late" | "same" },
 ): Fact | null {
-  const what = to === "prevote" ? "매력 투표 시작" : null;
+  // 마감도 예약을 앞당기는 행동이라 같은 줄을 쓴다 (ADR-39 후기)
+  const what = to === "prevote" ? "매력 투표 시작" : to === "voteEnd" ? "매력 투표 마감" : null;
   if (!what) return null;
   if (v.direction === "early")
     return ["예약과 차이", `예약된 ${what}은 ${v.atText} — ${v.gapText} 일찍 진행됩니다. 남은 예약은 해제돼요.`];
@@ -1350,10 +1367,15 @@ export const HOST_UI = {
      * 마감돼야 첫 자리를 짤 수 있어서 **다음에 할 일까지 함께** 적는다 —
      * 시각만 알려주면 운영자가 그 시각에 무엇을 해야 하는지는 여전히 모른다.
      */
-    untilVoteEnd: (left: string) => `매력 투표 마감까지 ${left}`,
     voteClosed: "매력 투표가 마감됐어요 — 이제 첫 자리를 짤 수 있어요",
     /** 마감 시각이 없는 옛 회차. 없는 마감을 만들어 조용히 막지 않는다 (ADR-39) */
-    noVoteEnd: "마감 시각이 없어요 — 파티를 시작할 때 함께 마감됩니다",
+    noVoteEnd: "마감 시각이 없어요 — 마감 버튼을 눌러야 닫힙니다",
+    /**
+     * 파티 시작 옆 숫자가 무엇인지. **다른 버튼과 뜻이 다르다** —
+     * 나머지는 "가만히 두면 그때 넘어간다" 이고, 이건 그냥 파티 일시다 (ADR-14).
+     * 이 줄이 없으면 넷 다 저절로 넘어가는 줄로 읽혀서 **파티가 영영 안 열린다.**
+     */
+    partyManual: "파티 일시까지 남은 시간이에요 — 저절로 열리지 않고, 눌러야 시작됩니다",
     mutualTitle: (n: number) => `💘 상호 매칭 ${n}쌍`,
     /**
      * 매칭이 **어떻게 이루어졌는가**. 라운드로 그냥 나누면 합이 안 맞아서

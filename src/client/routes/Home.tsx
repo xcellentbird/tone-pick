@@ -56,7 +56,7 @@ export default function Home({
   /** 진행 방식을 다시 여는 길 (슬라이스 21). 등록 중에만 카드에 붙는다 */
   onHelp: () => void;
 }) {
-  const { phase, schedule } = state.event;
+  const { phase, schedule, fired } = state.event;
   const seat = state.seat;
   /*
    * 남은 시간은 **서버 시각**에서 뺀다. 폰 시계를 바꿔 결과를 먼저 보는 걸 막기 위해.
@@ -72,7 +72,7 @@ export default function Home({
    * 콕을 다 썼으면 **다른 문장**이다. 남은 게 없는데 "찔러보세요" 라고 하면
    * 할 수 없는 일을 시키는 것이고, 그 아래 "콕 0회 남음" 은 0을 들이대는 일이다.
    */
-  const poking = canPoke(phase, now(), schedule);
+  const poking = canPoke(phase, now(), schedule, fired);
   /*
    * **매력 투표가 닫힌 뒤와 파티 사이가 새 구간이다** (ADR-39).
    * 단계는 아직 `prevote` 지만 할 일이 다르다 — 투표는 끝났고 자리를 기다린다.

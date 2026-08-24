@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, phaseAction, schedDiff } from "../../src/shared/copy.ts";
+import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, VOTE_END, phaseAction, schedDiff } from "../../src/shared/copy.ts";
 import { formatGap, formatWhen } from "../../src/shared/time.ts";
 import type { HostState } from "../../src/shared/types.ts";
 import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
@@ -316,27 +316,35 @@ describe("운영자 콘솔", () => {
     renderConsole();
     await screen.findByText("테스트 회차");
     expect(document.querySelector(".phaseBtn > .due")).toBeTruthy();
+    // 예약이 저절로 넘어가는 전환에는 "눌러야 한다" 는 안내가 붙지 않는다
+    expect(screen.queryByText(HOST_UI.dash.partyManual)).toBeNull();
     cleanup();
 
-    // 매력 투표 중 — 다음은 파티 시작이고, 그건 운영자가 누를 때만 일어난다
+    /*
+     * 매력 투표가 닫힌 뒤 — 다음은 파티 시작이다. 시각(`partyAt`)은 있지만
+     * **저절로 열리지 않는다** (ADR-14). 숫자만 두면 넷 다 자동인 줄로 읽혀서
+     * 파티가 영영 안 열린다 — 그래서 그 하나에만 안내가 붙는다.
+     */
     stubFetch(
       hostState({
         phase: "prevote",
-        fired: { reg: Date.now() - 2 * HOUR, prevote: Date.now() - HOUR },
+        fired: { reg: Date.now() - 3 * HOUR, prevote: Date.now() - 2 * HOUR, voteEnd: Date.now() - HOUR },
       }),
     );
     renderConsole();
-    await screen.findByText("테스트 회차");
-    expect(document.querySelector(".phaseBtn > .due")).toBeNull();
+    await screen.findByText(phaseAction("party", { maxPre: 3, maxParty: 3 })!.btn);
+    expect(document.querySelector(".phaseBtn > .due")).toBeTruthy();
+    expect(screen.getByText(HOST_UI.dash.partyManual)).toBeTruthy();
   });
 
   /**
-   * 매력 투표 마감은 **버튼이 아니라 줄이다** (ADR-39).
+   * 매력 투표 마감은 버튼이지만 **단계를 넘기지 않는다** (ADR-39 + 후기).
    *
-   * 앞당길 수 있는 전환이 아니라 시각이 내리는 판정이라 누를 손잡이가 없다.
-   * 그래도 매력 투표 동안 다음에 일어날 일은 이것이라, 버튼 아래에서 그 사실을 말한다.
+   * 넘기면 나이·MBTI(ADR-21)와 파티 콕이 함께 열려, 아직 아무도 안 온 자리에서
+   * 파티가 시작된 것이 된다. 그래서 이 버튼은 `/phase` 가 아니라 `/vote-end` 로 간다 —
+   * **어느 길로 가는지가 곧 그 규칙이다.**
    */
-  it("★ 매력 투표 마감은 버튼이 되지 않고 남은 시간만 말한다", async () => {
+  it("★ 매력 투표 마감은 단계를 넘기지 않는다", async () => {
     const voteEndAt = Date.now() + 30 * 60_000;
     stubFetch(
       hostState({
@@ -346,13 +354,16 @@ describe("운영자 콘솔", () => {
       }),
     );
     renderConsole();
-    await screen.findByText("테스트 회차");
 
-    // 남은 시간을 말하는 줄이 있다
-    expect(screen.getByText(new RegExp(HOST_UI.dash.untilVoteEnd("").trim()))).toBeTruthy();
-    // 그리고 그 자리는 버튼이 아니다 — 다음 단계 버튼은 여전히 파티 시작 하나뿐이다
-    expect(document.querySelectorAll(".btn.primary.block").length).toBe(1);
-    expect(screen.getByText(phaseAction("party", { maxPre: 3, maxParty: 3 })!.btn)).toBeTruthy();
+    // 매력 투표 다음에 서는 버튼은 마감이다 — 파티 시작이 아니다
+    fireEvent.click(await screen.findByText(VOTE_END.btn));
+    await screen.findByText(VOTE_END.title);
+    expect(screen.queryByText(phaseAction("party", { maxPre: 3, maxParty: 3 })!.btn)).toBeNull();
+
+    fireEvent.click(screen.getAllByText(VOTE_END.btn)[1]);
+    await waitFor(() => expect(calls.some((c) => c.url.includes("/vote-end"))).toBe(true));
+    // **단계는 건드리지 않는다.** 나이·MBTI 와 파티 콕은 파티 시작이 연다
+    expect(calls.some((c) => c.url.includes("/phase"))).toBe(false);
   });
 
   it("★ 단계 전환은 확인을 거치고, 확인창이 바뀌는 것을 항목으로 보여준다", async () => {

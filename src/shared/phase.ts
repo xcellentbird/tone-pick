@@ -97,10 +97,27 @@ export function schedLocked(fired: FiredMap, key: string): boolean {
  *
  * `voteEndAt` 이 없는 옛 회차는 **닫히지 않는다.** 없는 마감을 만들어 조용히 막지 않는다.
  */
-export function canPoke(phase: Phase, now: number, schedule: EventSchedule): boolean {
+export function canPoke(phase: Phase, now: number, schedule: EventSchedule, fired: FiredMap = {}): boolean {
   if (phase === "party") return true;
   if (phase !== "prevote") return false;
-  return !schedule.voteEndAt || now < schedule.voteEndAt;
+  return !voteClosed(schedule, fired, now);
+}
+
+/**
+ * 매력 투표가 닫혔나. **닫는 길이 둘이다** (ADR-39 + 후기).
+ *
+ * ① 시각이 지났다 (`voteEndAt`) — 예약대로 저절로 닫힌다
+ * ② 운영자가 앞당겨 닫았다 (`fired.voteEnd`) — 다른 버튼들과 같은 꼴로, 예약을 앞당긴다
+ *
+ * **둘 다 단계를 넘기지 않는다.** 닫히는 건 표를 더 낼 수 있는가 하나뿐이고,
+ * 나이·MBTI(ADR-21)와 파티 콕은 `파티 시작` 이 연다. 그게 ADR-39 의 핵심이다.
+ *
+ * `voteEndAt` 도 `fired.voteEnd` 도 없는 옛 회차는 **닫히지 않는다.**
+ * 없는 마감을 만들어 조용히 막지 않는다.
+ */
+export function voteClosed(schedule: EventSchedule, fired: FiredMap, now: number): boolean {
+  if (fired.voteEnd) return true;
+  return !!schedule.voteEndAt && now >= schedule.voteEndAt;
 }
 
 /**
