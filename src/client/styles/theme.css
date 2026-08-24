@@ -237,6 +237,12 @@ button {
 .danger { color: var(--danger); }
 .warnText { color: var(--warn); }
 .okText { color: var(--ok); }
+/*
+ * **경고가 아니라 할 일**인 자리 (ADR-49 후기). `아직 앉지 않은 사람` 이 `--warn` 이던 때는
+ * 잘못된 상태처럼 읽혔다 — 늦게 등록했거나 배정할 때 뺀 사람이라 정상이다.
+ * 눈에는 띄되 알람은 아니어야 해서, 바로 아래 칩 버튼과 같은 색을 쓴다.
+ */
+.accentText { color: var(--accent); }
 
 /* ─────────────────────────── 카드 */
 
