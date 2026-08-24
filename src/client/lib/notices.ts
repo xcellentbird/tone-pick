@@ -31,7 +31,6 @@ export interface Notice {
   icon: string;
   title: string;
   body: string;
-  warn?: boolean;
   /** **보여줄 시각.** `0` 이면 안 보여준다 — 받은 콕이 그렇다 (ADR-48) */
   at: number;
   /**
@@ -61,12 +60,14 @@ export function noticesOf(state: ParticipantState): Notice[] {
   if (fired.party) {
     list.push({ key: "party", ...NOTICE.party(config.maxParty), at: fired.party, order: fired.party, bannerable: true, tab: "home" });
   }
-  if (fired.done) {
-    // 되돌렸으면 같은 자리에 다른 문장이 온다. 상태가 하나뿐이라 모순이 없다
-    const copy = phase === "done" ? NOTICE.done : NOTICE.unrevealed;
-    // 발표됐으면 결과가 있는 참가자 탭으로, 되돌렸으면 볼 게 없으니 홈으로
-    const tab = phase === "done" ? "people" : "home";
-    list.push({ key: `done:${phase}`, ...copy, at: fired.done, order: fired.done, bannerable: true, tab });
+  /*
+   * **발표는 되돌릴 수 없다** (ADR-50). 그래서 되돌린 자리에 놓던 문장(`unrevealed`)이 없다.
+   *
+   * 그래도 `phase` 를 함께 본다 — 이 결정 **전에** 되돌려둔 옛 회차는 `fired.done` 이 선 채로
+   * 파티 진행에 서 있다. 그 화면에 `결과가 발표됐어요` 를 띄우면 참가자 탭에는 아무것도 없다.
+   */
+  if (fired.done && phase === "done") {
+    list.push({ key: "done", ...NOTICE.done, at: fired.done, order: fired.done, bannerable: true, tab: "people" });
   }
   /**
    * 받은 콕은 **한 번에 하나씩** 쌓인다. 합쳐서 "지금까지 N회" 로 세어 주면

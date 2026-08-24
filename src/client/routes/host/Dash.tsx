@@ -18,14 +18,7 @@
  * 성비는 참가자 탭 명단에 있고, '콕을 못 받은 사람'은 일부러 두지 않는다 —
  * 알면 그 사람을 다르게 대하게 되고, 그건 이 앱이 없애려던 경험이다.
  */
-import {
-  HOST_UI,
-  UNREVEAL,
-  VOTE_END,
-  phaseAction,
-  schedDiff,
-  type ActionCopy,
-} from "../../../shared/copy.ts";
+import { HOST_UI, VOTE_END, phaseAction, schedDiff, type ActionCopy } from "../../../shared/copy.ts";
 import type { Phase } from "../../../shared/types.ts";
 import { PHASE_ORDER, dueAt, voteClosed } from "../../../shared/phase.ts";
 import { TICK_WINDOW, formatCountdown, formatDayHour, formatGap, formatWhen } from "../../../shared/time.ts";
@@ -169,12 +162,6 @@ export default function Dash() {
       {meta.phase === "prevote" && !closed && !meta.schedule.voteEndAt && (
         <p className="tiny dim">{HOST_UI.dash.noVoteEnd}</p>
       )}
-      {meta.phase === "done" && (
-        <button className="btn danger block" onClick={() => run(UNREVEAL, "party")}>
-          {UNREVEAL.btn}
-        </button>
-      )}
-
       {/*
         **파티가 시작돼야 나오는 둘.** 매칭도 파티 콕도 그전에는 있을 수가 없다 (ADR-34) —
         빈 카드를 미리 세워두면 자리만 차지하고, 운영자는 매번 그게 정상인지 확인하게 된다.

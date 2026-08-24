@@ -291,7 +291,7 @@ function Loaded({
              * 홈에는 소식 목록이 있고, 목적지 탭에는 소식 그 자체가 있다.
              * 누르면 그 알림의 목적지로 간다. 발표는 홈이 아니라 참가자 탭이다.
              */
-            <button className={`banner ${banner.warn ? "warn" : ""}`} onClick={() => onTab(banner.tab)}>
+            <button className="banner" onClick={() => onTab(banner.tab)}>
               <span className="icon">{banner.icon}</span>
               <span className="grow">
                 <span className="name">{banner.title}</span>
