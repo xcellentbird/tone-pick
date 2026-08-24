@@ -419,9 +419,9 @@ button {
 /*
  * 카드 안의 **누르는 자리.**
  *
- * 카드 전체가 버튼이던 시절이 있었는데, 참석 상태가 카드 **안** 오른쪽으로 들어오면서
- * 둘로 갈렸다 — 버튼 안에 버튼을 넣을 수 없다. 왼쪽(아바타·이름·번호)이 상세를 열고,
- * 오른쪽 칩이 참석을 찍는다. 왼쪽은 남는 폭을 다 먹어서 손가락이 빗나갈 자리가 없다.
+ * 참석 칩이 오른쪽에 있던 시절에 둘로 갈렸다 — 버튼 안에 버튼을 넣을 수 없어서다.
+ * 칩은 걷어냈지만(ADR-45) 이 구조는 남긴다: **`flex: 1` 이라 카드 폭을 다 먹어서**
+ * 겉보기와 누르는 자리가 같고, 오른쪽에 무언가 다시 붙어도 그 자리가 준비돼 있다.
  *
  * 전역 `button { min-width: var(--tap) }` 은 여기서 문제가 안 된다 — 늘 늘어나는 쪽이다.
  */
@@ -438,51 +438,6 @@ button {
   color: inherit;
   text-align: left;
   font-family: inherit;
-}
-
-/*
- * 카드 맨 오른쪽의 **참가 상태 배지** (ADR-33).
- *
- * 그냥 글자가 아니라 **상태값**으로 읽혀야 한다 — 알약 모양과 톤이 상태를 나르고,
- * 글자가 같은 정보를 다시 말한다. `.badge`(MBTI)와 같은 말투다.
- * **색만으로 말하지 않는다** — 톤을 못 보는 사람에게도 `도착`·`미도착` 이 그대로 남는다.
- *
- * 크기는 **단계**가 정한다 — 파티 전에는 작은 배지(아무도 찍을 게 없다),
- * 시작 뒤에는 44px 칩(문 앞에서 한 명씩 누르는 자리라 탭 타겟을 줄이지 않는다).
- * 누를 수 없는 `나감` 도 파티 중에는 **같은 크기로 선다** — 한 줄만 작으면
- * "덜 중요한 사람" 으로 읽힌다. 누를 수 있나는 크기가 아니라 톤과 눌림이 말한다.
- */
-.person > .att {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--line);
-  background: var(--card-2);
-  color: var(--dim);
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-/* 파티 전 — 단계 전체가 물러나 있다 */
-.person > .att { font-size: 11px; padding: 3px 9px; }
-/* 파티 중 — 칩 하나가 곧 손잡이다. 전역 `button` 의 44px 을 그대로 쓴다 */
-.person > .att.live { font-size: 14px; padding: 0 12px; min-height: var(--tap); }
-.person > button.att { min-width: 0; }
-
-/* 도착 — 왔다. 한 톤 밝아진다 */
-.person > .att[data-att="arrived"] {
-  color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
-  background: color-mix(in srgb, var(--ok) 12%, transparent);
-}
-
-/* 나감 — 자리에서 빼야 하는 사람이라 눈에 걸려야 한다 (FLOWS.md 의 `자리 비우기`) */
-.person > .att[data-att="left"] {
-  color: var(--warn);
-  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
 }
 
 /*
