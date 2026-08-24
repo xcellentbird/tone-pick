@@ -202,3 +202,80 @@ describe("콕 되돌리기", () => {
     expect((await unpoke(her.cookie, me.id)).status).not.toBe(200);
   });
 });
+
+/**
+ * 파티 도중에 규칙이 갈리지 않는다 (ADR-35).
+ *
+ * 굳는 것은 넷 — 콕 대상 · 되돌리기 둘 · 알림 — 과 일정 셋이다.
+ * 특히 알림은 파생값이라(`noticesOf`) 도중에 켜면 그때까지 쌓인 콕이 **한꺼번에** 나타난다.
+ * "받은 콕은 한 번에 하나씩" 이 그 순간 통째로 깨진다.
+ *
+ * **콕 횟수는 일부러 굳지 않는다** — 파티 중에 올리는 것이 매칭이 모자랄 때의 손잡이다.
+ */
+describe("굳는 설정", () => {
+  const fullConfig = (over: Partial<EventConfig> = {}): EventConfig =>
+    ({ maxPre: 2, maxParty: 3, ...over }) as EventConfig;
+
+  const putConfig = (id: string, config: EventConfig, name = "그대로") =>
+    api<EventMeta>(`/api/host/events/${id}`, { method: "PUT", cookie: master, body: { name, config } });
+
+  const putSchedule = (id: string, schedule: Record<string, number>) =>
+    api(`/api/host/events/${id}/schedule`, { method: "PUT", cookie: master, body: schedule });
+
+  it("★ 콕이 오가기 시작하면 되돌리기·알림·대상을 못 바꾼다", async () => {
+    const ev = await freshEvent();
+    await setPhase(ev.id, "prevote");
+
+    for (const over of [
+      { pokeNotify: true },
+      { allowUndo: false },
+      { allowUndoPre: false },
+      { allowSameGender: false },
+    ]) {
+      const res = await putConfig(ev.id, fullConfig(over));
+      expect(res.status, JSON.stringify(over)).toBe(409);
+    }
+  });
+
+  it("★ 일정도 함께 굳는다", async () => {
+    const ev = await freshEvent();
+    await setPhase(ev.id, "prevote");
+    const res = await putSchedule(ev.id, { partyAt: ev.schedule.partyAt! + HOUR });
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+  });
+
+  it("★ 그 전에는 바꿀 수 있다 — 굳는 것은 콕이 오간 뒤부터다", async () => {
+    const ev = await freshEvent();                 // 등록 단계
+    expect((await putConfig(ev.id, fullConfig({ pokeNotify: true }))).status).toBe(200);
+    expect((await putSchedule(ev.id, { partyAt: ev.schedule.partyAt! + HOUR })).status).toBe(200);
+  });
+
+  it("★ 같은 값을 다시 보내는 건 통과한다 — 이름만 고쳐도 저장돼야 한다", async () => {
+    /*
+     * 설정 탭은 저장할 때마다 설정과 일정을 **통째로** 다시 보낸다.
+     * 막는 기준이 '보냈나' 였다면 굳은 회차에서는 이름조차 못 고친다.
+     */
+    const ev = await freshEvent({ pokeNotify: true, allowUndo: false });
+    await setPhase(ev.id, "party");
+
+    const res = await putConfig(ev.id, fullConfig({ pokeNotify: true, allowUndo: false }), "새 이름");
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.name).toBe("새 이름");
+    expect((await putSchedule(ev.id, ev.schedule as Record<string, number>)).status).toBe(200);
+  });
+
+  it("★ 콕 횟수는 굳은 뒤에도 올릴 수 있다 — 매칭이 모자랄 때의 손잡이다", async () => {
+    const ev = await freshEvent();
+    await setPhase(ev.id, "party");
+    const res = await putConfig(ev.id, fullConfig({ maxParty: 5 }));
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.config.maxParty).toBe(5);
+  });
+
+  it("★ 단계를 되돌려도 잠금은 풀리지 않는다 — 오간 콕은 남아 있다", async () => {
+    const ev = await freshEvent();
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "reg");                  // 뒤로 물렸다. fired 는 남는다
+    expect((await putConfig(ev.id, fullConfig({ pokeNotify: true }))).status).toBe(409);
+  });
+});

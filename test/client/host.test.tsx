@@ -412,6 +412,38 @@ describe("운영자 콘솔", () => {
     );
   });
 
+  it("★ 콕이 오가기 시작하면 규칙 넷과 일정이 잠긴다 (ADR-35)", async () => {
+    /*
+     * 잠긴 줄을 **지우지 않는다** — 지금 어느 규칙으로 돌아가는 중인지는
+     * 파티 도중에 가장 자주 확인하는 값이다. 못 누르게만 하고 이유를 한 줄 남긴다.
+     */
+    stubFetch(hostState({ phase: "party", fired: { reg: Date.now() - 2 * HOUR, party: Date.now() - HOUR } }));
+    renderConsole("/host/e1/settings");
+    await screen.findByLabelText(HOST_UI.fields.name);
+
+    const row = (label: string) =>
+      screen.getAllByText(label).find((el) => el.tagName === "LABEL")!.parentElement!;
+    const disabled = (label: string) =>
+      [...row(label).querySelectorAll("button")].every((b) => (b as HTMLButtonElement).disabled);
+
+    for (const label of [
+      HOST_UI.fields.pokeTarget,
+      HOST_UI.fields.undoPre,
+      HOST_UI.fields.undoParty,
+      HOST_UI.fields.pokeNotify,
+    ]) {
+      expect(disabled(label), label).toBe(true);
+    }
+    // 일정 셋도 함께 굳는다
+    for (const label of [HOST_UI.fields.partyAt, HOST_UI.fields.regOpenAt, HOST_UI.fields.prevoteAt]) {
+      expect((row(label).querySelector("input") as HTMLInputElement).disabled, label).toBe(true);
+    }
+    // 콕 횟수는 일부러 열려 있다 — 파티 중에 **올리는** 것이 매칭이 모자랄 때의 손잡이다
+    const plus = [...row(HOST_UI.fields.maxParty).querySelectorAll("button")].at(-1) as HTMLButtonElement;
+    expect(plus.disabled).toBe(false);
+    expect(screen.getAllByText(HOST_UI.frozen).length).toBeGreaterThan(0);
+  });
+
   it("★ 입장 코드는 바꿀 수 없다", async () => {
     stubFetch(hostState());
     renderConsole("/host/e1/settings");
