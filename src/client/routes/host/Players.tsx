@@ -1,17 +1,25 @@
 /**
- * 참가자 탭. 두 가지를 본다 — **누가 들어올 수 있나(입장 명단)** 와 **누가 왔나(등록)**.
+ * 참가자 탭. **위아래 두 목록이 역할을 나눈다.**
+ *
+ * - 위의 **입장 명단** — 등록 **전/후**를 맡는다. 누구를 부르고, 누구에게 안내문을 보냈고,
+ *   아직 등록 안 한 사람이 누구인가. 명단에 더하는 길도 여기 하나뿐이다
+ * - 아래의 **참가자 카드** — 등록 **후**를 맡는다. 온 사람이 누구인가.
+ *   참석 상태는 카드 안 맨 오른쪽에 붙는다 (ADR-33)
+ *
+ * 한 사람은 **한 번만** 나온다 — 등록하면 명단 행에서 빠지고 카드로 올라온다.
+ * 그래서 명단은 파티가 다가올수록 줄고 카드가 그만큼 는다.
  *
  * 명단이 파티의 문이다 (ADR-15). 비어 있으면 아무도 못 들어오므로 그 상태를 가장 크게 말한다.
  *
  * 삭제는 **상세 시트에서만** 한다 — 목록에서 스와이프 삭제 같은 걸 두면
  * 콕 기록과 자리가 통째로 날아가는 일이 손끝에서 일어난다.
  *
- * 상세 시트와 명단 시트는 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md).
+ * 상세 시트는 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md).
  */
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
-import type { Attendance, Invite } from "../../../shared/types.ts";
+import type { Attendance, Gender, Invite } from "../../../shared/types.ts";
 import type { Defaults } from "../../../shared/types.ts";
 import { LIMITS, PHONE_SEED, formatPhone, typedPhone } from "../../../shared/constants.ts";
 import { INVITE_TEMPLATE } from "../../../shared/copy.ts";
@@ -27,13 +35,13 @@ import Sheet from "../../ui/Sheet.tsx";
 import { useConsole } from "./HostConsole.tsx";
 
 /**
- * 필터는 **상태 축**이다 (ADR-33). 성별은 숫자로만 남았다 —
- * 성별 칩의 진짜 용도가 "세 숫자를 한 번에 보는 것"(성비)이었기 때문이다.
+ * 필터는 **성별 축**이다. 카드 목록은 등록한 사람만 담으므로 상태로 나눌 것이 없고,
+ * 참석은 카드마다 오른쪽에 붙어 있어 훑으면 보인다.
  *
- * 칩 세트는 **단계가 정한다.** 운영자가 묻는 질문이 파티 전후로 다르다 —
- * 전에는 "누가 아직 등록 안 했지", 후에는 "누가 왔지".
+ * 칩 셋의 진짜 용도는 **세 숫자를 한 번에 보는 것**(성비)이다 — 고른 쪽만 세면
+ * 성비를 보려고 버튼을 두 번 눌러야 한다.
  */
-type Filter = "all" | "registered" | "unregistered" | "arrived" | "absent" | "left";
+type Filter = "all" | Gender;
 
 export default function Players() {
   const { state, reload } = useConsole();
@@ -105,42 +113,11 @@ export default function Players() {
   const started = state.meta.phase === "party" || state.meta.phase === "done";
 
   const att = (id: string) => state.attendance[id];
-  const shown = state.players.filter((p) => {
-    if (filter === "all") return true;
-    if (filter === "registered") return true;
-    if (filter === "arrived") return att(p.id) === "arrived";
-    if (filter === "left") return att(p.id) === "left";
-    if (filter === "absent") return !att(p.id);
-    return false;   // unregistered — 등록자는 해당 없음
-  });
-  /**
-   * 세 숫자를 한 번에 보여준다 — 고른 쪽만 세면 성비를 보려고 버튼을 두 번 눌러야 한다.
-   * 현황 탭에서 뺀 성비가 실제로 필요한 자리는 명단 앞이다.
-   */
-  const waiting = state.invites.filter((i) => !i.nickname);
-  const arrivedN = state.players.filter((p) => att(p.id) === "arrived").length;
-  const leftN = state.players.filter((p) => att(p.id) === "left").length;
-  const absentN = state.players.filter((p) => !att(p.id)).length;
+  const shown = state.players.filter((p) => filter === "all" || p.gender === filter);
   const count: Record<Filter, number> = {
-    all: state.players.length + waiting.length,
-    registered: state.players.length,
-    unregistered: waiting.length,
-    arrived: arrivedN,
-    absent: absentN,
-    left: leftN,
-  };
-
-  /** **나감 칩은 나간 사람이 생겼을 때만 나온다.** 늘 0인 칩은 자리만 차지한다 */
-  const chips: Filter[] = started
-    ? (["all", "arrived", "absent", "unregistered", ...(leftN > 0 ? (["left"] as const) : [])] as Filter[])
-    : ["all", "registered", "unregistered"];
-  const chipLabel: Record<Filter, string> = {
-    all: HOST_UI.players.filterAll,
-    registered: HOST_UI.status.registered,
-    unregistered: HOST_UI.status.unregistered,
-    arrived: HOST_UI.status.arrived,
-    absent: HOST_UI.status.absent,
-    left: HOST_UI.status.left,
+    all: state.players.length,
+    M: state.players.filter((p) => p.gender === "M").length,
+    F: state.players.filter((p) => p.gender === "F").length,
   };
 
   /** 카드 오른쪽에 붙는 한 낱말. 파티 전후로 이름이 갈린다 */
@@ -185,9 +162,8 @@ export default function Players() {
   return (
     <div className="stack">
       {/*
-        **명단과 참가자를 한 목록으로 본다.** 둘은 같은 사람들이고 운영자가 하는 일도 하나다 —
-        부를 사람을 넣고, 안내문을 보내고, 온 사람을 본다. 두 화면으로 갈라 두니
-        같은 사람이 두 번 나오고 "누구에게 보냈나" 와 "누가 왔나" 를 따로 세게 됐다.
+        **명단이 맨 위다** — 파티의 문이고, 운영자가 먼저 하는 일이 여기 있다.
+        더하기·안내문·아직 등록 안 한 사람이 한 덩어리로 모여 있다.
 
         **링크를 통째로 복사하는 버튼은 없다** (ADR-32). 링크가 사람마다 달라서
         한 번 복사해 단톡방에 뿌릴 수가 없다 — 그게 이 슬라이스의 요점이다.
@@ -197,28 +173,44 @@ export default function Players() {
         eventId={state.meta.id}
         hasPlace={!!state.meta.place}
         noteFor={noteFor}
+        onCopy={copyNote}
+        onSent={setSent}
+        onRemove={askRemove}
         onEditTemplate={() => navigate("/host/defaults")}
         onDone={(added) => {
           toast(added > 0 ? HOST_UI.invites.saved : added < 0 ? HOST_UI.invites.removed : HOST_UI.invites.already);
           reload();
         }}
       />
-      {/* 성비는 숫자로만 남았다 — 칩 한 줄은 상태가 쓴다 (ADR-33) */}
-      <p className="tiny dim">
-        {HOST_UI.players.ratio(
-          state.players.filter((p) => p.gender === "M").length,
-          state.players.filter((p) => p.gender === "F").length,
-        )}
-      </p>
 
-      {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 하나가 항상 켜져 있다 */}
+      {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
       <div className="choice">
-        {chips.map((key) => (
+        {(
+          [
+            ["all", HOST_UI.players.filterAll],
+            ["M", GENDER.M],
+            ["F", GENDER.F],
+          ] as const
+        ).map(([key, label]) => (
           <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>
-            {chipLabel[key]} <span className="filterCount">{count[key]}</span>
+            {label} <span className="filterCount">{count[key]}</span>
           </button>
         ))}
       </div>
+
+      {/*
+        참석 숫자는 **한 줄로만** 둔다 (ADR-33). 카드마다 상태가 붙어 있어도
+        "몇 명 남았나" 는 세어서 알 일이 아니다. 파티 전에는 전원이 같은 값이라 뜨지 않는다.
+      */}
+      {started && state.players.length > 0 && (
+        <p className="tiny dim">
+          {HOST_UI.status.summary(
+            state.players.filter((p) => att(p.id) === "arrived").length,
+            state.players.filter((p) => !att(p.id)).length,
+            state.players.filter((p) => att(p.id) === "left").length,
+          )}
+        </p>
+      )}
 
       {state.players.length === 0 && <p className="dim center">{HOST_UI.players.empty}</p>}
       {state.players.length > 0 && shown.length === 0 && (
@@ -228,10 +220,13 @@ export default function Players() {
       {/*
         **문 앞에서 사람을 찾는 화면이다.** 얼굴과 맞추는 건 실명이지 닉네임이 아니다 —
         그래서 실명이 앞에 온다. MBTI·콕 횟수는 상세로 갔다 (ADR-33).
+
+        카드가 **버튼 하나가 아니라 상자**인 이유는 오른쪽 참석 칩 때문이다 —
+        버튼 안에 버튼을 넣을 수 없다. 왼쪽 전체가 상세를 여는 손잡이다.
       */}
       {shown.map((p) => (
-        <div className="row between" key={p.id}>
-          <button className="person grow" onClick={() => navigate(`${base}/${p.id}`)}>
+        <div className="person" key={p.id}>
+          <button type="button" className="open" onClick={() => navigate(`${base}/${p.id}`)}>
             <Avatar nickname={p.nickname} gender={p.gender} />
             <span className="meta">
               <span className="name ellipsis">
@@ -242,59 +237,18 @@ export default function Players() {
             </span>
           </button>
           {/*
-            파티가 시작되면 칩이 곧 버튼이다 — 문 앞에서 한 명씩 찍는 자리라 한 번에 끝나야 한다.
+            파티가 시작되면 상태값이 곧 버튼이다 — 문 앞에서 한 명씩 찍는 자리라 한 번에 끝나야 한다.
             `나감` 은 눌러서 바꾸지 않는다. 되돌릴 자리는 상세다.
           */}
           {started && att(p.id) !== "left" ? (
-            <button className="btn ghost" aria-pressed={att(p.id) === "arrived"} onClick={() => void toggleArrived(p.id)}>
+            <button className="att btn ghost" aria-pressed={att(p.id) === "arrived"} onClick={() => void toggleArrived(p.id)}>
               {statusOf(p.id)}
             </button>
           ) : (
-            <span className="small dim">{statusOf(p.id)}</span>
+            <span className="att small dim">{statusOf(p.id)}</span>
           )}
         </div>
       ))}
-
-      {/*
-        **아직 안 온 사람들.** 등록한 사람 아래에 모아 둔다 — 파티 당일에 주로 보는 건 위쪽이고,
-        번호가 한 덩어리로 모여 있어야 어깨너머로 덜 읽힌다.
-        여기서는 **삭제를 하지 않는다.** 명단에서 빼는 것과 참가자를 지우는 것은 다른 일이다.
-      */}
-      {/*
-        **아직 안 온 사람들.** 등록한 사람 아래에 모아 둔다 — 파티 당일에 주로 보는 건 위쪽이고,
-        번호가 한 덩어리로 모여 있어야 어깨너머로 덜 읽힌다.
-        여기서 하는 일은 **안내문을 보내는 것** 하나라, 버튼도 그것과 되돌리기뿐이다.
-      */}
-      {(filter === "all" || filter === "unregistered") && waiting.length > 0 && (
-        <>
-          <p className="kicker" style={{ marginTop: 8 }}>
-            {HOST_UI.invites.waitingCount(waiting.length)}
-          </p>
-          <div className="stack">
-            {waiting.map((i) => (
-              <div className="row between" key={i.phone}>
-                {/* 목록도 입력칸과 같은 모양으로 끊는다 — 다르면 같은 번호가 다르게 읽힌다 */}
-                <span className="grow ellipsis">{formatPhone(i.phone)}</span>
-                {/* 보냈으면 **글자로** 말한다. 눌러서 되돌린다 */}
-                {i.sentAt ? (
-                  <button className="btn ghost" aria-pressed onClick={() => void setSent(i, false)}>
-                    {HOST_UI.status.invited}
-                  </button>
-                ) : (
-                  <button className="btn ghost" onClick={() => copyNote(i)}>
-                    {HOST_UI.invite.copy}
-                  </button>
-                )}
-                <button className="btn ghost" onClick={() => askRemove(i)}>
-                  {HOST_UI.invites.remove}
-                </button>
-                <span className="small dim">{HOST_UI.status.unregistered}</span>
-              </div>
-            ))}
-          </div>
-          <p className="tiny dim">{HOST_UI.invites.removeNote}</p>
-        </>
-      )}
 
       <Sheet open={!!picked} onClose={() => navigate(-1)} title={picked?.nickname ?? ""}>
         {picked && (
@@ -373,19 +327,24 @@ export default function Players() {
 }
 
 /**
- * 명단에 부를 사람을 넣고, 안내문을 준비한다. **한 명 넣기뿐**이다.
+ * 입장 명단. **등록 전/후를 여기서 본다** — 부를 사람을 넣고, 안내문을 보내고,
+ * 아직 등록 안 한 사람이 누구인지 확인한다. 등록한 사람은 아래 카드로 넘어간다.
  *
- * 통째로 갈아치우는 길은 두지 않는다 — 한 명 추가하려다 손이 미끄러지면
- * 그 파티의 명단 전체가 날아가고, 되돌릴 방법이 없다.
+ * 더하기는 **한 명씩뿐**이다. 통째로 갈아치우는 길은 두지 않는다 —
+ * 한 명 추가하려다 손이 미끄러지면 그 파티의 명단 전체가 날아가고, 되돌릴 방법이 없다.
  * 여러 줄을 한 번에 붙여넣는 칸도 뺐다. (API 는 배열을 받으므로 리허설 스크립트는 그대로 쓴다)
  *
- * **빼기는 여기 없다.** 아직 안 온 사람 목록의 그 행에서 한다 — 누구를 빼는지 보면서 하는 일이다.
+ * 빼기는 **아직 등록 안 한 행에서만** 한다 — 누구를 빼는지 보면서 하는 일이다.
+ * 등록한 사람을 파티에서 지우는 건 다른 일이고, 그건 카드 상세의 삭제다.
  */
 function Invites({
   invites,
   eventId,
   hasPlace,
   noteFor,
+  onCopy,
+  onSent,
+  onRemove,
   onEditTemplate,
   onDone,
 }: {
@@ -397,6 +356,12 @@ function Invites({
   onEditTemplate: () => void;
   /** 한 사람분 안내문. 템플릿은 위에서 한 번만 읽는다 */
   noteFor: (i: Invite) => string;
+  /** 그 사람의 안내문을 복사한다 — 복사하면 보낸 것으로 본다 */
+  onCopy: (i: Invite) => void;
+  /** 보냄 표시를 되돌린다 */
+  onSent: (i: Invite, sent: boolean) => void;
+  /** 명단에서 뺀다. 확인창을 거친다 */
+  onRemove: (i: Invite) => void;
   /** 더한 수. 이미 있어서 아무 일도 없었으면 0 */
   onDone: (added: number) => void;
 }) {
@@ -418,6 +383,8 @@ function Invites({
   const [showNote, setShowNote] = useState(false);
   const left = invites.filter((i) => !i.sentAt).length;
   const joined = invites.filter((i) => i.nickname).length;
+  /** 아직 등록 안 한 사람. **이 목록은 파티가 다가올수록 줄고, 그만큼 아래 카드가 는다** */
+  const waiting = invites.filter((i) => !i.nickname);
 
   async function add(phones: string[], clear: () => void) {
     setBusy(true);
@@ -444,11 +411,11 @@ function Invites({
   return (
     <div className="stack">
       {/* 명단이 비면 아무도 못 들어온다. 그 상태를 가장 크게 말한다 (ADR-15) */}
-      {invites.length === 0 ? (
-        <p className="small warnText">{HOST_UI.invites.empty}</p>
-      ) : (
-        <p className="kicker">{HOST_UI.invites.count(invites.length, joined)}</p>
-      )}
+      <div className="row between">
+        <span className="kicker">{HOST_UI.invites.title}</span>
+        {invites.length > 0 && <span className="small dim">{HOST_UI.invites.count(invites.length, joined)}</span>}
+      </div>
+      {invites.length === 0 && <p className="small warnText">{HOST_UI.invites.empty}</p>}
 
       <form className="field" onSubmit={addOne}>
         <label htmlFor="oneInvite">{HOST_UI.invites.addLabel}</label>
@@ -481,10 +448,10 @@ function Invites({
           <div className="row between">
             <span className="tiny dim">{left > 0 ? HOST_UI.invite.remaining(left) : HOST_UI.invite.allSent}</span>
             <span className="row">
-              <button className="btn ghost" type="button" aria-pressed={showNote} onClick={() => setShowNote((v) => !v)}>
+              <button className="btn ghost compact" type="button" aria-pressed={showNote} onClick={() => setShowNote((v) => !v)}>
                 {HOST_UI.invite.preview}
               </button>
-              <button className="btn ghost" type="button" onClick={onEditTemplate}>
+              <button className="btn ghost compact" type="button" onClick={onEditTemplate}>
                 {HOST_UI.invite.editTemplate}
               </button>
             </span>
@@ -496,6 +463,42 @@ function Invites({
           {/* 첫 사람 기준으로 그린다. 사람마다 다른 건 링크뿐이다 */}
           {showNote && <p className="small pre" style={{ margin: 0 }}>{noteFor(invites[0])}</p>}
         </div>
+      )}
+
+      {/*
+        **아직 등록 안 한 사람들.** 번호가 그 사람의 유일한 이름인 자리라
+        한 덩어리로 모여 있어야 어깨너머로 덜 읽힌다.
+        여기서 하는 일은 **안내문을 보내는 것**과 **명단에서 빼는 것** 둘뿐이다.
+        행마다 `미등록` 을 또 달지 않는다 — 구역 머리가 이미 한 번 말했다.
+      */}
+      {waiting.length > 0 && (
+        <>
+          <p className="kicker" style={{ marginTop: 4 }}>
+            {HOST_UI.invites.waitingCount(waiting.length)}
+          </p>
+          <div className="stack">
+            {waiting.map((i) => (
+              <div className="row between" key={i.phone}>
+                {/* 목록도 입력칸과 같은 모양으로 끊는다 — 다르면 같은 번호가 다르게 읽힌다 */}
+                <span className="grow ellipsis">{formatPhone(i.phone)}</span>
+                {/* 보냈으면 **글자로** 말한다. 눌러서 되돌린다 */}
+                {i.sentAt ? (
+                  <button className="btn ghost compact" aria-pressed onClick={() => onSent(i, false)}>
+                    {HOST_UI.status.invited}
+                  </button>
+                ) : (
+                  <button className="btn ghost compact" onClick={() => onCopy(i)}>
+                    {HOST_UI.invite.copy}
+                  </button>
+                )}
+                <button className="btn ghost compact" onClick={() => onRemove(i)}>
+                  {HOST_UI.invites.remove}
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="tiny dim">{HOST_UI.invites.removeNote}</p>
+        </>
       )}
     </div>
   );
