@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { FAIL, GENDER, HOST_UI, phaseAction, schedDiff } from "../../src/shared/copy.ts";
+import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, phaseAction, schedDiff } from "../../src/shared/copy.ts";
 import { formatGap, formatWhen } from "../../src/shared/time.ts";
 import type { HostState } from "../../src/shared/types.ts";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
@@ -372,10 +372,70 @@ describe("운영자 콘솔", () => {
     renderConsole("/host/e1/players/invites");
 
     const toggle = await screen.findByText(HOST_UI.invite.preview);
-    expect(document.body.textContent).not.toContain("/j/e1/t2");
+    // 문구의 첫 조각. 링크로 재던 것을 바꿨다 — 기본 문구에 링크가 없어졌기 때문이다
+    const opening = INVITE_TEMPLATE.split("{")[0];
+    expect(document.body.textContent).not.toContain(opening);
 
     fireEvent.click(toggle);
-    await waitFor(() => expect(document.body.textContent).toContain("/j/e1/t2"));
+    await waitFor(() => expect(document.body.textContent).toContain(opening));
+  });
+
+  /** 클립보드는 happy-dom 에 없다. 컴포넌트가 쓰는 자리만 채운다 */
+  function stubClipboard() {
+    // 인자 타입을 적어야 `calls[0][0]` 을 읽을 수 있다
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    return writeText;
+  }
+
+  /**
+   * 문구와 링크는 **따로 복사한다.**
+   *
+   * 한 덩어리로 보내면 참가자가 링크만 집어내야 하고, 장소에 지도 링크를 넣은 회차에서는
+   * 한 메시지에 링크가 둘이 된다. 링크만 온 메시지는 그대로 눌러 열 수 있다.
+   */
+  it("★ 문구와 링크를 따로 복사한다 — 링크는 미리보기에 없다", async () => {
+    const st = hostState();
+    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    stubFetch(st);
+    const writeText = stubClipboard();
+    renderConsole("/host/e1/players/invites");
+
+    // 미리보기를 펼쳐도 링크는 없다 — 사람마다 달라서 첫 사람 것을 보여주면 남의 링크가 나간다
+    fireEvent.click(await screen.findByText(HOST_UI.invite.preview));
+    await waitFor(() => expect(document.body.textContent).toContain(INVITE_TEMPLATE.split("{")[0]));
+    expect(document.body.textContent).not.toContain("/j/e1/t2");
+
+    // 문구 버튼 — 링크가 섞이지 않는다
+    fireEvent.click(screen.getByText(HOST_UI.invite.note));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(String(writeText.mock.calls[0][0])).not.toContain("/j/e1/t2");
+
+    // 링크 버튼 — 그 사람의 링크만, 다른 글자 없이
+    fireEvent.click(screen.getByText(HOST_UI.invite.link));
+    await waitFor(() => expect(writeText.mock.calls.length).toBe(2));
+    expect(writeText.mock.calls[1][0]).toBe(`${location.origin}/j/e1/t2`);
+  });
+
+  it("★ 링크는 보냄으로 찍지 않는다 — 보낸 뒤에도 다시 보낼 수 있어야 한다", async () => {
+    /*
+     * 보통 문구를 먼저 보내고 링크를 잇는다. 링크가 보냄을 찍어버리면 그 행의 문구 버튼이
+     * `보냄` 으로 바뀌어 정작 문구를 못 보낸다. 그리고 "링크가 안 열려요" 연락이 오는 자리라
+     * 이미 보낸 사람에게도 링크 버튼은 남아 있어야 한다.
+     */
+    const st = hostState();
+    st.invites = [{ phone: "01077776666", token: "t3", addedAt: 3, sentAt: 4 }];
+    stubFetch(st);
+    const writeText = stubClipboard();
+    renderConsole("/host/e1/players/invites");
+
+    // 보낸 사람이라 문구 자리는 `보냄` 이지만, 링크는 그대로 있다
+    await screen.findByText(HOST_UI.status.invited);
+    fireEvent.click(screen.getByText(HOST_UI.invite.link));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${location.origin}/j/e1/t3`));
+
+    // 보냄 표시를 건드리지 않았다
+    expect(calls.some((c) => c.url.includes("/sent"))).toBe(false);
   });
 
   /*
