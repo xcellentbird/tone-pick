@@ -1811,6 +1811,25 @@ describe("탭 역할 분담", () => {
     expect(screen.getByText(NOTICE.prevote(3).title)).toBeTruthy();
   });
 
+  /**
+   * 운영자가 알림을 꺼둔 회차는 **조용히 열린다.**
+   *
+   * 끄는 건 소식 한 줄뿐이다 — 단계도, 명단도, 콕 예산도 평소와 같다.
+   * 현장에서 운영자가 직접 말하는 회차를 위한 것이라, 화면이 먼저 말해버리면 안 된다.
+   */
+  it("★ 사전 콕 찌르기 알림을 꺼두면 소식에 그 줄이 없다", async () => {
+    const base = participantState();
+    const quiet = {
+      event: { ...base.event, config: { ...base.event.config, prevoteNotice: false } },
+      poke: { ...POKE_STATE, receivedCount: 2 },
+    };
+    renderTab("home", quiet);
+
+    // 받은 콕 줄은 그대로 있다 — 소식 자체를 없앤 게 아니다
+    await screen.findByText(HOME.news);
+    expect(screen.queryByText(NOTICE.prevote(3).title)).toBeNull();
+  });
+
   it("★ 발표 배너는 결과가 있는 탭에는 뜨지 않는다 — 서로를 가리키면 안 된다", async () => {
     /*
      * 배너가 "홈으로 가라" 하고 홈 카드가 "참가자 탭으로 가라" 하면 두 화면이 서로를 가리킨다.

@@ -259,6 +259,8 @@ export class EventDO extends DurableObject {
 
       // 안 보내면 지금 값을 지킨다 — 파기 약속이 다른 설정 저장에 딸려 초기화되면 안 된다
       const retentionDays = patch.config.retentionDays ?? meta.config.retentionDays;
+      // 알림도 같다. 안 보낸 저장에 딸려 조용하던 회차가 다시 말을 걸면 안 된다
+      const prevoteNotice = patch.config.prevoteNotice ?? meta.config.prevoteNotice;
       if (retentionDays !== undefined) {
         if (!Number.isInteger(retentionDays) || !inRange(retentionDays, LIMITS.retentionDays)) {
           return fail("bad_request");
@@ -284,6 +286,7 @@ export class EventDO extends DurableObject {
         maxPre,
         maxParty,
         ...(allowSameGender === false ? { allowSameGender: false } : {}),
+        ...(prevoteNotice === false ? { prevoteNotice: false } : {}),
         ...(retentionDays !== undefined && retentionDays !== RETENTION_DAYS ? { retentionDays } : {}),
       };
     }

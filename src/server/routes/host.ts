@@ -130,6 +130,7 @@ hostRoutes.post("/events", async (c) => {
       maxPre: body.config.maxPre,
       maxParty: body.config.maxParty,
       ...(body.config.allowSameGender === false ? { allowSameGender: false } : {}),
+      ...(body.config.prevoteNotice === false ? { prevoteNotice: false } : {}),
       ...(body.config.retentionDays !== undefined && body.config.retentionDays !== RETENTION_DAYS
         ? { retentionDays: body.config.retentionDays }
         : {}),

@@ -148,6 +148,15 @@ export interface EventConfig {
    */
   allowSameGender?: boolean;
   /**
+   * 사전 콕 찌르기가 열릴 때 참가자에게 소식으로 알릴 것인가.
+   *
+   * **없으면 보냄**이다 — 기본값과 같으면 적지 않는다 (`allowSameGender` 와 같은 규칙).
+   * 끄면 소식 줄도 배너도 만들지 않는다. **단계는 그대로 열린다** —
+   * 알림을 안 보내는 것과 화면을 안 고치는 것은 다른 일이다 (ADR-26).
+   * 조용히 열고 운영자가 직접 말하는 회차를 위한 것이다.
+   */
+  prevoteNotice?: boolean;
+  /**
    * 파티가 끝나고 며칠 뒤에 이 회차를 파기할 것인가 (1~14).
    *
    * **없으면 `RETENTION_DAYS`** — 기본값과 같으면 적지 않는다 (allowSameGender 와 같은 규칙).

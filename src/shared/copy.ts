@@ -929,6 +929,17 @@ export const HOST_UI = {
     pokeTargetOpposite: "이성에게만",
     pokeTargetAll: "모두에게",
     pokeTargetNote: "기본은 '모두에게'예요. '이성에게만'으로 좁힐 수도 있어요 — 자리 배정의 남녀 정원은 어느 쪽이든 그대로입니다.",
+    /**
+     * 사전 콕 찌르기가 열릴 때 참가자 소식에 한 줄을 띄울 것인가.
+     *
+     * 이름을 `PHASE_LABEL.prevote` 와 맞춘다. 바로 위 칸이 '사전 콕 찌르기 시작'이라,
+     * 같은 단계를 두 이름으로 부르면 운영자가 둘을 다른 일로 읽는다.
+     */
+    prevoteNotice: "사전 콕 찌르기 알림",
+    prevoteNoticeOn: "보냄",
+    prevoteNoticeOff: "안 보냄",
+    /** 끄는 것이 단계를 막는 것으로 읽히면 안 된다. 그래서 그 자리에서 아니라고 말한다 */
+    prevoteNoticeNote: "기본은 '보냄'이에요. 열릴 때 참가자 소식에 한 줄이 뜹니다. '안 보냄'이어도 사전 콕 찌르기는 그대로 열려요 — 운영자가 직접 말하는 회차를 위한 것입니다.",
     regOpenBeforeD: "파티 며칠 전에 등록을 열까요",
     prevoteBeforeH: "파티 몇 시간 전에 사전 콕 찌르기를 시작할까요",
     retentionDays: "파티가 끝나고 며칠 뒤에 지울까요 (1~14)",

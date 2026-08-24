@@ -34,7 +34,14 @@ export function noticesOf(state: ParticipantState): Notice[] {
   const { fired, config, phase } = state.event;
   const list: Notice[] = [];
 
-  if (fired.prevote) {
+  /**
+   * 운영자가 껐으면 줄도 배너도 만들지 않는다 (`config.prevoteNotice === false`).
+   *
+   * **단계는 그대로 열려 있다** — 명단도, 콕 예산도 평소와 같다. 끄는 건 알림 하나뿐이고,
+   * 조용히 열어놓고 운영자가 현장에서 직접 말하는 회차를 위한 것이다.
+   * 파생이라 나중에 다시 켜면 줄이 그 자리에 돌아온다 (ADR-4).
+   */
+  if (fired.prevote && config.prevoteNotice !== false) {
     list.push({ key: "prevote", ...NOTICE.prevote(config.maxPre), at: fired.prevote, bannerable: true, tab: "home" });
   }
   if (fired.party) {
