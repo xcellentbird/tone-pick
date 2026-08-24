@@ -946,7 +946,7 @@ describe("참가자 화면 · 어깨너머 가리기", () => {
 });
 
 describe("참가자 화면 · 자리", () => {
-  const seat = { round: 1, table: 2, final: false, mates: 6, men: 3, acked: false };
+  const seat = { round: 1, table: 2, mates: 6, men: 3, acked: false };
 
   it("자리가 발행되면 전체 화면으로 확인을 받는다", async () => {
     const source = fakeSource({ load: async () => participantState({ seat }) });
@@ -2195,7 +2195,7 @@ describe("탭 역할 분담", () => {
    * 같은 정보가 두 탭에 있으면 어느 쪽이 맞는지 눈이 한 번 더 확인한다.
    * 탭마다 답하는 질문이 하나씩이고 겹치지 않아야 한다.
    */
-  const withSeat = { round: 1, table: 2, final: false, mates: 6, men: 3, acked: true };
+  const withSeat = { round: 1, table: 2, mates: 6, men: 3, acked: true };
 
   /** 그 단계의 상태 한 벌. `event` 는 통째로 갈아끼우는 자리라 기본값에서 떠온다 */
   const inPhase = (phase: ParticipantState["event"]["phase"]): Partial<ParticipantState> => ({

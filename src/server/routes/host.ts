@@ -296,7 +296,6 @@ hostRoutes.post("/events/:id/seating", async (c) => {
     c,
     await gate.stub.makeSeating(
       Number(body.tableCount),
-      !!body.final,
       // 바깥에서 온 목록이다. 문자열만 통과시켜 DO 가 이상한 값을 만나지 않게 한다
       Array.isArray(body.exclude) ? body.exclude.map(String) : [],
       serverNow(),

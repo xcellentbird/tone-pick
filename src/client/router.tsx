@@ -64,7 +64,7 @@ export const PARTICIPANT_ROUTES = [
  * 운영자 콘솔의 자식 경로들. **테스트가 이 표를 그대로 쓴다.**
  *
  * 참가자 쪽과 같은 이유다 — 베낀 표는 언젠가 어긋나고, 그때 테스트는
- * 자기 사본으로 통과한다. 실제로 `seats/:mode/tables` 가 그렇게 빠져
+ * 자기 사본으로 통과한다. 실제로 `seats/new/tables` 가 그렇게 빠져
  * 화면이 404 로 떨어졌다.
  */
 export const HOST_CONSOLE_ROUTES = [
@@ -72,10 +72,11 @@ export const HOST_CONSOLE_ROUTES = [
     { path: "players", element: <Players /> },
     { path: "players/:pid", element: <Players /> },   // 상세 시트
     { path: "seats", element: <Seats /> },
-    // 테이블 수 고르는 시트도 라우트다 — 뒤로 가기로 닫힌다
-    { path: "seats/:mode", element: <Seats /> },
-    // 배정은 두 걸음이다 — 뺄 사람 고르기 → 테이블 수 (ADR-45). 스텝은 push 라 뒤로 가면 앞 걸음이다
-    { path: "seats/:mode/tables", element: <Seats /> },
+    // 배정 시트도 라우트다 — 뒤로 가기로 닫힌다.
+    // **걸음이 곧 주소다** — 뺄 사람 고르기 → 테이블 수 (ADR-45). push 라 뒤로 가면 앞 걸음이다.
+    // 예전에는 `:mode` 로 `new`·`final` 둘을 받았다. 커플 자리를 걷어내며 길이 하나가 됐다 (ADR-51)
+    { path: "seats/new", element: <Seats /> },
+    { path: "seats/new/tables", element: <Seats /> },
     { path: "settings", element: <Settings /> },
 ];
 

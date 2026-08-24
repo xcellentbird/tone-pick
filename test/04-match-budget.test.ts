@@ -77,12 +77,12 @@ describe("한 사람이 여러 명과 이어질 때", () => {
     for (const p of [b.phone, c.phone]) expect(raw, "번호가 남아 있다").not.toContain(p);
   });
 
-  it("★ 커플 자리에서 셋이 같은 테이블이면 두 쌍 다 성공이다", async () => {
+  it("★ 셋이 같은 테이블이면 두 쌍 다 성공이다", async () => {
     const { ev, a, b, c } = await triangle();
     // 한 테이블이면 A·B·C 가 모두 함께 앉는다
     const made = await api<{ seats: Array<{ playerId: string; table: number }> }>(
       `/api/host/events/${ev.id}/seating`,
-      { method: "POST", cookie: master, body: { tableCount: 1, final: true } },
+      { method: "POST", cookie: master, body: { tableCount: 1 } },
     );
     expect(made.status).toBe(200);
     const table = new Map(made.body.seats.map((s) => [s.playerId, s.table]));
@@ -102,7 +102,7 @@ describe("자리 섞기", () => {
     }
     const made = await api<{ seats: Array<{ playerId: string; table: number }> }>(
       `/api/host/events/${ev.id}/seating`,
-      { method: "POST", cookie: master, body: { tableCount: 2, final: false } },
+      { method: "POST", cookie: master, body: { tableCount: 2 } },
     );
     expect(made.status).toBe(200);
 
@@ -130,7 +130,14 @@ describe("자리 섞기", () => {
     expect(after.body.seats.map((s) => s.playerId).sort()).toEqual(ids.slice().sort());
   });
 
-  it("★ 커플 자리에서는 이어진 쌍이 자리를 지킨다", async () => {
+  /**
+   * ★ **섞어도 붙어 앉은 쌍은 제자리다** (ADR-23).
+   *
+   * 예전에는 커플 자리 라운드에서만 그랬다. 그 라운드를 걷어내면서(ADR-51)
+   * **모든 라운드로 넓혔다** — 운영자가 손으로 붙여둔 쌍을 섞기가 흩어놓으면
+   * 버튼 하나로 그 손이 헛일이 된다.
+   */
+  it("★ 섞어도 이어진 쌍은 자리를 지킨다", async () => {
     // 그 배정의 목적이 쌍을 같은 테이블에 앉히는 것인데, 섞기가 흩어놓으면
     // 버튼 하나로 그 라운드가 무의미해진다 (ADR-23)
     const ev = await freshEvent();
@@ -144,12 +151,12 @@ describe("자리 섞기", () => {
 
     const made = await api<{ seats: Array<{ playerId: string; table: number }> }>(
       `/api/host/events/${ev.id}/seating`,
-      { method: "POST", cookie: master, body: { tableCount: 2, final: true } },
+      { method: "POST", cookie: master, body: { tableCount: 2 } },
     );
     expect(made.status).toBe(200);
     const tableOf = (seats: Array<{ playerId: string; table: number }>, id: string) =>
       seats.find((s) => s.playerId === id)?.table;
-    // 커플 자리는 쌍을 같은 테이블에 앉힌다
+    // 서로 찌른 쌍은 자리를 먼저 잡는다 (buildSeating ①)
     expect(tableOf(made.body.seats, men[0].id)).toBe(tableOf(made.body.seats, women[0].id));
 
     // 열 번을 섞어도 쌍은 붙어 있다
@@ -162,20 +169,20 @@ describe("자리 섞기", () => {
     }
   });
 
-  it("★ 커플 자리를 확정해도 배정이 닫히지 않는다", async () => {
+  it("★ 자리를 확정해도 배정이 닫히지 않는다", async () => {
     // 한 번 더 자리를 바꿀 일이 있다. '다시 열기' 같은 단계를 사이에 두지 않는다
     const ev = await freshEvent();
     for (let i = 0; i < 4; i++) await join(ev, { gender: i % 2 === 0 ? "M" : "F" });
 
     await api(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: true },
+      method: "POST", cookie: master, body: { tableCount: 2 },
     });
     const published = await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
     expect(published.status).toBe(200);
 
     // 곧바로 다시 배정할 수 있다
     const again = await api(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: false },
+      method: "POST", cookie: master, body: { tableCount: 2 },
     });
     expect(again.status).toBe(200);
   });

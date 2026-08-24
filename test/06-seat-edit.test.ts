@@ -36,7 +36,7 @@ describe("자리는 발행해야 보인다", () => {
     await setPhase(ev.id, "prevote");
     // 사전 투표 중에 미리 짜둔다
     await api(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: false },
+      method: "POST", cookie: master, body: { tableCount: 2 },
     });
     const pub = await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
     expect(pub.status).toBe(200);
@@ -53,7 +53,7 @@ describe("자리는 발행해야 보인다", () => {
     for (let i = 0; i < 3; i++) await join(ev, { gender: i % 2 === 0 ? "F" : "M" });
     await setPhase(ev.id, "prevote");
     await api(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: false },
+      method: "POST", cookie: master, body: { tableCount: 2 },
     });
 
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
@@ -171,14 +171,14 @@ describe("앉힌 자리 고치기", () => {
    * 남녀 셋씩 여섯 명을 두 테이블에 앉히고 발행까지 한다.
    * **파티까지 보낸다** — 자리는 파티가 시작돼야 참가자 응답에 나온다 (슬라이스 12).
    */
-  async function seated(final = false) {
+  async function seated() {
     const ev = await freshEvent();
     const ids: string[] = [];
     for (let i = 0; i < 6; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
     await setPhase(ev.id, "party");
     await setPhase(ev.id, "party");
     await api(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final },
+      method: "POST", cookie: master, body: { tableCount: 2 },
     });
     const pub = await api<Round>(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
     return { ev, ids, round: pub.body };
@@ -200,7 +200,7 @@ describe("앉힌 자리 고치기", () => {
   it("빼고 나서 사람이 모자라면 배정하지 않는다", async () => {
     // 테이블 하나에 최소 두 명이다. 빠지는 바람에 모자라면 그 자리에서 막는다
     const { ev, ids } = await party();
-    const res = await makeSeating(ev.id, { tableCount: 2, final: false, exclude: [ids[0], ids[1]] });
+    const res = await makeSeating(ev.id, { tableCount: 2, exclude: [ids[0], ids[1]] });
     expect(res.status).toBe(400);
   });
 
@@ -215,7 +215,7 @@ describe("앉힌 자리 고치기", () => {
     // 남녀 한 명씩 뺀다 — 성비가 어긋나면 배정 자체가 이상해진다
     const out = [ids[0], ids[1]];
 
-    const made = await makeSeating(ev.id, { tableCount: 2, final: false, exclude: out });
+    const made = await makeSeating(ev.id, { tableCount: 2, exclude: out });
     expect(made.status, JSON.stringify(made.body)).toBe(200);
     expect(made.body.seats).toHaveLength(4);
     expect(made.body.seats.some((x) => out.includes(x.playerId))).toBe(false);
@@ -223,7 +223,7 @@ describe("앉힌 자리 고치기", () => {
 
   it("★ 아무도 안 빼면 전원이 앉는다 — 그게 대부분의 라운드다", async () => {
     const { ev } = await party();
-    const made = await makeSeating(ev.id, { tableCount: 2, final: false, exclude: [] });
+    const made = await makeSeating(ev.id, { tableCount: 2, exclude: [] });
     expect(made.status, JSON.stringify(made.body)).toBe(200);
     expect(made.body.seats).toHaveLength(4);
   });
@@ -237,11 +237,11 @@ describe("앉힌 자리 고치기", () => {
   it("★ 다음 배정은 전원으로 다시 시작한다", async () => {
     const { ev, ids } = await party();
 
-    const without = await makeSeating(ev.id, { tableCount: 1, final: false, exclude: [ids[0]] });
+    const without = await makeSeating(ev.id, { tableCount: 1, exclude: [ids[0]] });
     expect(without.body.seats.some((x) => x.playerId === ids[0])).toBe(false);
 
     // 목록을 안 보내면 아무도 안 빠진다 — 앞 라운드의 선택이 따라오지 않는다
-    const again = await makeSeating(ev.id, { tableCount: 1, final: false });
+    const again = await makeSeating(ev.id, { tableCount: 1 });
     expect(again.body.seats.some((x) => x.playerId === ids[0])).toBe(true);
   });
 
@@ -253,7 +253,7 @@ describe("앉힌 자리 고치기", () => {
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
 
-    await makeSeating(ev.id, { tableCount: 2, final: false, exclude: [people[0].id] });
+    await makeSeating(ev.id, { tableCount: 2, exclude: [people[0].id] });
     await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
 
     const seen = await api<ParticipantState>(`/api/me?event=${ev.id}`, { cookie: people[0].cookie });
@@ -310,7 +310,7 @@ describe("앉힌 자리 고치기", () => {
     await api("/api/poke", { method: "POST", cookie: b.cookie, body: { toId: a.id } });
     await setPhase(ev.id, "party");
     await api(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 1, final: false },
+      method: "POST", cookie: master, body: { tableCount: 1 },
     });
     const pub = await api<Round>(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
 

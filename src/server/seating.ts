@@ -13,7 +13,7 @@
  * 초기 배치와 훑는 순서가 정해져 있어 같은 입력이면 같은 자리가 나온다.
  */
 import type { Player, Seat } from "../shared/types.ts";
-import { AGE_GAP, FINAL_MUTUAL_BOOST, PULL_CAP, REP_CAP_RATIO, SEAT_W } from "../shared/constants.ts";
+import { AGE_GAP, PULL_CAP, REP_CAP_RATIO, SEAT_W } from "../shared/constants.ts";
 
 export function spread(n: number, t: number): number[] {
   const base = Math.floor(n / t);
@@ -51,7 +51,6 @@ export interface BuildInput {
   players: Player[];
   tableCount: number;
   round: number;
-  final: boolean;
   /** 이전 라운드들의 좌석. 재회 회피에 쓴다. */
   history: Seat[][];
   /**
@@ -80,8 +79,11 @@ const MIN_EXCHANGE = 2;
  * ```
  *
  * **상한이 나이차 벌점(30)보다 낮다.** 넘게 두면 한 쌍이 나이차를 통째로 밀어내고
- * 그 테이블만 이상해진다 (ADR-11). 나이차 큰 상호 쌍은 마지막 라운드가 붙여준다 —
- * 거기서는 가중치가 아니라 구조가 한다.
+ * 그 테이블만 이상해진다 (ADR-11).
+ *
+ * 그래서 **나이차가 큰 상호 쌍은 이 식이 못 붙인다.** 붙이는 일은 운영자가 한다 (ADR-51) —
+ * 자리 탭이 쌍을 💘 로 짚어주고, 맞교환으로 옮긴다. 여기서 더 세게 당기면
+ * 그 테이블의 나이 구성이 통째로 무너진다.
  */
 export function pullScore(votes: number, mutual: boolean): number {
   if (votes <= 0) return 0;
@@ -92,7 +94,7 @@ const MUTUAL = 1;
 const ONE_WAY = 2;
 
 export function buildSeating(input: BuildInput): Seat[] {
-  const { players, tableCount, round, final } = input;
+  const { players, tableCount, round } = input;
   const n = players.length;
   if (n === 0 || tableCount < 1) return [];
 
@@ -154,7 +156,7 @@ export function buildSeating(input: BuildInput): Seat[] {
   }
 
   // ③ 같은 성별 2인 맞교환으로 개선한다. 성비는 이 단계에서 바뀔 방법이 없다
-  optimize(tables, w, round, final, n);
+  optimize(tables, w, round, n);
 
   return tables.flatMap((group, t) => group.map((i) => ({ playerId: players[i].id, table: t + 1 })));
 }
@@ -172,7 +174,6 @@ class World {
   readonly rel: Uint8Array;
   /** i*n+j → 이전 라운드에서 같은 테이블이었던 횟수 */
   readonly met: Uint8Array;
-  readonly partners: number[][];
   readonly mutualPairs: Array<[number, number]> = [];
   /** i*n+j → 그 쌍이 주고받은 **표의 총합.** 상호든 단방향이든 다 들어간다 (ADR-40) */
   readonly votes: Uint8Array;
@@ -187,7 +188,6 @@ class World {
     this.rel = new Uint8Array(n * n);
     this.met = new Uint8Array(n * n);
     this.votes = new Uint8Array(n * n);
-    this.partners = players.map(() => []);
 
     const index = new Map<string, number>();
     players.forEach((p, i) => {
@@ -212,8 +212,6 @@ class World {
       if (!ij) continue;
       this.set(this.rel, ij[0], ij[1], MUTUAL);
       this.set(this.votes, ij[0], ij[1], votesOf(a, b, MIN_EXCHANGE));
-      this.partners[ij[0]].push(ij[1]);
-      this.partners[ij[1]].push(ij[0]);
       this.mutualPairs.push(ij);
     }
     for (const [a, b] of input.oneWay) {
@@ -258,20 +256,19 @@ class World {
  * 재회 벌점에는 상한이 있다 — 무제한이면 라운드가 쌓일수록 나이 제약을 밀어낸다
  * (프로토타입에서 3라운드에 나이차 위반 26쌍이 났다).
  */
-function pairCost(w: World, i: number, j: number, rep: { opp: number; same: number }, final: boolean): number {
+function pairCost(w: World, i: number, j: number, rep: { opp: number; same: number }): number {
   const k = i * w.n + j;
   const rel = w.rel[k];
   const mutual = rel === MUTUAL;
   let cost = 0;
 
-  // 마지막 라운드의 상호 매칭 쌍은 나이차를 묻지 않는다. 이 라운드의 목적이 그들을 모으는 것이다
-  if (!(final && mutual) && Math.abs(w.age[i] - w.age[j]) >= AGE_GAP) cost += SEAT_W.AGE;
+  if (Math.abs(w.age[i] - w.age[j]) >= AGE_GAP) cost += SEAT_W.AGE;
 
   // 표 하나하나가 끌림을 만들고, 상호면 부가 점수가 얹힌다 (ADR-40)
-  if (rel) cost -= pullScore(w.votes[k], mutual) * (final && mutual ? FINAL_MUTUAL_BOOST : 1);
+  if (rel) cost -= pullScore(w.votes[k], mutual);
 
-  // 마지막 라운드는 재회를 막지 않는다. 서로 찌른 쌍도 언제나 면제 — 억지로 떼어놓지 않는다
-  if (!final && !mutual) {
+  // 서로 찌른 쌍은 재회 벌점을 면제한다 — 마음이 맞은 사람을 억지로 떼어놓지 않는다
+  if (!mutual) {
     const times = w.met[k];
     if (times) cost += (w.male[i] === w.male[j] ? rep.same : rep.opp) * times;
   }
@@ -293,18 +290,10 @@ function ieCost(w: World, group: number[]): number {
   return (SEAT_W.IE * Math.abs(2 * intro - group.length)) / group.length;
 }
 
-function memberCost(w: World, i: number, group: number[], rep: { opp: number; same: number }, final: boolean) {
+function memberCost(w: World, i: number, group: number[], rep: { opp: number; same: number }) {
   let sum = 0;
-  for (const j of group) if (j !== i) sum += pairCost(w, i, j, rep, final);
+  for (const j of group) if (j !== i) sum += pairCost(w, i, j, rep);
   return sum;
-}
-
-/** 이 사람의 상호 매칭 상대가 지금 같은 테이블에 있는가 */
-function withPartner(w: World, i: number, group: number[]): boolean {
-  const mates = w.partners[i];
-  if (mates.length === 0) return false;
-  for (const j of group) if (j !== i && mates.includes(j)) return true;
-  return false;
 }
 
 /**
@@ -313,7 +302,7 @@ function withPartner(w: World, i: number, group: number[]): boolean {
  * 무작위 표집이 아니라 **전수 훑기를 반복**한다 — 무작위는 마지막 몇 개의 나이차 위반을
  * 끝내 못 찾고 남긴다. 대신 평가 횟수에 예산을 둬서 CPU 10ms 를 넘지 않게 한다.
  */
-function optimize(tables: number[][], w: World, round: number, final: boolean, n: number) {
+function optimize(tables: number[][], w: World, round: number, n: number) {
   const slots: Array<[number, number]> = [];
   for (let t = 0; t < tables.length; t++) {
     for (let i = 0; i < tables[t].length; i++) slots.push([t, i]);
@@ -337,14 +326,11 @@ function optimize(tables: number[][], w: World, round: number, final: boolean, n
         const b = tables[tb][ib];
         if (a === undefined || b === undefined || w.male[a] !== w.male[b]) continue;   // 성비 불변식
 
-        // 마지막 라운드에서 이미 붙어 앉은 상호 매칭 쌍은 떼어놓지 않는다.
-        // 가중치 싸움으로 두면 나이차 30 이 보너스 30 을 밀어내며 실제로 쪼개졌다
-        if (final && (withPartner(w, a, tables[ta]) || withPartner(w, b, tables[tb]))) continue;
         evals++;
 
         const before =
-          memberCost(w, a, tables[ta], rep, final) +
-          memberCost(w, b, tables[tb], rep, final) +
+          memberCost(w, a, tables[ta], rep) +
+          memberCost(w, b, tables[tb], rep) +
           ieCost(w, tables[ta]) +
           ieCost(w, tables[tb]);
 
@@ -352,8 +338,8 @@ function optimize(tables: number[][], w: World, round: number, final: boolean, n
         tables[tb][ib] = a;
 
         const after =
-          memberCost(w, b, tables[ta], rep, final) +
-          memberCost(w, a, tables[tb], rep, final) +
+          memberCost(w, b, tables[ta], rep) +
+          memberCost(w, a, tables[tb], rep) +
           ieCost(w, tables[ta]) +
           ieCost(w, tables[tb]);
 

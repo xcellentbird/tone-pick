@@ -5,7 +5,7 @@
  * 기준은 `docs/SEATING.md` 의 표에서 그대로 가져왔다.
  *
  *   성비 편차 0 (하드) · 미배정 0 · 테이블 인원 편차 ≤1
- *   나이차 10살+ 쌍 · 마지막 라운드 상호 매칭 동석률 ≥90%
+ *   나이차 10살+ 쌍 · 서로 찌른 쌍의 동석률 (ADR-51 로 마지막 라운드가 없어졌다)
  */
 import { describe, expect, it } from "vitest";
 import { buildSeating, pullScore, tableCaps } from "../src/server/seating.ts";
@@ -82,7 +82,7 @@ function runRounds(
   players: Player[],
   tableCount: number,
   rounds: number,
-  opts: { mutual?: Array<[string, string]>; oneWay?: Array<[string, string]>; finalLast?: boolean } = {},
+  opts: { mutual?: Array<[string, string]>; oneWay?: Array<[string, string]> } = {},
 ) {
   const history: Seat[][] = [];
   for (let r = 1; r <= rounds; r++) {
@@ -91,7 +91,6 @@ function runRounds(
         players,
         tableCount,
         round: r,
-        final: !!opts.finalLast && r === rounds,
         history: [...history],
         mutual: opts.mutual ?? [],
         oneWay: opts.oneWay ?? [],
@@ -196,29 +195,65 @@ describe("재회 회피", () => {
   });
 });
 
-describe("마지막 라운드", () => {
-  it("★ 서로 찌른 쌍의 90% 이상이 같은 테이블에 앉는다", () => {
+/**
+ * 서로 찌른 쌍 (ADR-51).
+ *
+ * 예전에는 **커플 자리**라는 전용 라운드가 이 쌍들을 구조로 붙였다 (나이차 면제 · 보너스 ×2.5 ·
+ * 붙은 쌍은 맞교환에서 제외). 그 라운드를 걷어냈으므로 이제 붙이는 힘은 **가중치 하나**뿐이고,
+ * 끌림의 상한(24)이 나이차 벌점(30)보다 낮아서 **나이차가 큰 쌍은 못 붙인다** (ADR-11).
+ *
+ * 그래서 여기서 재는 것은 "전부 붙는가" 가 아니라 **"대부분 붙고, 못 붙는 것이 설명되는가"** 다.
+ * 나머지는 운영자가 자리 탭에서 💔 를 보고 맞교환으로 붙인다.
+ */
+describe("서로 찌른 쌍", () => {
+  function fixture() {
     const players = makePlayers(12, 12);
     const men = players.filter((p) => p.gender === "M");
     const women = players.filter((p) => p.gender === "F");
-    // 서로 찌른 쌍 8개. 나이차가 큰 쌍도 섞여 있다
+    // 서로 찌른 쌍 8개. 나이차 14·9살짜리도 섞여 있다 — 그 쌍이 이 식의 한계다
     const mutual: Array<[string, string]> = men
       .slice(0, 8)
       .map((m, i) => [m.id, women[i].id] as [string, string]);
+    return { players, mutual, by: new Map(players.map((p) => [p.id, p])) };
+  }
+  const rate = (seats: Seat[], mutual: Array<[string, string]>) => {
+    const t = new Map(seats.map((s) => [s.playerId, s.table]));
+    return mutual.filter(([a, b]) => t.get(a) === t.get(b)).length / mutual.length;
+  };
 
-    const rounds = runRounds(players, 4, 3, { mutual, finalLast: true });
-    const last = rounds.at(-1)!;
-    const tableOf = new Map(last.map((s) => [s.playerId, s.table]));
-    const together = mutual.filter(([a, b]) => tableOf.get(a) === tableOf.get(b)).length;
-
-    expect(together / mutual.length).toBeGreaterThanOrEqual(0.9);
+  it("★ 첫 라운드는 서로 찌른 쌍을 대부분 같은 테이블에 앉힌다 (실측 6/8)", () => {
+    const { players, mutual } = fixture();
+    const [first] = runRounds(players, 4, 1, { mutual });
+    expect(rate(first, mutual)).toBeGreaterThanOrEqual(0.7);
   });
 
-  it("마지막 라운드에도 성비는 그대로다", () => {
-    const players = makePlayers(12, 12);
+  /**
+   * ★ **못 붙는 쌍은 무작위가 아니다.** 나이차가 큰 쌍부터 떨어진다 —
+   * 끌림 상한을 나이차 벌점 위로 올리면 그 테이블의 나이 구성이 통째로 무너지기 때문에
+   * 일부러 낮게 둔 값이다 (ADR-11). 이 줄이 그 맞바꿈을 지킨다.
+   */
+  it("★ 떨어지는 것은 나이차가 큰 쌍이다", () => {
+    const { players, mutual, by } = fixture();
+    const [first] = runRounds(players, 4, 1, { mutual });
+    const t = new Map(first.map((s) => [s.playerId, s.table]));
+    const gap = ([a, b]: [string, string]) => Math.abs(by.get(a)!.age - by.get(b)!.age);
+    const split = mutual.filter((p) => t.get(p[0]) !== t.get(p[1])).map(gap);
+    const together = mutual.filter((p) => t.get(p[0]) === t.get(p[1])).map(gap);
+    expect(split.length).toBeGreaterThan(0);
+    expect(Math.min(...split)).toBeGreaterThanOrEqual(Math.max(...together));
+  });
+
+  it("★ 라운드가 쌓여도 대부분은 붙어 있다 — 재회 벌점이 쌍을 떼지 않는다", () => {
+    const { players, mutual } = fixture();
+    const last = runRounds(players, 4, 3, { mutual }).at(-1)!;
+    expect(rate(last, mutual)).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it("쌍을 붙여도 성비는 그대로다", () => {
+    const { players, mutual } = fixture();
     const caps = tableCaps(4, 12, 12);
     const byId = new Map(players.map((p) => [p.id, p]));
-    const last = runRounds(players, 4, 2, { finalLast: true }).at(-1)!;
+    const last = runRounds(players, 4, 2, { mutual }).at(-1)!;
     for (const [table, ids] of groups(last)) {
       expect(ids.filter((id) => byId.get(id)!.gender === "M").length).toBe(caps[table - 1].m);
     }
@@ -240,7 +275,7 @@ describe("무료 플랜 CPU 10ms", () => {
   it("100명 배정이 폭주하지 않는다 (최선 실행 < 60ms)", () => {
     const players = makePlayers(50, 50);
     const run = () =>
-      buildSeating({ players, tableCount: 12, round: 1, final: false, history: [], mutual: [], oneWay: [] });
+      buildSeating({ players, tableCount: 12, round: 1, history: [], mutual: [], oneWay: [] });
 
     run();   // 첫 호출은 JIT 예열까지 포함한다. 재는 건 그다음부터다
     const times: number[] = [];
@@ -273,7 +308,6 @@ describe("여러 쌍 중 무엇을 먼저 붙이나", () => {
       players,
       tableCount: 2,
       round: 1,
-      final: true,
       history: [],
       // 목록 순서는 일부러 약한 쌍을 앞에 둔다 — 세기로 정렬되는지 보려고
       mutual: [["A", "C"], ["A", "B"]],
@@ -318,7 +352,6 @@ describe("한쪽만 투표해도 표 수가 자리를 가른다 (ADR-40)", () =>
       players,
       tableCount: 2,
       round: 1,
-      final: false,
       history: [],
       mutual: [],
       votes,
@@ -357,7 +390,7 @@ describe("한쪽만 투표해도 표 수가 자리를 가른다 (ADR-40)", () =>
       { ...makePlayers(0, 1, 9)[0], id: "C", gender: "F", age: 44 },
     ];
     const seats = buildSeating({
-      players, tableCount: 2, round: 1, final: false, history: [],
+      players, tableCount: 2, round: 1, history: [],
       mutual: [], votes: { "A|B": 5 }, oneWay: [["A", "B"]],
     });
     // A(45)–B(25) 는 20살 차이다. 5표를 몰아줘도 붙지 않는다
