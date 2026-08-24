@@ -76,6 +76,28 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
   const sending = useRef(false);
   const [covered, setCovered] = useCovered();
 
+  /*
+   * 되돌릴 수 있나 (ADR-34). **매력 투표는 언제나** 무를 수 있다 — 자리 배정의 재료일 뿐이다.
+   * 파티 콕은 회차 설정을 따르고, 없으면 무를 수 있다.
+   */
+  const canUndo = round === "pre" || state.event.config.allowUndo !== false;
+
+  /** 되돌리기. **확인창을 붙이지 않는다** — 되돌리는 것 자체가 되돌리기다 */
+  async function undo(target: PublicPlayer) {
+    if (sending.current) return;
+    sending.current = true;
+    const before = state.poke;
+    try {
+      setPoke(await source.unpoke(target.id));
+      toast(POKE.undo.done(target.nickname));
+    } catch (e) {
+      setPoke(before);
+      toast(e instanceof ApiError && e.userMessage ? e.userMessage : POKE.blocked.closed);
+    } finally {
+      sending.current = false;
+    }
+  }
+
   async function send(target: PublicPlayer) {
     const already = state.poke.sentTo[target.id] ?? 0;
     if (!open) return toast(POKE.blocked.closed);
@@ -87,7 +109,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       {
         btn: POKE.confirm.submit,
         title: POKE.confirm.title(already),
-        note: POKE.confirm.note,
+        note: POKE.confirm.note(canUndo),
         facts: [
           [POKE.confirm.rowTarget, UNIT.times(already + 1)],
           [POKE.confirm.rowBudget(round), UNIT.times(budget.max - budget.used - 1)],
@@ -252,6 +274,8 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
                   disabled={!open}
                   covered={covered}
                   onSend={() => send(p)}
+                  onUndo={() => void undo(p)}
+                  canUndo={canUndo}
                 />
               )}
             </div>
@@ -295,6 +319,8 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
               {!revealed && (
                 <PokeControls
                   count={state.poke.sentTo[profile.id] ?? 0}
+                  onUndo={() => void undo(profile)}
+                  canUndo={canUndo}
                   disabled={!open}
                   covered={covered}
                   onSend={() => send(profile)}
@@ -413,13 +439,18 @@ function PokeControls({
   count,
   disabled,
   covered,
+  canUndo,
   onSend,
+  onUndo,
 }: {
   count: number;
   disabled: boolean;
   /** 어깨너머 가리기 (슬라이스 16) */
   covered?: boolean;
+  /** 되돌릴 수 있는 회차인가 (ADR-34). 매력 투표는 언제나 참이다 */
+  canUndo: boolean;
   onSend: () => void;
+  onUndo: () => void;
 }) {
   /*
    * **찌른 버튼과 안 찌른 버튼이 구별되지 않아야 한다.** 이 슬라이스의 유일한 불변식이다.
@@ -449,6 +480,16 @@ function PokeControls({
    */
   return (
     <div className="pokeCell">
+      {/*
+        되돌리기는 **찌른 뒤에만, 가리지 않은 동안에만** 나온다.
+        가린 동안 이 버튼이 보이면 "이 사람을 찔렀다" 가 그대로 새어 — 위의 불변식이 깨진다.
+        (가린 경우는 위에서 이미 통째로 갈라져 나갔다.)
+      */}
+      {count > 0 && canUndo && (
+        <button className="pokeBtn" disabled={disabled} onClick={onUndo} aria-label={POKE.undo.btn}>
+          <span aria-hidden>↩︎</span>
+        </button>
+      )}
       <button
         className={`pokeBtn ${count > 0 ? "on" : ""}`}
         disabled={disabled}

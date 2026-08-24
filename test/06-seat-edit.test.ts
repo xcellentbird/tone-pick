@@ -103,24 +103,31 @@ describe("매칭이 어떻게 이루어졌나 (운영자만)", () => {
   /** a|b 는 아이디를 사전순으로 붙인 키다 */
   const key = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
-  it("★ 넷의 합이 통합 매칭 수와 같다", async () => {
+  it("★ 매력 투표만으로는 매칭이 되지 않는다 (ADR-34)", async () => {
+    /*
+     * 매력 투표는 **프로필만 보고 고른 것**이라 첫 자리 배정의 재료일 뿐이다.
+     * 만나보고 찌른 것과 같은 무게로 세면, 얼굴도 모르고 고른 것이 결과를 정한다 —
+     * 첫 회차에서 매칭 5쌍 중 4쌍이 그렇게 나왔다.
+     *
+     * ⚠️ 이 규칙 때문에 `MatchKind` 의 `pre`·`crossed` 는 **나올 수 없는 값**이 됐다.
+     * 지우거나 "이 쌍은 매력 투표도 서로 했다" 로 다시 정의하거나 — 정해야 한다.
+     */
     const ev = await freshEvent();
     const [a, b, c, d] = [
       await join(ev, { gender: "M" }), await join(ev, { gender: "F" }),
       await join(ev, { gender: "M" }), await join(ev, { gender: "F" }),
     ];
     await setPhase(ev.id, "prevote");
-    await poke(a.cookie, b.id);            // 사전 서로
+    await poke(a.cookie, b.id);            // a·b 는 매력 투표만 서로
     await poke(b.cookie, a.id);
-    await poke(c.cookie, d.id);            // c 는 사전에만
+    await poke(c.cookie, d.id);            // c 는 매력 투표에만
     await setPhase(ev.id, "party");
     await poke(d.cookie, c.id);            // d 는 파티에서 → 엇갈림
-    await poke(a.cookie, c.id);            // 한쪽만. 매칭 아님
 
+    // 둘 다 매칭이 아니다. **파티에서 서로** 찌른 쌍만 매칭이다
     const { mutual, matchRounds } = await kinds(ev.id);
-    expect(Object.keys(matchRounds)).toHaveLength(mutual.length);
-    expect(matchRounds[key(a.id, b.id)]).toBe("pre");
-    expect(matchRounds[key(c.id, d.id)]).toBe("crossed");
+    expect(mutual).toEqual([]);
+    expect(Object.keys(matchRounds)).toHaveLength(0);
   });
 
   it("★ 파티에서만 이루어진 매칭을 가려낸다 — 이 파티가 만든 것이다", async () => {
@@ -149,7 +156,7 @@ describe("매칭이 어떻게 이루어졌나 (운영자만)", () => {
     // mutual 에는 커플 자리 배정이 매달려 있고, 발표 결과도 라운드를 나누지 않는다
     const ev = await freshEvent();
     const [a, b] = [await join(ev, { gender: "M" }), await join(ev, { gender: "F" })];
-    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
     await poke(a.cookie, b.id);
     await setPhase(ev.id, "party");
     await poke(b.cookie, a.id);           // 엇갈렸지만 매칭은 매칭이다
@@ -176,7 +183,7 @@ describe("앉힌 자리 고치기", () => {
     const ev = await freshEvent();
     const ids: string[] = [];
     for (let i = 0; i < 6; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
-    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
     await setPhase(ev.id, "party");
     await api(`/api/host/events/${ev.id}/seating`, {
       method: "POST", cookie: master, body: { tableCount: 2, final },
@@ -272,7 +279,7 @@ describe("앉힌 자리 고치기", () => {
     const ev = await freshEvent();
     const a = await join(ev, { gender: "M" });
     const b = await join(ev, { gender: "F" });
-    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
     await api("/api/poke", { method: "POST", cookie: a.cookie, body: { toId: b.id } });
     await api("/api/poke", { method: "POST", cookie: b.cookie, body: { toId: a.id } });
     await setPhase(ev.id, "party");

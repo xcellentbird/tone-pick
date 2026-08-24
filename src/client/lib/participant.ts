@@ -14,6 +14,8 @@ export interface ParticipantSource {
   liveCode?: string;
   load(): Promise<ParticipantState>;
   poke(toId: string): Promise<MyPokeState>;
+  /** 되돌리기 (ADR-34). 매력 투표는 언제나, 파티 콕은 회차 설정을 따른다 */
+  unpoke(toId: string): Promise<MyPokeState>;
   ackSeat(round: number): Promise<void>;
   /** 내 정보 고치기. 등록과 같은 입력이라 **전화번호는 여기 없다** (ADR-31) */
   saveProfile(input: RegisterInput): Promise<Player>;
@@ -26,6 +28,7 @@ export function sessionSource(code: string): ParticipantSource {
     liveCode: code,
     load: () => api<ParticipantState>(`/me?code=${encodeURIComponent(code)}`),
     poke: (toId) => post<MyPokeState>("/poke", { toId }),
+    unpoke: (toId) => post<MyPokeState>("/unpoke", { toId }),
     ackSeat: async (round) => {
       await post("/seat/ack", { round });
     },

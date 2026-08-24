@@ -480,7 +480,7 @@ describe("공개 범위", () => {
     const ev = await freshEvent();
     const me = await join(ev, { nickname: "나야나" });
     const her = await join(ev, { gender: "F", nickname: "그녀", realName: "이실명", instagram: "her_gram" });
-    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
 
     await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
     await api("/api/poke", { method: "POST", cookie: her.cookie, body: { toId: me.id } });

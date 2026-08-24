@@ -30,7 +30,8 @@ describe("한 사람이 여러 명과 이어질 때", () => {
     const a = await join(ev, { gender: "M", nickname: "에이" });
     const b = await join(ev, { gender: "F", nickname: "비이", realName: "박비이" });
     const c = await join(ev, { gender: "F", nickname: "씨이", realName: "박씨이" });
-    await setPhase(ev.id, "prevote");
+    // 매칭은 **파티 콕만** 센다 (ADR-34)
+    await setPhase(ev.id, "party");
 
     // A 가 둘을 찌르고, 둘 다 A 를 찌른다
     for (const target of [b, c]) {
@@ -132,7 +133,7 @@ describe("자리 섞기", () => {
     const ev = await freshEvent();
     const men = [await join(ev, { gender: "M" }), await join(ev, { gender: "M" })];
     const women = [await join(ev, { gender: "F" }), await join(ev, { gender: "F" })];
-    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
 
     // 첫 남자와 첫 여자가 서로 찌른다
     await api("/api/poke", { method: "POST", cookie: men[0].cookie, body: { toId: women[0].id } });

@@ -66,7 +66,12 @@ export async function freshEvent(): Promise<EventMeta> {
       regOpenAt: "now",
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
-      config: { maxPre: 2, maxParty: 3 },
+      /*
+       * **알림을 켠 회차다.** 기본은 꺼짐이라(ADR-34) 받은 콕 수가 발표 전까지 0 으로 나온다 —
+       * 이 헬퍼를 쓰는 테스트들은 그 숫자로 익명성을 재므로 여기서는 켜 둔다.
+       * 꺼진 쪽의 규칙은 `test/22-poke-rules.test.ts` 가 본다.
+       */
+      config: { maxPre: 2, maxParty: 3, pokeNotify: true },
       requestId: `p-${seq}-${Date.now()}`,
     },
   });

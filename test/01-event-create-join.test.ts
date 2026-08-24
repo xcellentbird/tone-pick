@@ -209,8 +209,15 @@ describe("B. 회차 생성", () => {
     // Then  회차는 만들어지되, 그 번호로는 아무 문도 열리지 않는다
     expect(res.status).toBe(200);
     expect((await login("5678", res.body.id)).status).toBe(401);
-    // And   응답에 PIN 이 남지 않는다
-    expect(JSON.stringify(res.body)).not.toContain("5678");
+    /*
+     * And   응답에 PIN 이 남지 않는다.
+     *
+     * **문자열 검색으로 재지 않는다** — 네 자리는 시각에 우연히 들어간다.
+     * 실제로 `createdAt: 1787` + `5678` + `14288` 로 깨진 적이 있다.
+     * 재려는 것은 "그 값이 어딘가에 있나" 가 아니라 **"PIN 칸이 없나"** 다.
+     */
+    expect(Object.keys(res.body)).not.toContain("pin");
+    expect(Object.keys(res.body.config ?? {})).not.toContain("pin");
   });
 
   it("S-B3 ★ 입장 코드는 회차 사이에서 유일하다", async () => {
