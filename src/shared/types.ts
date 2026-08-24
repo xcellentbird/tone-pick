@@ -205,14 +205,6 @@ export interface EventConfig {
   pokeNotify?: boolean;
 }
 
-/**
- * 참석 상태 (ADR-33). **없으면 `안 옴`** — 값을 셋 두는 대신 둘만 저장한다.
- *
- * `나감` 은 도착했던 사람만 될 수 있어서 순서가 있는 한 축이다.
- * 시각 둘(`arrivedAt`·`leftAt`)로 두면 "나갔는데 온 적 없음" 같은 조합이 생긴다.
- */
-export type Attendance = "arrived" | "left";
-
 export interface EventMeta {
   id: string;
   name: string;
@@ -571,7 +563,7 @@ export interface HostState {
    */
   sent: Record<string, number>;
   /**
-   * 받은 수를 **라운드마다 따로** 센다 (ADR-45).
+   * 받은 수를 **라운드마다 따로** 센다 (ADR-46).
    *
    * 합쳐 세면 현황 탭의 `콕 TOP` 에 매력 투표 표가 얹혀서, 운영자가
    * *이 사람이 파티에서 몇 번 받았나* 를 못 읽는다 — 그 둘은 쓰임이 다르다 (ADR-34).
@@ -589,21 +581,22 @@ export interface HostState {
    * 참석 상태 (ADR-33). **운영자만 본다** — `sent`·`received` 와 같은 모양으로 여기 둔다.
    * `Player` 에 넣으면 `me` 로 참가자에게 따라 나간다. 없는 키는 `안 옴` 이다.
    */
-  attendance: Record<string, Attendance>;
   /** 초대 명단. 참가자 응답에는 절대 실리지 않는다 */
   invites: Invite[];
   /** 운영자가 보낸 알림. 최신순 */
   announcements: HostAnnouncement[];
 }
 
-
 /**
  * 자리 초안 생성 입력. 테이블 수는 설정이 아니라 이 요청의 값이다 (ADR-5).
- *
- * **뺄 사람을 받지 않는다** (ADR-41). 빠지는 건 `나감` 으로 찍힌 사람뿐이고,
- * 그건 서버가 참석 상태에서 읽는다 — 화면이 보낸 목록은 낡을 수 있다.
  */
 export interface SeatingInput {
   tableCount: number;
   final: boolean;
+  /**
+   * 이번 라운드에서 뺄 사람 (ADR-45). **이 요청에만 있고 저장되지 않는다** —
+   * 사람에게 붙는 상태로 만들면 시간이 지나 틀리고, 틀린 상태가 다음 라운드에서
+   * 사람을 조용히 빠뜨린다 (FLOWS.md). 다음 배정은 전원으로 다시 시작한다.
+   */
+  exclude: string[];
 }

@@ -12,7 +12,6 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import type {
-  Attendance,
   EventConfig,
   EventMeta,
   EventSchedule,
@@ -74,7 +73,7 @@ CREATE TABLE IF NOT EXISTS players (
   mbti       TEXT NOT NULL,
   charms     TEXT NOT NULL,          -- JSON string[3]
   created_at INTEGER NOT NULL,
-  attendance TEXT,                   -- 'arrived' | 'left'. 없으면 안 옴 (ADR-33)
+  attendance TEXT,                   -- 안 쓴다 (ADR-45 가 ADR-33 을 되돌렸다). 옛 회차의 값이 남아 있을 뿐이다
   contact_share TEXT,                -- 안 쓴다 (ADR-42 가 ADR-37 을 되돌렸다). 읽지도 쓰지도 않는다.
                                      -- 지우지 마라 — DROP COLUMN 은 옛 회차의 표를 건드리는 일이고,
                                      -- 남은 값은 참·거짓 둘뿐이라 개인정보도 아니다
@@ -651,17 +650,6 @@ export class EventDO extends DurableObject {
     return ok({ state: state.value, resumed: !!before });
   }
 
-  /**
-   * 참석 상태를 바꾼다 (ADR-33). **찍는 길은 여기 하나뿐이다** — 운영자가 누른다.
-   * 되돌릴 수 있어서 확인창이 없고, 그래서 잘못 눌러도 잃는 게 없다.
-   */
-  async setAttendance(playerId: string, to: Attendance | null): Promise<Result<true>> {
-    const mine = this.rows<{ id: string }>("SELECT id FROM players WHERE id = ?", playerId)[0];
-    if (!mine) return fail("not_found");
-    this.ctx.storage.sql.exec("UPDATE players SET attendance = ? WHERE id = ?", to, playerId);
-    return ok(true);
-  }
-
   async deletePlayer(playerId: string): Promise<Result<true>> {
     const row = this.rows<PlayerRow>("SELECT * FROM players WHERE id = ?", playerId)[0];
     if (!row) return fail("not_found");
@@ -857,16 +845,10 @@ export class EventDO extends DurableObject {
     const pokes = this.pokes().filter((k) => here.has(k.fromId) && here.has(k.toId));
 
     /** 참석 상태. **운영자 응답에만 실린다** (ADR-33) */
-    const attendance: Record<string, Attendance> = {};
-    for (const r of this.rows<{ id: string; attendance: string | null }>(
-      "SELECT id, attendance FROM players WHERE attendance IS NOT NULL",
-    )) {
-      if (r.attendance === "arrived" || r.attendance === "left") attendance[r.id] = r.attendance;
-    }
 
     const sent: Record<string, number> = {};
     /*
-     * **라운드마다 따로 센다** (ADR-45). 합치면 현황 탭의 `콕 TOP` 에 매력 투표 표가 얹혀서,
+     * **라운드마다 따로 센다** (ADR-46). 합치면 현황 탭의 `콕 TOP` 에 매력 투표 표가 얹혀서,
      * 운영자가 "이 사람이 파티에서 몇 번 받았나" 를 못 읽는다 — 그 둘은 쓰임이 다르다 (ADR-34).
      */
     const received: Record<PokeRound, Record<string, number>> = { pre: {}, party: {} };
@@ -915,7 +897,6 @@ export class EventDO extends DurableObject {
       pokeCount,
       pokeUsedMax,
       seatings: this.seatings(),
-      attendance,
       invites: this.invites(),
       announcements: this.hostAnnouncements(),
     });
@@ -1103,7 +1084,12 @@ export class EventDO extends DurableObject {
   // ─────────────────────────── 자리
 
   /** 초안 생성. 참가자에게는 보이지 않으므로 확인 없이 몇 번이든 다시 만든다 (ADR-6) */
-  async makeSeating(tableCount: number, final: boolean, now: number): Promise<Result<SeatingRound>> {
+  async makeSeating(
+    tableCount: number,
+    final: boolean,
+    exclude: string[],
+    now: number,
+  ): Promise<Result<SeatingRound>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (meta.phase === "done") return fail("closed");
@@ -1112,18 +1098,17 @@ export class EventDO extends DurableObject {
     }
 
     /*
-     * **`나감` 만 빠진다** (ADR-41). 운영자가 손으로 고르던 목록을 걷어내고 상태 하나가 그 일을 한다 —
-     * 가는 사람은 문 앞에서 이미 찍히고, 같은 것을 배정할 때 또 고르면 두 번째가 틀린다.
+     * **뺄 사람은 운영자가 이 라운드에만 고른다** (ADR-45).
      *
-     * **`미도착` 은 앉힌다.** 늦게 오는 사람이 기본이고, 안 온 사람과 아직 안 찍은 사람이
-     * 같은 값이라(ADR-33) 여기서 빼면 **온 사람이 조용히 빠진다.** 빈 자리는 눈에 보이지만
-     * 없는 자리는 안 보인다 — 늦게 온 사람은 `앉히기` 로 붙이는 게 아니라 이미 자리가 있다.
+     * 참가자에게 붙는 상태를 만들지 않는다 — 노쇼는 다음 라운드에 나타날 수 있고,
+     * 온 사람이 잠깐 빠질 수도 있다. 사람에게 붙는 플래그는 시간이 지나면 틀리고,
+     * 틀린 상태는 다음 라운드에서 사람을 조용히 빠뜨린다 (FLOWS.md).
      *
-     * 서버가 거른다. 화면이 목록을 보내면 그 목록이 낡을 수 있고, 낡은 목록은 사람을 조용히 빠뜨린다.
+     * 그래서 이 목록은 **요청에만 있고 어디에도 저장되지 않는다.** 다음 배정은 전원으로 시작한다.
      * `buildSeating` 은 그대로다 — 명단이 짧아질 뿐이라 순수 함수를 건드릴 일이 없다.
      */
-    const left = this.leftIds();
-    const players = this.players().filter((p) => !left.has(p.id));
+    const out = new Set(exclude);
+    const players = this.players().filter((p) => !out.has(p.id));
     if (players.length < tableCount * 2) return fail("bad_request");
 
     const published = this.seatings().filter((s) => s.status === "published");
@@ -1459,18 +1444,6 @@ export class EventDO extends DurableObject {
   private player(id: string): Player | null {
     const row = this.rows<PlayerRow>("SELECT * FROM players WHERE id = ?", id)[0];
     return row ? toPlayer(row) : null;
-  }
-
-  /**
-   * **`나감` 으로 찍힌 사람**(ADR-33). 자리 배정에서 빠지는 유일한 조건이다 (ADR-41).
-   *
-   * `Player` 에 참석 상태를 싣지 않으므로(그러면 `me` 로 참가자에게 따라 나간다)
-   * 여기서 따로 읽는다. `attendance` 칸이 없던 옛 회차도 마이그레이션이 이미 채웠다.
-   */
-  private leftIds(): Set<string> {
-    return new Set(
-      this.rows<{ id: string }>("SELECT id FROM players WHERE attendance = 'left'").map((r) => r.id),
-    );
   }
 
   private playerCount(): number {

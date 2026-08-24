@@ -10,11 +10,10 @@ import { RouterProvider, createMemoryRouter } from "react-router";
 import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, phaseAction, schedDiff } from "../../src/shared/copy.ts";
 import { formatGap, formatWhen } from "../../src/shared/time.ts";
 import type { HostState } from "../../src/shared/types.ts";
+import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
-import Dash, { topRanks } from "../../src/client/routes/host/Dash.tsx";
+import { topRanks } from "../../src/client/routes/host/Dash.tsx";
 import Players from "../../src/client/routes/host/Players.tsx";
-import Seats from "../../src/client/routes/host/Seats.tsx";
-import Settings from "../../src/client/routes/host/Settings.tsx";
 
 afterEach(cleanup);
 
@@ -60,13 +59,12 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
       },
     ],
     sent: { p1: 1, p2: 0 },
-    // 라운드마다 따로 센다 (ADR-45) — 합쳐 두면 현황 탭이 어느 쪽을 그리는지 테스트가 못 가른다
+    // 라운드마다 따로 센다 (ADR-46) — 합쳐 두면 현황 탭이 어느 쪽을 그리는지 테스트가 못 가른다
     received: { pre: { p1: 0, p2: 1 }, party: { p1: 2, p2: 0 } },
     mutual: [],
     pokeCount: { pre: 1, party: 0 },
     pokeUsedMax: { pre: 1, party: 0 },
     seatings: [],
-    attendance: {},
     invites: [],
     announcements: [],
     ...more,
@@ -111,19 +109,8 @@ function renderPlayers(at: string) {
 function renderConsole(at = "/host/e1") {
   const router = createMemoryRouter(
     [
-      {
-        path: "/host/:id",
-        element: <HostConsole />,
-        children: [
-          { index: true, element: <Dash /> },
-          { path: "players", element: <Players /> },
-          { path: "players/:pid", element: <Players /> },
-          { path: "seats", element: <Seats /> },
-          // 테이블 수 시트도 라우트다 — 주소로 열린다 (ROUTES.md)
-          { path: "seats/:mode", element: <Seats /> },
-          { path: "settings", element: <Settings /> },
-        ],
-      },
+      // **실제 표를 그대로 쓴다.** 베껴 두면 새 경로가 빠져도 테스트는 자기 사본으로 통과한다
+      { path: "/host/:id", element: <HostConsole />, children: HOST_CONSOLE_ROUTES },
     ],
     { initialEntries: [at] },
   );
@@ -180,7 +167,7 @@ describe("매칭 목록", () => {
      * 죽은 값을 그리느니 지운다.
      */
     stubFetch(
-      // 매칭 카드는 파티부터 선다 (ADR-45) — 그전에는 있을 수가 없어서 그리지 않는다
+      // 매칭 카드는 파티부터 선다 (ADR-46) — 그전에는 있을 수가 없어서 그리지 않는다
       hostState({ phase: "party" }, {
         mutual: [["a", "b"], ["a", "c"], ["b", "c"], ["c", "d"]],
       }),
@@ -195,7 +182,7 @@ describe("매칭 목록", () => {
 });
 
 /**
- * 현황 탭의 순위 둘 (ADR-45).
+ * 현황 탭의 순위 둘 (ADR-46).
  *
  * 두 라운드는 쓰임이 다르다 — 매력 투표 표는 **자리의 재료**고, 파티 콕은 **매칭의 재료**다 (ADR-34).
  * 그래서 한 수로 합치면 `콕 TOP` 이 *파티에서 몇 번 받았나* 를 말하지 못한다.
@@ -265,7 +252,7 @@ describe("현황 탭의 순위 둘", () => {
   const sections = () => [...document.querySelectorAll(".kicker")].map((k) => k.textContent);
 
   /**
-   * **파티 전에는 매력 투표 하나뿐이다** (ADR-45).
+   * **파티 전에는 매력 투표 하나뿐이다** (ADR-46).
    *
    * 매칭도 파티 콕도 그전에는 **있을 수가 없다** (ADR-34) — 빈 카드를 미리 세워두면
    * 운영자가 매번 그게 정상인지 확인하게 되고, 정작 볼 것(표가 어디로 몰렸나)이 아래로 밀린다.
@@ -408,62 +395,6 @@ describe("운영자 콘솔", () => {
     expect(screen.getByText(HOST_UI.invites.title)).toBeTruthy();
   });
 
-  it("★ 참가 상태는 카드 **안** 맨 오른쪽에 붙고, 파티 뒤에는 눌러 찍는다", async () => {
-    /*
-     * 문 앞에서 한 명씩 하는 일이라 한 번에 끝나야 한다 (ADR-33).
-     * 카드 밖에 두면 목록이 들쭉날쭉해지고, 누르는 자리가 카드와 따로 논다.
-     */
-    const st = hostState({ phase: "party" });
-    stubFetch(st);
-    renderConsole("/host/e1/players");
-    await screen.findByText(HOST_UI.invites.title);
-
-    const card = document.querySelector(".person") as HTMLElement;
-    expect(card.textContent).toContain(st.players[0].realName);
-    // 상태값이 그 카드 안에 있다
-    const chip = card.querySelector(".att") as HTMLButtonElement;
-    expect(chip.textContent).toBe(HOST_UI.status.absent);
-
-    fireEvent.click(chip);
-    await waitFor(() =>
-      expect(calls.find((c) => c.url.includes("/attendance"))?.body).toEqual({ to: "arrived" }),
-    );
-  });
-
-  it("★ 상태를 색으로만 말하지 않는다 — 셋 다 글자가 함께 온다", async () => {
-    /*
-     * 톤(도착 초록 · 나감 주황 · 미도착 무채색)은 거들 뿐이다.
-     * 색을 못 읽는 사람에게도 같은 정보가 남아야 한다.
-     */
-    const st = hostState({ phase: "party" });
-    st.attendance = { p1: "arrived", p2: "left" };
-    stubFetch(st);
-    renderConsole("/host/e1/players");
-    await screen.findByText(HOST_UI.invites.title);
-
-    const words = [...document.querySelectorAll(".person > .att")].map((el) => el.textContent);
-    expect(words).toEqual([HOST_UI.status.arrived, HOST_UI.status.left]);
-  });
-
-  it("★ 파티 전에는 카드에 상태값이 붙지 않는다", async () => {
-    /*
-     * **이 탭에 있다는 것이 곧 등록했다는 뜻이다.** `등록함` 은 전원에게 같은 말을
-     * 한 번씩 더 하는 자리였고, 카드마다 붙으면 정작 파티 중에 뜨는 참석 상태가 덜 도드라진다.
-     */
-    stubFetch(hostState());
-    renderConsole("/host/e1/players");
-    await screen.findByText(HOST_UI.invites.title);
-
-    expect(document.querySelectorAll(".person").length).toBe(2);
-    expect(document.querySelector(".person > .att")).toBeNull();
-  });
-
-  /**
-   * 안내문 카드는 **버튼 둘이 전부다** — 복사와 고치기.
-   *
-   * 미리보기를 두지 않는다: 고치는 화면이 글을 그대로 띄우고 있어 같은 일을 두 번 한다.
-   * 명단은 계속 보면서 일하는 목록이라, 한 번 확인하면 되는 글이 그 위를 차지하면 안 된다.
-   */
   it("★ 안내문 카드에 미리보기를 두지 않는다 — 고치는 화면이 그 일을 한다", async () => {
     const st = hostState();
     st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
@@ -883,50 +814,67 @@ describe("운영자 콘솔", () => {
 // ─────────────────────────────────────────── 자리 배정 시트
 
 /**
- * **빠지는 사람은 `나감` 하나로 정해진다** (ADR-41).
+ * **배정은 두 걸음이다** (ADR-45) — 뺄 사람 고르기 → 테이블 수.
  *
- * 고르는 목록이 없어졌으므로, 화면이 할 일은 **서버가 무엇을 할지 미리 말하는 것**뿐이다.
- * 숫자가 어긋나면 운영자는 `테이블당 N명` 을 보고 짠 계획이 틀린 채로 배정을 누른다.
+ * 순서가 이래야 하는 이유가 하나다. 둘째 걸음의 `테이블당 N명` 이 첫 걸음에서 남은
+ * 인원으로 계산되므로, 뒤집히면 운영자가 방금 읽은 숫자가 곧바로 틀린 것이 된다.
  */
 describe("자리 배정 시트", () => {
-  const party = () => {
-    const st = hostState({ phase: "party" });
-    st.attendance = { p1: "arrived", p2: "left" };
-    return st;
-  };
+  const party = () => hostState({ phase: "party" });
 
-  it("★ 나간 사람은 인원에서 빠지고, 왜 빠졌는지 말한다", async () => {
+  /** 시트 안의 것을 누른다 — 목록 화면에도 같은 이름의 버튼이 있다 */
+  const inSheet = () => within(document.querySelector('[role="dialog"]') as HTMLElement);
+
+  it("★ 테이블 수보다 뺄 사람을 먼저 묻는다", async () => {
     stubFetch(party());
     renderConsole("/host/e1/seats/new");
 
-    // 둘 중 하나가 나갔다 — `2명 배정` 이 아니라 `1명 배정 · 나감 1명 제외`
-    await screen.findByText(HOST_UI.seats.leftOut(1, 1));
-    expect(screen.queryByText(HOST_UI.seats.seatedAll(2))).toBeNull();
+    // 첫 걸음에는 테이블 수 스테퍼가 없다
+    await screen.findByText(HOST_UI.seats.excludeNote);
+    expect(screen.queryByText(HOST_UI.seats.tableCount)).toBeNull();
+
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
+    // 시트 제목과 스테퍼 라벨이 같은 말이다. 둘 다 떴는지만 본다
+    expect((await screen.findAllByText(HOST_UI.seats.tableCount)).length).toBeGreaterThan(0);
   });
 
-  it("★ 전원이 남아 있으면 나감을 말하지 않는다 — 없는 일을 알리지 않는다", async () => {
-    const st = hostState({ phase: "party" });
-    st.attendance = { p1: "arrived" };
-    stubFetch(st);
+  it("★ 아무도 안 빼면 전원이 배정된다 — 없는 일을 알리지 않는다", async () => {
+    stubFetch(party());
     renderConsole("/host/e1/seats/new");
 
     await screen.findByText(HOST_UI.seats.seatedAll(2));
     expect(screen.queryByText(HOST_UI.seats.leftOutNote)).toBeNull();
   });
 
-  it("★ 배정 요청에는 테이블 수만 간다 — 뺄 사람 목록을 보내지 않는다", async () => {
-    /*
-     * 화면이 목록을 보내면 그 목록이 낡을 수 있고, 낡은 목록은 사람을 조용히 빠뜨린다.
-     * 누가 빠지는지는 **서버가 참석 상태에서 읽는다** (ADR-41).
-     */
+  it("★ 뺀 사람은 인원에서 빠지고, 왜 빠졌는지 말한다", async () => {
     stubFetch(party());
     renderConsole("/host/e1/seats/new");
-    await screen.findByText(HOST_UI.seats.leftOut(1, 1));
+    await screen.findByText(HOST_UI.seats.seatedAll(2));
 
-    // 목록 화면에도 같은 이름의 버튼이 있다. 누르는 건 **시트 안**의 것이다
-    const sheet = document.querySelector('[role="dialog"]') as HTMLElement;
-    fireEvent.click(within(sheet).getByText(HOST_UI.seats.make));
+    // 한 명을 뺀다 — `2명 배정` 이 아니라 `1명 배정 · 1명 제외`
+    fireEvent.click(inSheet().getByText("가"));
+    await screen.findByText(HOST_UI.seats.leftOut(1, 1));
+    expect(screen.queryByText(HOST_UI.seats.seatedAll(2))).toBeNull();
+  });
+
+  it("★ 뺀 사람이 배정 요청에 실린다", async () => {
+    // 한 명을 빼고도 테이블 하나를 채울 수 있어야 다음 걸음으로 넘어간다 (최소 2명)
+    const st = party();
+    st.players = [...st.players, { ...st.players[1], id: "p3", nickname: "다", realName: "김다" }];
+    stubFetch(st);
+    renderConsole("/host/e1/seats/new");
+    await screen.findByText(HOST_UI.seats.seatedAll(3));
+
+    fireEvent.click(inSheet().getByText("가"));
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
+    await screen.findAllByText(HOST_UI.seats.tableCount);
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.make));
+
     await waitFor(() => expect(calls.find((c) => c.url.endsWith("/seating"))).toBeTruthy());
-    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({ tableCount: 1, final: false });
+    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({
+      tableCount: 1,
+      final: false,
+      exclude: ["p1"],
+    });
   });
 });

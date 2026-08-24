@@ -243,7 +243,7 @@ describe("콕 상한", () => {
       `/api/host/events/${ev.id}/state`,
       { cookie: master },
     );
-    // 매력 투표에서 보낸 콕이므로 `pre` 에만 선다 (ADR-45)
+    // 매력 투표에서 보낸 콕이므로 `pre` 에만 선다 (ADR-46)
     expect(state.body.received.pre[her.id]).toBe(1);
     expect(state.body.received.pre[me.id]).toBe(0);
     expect(state.body.received.party[her.id]).toBe(0);
@@ -254,7 +254,7 @@ describe("콕 상한", () => {
   });
 
   /**
-   * **두 라운드를 한 수로 합치지 마라** (ADR-45).
+   * **두 라운드를 한 수로 합치지 마라** (ADR-46).
    *
    * 매력 투표 표와 파티 콕은 쓰임이 다르다 (ADR-34) — 표는 자리의 재료고, 콕은 매칭의 재료다.
    * 합쳐 세면 현황 탭의 `콕 TOP` 이 며칠 치 표가 얹힌 수가 되어 *파티에서 몇 번 받았나* 를
