@@ -45,7 +45,6 @@ async function makeEvent(over: Record<string, unknown> = {}) {
     body: {
       name: "파기 대상",
       partyAt: now + DAY,
-      regOpenAt: "now",
       prevoteAt: now + DAY,
       config: { maxPre: 3, maxParty: 3 },
       requestId: `purge-${now}-${Math.random()}`,
@@ -98,7 +97,7 @@ describe("파기 Cron", () => {
 
   it("★ 한참 뒤로 예약한 파티는 살아남는다", async () => {
     const far = Date.now() + 20 * DAY;
-    const ev = await makeEvent({ regOpenAt: far, prevoteAt: far + DAY });
+    const ev = await makeEvent({ partyAt: far + DAY, prevoteAt: far });
 
     // 만든 지 오래된 것처럼 시계를 밀어도, 예약이 앞에 있으면 지우지 않는다
     await travelTo(Date.now() + (RETENTION_DAYS + 2) * DAY);

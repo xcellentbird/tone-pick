@@ -66,7 +66,6 @@ async function freshEvent(): Promise<EventMeta> {
     body: {
       name: `알림${seq}회차`,
       pin: String(4000 + seq),
-      regOpenAt: "now",
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
       config: { maxPre: 2, maxParty: 3 },

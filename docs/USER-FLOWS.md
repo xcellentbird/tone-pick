@@ -214,9 +214,8 @@ stateDiagram-v2
     party: 파티 진행
     done: 발표 완료
 
-    [*] --> prep
-    [*] --> reg: 지금 바로로 생성
-    prep --> reg: 예약 알람 또는 수동
+    [*] --> reg: 회차 생성 (ADR-36)
+    prep --> reg: 예약 알람 또는 수동 (옛 회차·되돌린 회차)
     reg --> prevote: 수동
     prevote --> party: 예약 알람 또는 수동
     party --> done: 예약 알람 또는 수동
@@ -277,9 +276,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     create["회차 생성"]
-    qNow{"등록 시작이 지금 바로인가"}
-    sPrep["준비 중 · 알람 대기"]
-    sReg["등록 중"]
+    sReg["등록 중 — 만들면 바로 (ADR-36)"]
     qClosed{"사전 투표 마감이 이미 지났나"}
     warn["확인창에 시작하자마자 마감 경고"]
     sPre["사전 투표"]
@@ -298,10 +295,7 @@ flowchart LR
     closedSeat["배정 닫힘 · 다시 열기 필요"]
     openSeat["다음 라운드 계속"]
 
-    create --> qNow
-    qNow -->|"지금 바로"| sReg
-    qNow -->|"시각 지정"| sPrep
-    sPrep -->|"알람 한 번"| sReg
+    create --> sReg
     sReg --> qClosed
     qClosed -->|"지났음"| warn
     warn -->|"그래도 시작"| sParty
@@ -327,6 +321,6 @@ flowchart LR
     style gCount fill:#C2E5FF,stroke:#3DADFF
 ```
 
-- **발표 시각은 회차 설정에서만** 넣을 수 있다. 생성 위저드는 등록 시작·투표 마감 둘만 받는다
+- **생성 위저드는 매력 투표 시작 하나만 받는다** (ADR-36). 등록은 만드는 순간 열린다
 - 마지막 자리라는 사실은 **참가자에게 알리지 않는다.** 운영자에게만 배정이 닫힌다
 - 동성 콕을 열어도 **자리 배정의 남녀 정원은 그대로다.** 콕은 가중치로만 들어간다

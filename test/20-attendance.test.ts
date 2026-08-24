@@ -63,7 +63,6 @@ async function freshEvent(): Promise<EventMeta> {
     body: {
       name: `${seq}회차`,
       partyAt: now + 7 * DAY,
-      regOpenAt: "now",
       prevoteAt: now + 25 * HOUR,
       config: { maxPre: 3, maxParty: 3 },
       requestId: `att-${seq}-${now}`,

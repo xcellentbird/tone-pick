@@ -195,10 +195,16 @@ export interface EventMeta {
   createdAt: number;
 }
 
-/** 새 회차의 일정 기본값. 둘 다 **파티 일시에서 거꾸로** 잰다 */
+/**
+ * 새 회차의 기본값.
+ *
+ * **등록 시작은 여기 없다** (ADR-36) — 회차를 만드는 순간 열린다.
+ * 남은 예약은 매력 투표 시작 하나뿐이고, 그것도 **파티 일시에서 거꾸로** 잰다.
+ */
 export interface Defaults extends EventConfig {
-  regOpenBeforeD: number;   // 파티 N일 전에 등록 시작
-  prevoteBeforeH: number;   // 파티 N시간 전에 사전 투표 시작
+  /** 파티 장소. 늘 같은 곳에서 여는 모임이라 여기 둔다 — 회차마다 고칠 수 있다 (ADR-36) */
+  place: string;
+  prevoteBeforeH: number;   // 파티 N시간 전에 매력 투표 시작
   /**
    * 참가자에게 보낼 안내문 (ADR-32). `{장소}` `{일시}` `{링크}` 를 회차가 채운다.
    * **회차마다 다시 쓰지 않는다** — 회차별 덮어쓰기는 만들지 않았다.
@@ -271,10 +277,12 @@ export interface CreateEventInput {
   place?: string;
   /** 생략하면 서버가 만든다. 직접 넘겼는데 이미 쓰는 코드면 거부한다 */
   code?: string;
-  /** 파티 일시. 나머지 일정이 여기서 거꾸로 계산된다 */
+  /** 파티 일시. 매력 투표 시작이 여기서 거꾸로 계산된다 */
   partyAt: number;
-  /** "now" 는 '지금 바로'. datetime-local 이 초를 버리는 문제를 피하려고 시각이 아니라 리터럴로 받는다 */
-  regOpenAt: number | "now";
+  /**
+   * **등록 시작은 받지 않는다** (ADR-36). 회차를 만드는 순간 열린다 —
+   * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열 이유가 없었다.
+   */
   prevoteAt: number;
   config: EventConfig;
   /** 멱등키. 같은 값으로 두 번 오면 같은 회차를 돌려준다 */

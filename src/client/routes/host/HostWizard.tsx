@@ -1,15 +1,14 @@
 /**
  * 새 회차 만들기 3스텝.
  *
- * **파티 일시가 먼저다.** 등록 시작도 사전 투표 시작도 거기서 거꾸로 계산된다 —
+ * **파티 일시가 먼저다.** 매력 투표 시작이 거기서 거꾸로 계산된다 —
  * 운영자가 실제로 아는 건 "언제 모이나" 하나뿐이고, 나머지는 그것에 딸린 값이다.
- * 파티 일시를 옮기면 아직 손대지 않은 값들이 따라 움직인다. 직접 고친 값은 그대로 둔다.
+ * 파티 일시를 옮기면 아직 손대지 않은 값이 따라 움직인다. 직접 고친 값은 그대로 둔다.
  *
- * 예약하는 건 등록 시작과 사전 투표 시작 **둘뿐**이다.
- * 사전 투표 마감·파티 시작·발표는 현장에서 운영자가 누른다 (ADR-14).
- *
- * '지금 바로'는 시각이 아니라 **토글**이다 — `datetime-local` 이 초를 버려서
- * "지금"을 시각으로 넣으면 매번 몇 초씩 어긋난다. 서버에는 리터럴 "now" 로 보낸다.
+ * **등록 시작은 묻지 않는다** (ADR-36). 회차를 만드는 순간 열린다 —
+ * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열어 지킬 것이 없었다.
+ * 그래서 예약이 걸리는 전환은 **매력 투표 시작 하나뿐**이다.
+ * 매력 투표 마감·파티 시작·발표는 현장에서 운영자가 누른다 (ADR-14).
  */
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -23,7 +22,6 @@ import { useAuthRedirect } from "../../lib/guard.ts";
 import { NOTIFY_OPTIONS, Num, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
 
 const HOUR = 3600_000;
-const DAY = 24 * HOUR;
 
 /** 다음 금요일 저녁 8시 — 손대지 않고 넘어가도 말이 되는 값 */
 function defaultPartyAt(from: number): number {
@@ -44,17 +42,16 @@ export default function HostWizard() {
   const requestId = useMemo(() => `w-${Date.now()}-${Math.random().toString(36).slice(2)}`, []);
 
   const [name, setName] = useState("");
+  /** 늘 같은 곳에서 여는 모임이면 기본값이 채워 온다 (ADR-36). 회차마다 고칠 수 있다 */
   const [place, setPlace] = useState("");
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
   const [allowUndo, setAllowUndo] = useState(true);
   const [allowUndoPre, setAllowUndoPre] = useState(true);
   const [pokeNotify, setPokeNotify] = useState(false);
-  const [openNow, setOpenNow] = useState(false);
   const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
-  const [regOpenAt, setRegOpenAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.regOpenBeforeD * DAY);
   const [prevoteAt, setPrevoteAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.prevoteBeforeH * HOUR);
   // 직접 고친 값은 파티 일시를 옮겨도 따라가지 않는다. 고쳐놓은 걸 되돌리는 건 사고다
-  const [touched, setTouched] = useState<{ reg?: boolean; prevote?: boolean }>({});
+  const [touchedPrevote, setTouchedPrevote] = useState(false);
   const [maxPre, setMaxPre] = useState(DEFAULTS.maxPre);
   const [maxParty, setMaxParty] = useState(DEFAULTS.maxParty);
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +62,9 @@ export default function HostWizard() {
     if (!d) return;
     setMaxPre(d.maxPre);
     setMaxParty(d.maxParty);
-    setRegOpenAt((prev) => (touched.reg ? prev : partyAt - d.regOpenBeforeD * DAY));
-    setPrevoteAt((prev) => (touched.prevote ? prev : partyAt - d.prevoteBeforeH * HOUR));
+    // 장소는 **비어 있을 때만** 채운다. 운영자가 이미 적었으면 기본값이 덮지 않는다
+    setPlace((prev) => prev || d.place);
+    setPrevoteAt((prev) => (touchedPrevote ? prev : partyAt - d.prevoteBeforeH * HOUR));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaults.data]);
 
@@ -76,18 +74,15 @@ export default function HostWizard() {
     const ts = snapSchedule(raw);
     setPartyAt(ts);
     const d = defaults.data ?? DEFAULTS;
-    if (!touched.reg) setRegOpenAt(ts - d.regOpenBeforeD * DAY);
-    if (!touched.prevote) setPrevoteAt(ts - d.prevoteBeforeH * HOUR);
+    if (!touchedPrevote) setPrevoteAt(ts - d.prevoteBeforeH * HOUR);
   }
 
-  function changeWhen(key: "reg" | "prevote", value: string) {
+  function changePrevote(value: string) {
     const raw = fromLocalInput(value);
     if (!raw) return;
     // 직접 타이핑하면 브라우저가 step 을 강제하지 않는다. 받은 값을 여기서 맞춘다
-    const ts = snapSchedule(raw);
-    setTouched({ ...touched, [key]: true });
-    if (key === "reg") setRegOpenAt(ts);
-    else setPrevoteAt(ts);
+    setTouchedPrevote(true);
+    setPrevoteAt(snapSchedule(raw));
   }
 
   async function finish() {
@@ -98,7 +93,6 @@ export default function HostWizard() {
         name: name.trim(),
         place: place.trim(),
         partyAt,
-        regOpenAt: openNow ? "now" : regOpenAt,
         prevoteAt,
         config: { maxPre, maxParty, allowUndo, allowUndoPre, pokeNotify },
         requestId,
@@ -160,26 +154,7 @@ export default function HostWizard() {
               <span className="tiny dim">{HOST_UI.fields.placeHint}</span>
             </div>
 
-            <div className="field">
-              <label>{HOST_UI.fields.regOpenAt}</label>
-              <div className="choice">
-                <button type="button" aria-pressed={openNow} onClick={() => setOpenNow(true)}>
-                  {HOST_UI.nowToggle}
-                </button>
-                <button type="button" aria-pressed={!openNow} onClick={() => setOpenNow(false)}>
-                  {HOST_UI.pickTime}
-                </button>
-              </div>
-              {!openNow && (
-                <input
-                  type="datetime-local"
-                  step={SCHEDULE_STEP_MIN * 60}
-                  value={toLocalInput(regOpenAt)}
-                  onChange={(e) => changeWhen("reg", e.target.value)}
-                />
-              )}
-            </div>
-
+            {/* 등록 시작은 묻지 않는다 (ADR-36) — 만들면 곧바로 열린다. 그 사실만 한 줄로 알린다 */}
             <div className="field">
               <label htmlFor="prevote">{HOST_UI.fields.prevoteAt}</label>
               <input
@@ -187,10 +162,11 @@ export default function HostWizard() {
                 type="datetime-local"
                 step={SCHEDULE_STEP_MIN * 60}
                 value={toLocalInput(prevoteAt)}
-                onChange={(e) => changeWhen("prevote", e.target.value)}
+                onChange={(e) => changePrevote(e.target.value)}
               />
               <span className="tiny dim">{HOST_UI.fields.manualNote}</span>
             </div>
+            <p className="tiny dim">{HOST_UI.regOpensNow}</p>
           </>
         )}
 
