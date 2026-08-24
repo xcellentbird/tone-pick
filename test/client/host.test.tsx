@@ -344,21 +344,23 @@ describe("운영자 콘솔", () => {
     expect(chip.textContent).toBe(HOST_UI.status.registered);
   });
 
-  it("★ 안내문 미리보기는 눌러야 열린다", async () => {
-    // 늘 펼쳐 두면 명단이 그만큼 아래로 밀린다. 문구는 한 번 확인하면 되는 것이다
+  /**
+   * 안내문 카드는 **버튼 둘이 전부다** — 복사와 고치기.
+   *
+   * 미리보기를 두지 않는다: 고치는 화면이 글을 그대로 띄우고 있어 같은 일을 두 번 한다.
+   * 명단은 계속 보면서 일하는 목록이라, 한 번 확인하면 되는 글이 그 위를 차지하면 안 된다.
+   */
+  it("★ 안내문 카드에 미리보기를 두지 않는다 — 고치는 화면이 그 일을 한다", async () => {
     const st = hostState();
     st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
     stubFetch(st);
     // 시트도 라우트라 주소로 바로 열린다
     renderConsole("/host/e1/players/invites");
 
-    const toggle = await screen.findByText(HOST_UI.invite.preview);
-    // 문구의 첫 조각. 링크로 재던 것을 바꿨다 — 기본 문구에 링크가 없어졌기 때문이다
-    const opening = INVITE_TEMPLATE.split("{")[0];
-    expect(document.body.textContent).not.toContain(opening);
-
-    fireEvent.click(toggle);
-    await waitFor(() => expect(document.body.textContent).toContain(opening));
+    await screen.findByText(HOST_UI.invite.copy);
+    expect(screen.getByText(HOST_UI.invite.editTemplate)).toBeTruthy();
+    // 글 자체는 화면에 없다. 복사 버튼이 담아 주는 것이지 읽으라고 펼쳐 두는 것이 아니다
+    expect(document.body.textContent).not.toContain(INVITE_TEMPLATE.split("{")[0]);
   });
 
   /** 클립보드는 happy-dom 에 없다. 컴포넌트가 쓰는 자리만 채운다 */
@@ -375,20 +377,15 @@ describe("운영자 콘솔", () => {
    * 한 덩어리로 보내면 참가자가 링크만 집어내야 하고, 장소에 지도 링크를 넣은 회차에서는
    * 한 메시지에 링크가 둘이 된다. 링크만 온 메시지는 그대로 눌러 열 수 있다.
    */
-  it("★ 문구와 링크를 따로 복사한다 — 링크는 미리보기에 없다", async () => {
+  it("★ 문구와 링크를 따로 복사한다", async () => {
     const st = hostState();
     st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
     stubFetch(st);
     const writeText = stubClipboard();
     renderConsole("/host/e1/players/invites");
 
-    // 미리보기를 펼쳐도 링크는 없다 — 사람마다 달라서 첫 사람 것을 보여주면 남의 링크가 나간다
-    fireEvent.click(await screen.findByText(HOST_UI.invite.preview));
-    await waitFor(() => expect(document.body.textContent).toContain(INVITE_TEMPLATE.split("{")[0]));
-    expect(document.body.textContent).not.toContain("/j/e1/t2");
-
     // 문구는 명단 머리에서 한 번 복사한다 — 링크가 섞이지 않는다
-    fireEvent.click(screen.getByText(HOST_UI.invite.copy));
+    fireEvent.click(await screen.findByText(HOST_UI.invite.copy));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     expect(String(writeText.mock.calls[0][0])).not.toContain("/j/e1/t2");
 

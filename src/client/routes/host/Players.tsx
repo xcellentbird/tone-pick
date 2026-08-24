@@ -364,7 +364,6 @@ export default function Players() {
           invites={state.invites}
           eventId={state.meta.id}
           hasPlace={!!state.meta.place}
-          note={note}
           onCopyNote={copyNote}
           onCopyLink={copyLink}
           onRemove={askRemove}
@@ -394,7 +393,6 @@ function Invites({
   invites,
   eventId,
   hasPlace,
-  note,
   onCopyNote,
   onCopyLink,
   onRemove,
@@ -407,8 +405,6 @@ function Invites({
   hasPlace: boolean;
   /** 안내문 문구를 고치러 간다. 운영자 기본값에 하나만 둔다 (ADR-32) */
   onEditTemplate: () => void;
-  /** 이 회차의 안내문. **전원이 같다** — 템플릿은 위에서 한 번만 읽는다 */
-  note: string;
   /** 안내문을 복사한다. 전원이 같은 글이라 명단 머리에서 한 번이다 */
   onCopyNote: () => void;
   /** 그 사람의 링크만 복사한다. 사람마다 다른 건 이것뿐이다 */
@@ -429,11 +425,6 @@ function Invites({
   const [busy, setBusy] = useState(false);
   const known = new Set(invites.map((i) => i.phone));
 
-  /*
-   * 미리보기는 **눌러야 열린다.** 항상 펼쳐 두면 명단이 그만큼 아래로 밀리는데,
-   * 문구는 한 번 확인하면 되는 것이고 명단은 계속 보면서 일하는 것이다.
-   */
-  const [showNote, setShowNote] = useState(false);
   const joined = invites.filter((i) => i.nickname).length;
   /** 아직 등록 안 한 사람. **이 목록은 파티가 다가올수록 줄고, 그만큼 아래 카드가 는다** */
   const waiting = invites.filter((i) => !i.nickname);
@@ -498,18 +489,17 @@ function Invites({
 
       {error && <p className="err danger">{error}</p>}
 
+      {/*
+        안내문 카드. **버튼 둘이 전부다** — 복사와 고치기.
+        미리보기는 두지 않는다: 고치는 화면이 글을 그대로 띄우고 있어 같은 일을 두 번 한다.
+        안내문 복사는 여기 하나뿐이다 — 전원이 같은 글이라 행마다 둘 이유가 없고,
+        행에 버튼이 늘면 정작 사람마다 다른 링크가 그만큼 눈에 덜 띈다.
+      */}
       {invites.length > 0 && (
         <div className="card stack">
-          {/*
-            **안내문 복사는 여기 하나뿐이다.** 전원이 같은 글이라 행마다 둘 이유가 없고,
-            행에 버튼이 늘면 정작 사람마다 다른 링크가 그만큼 눈에 덜 띈다.
-          */}
-          <button className="btn ghost block" type="button" onClick={onCopyNote}>
-            {HOST_UI.invite.copy}
-          </button>
-          <div className="row">
-            <button className="btn ghost compact" type="button" aria-pressed={showNote} onClick={() => setShowNote((v) => !v)}>
-              {HOST_UI.invite.preview}
+          <div className="row between">
+            <button className="btn ghost compact" type="button" onClick={onCopyNote}>
+              {HOST_UI.invite.copy}
             </button>
             <button className="btn ghost compact" type="button" onClick={onEditTemplate}>
               {HOST_UI.invite.editTemplate}
@@ -518,10 +508,6 @@ function Invites({
 
           {/* 장소가 비었다는 건 **접어두지 않는다** — 그대로 보내면 안내문에 자리만 빈다 */}
           {!hasPlace && <p className="tiny warnText">{HOST_UI.invite.noPlace}</p>}
-
-          {/* 위 버튼이 복사하는 글 그대로다. 사람마다 다른 것이 없어 그릴 것도 하나다 */}
-          {showNote && <p className="small pre" style={{ margin: 0 }}>{note}</p>}
-          <p className="tiny dim">{HOST_UI.invite.twoStepHint}</p>
         </div>
       )}
 
