@@ -429,19 +429,48 @@ button {
 }
 
 /*
- * 카드 맨 오른쪽의 **참석 상태** (ADR-33).
+ * 카드 맨 오른쪽의 **참가 상태 배지** (ADR-33).
  *
- * 파티 전에는 글자다 — 찍을 것이 없다. 시작 뒤에는 눌러서 찍는 칩이 된다.
- * 켜진 칸은 `.choice` 와 같은 말을 쓴다: 색이 아니라 **채움과 굵기.**
- * 글자(`도착`·`안 옴`)가 정보를 다 나르므로 색이 빠져도 읽힌다.
+ * 그냥 글자가 아니라 **상태값**으로 읽혀야 한다 — 알약 모양과 톤이 상태를 나르고,
+ * 글자가 같은 정보를 다시 말한다. `.badge`(MBTI)와 같은 말투다.
+ * **색만으로 말하지 않는다** — 톤을 못 보는 사람에게도 `도착`·`미도착` 이 그대로 남는다.
+ *
+ * 크기는 **단계**가 정한다 — 파티 전에는 작은 배지(아무도 찍을 게 없다),
+ * 시작 뒤에는 44px 칩(문 앞에서 한 명씩 누르는 자리라 탭 타겟을 줄이지 않는다).
+ * 누를 수 없는 `나감` 도 파티 중에는 **같은 크기로 선다** — 한 줄만 작으면
+ * "덜 중요한 사람" 으로 읽힌다. 누를 수 있나는 크기가 아니라 톤과 눌림이 말한다.
  */
-.person > .att { flex: none; }
-.person > span.att { color: var(--dim); }
-.person > button.att { min-width: 0; padding: 0 12px; font-size: 14px; }
-.person > button.att[aria-pressed="true"] {
+.person > .att {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
   background: var(--card-2);
-  color: var(--fg);
-  font-weight: 700;
+  color: var(--dim);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* 파티 전 — 단계 전체가 물러나 있다 */
+.person > .att { font-size: 11px; padding: 3px 9px; }
+/* 파티 중 — 칩 하나가 곧 손잡이다. 전역 `button` 의 44px 을 그대로 쓴다 */
+.person > .att.live { font-size: 14px; padding: 0 12px; min-height: var(--tap); }
+.person > button.att { min-width: 0; }
+
+/* 도착 — 왔다. 한 톤 밝아진다 */
+.person > .att[data-att="arrived"] {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+
+/* 나감 — 자리에서 빼야 하는 사람이라 눈에 걸려야 한다 (FLOWS.md 의 `자리 비우기`) */
+.person > .att[data-att="left"] {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
 }
 
 /*

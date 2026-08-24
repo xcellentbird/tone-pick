@@ -311,7 +311,7 @@ describe("운영자 콘솔", () => {
     expect(screen.getByText(HOST_UI.invite.remaining(1))).toBeTruthy();
   });
 
-  it("★ 참석 상태는 카드 **안** 맨 오른쪽에 붙고, 파티 뒤에는 눌러 찍는다", async () => {
+  it("★ 참가 상태는 카드 **안** 맨 오른쪽에 붙고, 파티 뒤에는 눌러 찍는다", async () => {
     /*
      * 문 앞에서 한 명씩 하는 일이라 한 번에 끝나야 한다 (ADR-33).
      * 카드 밖에 두면 목록이 들쭉날쭉해지고, 누르는 자리가 카드와 따로 논다.
@@ -331,6 +331,21 @@ describe("운영자 콘솔", () => {
     await waitFor(() =>
       expect(calls.find((c) => c.url.includes("/attendance"))?.body).toEqual({ to: "arrived" }),
     );
+  });
+
+  it("★ 상태를 색으로만 말하지 않는다 — 셋 다 글자가 함께 온다", async () => {
+    /*
+     * 톤(도착 초록 · 나감 주황 · 미도착 무채색)은 거들 뿐이다.
+     * 색을 못 읽는 사람에게도 같은 정보가 남아야 한다.
+     */
+    const st = hostState({ phase: "party" });
+    st.attendance = { p1: "arrived", p2: "left" };
+    stubFetch(st);
+    renderConsole("/host/e1/players");
+    await screen.findByText(HOST_UI.invites.title);
+
+    const words = [...document.querySelectorAll(".person > .att")].map((el) => el.textContent);
+    expect(words).toEqual([HOST_UI.status.arrived, HOST_UI.status.left]);
   });
 
   it("★ 파티 전에는 참석을 찍지 않는다 — 상태값은 글자로만 있다", async () => {

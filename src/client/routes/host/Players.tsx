@@ -139,12 +139,18 @@ export default function Players() {
     F: state.players.filter((p) => p.gender === "F").length,
   };
 
-  /** 카드 오른쪽에 붙는 한 낱말. 파티 전후로 이름이 갈린다 */
+  /**
+   * 카드 오른쪽에 붙는 **참가 상태**. 파티 전후로 이름이 갈린다.
+   *
+   * 톤은 저장된 값(`key`)이 정하고 글자(`label`)가 같은 정보를 다시 말한다 —
+   * 색만으로 말하면 못 읽는 사람이 생긴다. `등록함` 과 `미도착` 은 **같은 값**이라
+   * 같은 톤(조용한 기본)을 쓴다.
+   */
   const statusOf = (id: string) => {
     const a = att(id);
-    if (a === "left") return HOST_UI.status.left;
-    if (a === "arrived") return HOST_UI.status.arrived;
-    return started ? HOST_UI.status.absent : HOST_UI.status.registered;
+    if (a === "left") return { key: "left", label: HOST_UI.status.left };
+    if (a === "arrived") return { key: "arrived", label: HOST_UI.status.arrived };
+    return { key: "absent", label: started ? HOST_UI.status.absent : HOST_UI.status.registered };
   };
 
   /** 칩을 눌러 바로 찍는다 (ADR-33). 문 앞에서 한 명씩 하는 일이라 한 번에 끝나야 한다 */
@@ -257,15 +263,22 @@ export default function Players() {
             </span>
           </button>
           {/*
-            파티가 시작되면 상태값이 곧 버튼이다 — 문 앞에서 한 명씩 찍는 자리라 한 번에 끝나야 한다.
-            `나감` 은 눌러서 바꾸지 않는다. 되돌릴 자리는 상세다.
+            파티가 시작되면 **상태 배지가 곧 버튼이다** — 문 앞에서 한 명씩 찍는 자리라
+            한 번에 끝나야 한다. `나감` 은 눌러서 바꾸지 않는다. 되돌릴 자리는 상세다.
           */}
           {started && att(p.id) !== "left" ? (
-            <button className="att btn ghost" aria-pressed={att(p.id) === "arrived"} onClick={() => void toggleArrived(p.id)}>
-              {statusOf(p.id)}
+            <button
+              className="att live"
+              data-att={statusOf(p.id).key}
+              aria-pressed={att(p.id) === "arrived"}
+              onClick={() => void toggleArrived(p.id)}
+            >
+              {statusOf(p.id).label}
             </button>
           ) : (
-            <span className="att small dim">{statusOf(p.id)}</span>
+            <span className={`att${started ? " live" : ""}`} data-att={statusOf(p.id).key}>
+              {statusOf(p.id).label}
+            </span>
           )}
         </div>
       ))}
