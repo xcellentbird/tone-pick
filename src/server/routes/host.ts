@@ -380,9 +380,13 @@ async function json<T>(c: Ctx): Promise<T> {
 
 function validConfig(config: EventConfig | undefined): boolean {
   if (!config) return false;
-  const { maxPre, maxParty, allowUndo, allowUndoPre, preNotify, pokeNotify } = config;
-  // 없으면 기본값이다. 있으면 불리언이어야 한다 — `"true"` 라는 글자가 들어오면 안 된다
-  for (const flag of [allowUndo, allowUndoPre, preNotify, pokeNotify]) {
+  const { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify } = config;
+  /*
+   * 없으면 기본값이다. 있으면 불리언이어야 한다 — `"true"` 라는 글자가 들어오면 안 된다.
+   * **굳는 규칙 다섯이 다 여기 있어야 한다** (ADR-35). 하나가 빠지면 그 값만
+   * 이상한 것이 들어와도 조용히 기본값으로 접히고, 운영자는 고른 대로 저장된 줄 안다.
+   */
+  for (const flag of [allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify]) {
     if (flag !== undefined && typeof flag !== "boolean") return false;
   }
   return (
