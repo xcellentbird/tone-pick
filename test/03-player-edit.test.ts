@@ -234,9 +234,51 @@ describe("내 정보 고치기", () => {
     });
     expect(res.status).toBe(200);
 
-    // 번호는 초대 명단에서 확인한 그대로다. 입력에 담아도 자리가 없다 (ADR-15)
-    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
-    expect(state.body.me.phone).toBe(me.phone);
+    /*
+     * 번호는 초대 명단에서 확인한 그대로다. 입력에 담아도 자리가 없다 (ADR-15).
+     * **참가자 응답으로는 확인할 수 없다** — 번호가 거기 없기 때문이다 (ADR-47).
+     * 그래서 운영자 쪽에서 본다. 그게 번호를 볼 수 있는 유일한 자리다 (ADR-42).
+     */
+    const host = await api<{ players: Player[] }>(`/api/host/events/${ev.id}/state`, { cookie: master });
+    expect(host.body.players.find((p) => p.id === me.id)?.phone).toBe(me.phone);
+  });
+
+  /**
+   * ★ **참가자 응답에는 전화번호가 아예 없다** (ADR-47).
+   *
+   * 화면에서 감추는 것과 응답에 없는 것은 다르다 — 개발자 도구를 여는 참가자가 있다.
+   * 본인의 번호라 해도 참가자가 낸 값이 아니고(초대 명단에서 온다 — ADR-32),
+   * 자리가 없는 것이 곧 방어다.
+   */
+  it("★ 참가자 응답 어디에도 전화번호가 없다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F" });
+
+    const clean = (what: string, body: unknown) => {
+      const text = JSON.stringify(body);
+      expect(text, `${what} 응답에 내 번호가 있다`).not.toContain(me.phone);
+      expect(text, `${what} 응답에 남의 번호가 있다`).not.toContain(her.phone);
+      expect(text, `${what} 응답에 phone 키가 있다`).not.toContain('"phone"');
+    };
+
+    // 수정은 등록 중에만 열려 있다 (ADR-31) — 그 응답이 곧 내 정보라 여기서 본다
+    const saved = await api<ParticipantState>("/api/me", { method: "PUT", cookie: me.cookie, body: me.input });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    clean("수정", saved.body);
+
+    // 단계마다 담기는 것이 다르다. 발표에서는 매칭까지 열려 가장 많이 내려간다
+    await setPhase(ev.id, "prevote");
+    await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
+    await setPhase(ev.id, "party");
+    await api("/api/poke", { method: "POST", cookie: her.cookie, body: { toId: me.id } });
+
+    for (const phase of ["party", "done"] as const) {
+      await setPhase(ev.id, phase);
+      const res = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+      expect(res.status).toBe(200);
+      clean(phase, res.body);
+    }
   });
 
   it("등록과 같은 검증을 지난다", async () => {

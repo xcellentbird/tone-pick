@@ -8,7 +8,7 @@
  * **전화번호는 여기 없다.** 입장할 때 확인한 값이라 폼에서 받지 않는다 (ADR-15).
  */
 import { MBTI_AXES, REGISTER } from "../../shared/copy.ts";
-import type { Player, RegisterInput } from "../../shared/types.ts";
+import type { MyProfile, RegisterInput } from "../../shared/types.ts";
 import { LIMITS, nicknameProblem, normalizeInstagram, realNameProblem } from "../../shared/constants.ts";
 
 export interface ProfileDraft {
@@ -33,7 +33,7 @@ export const EMPTY_DRAFT: ProfileDraft = {
 };
 
 /** 저장된 내 정보를 폼 초안으로. 수정 폼의 출발점이다 */
-export function draftOf(me: Player): ProfileDraft {
+export function draftOf(me: MyProfile): ProfileDraft {
   return {
     nickname: me.nickname,
     realName: me.realName,

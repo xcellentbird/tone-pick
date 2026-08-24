@@ -35,6 +35,15 @@ export interface Player {
 }
 
 /**
+ * **본인에게만** 내려가는 내 정보 (ADR-47). 남에게 가는 건 `PublicPlayer` 다.
+ *
+ * 전화번호가 없다는 것이 곧 방어다 — `phone` 을 여기 **다시 넣지 마라.**
+ * 인스타는 남는다: 고치는 폼이 그 값을 칸에 다시 채워야 하고, 그 칸이 없으면
+ * 오타를 낸 사람이 영영 못 고친다. 다만 **읽기 화면에는 그리지 않는다.**
+ */
+export type MyProfile = Omit<Player, "phone">;
+
+/**
  * 참가자에게 내려가는 형태. 이 타입 밖의 필드를 참가자 응답에 넣지 말 것.
  *
  * **나이와 MBTI 는 단계에 따라 없을 수 있다** (ADR-21). 화면은 없는 경우를 그려야 한다.
@@ -55,10 +64,22 @@ export function rosterOpen(phase: Phase): boolean {
   return phase !== "prep" && phase !== "reg";
 }
 
-export function toPublic(p: Player, phase: Phase): PublicPlayer {
+export function toPublic(p: MyProfile, phase: Phase): PublicPlayer {
   const { id, nickname, gender, charms } = p;
   const base = { id, nickname, gender, charms };
   return phase === "prevote" ? base : { ...base, age: p.age, mbti: p.mbti };
+}
+
+/**
+ * 본인에게 내려가는 내 정보 (ADR-47). `toPublic` 과 같은 규율이다 —
+ * **빼는 게 아니라 고른다.** `Player` 에 칸이 하나 늘어도 저절로 참가자에게 흘러가지 않는다.
+ *
+ * 반환 타입이 `Omit<Player, "phone">` 이라, 칸을 늘리고 여기 안 적으면 **빌드가 깨진다.**
+ * 그때 하는 일은 한 줄 더 적는 게 아니라 *이 값이 본인에게 가도 되나* 를 정하는 것이다.
+ */
+export function toMe(p: Player): MyProfile {
+  const { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt } = p;
+  return { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt };
 }
 
 // ─────────────────────────── 콕
@@ -553,7 +574,15 @@ export interface AnnounceInput {
 
 export interface ParticipantState {
   event: PublicEventState;
-  me: Player;              // 본인이 입력한 값이므로 본인에게는 그대로 보여준다
+  /**
+   * 본인이 **낸** 값이라 본인에게는 그대로 보여준다.
+   *
+   * ⚠️ **전화번호만 빠진다** (ADR-47). 그것 하나는 참가자가 낸 값이 아니라
+   * 초대 명단에서 온 값이고(ADR-32 — 참가자는 번호를 치지 않는다),
+   * 내 정보 탭이 답하는 질문은 *내가 낸 것이 무엇인가* 다.
+   * **`Player` 로 되돌리지 마라** — 화면에서 감추는 것과 응답에 없는 것은 다르다.
+   */
+  me: MyProfile;
   roster: PublicPlayer[];
   poke: MyPokeState;
   seat?: MySeat;

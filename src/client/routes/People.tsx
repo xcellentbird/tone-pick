@@ -9,7 +9,7 @@
  */
 import { useRef, useState } from "react";
 import { ACT, BTN, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
-import type { MatchInfo, MyPokeState, ParticipantState, Phase, Player, PokeRound, PublicPlayer } from "../../shared/types.ts";
+import type { MatchInfo, MyPokeState, MyProfile, ParticipantState, Phase, PokeRound, PublicPlayer } from "../../shared/types.ts";
 import type { Tab } from "./Participant.tsx";
 import { canPoke } from "../../shared/phase.ts";
 import { afterPoke } from "../../shared/poke.ts";
@@ -386,7 +386,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
  * 탭 이동은 `onTab` 이 맡는다 — push/replace 규칙이 거기 한 곳에 있다 (`docs/ROUTES.md`).
  * 여기서 `navigate` 를 직접 부르면 그 규칙이 두 곳으로 갈라진다.
  */
-function MyCard({ me, phase, onOpen }: { me: Player; phase: Phase; onOpen: () => void }) {
+function MyCard({ me, phase, onOpen }: { me: MyProfile; phase: Phase; onOpen: () => void }) {
   const seenAs: Phase = phase === "party" || phase === "done" ? phase : "prevote";
   const shown = toPublic(me, seenAs);
   return (

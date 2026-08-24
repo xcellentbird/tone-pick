@@ -34,7 +34,6 @@ const STATE: ParticipantState = {
     realName: "김나",
     age: 30,
     gender: "M",
-    phone: "01000000000",
     instagram: "gram_a",
     mbti: "ENFP",
     charms: ["하나", "둘", "셋"],
