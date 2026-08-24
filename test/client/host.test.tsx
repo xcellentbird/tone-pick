@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, VOTE_END, phaseAction, schedDiff } from "../../src/shared/copy.ts";
 import { formatGap, formatWhen } from "../../src/shared/time.ts";
-import type { HostState } from "../../src/shared/types.ts";
+import type { HostState, SeatingRound } from "../../src/shared/types.ts";
 import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
 import { topRanks } from "../../src/client/routes/host/Dash.tsx";
@@ -882,6 +882,98 @@ describe("운영자 콘솔", () => {
  * 순서가 이래야 하는 이유가 하나다. 둘째 걸음의 `테이블당 N명` 이 첫 걸음에서 남은
  * 인원으로 계산되므로, 뒤집히면 운영자가 방금 읽은 숫자가 곧바로 틀린 것이 된다.
  */
+/**
+ * 발행된 라운드를 고치는 문 (ADR-49).
+ *
+ * 이 카드는 대부분 *누가 어디 앉았나* 를 읽으러 여는 자리다. 그래서 **기본이 잠김**이고,
+ * 고치는 것은 **가장 최신 라운드 하나뿐**이다 — 지난 라운드를 고쳐도 사람들은 이미
+ * 다음 자리에 앉아 있어서 아무 데도 반영되지 않는다.
+ */
+describe("발행된 자리를 고치는 문", () => {
+  const round = (n: number, over: Partial<SeatingRound> = {}): SeatingRound => ({
+    round: n,
+    tableCount: 1,
+    final: false,
+    status: "published",
+    seats: [{ playerId: "p1", table: 1 }, { playerId: "p2", table: 1 }],
+    acks: [],
+    createdAt: n,
+    publishedAt: n,
+    ...over,
+  });
+
+  /** 라운드 카드 하나를 제목으로 집는다. 목록은 최신이 위다 */
+  const card = (n: number) =>
+    screen.getByText(HOST_UI.seats.roundTitle(n, false)).closest(".card") as HTMLElement;
+
+  const seatsState = (over: Partial<HostState["meta"]> = {}) =>
+    hostState({ phase: "party", ...over }, { seatings: [round(1), round(2)] });
+
+  it("★ 기본은 잠겨 있다 — 설명 줄도 없다", async () => {
+    stubFetch(seatsState());
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(2, false));
+
+    // 읽으러 연 사람에게는 테이블이 먼저다. 두 설명 줄이 위를 먹고 있으면 안 된다
+    expect(screen.queryByText(HOST_UI.seats.swapHint), "안 고치는데 설명 줄이 떴다").toBeNull();
+    // 사람을 눌러도 아무 일이 없다 — 고르는 상태로 넘어가지 않는다
+    fireEvent.click(within(card(2)).getByText("가"));
+    expect(screen.queryByText(HOST_UI.seats.pickedOne("가")), "잠겼는데 골라졌다").toBeNull();
+  });
+
+  it("★ 수정하기로 열고 완료로 닫는다", async () => {
+    stubFetch(seatsState());
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(2, false));
+
+    fireEvent.click(within(card(2)).getByText(HOST_UI.seats.edit));
+    // 열렸다 — 설명 둘이 이제 선다
+    expect(screen.getByText(HOST_UI.seats.swapHint)).toBeTruthy();
+    // 이제 골라진다
+    fireEvent.click(within(card(2)).getByText("가"));
+    expect(screen.getByText(HOST_UI.seats.pickedOne("가"))).toBeTruthy();
+
+    fireEvent.click(within(card(2)).getByText(HOST_UI.seats.editDone));
+    expect(screen.queryByText(HOST_UI.seats.swapHint), "완료했는데 안 닫혔다").toBeNull();
+
+    /*
+     * **다시 열면 아무도 안 골라져 있어야 한다.**
+     * ⚠️ 닫힌 상태에서 재는 건 소용없다 — 고른 줄 자체가 편집 중에만 그려져서
+     * 안 놓아도 통과한다. 열어서 봐야 이 줄이 무언가를 지킨다.
+     */
+    fireEvent.click(within(card(2)).getByText(HOST_UI.seats.edit));
+    expect(screen.getByText(HOST_UI.seats.swapHint), "다시 안 열렸다").toBeTruthy();
+    expect(screen.queryByText(HOST_UI.seats.pickedOne("가")), "닫았다 열었는데 옛 선택이 살아 있다").toBeNull();
+  });
+
+  /**
+   * ★ **지난 라운드에는 문이 없다.**
+   *
+   * 고쳐도 사람들은 이미 다음 자리에 앉아 있다. 버튼만 남겨두면 고쳤다는 사실만 남고
+   * 아무 데도 반영되지 않는다 — 운영자는 바꿨다고 믿는다.
+   */
+  it("★ 지난 라운드는 고칠 수 없다 — 최신 하나만 열린다", async () => {
+    stubFetch(seatsState());
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(1, false));
+
+    expect(within(card(2)).queryByText(HOST_UI.seats.edit), "최신 라운드가 안 열린다").toBeTruthy();
+    expect(within(card(1)).queryByText(HOST_UI.seats.edit), "지난 라운드에 문이 열려 있다").toBeNull();
+
+    // 눌러도 골라지지 않는다 — 버튼만 감춘 게 아니라 실제로 잠겼다
+    fireEvent.click(within(card(1)).getByText("가"));
+    expect(screen.queryByText(HOST_UI.seats.pickedOne("가")), "지난 라운드에서 골라졌다").toBeNull();
+  });
+
+  it("★ 발표 뒤에는 최신 라운드도 안 열린다 (ADR-28)", async () => {
+    stubFetch(seatsState({ phase: "done", fired: { reg: 1, prevote: 2, party: 3, done: 4 } }));
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(2, false));
+
+    expect(screen.queryByText(HOST_UI.seats.edit), "발표 뒤에 고치는 문이 열려 있다").toBeNull();
+  });
+});
+
 describe("자리 배정 시트", () => {
   const party = () => hostState({ phase: "party" });
 
