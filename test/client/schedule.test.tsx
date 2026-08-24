@@ -49,7 +49,7 @@ describe("위저드", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        new Response(JSON.stringify({ maxPre: 3, maxParty: 3, place: "", prevoteBeforeH: 24, ...over }), {
+        new Response(JSON.stringify({ maxPre: 3, maxParty: 3, place: "", prevoteBeforeH: 24, voteEndBeforeH: 1, ...over }), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
@@ -70,11 +70,12 @@ describe("위저드", () => {
     await screen.findByText(HOST_UI.fields.partyAt);
 
     /*
-     * 등록 시작 칸은 없어졌다 (ADR-36) — 남은 시각 입력은 파티 일시와 매력 투표 시작 둘이다.
-     * 그 자리에는 "등록은 회차를 만들면 바로 열려요" 한 줄이 대신 선다.
+     * 등록 시작 칸은 없어졌다 (ADR-36) — 남은 시각 입력은 셋이다:
+     * 파티 일시 · 매력 투표 시작 · 매력 투표 마감 (ADR-37).
+     * 등록 시작 자리에는 "등록은 회차를 만들면 바로 열려요" 한 줄이 대신 선다.
      */
     const inputs = document.querySelectorAll('input[type="datetime-local"]');
-    expect(inputs.length).toBe(2);
+    expect(inputs.length).toBe(3);
     expect(screen.getByText(HOST_UI.regOpensNow)).toBeTruthy();
     for (const input of inputs) {
       expect(input.getAttribute("step")).toBe(String(SCHEDULE_STEP_MIN * 60));

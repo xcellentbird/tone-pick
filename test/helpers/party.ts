@@ -65,6 +65,7 @@ export async function freshEvent(): Promise<EventMeta> {
       pin: String(3000 + seq),
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
+      voteEndAt: Date.now() + 3 * 24 * HOUR - HOUR,
       /*
        * **알림을 켠 회차다.** 기본은 꺼짐이라(ADR-34) 받은 콕 수가 발표 전까지 0 으로 나온다 —
        * 이 헬퍼를 쓰는 테스트들은 그 숫자로 익명성을 재므로 여기서는 켜 둔다.

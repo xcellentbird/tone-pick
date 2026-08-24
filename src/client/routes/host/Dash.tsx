@@ -34,6 +34,16 @@ export default function Dash() {
   const nextPhase = PHASE_ORDER[PHASE_ORDER.indexOf(meta.phase) + 1] as Phase | undefined;
   const who = (id: string) => players.find((p) => p.id === id);
 
+  /**
+   * 매력 투표 마감은 **시각이 답한다** (ADR-37). 확인창 두 개가 이걸 읽는다 —
+   * 매력 투표 시작은 "언제 닫히나", 파티 시작은 "이미 닫혔나".
+   * 서버 시각으로 잰다. 운영자 폰이 빠르면 아직 열려 있는 걸 닫혔다고 말한다.
+   */
+  const voteEnd = {
+    voteEndText: meta.schedule.voteEndAt ? formatWhen(meta.schedule.voteEndAt) : undefined,
+    voteClosed: !!meta.schedule.voteEndAt && meta.schedule.voteEndAt <= now(),
+  };
+
   async function go(to: Phase) {
     await post(`/host/events/${meta.id}/phase`, { to });
     reload();
@@ -48,12 +58,13 @@ export default function Dash() {
       maxParty: meta.config.maxParty,
       seated: published.at(-1)?.seats.length ?? 0,
       players: players.length,
+      ...voteEnd,
     });
     if (!copy) return;
 
     const facts = [...copy.facts];
-    // 예약이 있는 전환은 둘뿐이다. 나머지는 비교할 시각 자체가 없다
-    const scheduled = { reg: meta.schedule.regOpenAt, prevote: meta.schedule.prevoteAt }[to as "reg" | "prevote"];
+    // 예약이 걸리는 전환은 매력 투표 시작 하나뿐이다 (ADR-36). 나머지는 비교할 시각이 없다
+    const scheduled = to === "prevote" ? meta.schedule.prevoteAt : undefined;
     if (scheduled) {
       const gap = scheduled - now();
       const line = schedDiff(to, {

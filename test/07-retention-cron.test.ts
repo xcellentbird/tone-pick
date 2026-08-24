@@ -46,6 +46,7 @@ async function makeEvent(over: Record<string, unknown> = {}) {
       name: "파기 대상",
       partyAt: now + DAY,
       prevoteAt: now + DAY,
+      voteEndAt: now + DAY,
       config: { maxPre: 3, maxParty: 3 },
       requestId: `purge-${now}-${Math.random()}`,
       ...over,

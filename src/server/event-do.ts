@@ -56,7 +56,7 @@ import {
   normalizePhone,
   realNameProblem,
 } from "../shared/constants.ts";
-import { PHASE_ORDER, canPoke, dueTransition, purgeDueAt, rulesLocked } from "../shared/phase.ts";
+import { PHASE_ORDER, canPoke, dueTransition, purgeDueAt, rulesLocked, schedLocked } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
@@ -137,7 +137,6 @@ type Fail =
   | "conflict"
   | "forbidden"
   | "bad_request"
-  | "schedule_order"
   | "nick_taken"
   | "closed"
   | "same_gender"
@@ -284,14 +283,20 @@ export class EventDO extends DurableObject {
     if (!meta) return fail("not_found");
     const next: EventSchedule = { ...meta.schedule, ...patch };
     /*
-     * 굳은 뒤에는 일정을 못 고친다 (ADR-35). **같은 값이 오는 건 통과시킨다** —
-     * 설정 탭은 저장할 때마다 일정을 통째로 다시 보내기 때문에, 있고 없고로 막으면
-     * 이름만 고쳐도 거절당한다. 막는 것은 '보냈나'가 아니라 '달라졌나'다.
+     * **순서는 검사하지 않는다** (ADR-36). 등록이 늘 열려 있는 지금, "사전 투표가 등록보다
+     * 먼저 열렸다" 는 위반이 성립하지 않는다. 검사를 남겨두면 오히려 **매력 투표를
+     * 지금 당장 열려는 정당한 조작**이 회차 만든 시각에 걸려 거절당했다.
      */
-    if (rulesLocked(meta.fired) && SCHEDULE_KEYS.some((k) => next[k] !== meta.schedule[k])) {
+    /*
+     * 잠긴 항목은 못 고친다. **키마다 따로 본다** (ADR-37) — 매력 투표 마감과 파티 일시는
+     * 파티가 시작될 때까지 열려 있어야 한다. 파티가 늦어지면 마감도 미뤄야 하기 때문이다.
+     *
+     * **같은 값이 오는 건 통과시킨다** — 설정 탭은 저장할 때마다 일정을 통째로 다시 보내므로,
+     * 있고 없고로 막으면 이름만 고쳐도 거절당한다. 막는 것은 '보냈나'가 아니라 '달라졌나'다.
+     */
+    if (SCHEDULE_KEYS.some((k) => next[k] !== meta.schedule[k] && schedLocked(meta.fired, k))) {
       return fail("locked");
     }
-    if (!validSchedule(next)) return fail("schedule_order");
     meta.schedule = next;
     await this.ctx.storage.put("meta", meta);
     await this.rearm(meta, now);
@@ -726,7 +731,7 @@ export class EventDO extends DurableObject {
   async poke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    if (!canPoke(meta.phase)) return fail("closed");
+    if (!canPoke(meta.phase, now, meta.schedule)) return fail("closed");
 
     const me = this.player(fromId);
     const target = this.player(toId);
@@ -769,7 +774,7 @@ export class EventDO extends DurableObject {
   async unpoke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    if (!canPoke(meta.phase)) return fail("closed");
+    if (!canPoke(meta.phase, now, meta.schedule)) return fail("closed");
 
     const round = roundOf(meta.phase);
     const allowed = round === "pre" ? meta.config.allowUndoPre !== false : meta.config.allowUndo !== false;
@@ -817,7 +822,7 @@ export class EventDO extends DurableObject {
             .map((p) => toPublic(p, meta.phase))
         : [],
       poke: await this.pokeState(playerId, meta),
-      seat: this.mySeat(playerId, meta.phase),
+      seat: this.mySeat(playerId),
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
       ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),
       announcements: this.publicAnnouncements(playerId),
@@ -1529,7 +1534,7 @@ export class EventDO extends DurableObject {
     if (meta.phase === "done") {
       // 매칭은 **만나보고 찌른 것**만 센다 (ADR-34). 매력 투표는 자리의 재료일 뿐이다
       const { mutual } = this.pairs("party");
-      const mySeat = this.mySeat(playerId, meta.phase);
+      const mySeat = this.mySeat(playerId);
       const last = this.lastPublished();
       for (const [a, b] of mutual) {
         const otherId = a === playerId ? b : b === playerId ? a : null;
@@ -1641,8 +1646,17 @@ export class EventDO extends DurableObject {
    * 발표 후에도 남긴다. 매칭 상대와 같은 테이블이었는지를 발표 화면이 쓴다 (`MatchInfo.sameTable`).
    * **화면에서 감추는 것으로는 부족하다** — 개발자 도구를 여는 참가자가 있다.
    */
-  private mySeat(playerId: string, phase: Phase): MySeat | undefined {
-    if (phase !== "party" && phase !== "done") return undefined;
+  /**
+   * **발행하면 그 순간부터 보인다** (ADR-37). 단계를 보지 않는다.
+   *
+   * 슬라이스 12 에서는 파티가 시작돼야 보이게 막았다 — 운영자가 자리를 미리 짜두려면
+   * 짜는 동안 참가자에게 새지 않아야 했기 때문이다. 그 방어는 지금 **초안**이 맡는다.
+   * 초안은 발행하기 전까지 `lastPublished()` 에 잡히지 않는다.
+   *
+   * 게이트를 풀어야 했던 이유는 **일찍 온 사람을 앉히기** 위해서다.
+   * 파티 시작 전에 자리를 보내고, 온 사람이 자기 테이블을 보고 앉아 기다린다.
+   */
+  private mySeat(playerId: string): MySeat | undefined {
     const last = this.lastPublished();
     if (!last) return undefined;
     const mine = last.seats.find((s) => s.playerId === playerId);
@@ -1833,11 +1847,7 @@ function nextDue(meta: EventMeta): number | null {
  * 순서 검증. 등록보다 먼저 사전 투표가 열리는 것만 막는다.
  * 파티 일시는 언제든 옮길 수 있다 — 장소가 바뀌면 시각이 바뀌고, 그건 일정이 아니라 사실이다.
  */
-export function validSchedule(s: EventSchedule): boolean {
-  return !(s.regOpenAt && s.prevoteAt && s.prevoteAt <= s.regOpenAt);
-}
-
-const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt"] as const;
+const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt"] as const;
 
 /**
  * 굳는 규칙 넷을 **뜻으로** 편다 (ADR-35).

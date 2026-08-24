@@ -12,6 +12,11 @@ export const DEFAULTS: Defaults = {
   maxParty: 2,
   place: "",
   prevoteBeforeH: 20,
+  /**
+   * 매력 투표는 파티 **1시간 전**에 닫힌다 (ADR-37).
+   * 그 한 시간이 운영자가 첫 자리를 짜고 손보고 내보내는 시간이다.
+   */
+  voteEndBeforeH: 1,
   inviteTemplate: INVITE_TEMPLATE,
 };
 
@@ -34,6 +39,7 @@ export function withDefaults(saved: Partial<Defaults> | null | undefined): Defau
     // 장소는 **비워두는 것도 뜻이 있다** — 회차마다 다른 곳에서 연다는 뜻이다
     place: text(saved?.place, DEFAULTS.place),
     prevoteBeforeH: num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH),
+    voteEndBeforeH: num(saved?.voteEndBeforeH, DEFAULTS.voteEndBeforeH),
     inviteTemplate: text(saved?.inviteTemplate, DEFAULTS.inviteTemplate),
   };
 }

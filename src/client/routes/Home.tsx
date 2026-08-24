@@ -27,8 +27,9 @@ import type { Tab } from "./Participant.tsx";
  * 한동안 내내 파티만 셌는데, 등록 기간이 며칠이라 `1일 2시간` 만 계속 보였다.
  * 정작 참가자가 알고 싶은 건 **언제 콕을 찌를 수 있나** 였다.
  *
- * **사전 투표 마감과 발표는 세지 않는다.** 운영자가 손으로 누르는 것이라 셀 수 있는 시각이 없다 —
+ * **발표는 세지 않는다.** 운영자가 손으로 누르는 것이라 셀 수 있는 시각이 없다 —
  * 없는 마감을 세어 보여주면 참가자가 그 숫자를 믿는다 (ADR-14).
+ * 매력 투표 마감은 셌다 안 셌다 하지 않는다 — 일정에 적힌 시각이 생겼다 (ADR-37).
  *
  * 예약 시각이 지났는데 운영자가 아직 안 넘겼을 수도 있다 — 그때는 그 다음 것을 센다.
  * 지나간 시각을 세면 음수가 뜨고, 사람은 그 숫자를 자기 시계가 틀린 걸로 읽는다.
@@ -36,6 +37,8 @@ import type { Tab } from "./Participant.tsx";
 function nextMark(phase: ParticipantState["event"]["phase"], schedule: EventSchedule, at: number) {
   return [
     { on: ["prep", "reg"], at: schedule.prevoteAt, label: STATUS.untilPrevote },
+    // 매력 투표 마감은 **셀 수 있는 시각이 생겼다** (ADR-37). 발표는 여전히 세지 않는다
+    { on: ["prevote"], at: schedule.voteEndAt, label: STATUS.untilVoteEnd },
     { on: ["prep", "reg", "prevote"], at: schedule.partyAt, label: STATUS.untilParty },
   ].find((m) => m.on.includes(phase) && m.at && m.at > at);
 }
@@ -69,8 +72,18 @@ export default function Home({
    * 콕을 다 썼으면 **다른 문장**이다. 남은 게 없는데 "찔러보세요" 라고 하면
    * 할 수 없는 일을 시키는 것이고, 그 아래 "콕 0회 남음" 은 0을 들이대는 일이다.
    */
-  const poking = phase === "prevote" || phase === "party";
-  const todo = poking && left === 0 ? HOME.spent[phase] : HOME.todo[phase];
+  const poking = canPoke(phase, now(), schedule);
+  /*
+   * **매력 투표가 닫힌 뒤와 파티 사이가 새 구간이다** (ADR-37).
+   * 단계는 아직 `prevote` 지만 할 일이 다르다 — 투표는 끝났고 자리를 기다린다.
+   * 그래서 단계 이름만으로는 이 카드를 고를 수 없다.
+   */
+  const todo =
+    phase === "prevote" && !poking
+      ? HOME.todo.voteClosed
+      : poking && left === 0
+        ? HOME.spent[phase as "prevote" | "party"]
+        : HOME.todo[phase];
 
   return (
     <div className="stack">
@@ -113,7 +126,7 @@ export default function Home({
           </button>
         )}
 
-        {canPoke(phase) && (
+        {poking && (
           <>
             {/* 남은 게 있을 때만 센다. 0 은 제목이 이미 말했다 */}
             {left > 0 && <div className="kicker">{STATUS.pokeLeft(phase === "prevote" ? "pre" : "party", left)}</div>}

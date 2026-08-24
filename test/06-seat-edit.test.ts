@@ -1,8 +1,8 @@
 /**
  * 슬라이스 05·11·12 — 자리가 보이는 때 · 매칭 내역(운영자) · 앉힌 자리 고치기
  *
- * **자리는 파티가 시작돼야 참가자 응답에 나온다.** 사전 투표 중에 발행해도
- * 응답에 `seat` 가 없어야 한다 — 화면에서 감추는 것으로는 개발자 도구를 못 막는다.
+ * **자리는 발행해야 참가자 응답에 나온다** (ADR-37). 초안은 응답에 없어야 한다 —
+ * 화면에서 감추는 것으로는 개발자 도구를 못 막는다.
  *
  * 그리고 고치는 길은 **맞교환과 앉히기·비우기뿐이다.** 단일 이동 API 를 만들면
  * 테이블 인원이 어긋난다 — `앉힐 테이블은 서버가 고른다` 가 그 방어다.
@@ -20,10 +20,13 @@ beforeAll(signInMaster);
 // ─────────────────────────────────────────── 자리가 보이는 때 (슬라이스 12)
 
 /**
- * 운영자가 자리를 **미리 짤 수 있어야** 한다. 예전에는 짜는 순간 참가자에게 나가서,
- * 파티가 시작된 뒤에 급히 배정하게 됐다 — 피하려던 바로 그 상황이다.
+ * 운영자가 자리를 **미리 짜서 미리 보낼 수 있어야** 한다 (ADR-37).
+ *
+ * 슬라이스 12 에서는 파티가 시작돼야 보이게 막았다. 그 방어가 필요했던 건
+ * 짜는 동안 새지 않게 하려던 것인데, 지금은 **초안**이 그 일을 맡는다 —
+ * 초안은 발행 전까지 응답에 없다. 게이트를 푼 이유는 **일찍 온 사람을 앉히기** 위해서다.
  */
-describe("자리는 파티가 시작돼야 보인다", () => {
+describe("자리는 발행해야 보인다", () => {
   async function withSeats() {
     const ev = await freshEvent();
     const me = await join(ev, { gender: "M" });
@@ -38,22 +41,32 @@ describe("자리는 파티가 시작돼야 보인다", () => {
     return { ev, me };
   }
 
-  it("★ 사전 투표 중에 발행해도 참가자 응답에 자리가 없다", async () => {
+  it("★ 초안은 참가자 응답에 없다", async () => {
     /*
      * **화면에서 감추는 것으로는 부족하다** — 개발자 도구를 여는 참가자가 있다.
-     * 남의 테이블까지 보이면 누가 어디 앉는지가 파티 전에 다 새어 나간다.
+     * 짜는 중인 자리가 새면 남의 테이블까지 파티 전에 다 드러난다.
      */
-    const { me } = await withSeats();
+    const ev = await freshEvent();
+    const me = await join(ev, { gender: "M" });
+    for (let i = 0; i < 3; i++) await join(ev, { gender: i % 2 === 0 ? "F" : "M" });
+    await setPhase(ev.id, "prevote");
+    await api(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, final: false },
+    });
+
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
     expect(state.body.seat).toBeUndefined();
     expect(JSON.stringify(state.body)).not.toContain("\"table\"");
   });
 
-  it("★ 파티가 시작되면 그 순간 보인다", async () => {
-    // 단계 전환 방송이 이미 전원 재조회를 부른다 — 파티 시작 버튼이 그대로 자리 알림이다
-    const { ev, me } = await withSeats();
-    await setPhase(ev.id, "party");
+  it("★ 파티 시작 전에 발행하면 그 자리에서 보인다 (ADR-37)", async () => {
+    /*
+     * **일찍 온 사람이 자기 테이블을 보고 앉아 기다리는 것**이 이 게이트를 푼 이유다.
+     * 매력 투표 단계인 채로 자리가 보인다 — 단계와 자리는 이제 서로를 막지 않는다.
+     */
+    const { me } = await withSeats();
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.event.phase).toBe("prevote");
     expect(state.body.seat?.table).toBeGreaterThan(0);
     // 아직 확인 전이라야 전체 화면이 뜬다
     expect(state.body.seat?.acked).toBe(false);

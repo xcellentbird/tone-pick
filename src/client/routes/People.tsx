@@ -16,6 +16,7 @@ import { afterPoke } from "../../shared/poke.ts";
 import { useCovered } from "../lib/covered.ts";
 import { rosterOpen, toPublic } from "../../shared/types.ts";
 import { ApiError } from "../lib/api.ts";
+import { now } from "../lib/serverTime.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
 import Avatar from "../ui/Avatar.tsx";
@@ -41,7 +42,12 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
 
   const round = state.event.phase === "prevote" ? "pre" : "party";
   const budget = state.poke.budget[round];
-  const open = canPoke(state.event.phase);
+  /*
+   * 매력 투표는 **시각으로** 닫힌다 (ADR-37). 서버 시각으로 재고, 폰 시계는 쓰지 않는다.
+   * 닫히는 순간 화면이 저절로 바뀌지는 않는다 — 그때 누르면 서버가 같은 이유로 거절하고
+   * `POKE.blocked` 가 뜬다. 1초마다 다시 그리는 것보다 그 편이 조용하다.
+   */
+  const open = canPoke(state.event.phase, now(), state.event.schedule);
   /** 나이·MBTI 가 아직 안 열린 단계인가. `toPublic()` 이 여는 시점과 같아야 한다 (ADR-21) */
   const agesHidden = state.event.phase !== "party" && state.event.phase !== "done";
   /**
@@ -92,15 +98,22 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       toast(POKE.undo.done(target.nickname));
     } catch (e) {
       setPoke(before);
-      toast(e instanceof ApiError && e.userMessage ? e.userMessage : POKE.blocked.closed(round));
+      toast(e instanceof ApiError && e.userMessage ? e.userMessage : closedWhy);
     } finally {
       sending.current = false;
     }
   }
 
+  /**
+   * 왜 못 찌르나. **마감돼서 닫힌 것과 아직 안 열린 것은 다르다** (ADR-37) —
+   * "시간이 아니에요" 는 *곧 열린다* 로 읽히는데, 매력 투표 마감 뒤에는 그게 거짓말이다.
+   */
+  const voteEnded = !open && state.event.phase === "prevote" && !!state.event.schedule.voteEndAt;
+  const closedWhy = voteEnded ? POKE.blocked.voteEnded : POKE.blocked.closed(round);
+
   async function send(target: PublicPlayer) {
     const already = state.poke.sentTo[target.id] ?? 0;
-    if (!open) return toast(POKE.blocked.closed(round));
+    if (!open) return toast(closedWhy);
     if (!sameGenderOk && target.gender === state.me.gender) return toast(POKE.blocked.sameGender);
     if (budget.used >= budget.max) return toast(POKE.blocked.noBudget(round, budget.max));
 
@@ -139,7 +152,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
         } catch (e) {
           // 되돌리지 않으면 **쓰지도 않은 콕이 쓴 것으로 보인다**
           setPoke(before);
-          toast(e instanceof ApiError && e.userMessage ? e.userMessage : POKE.blocked.closed(round));
+          toast(e instanceof ApiError && e.userMessage ? e.userMessage : closedWhy);
         } finally {
           sending.current = false;
         }
@@ -171,6 +184,11 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
           </div>
         )}
       </div>
+      {/*
+        **마감되면 남은 횟수 칸이 사라진다** — 그 자리가 그냥 비면 앱이 고장 난 것으로 읽힌다.
+        버튼도 잠기는데 잠긴 버튼은 눌러도 아무 말이 없어서, 이유를 말할 자리가 여기뿐이다 (ADR-37).
+      */}
+      {voteEnded && <p className="tiny dim center">{POKE.blocked.voteEndedLine}</p>}
 
       {/*
         필터는 **전체 폭**을 쓴다. 옆에 글자를 붙이면 알약 컨테이너와 맨 글자가 한 줄에서

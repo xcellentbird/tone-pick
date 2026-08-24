@@ -63,6 +63,7 @@ export default function HostDefaults() {
           [HOST_UI.fields.maxPre, `${UNIT.times(form!.maxPre)} → ${UNIT.times(DEFAULTS.maxPre)}`],
           [HOST_UI.fields.maxParty, `${UNIT.times(form!.maxParty)} → ${UNIT.times(DEFAULTS.maxParty)}`],
           [HOST_UI.fields.prevoteAt, `${form!.prevoteBeforeH}h → ${DEFAULTS.prevoteBeforeH}h`],
+          [HOST_UI.fields.voteEndAt, `${form!.voteEndBeforeH}h → ${DEFAULTS.voteEndBeforeH}h`],
           // 빈 값도 뜻이 있다 — 회차마다 다른 곳에서 연다는 뜻이라 '—' 로 보여준다
           [HOST_UI.fields.place, `${form!.place || "—"} → ${DEFAULTS.place || "—"}`],
         ],
@@ -105,6 +106,14 @@ export default function HostDefaults() {
           min={0}
           max={720}
           onChange={(v) => set("prevoteBeforeH", v)}
+        />
+        {/* 이 값과 0 사이가 자리를 짜는 시간이다 (ADR-37). 짧게 잡으면 운영자가 쫓긴다 */}
+        <Num
+          label={HOST_UI.fields.voteEndBeforeH}
+          value={form.voteEndBeforeH}
+          min={0}
+          max={720}
+          onChange={(v) => set("voteEndBeforeH", v)}
         />
         {/* 등록 시작 오프셋은 없다 (ADR-36) — 회차를 만들면 곧바로 열린다 */}
         <p className="tiny dim">{HOST_UI.regOpensNow}</p>

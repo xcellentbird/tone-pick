@@ -219,6 +219,12 @@ function Loaded({
     if (seatOpen && !state.seat) onSeat(false, { replace: true });
   }, [seatOpen, state.seat, onSeat]);
 
+  /**
+   * 파티가 시작됐나. 자리 확인 화면의 문장이 여기서 갈린다 (ADR-37) —
+   * 첫 자리는 파티 전에 나가고, 그때 받는 사람은 **아직 오는 중**일 수 있다.
+   */
+  const started = state.event.phase === "party" || state.event.phase === "done";
+
   // 발표가 끝났으면 자리 이동 확인을 띄우지 않는다 (FLOWS.md)
   const needsSeatAck =
     !!state.seat && !state.seat.acked && !acked.includes(state.seat.round) && state.event.phase !== "done";
@@ -287,9 +293,9 @@ function Loaded({
           이미 본 사람이 홈에서 다시 연 경우(`/seat`)에는 닫기만 있다 —
           이미 센 사람을 또 세면 `acks` 가 뜻을 잃는다.
         */}
-        {needsSeatAck && state.seat && <SeatTakeover seat={state.seat} onAck={ack} />}
+        {needsSeatAck && state.seat && <SeatTakeover seat={state.seat} started={started} onAck={ack} />}
         {!needsSeatAck && seatOpen && state.seat && (
-          <SeatTakeover seat={state.seat} onClose={() => onSeat(false)} />
+          <SeatTakeover seat={state.seat} started={started} onClose={() => onSeat(false)} />
         )}
 
         {/* 파티 룰 도움말. 어느 탭에서 열든 같은 것이 뜬다 */}

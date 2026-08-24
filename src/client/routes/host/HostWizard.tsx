@@ -50,8 +50,10 @@ export default function HostWizard() {
   const [pokeNotify, setPokeNotify] = useState(false);
   const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
   const [prevoteAt, setPrevoteAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.prevoteBeforeH * HOUR);
+  /** 매력 투표 마감 (ADR-37). 이 뒤로 파티 시작까지가 운영자가 첫 자리를 짜는 시간이다 */
+  const [voteEndAt, setVoteEndAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.voteEndBeforeH * HOUR);
   // 직접 고친 값은 파티 일시를 옮겨도 따라가지 않는다. 고쳐놓은 걸 되돌리는 건 사고다
-  const [touchedPrevote, setTouchedPrevote] = useState(false);
+  const [touched, setTouched] = useState<{ prevote?: boolean; voteEnd?: boolean }>({});
   const [maxPre, setMaxPre] = useState(DEFAULTS.maxPre);
   const [maxParty, setMaxParty] = useState(DEFAULTS.maxParty);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +66,8 @@ export default function HostWizard() {
     setMaxParty(d.maxParty);
     // 장소는 **비어 있을 때만** 채운다. 운영자가 이미 적었으면 기본값이 덮지 않는다
     setPlace((prev) => prev || d.place);
-    setPrevoteAt((prev) => (touchedPrevote ? prev : partyAt - d.prevoteBeforeH * HOUR));
+    setPrevoteAt((prev) => (touched.prevote ? prev : partyAt - d.prevoteBeforeH * HOUR));
+    setVoteEndAt((prev) => (touched.voteEnd ? prev : partyAt - d.voteEndBeforeH * HOUR));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaults.data]);
 
@@ -74,15 +77,18 @@ export default function HostWizard() {
     const ts = snapSchedule(raw);
     setPartyAt(ts);
     const d = defaults.data ?? DEFAULTS;
-    if (!touchedPrevote) setPrevoteAt(ts - d.prevoteBeforeH * HOUR);
+    if (!touched.prevote) setPrevoteAt(ts - d.prevoteBeforeH * HOUR);
+    if (!touched.voteEnd) setVoteEndAt(ts - d.voteEndBeforeH * HOUR);
   }
 
-  function changePrevote(value: string) {
+  function changeWhen(key: "prevote" | "voteEnd", value: string) {
     const raw = fromLocalInput(value);
     if (!raw) return;
     // 직접 타이핑하면 브라우저가 step 을 강제하지 않는다. 받은 값을 여기서 맞춘다
-    setTouchedPrevote(true);
-    setPrevoteAt(snapSchedule(raw));
+    const ts = snapSchedule(raw);
+    setTouched({ ...touched, [key]: true });
+    if (key === "prevote") setPrevoteAt(ts);
+    else setVoteEndAt(ts);
   }
 
   async function finish() {
@@ -94,6 +100,7 @@ export default function HostWizard() {
         place: place.trim(),
         partyAt,
         prevoteAt,
+        voteEndAt,
         config: { maxPre, maxParty, allowUndo, allowUndoPre, pokeNotify },
         requestId,
       };
@@ -162,10 +169,25 @@ export default function HostWizard() {
                 type="datetime-local"
                 step={SCHEDULE_STEP_MIN * 60}
                 value={toLocalInput(prevoteAt)}
-                onChange={(e) => changePrevote(e.target.value)}
+                onChange={(e) => changeWhen("prevote", e.target.value)}
               />
-              <span className="tiny dim">{HOST_UI.fields.manualNote}</span>
             </div>
+            {/*
+              매력 투표 마감 (ADR-37). **이 시각과 파티 일시 사이가 자리를 짜는 시간이다** —
+              그래서 힌트가 몇 시인지가 아니라 그 사이에 무엇을 하는지를 말한다.
+            */}
+            <div className="field">
+              <label htmlFor="voteEnd">{HOST_UI.fields.voteEndAt}</label>
+              <input
+                id="voteEnd"
+                type="datetime-local"
+                step={SCHEDULE_STEP_MIN * 60}
+                value={toLocalInput(voteEndAt)}
+                onChange={(e) => changeWhen("voteEnd", e.target.value)}
+              />
+              <span className="tiny dim">{HOST_UI.fields.voteEndHint}</span>
+            </div>
+            <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
             <p className="tiny dim">{HOST_UI.regOpensNow}</p>
           </>
         )}

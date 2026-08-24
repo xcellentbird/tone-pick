@@ -1,4 +1,4 @@
-import type { EventMeta, FiredMap, Phase } from "./types.ts";
+import type { EventMeta, EventSchedule, FiredMap, Phase } from "./types.ts";
 
 export const PHASE_ORDER: Phase[] = ["prep", "reg", "prevote", "party", "done"];
 
@@ -35,14 +35,34 @@ export function rulesLocked(fired: FiredMap): boolean {
   return !!(fired.prevote || fired.party || fired.done);
 }
 
-/** 일정은 굳기 전까지 **지나온 전환만** 잠근다. 굳은 뒤에는 전부 잠근다 (ADR-35) */
+/**
+ * 일정은 **지나온 것씩** 잠근다 (ADR-37). 파티가 시작되면 남은 일정이 없으니 전부 잠근다.
+ *
+ * ADR-35 는 규칙과 일정을 한 잠금으로 묶었는데, 매력 투표 마감에 시각이 생기면서
+ * 그 묶음이 깨졌다 — **파티가 늦어지면 마감도 미뤄야 하는데** `fired.prevote` 하나로
+ * 일정 전체를 잠그면 손쓸 방법이 없다. 규칙 넷(`rulesLocked`)은 그대로 묶여 있다.
+ */
 export function schedLocked(fired: FiredMap, key: string): boolean {
-  if (rulesLocked(fired)) return true;
-  return key === "regOpenAt" && !!fired.reg;
+  if (fired.party || fired.done) return true;
+  if (key === "regOpenAt") return !!fired.reg;
+  if (key === "prevoteAt") return !!fired.prevote;
+  // voteEndAt · partyAt — 파티가 시작될 때까지 고칠 수 있다
+  return false;
 }
 
-export function canPoke(phase: Phase): boolean {
-  return phase === "prevote" || phase === "party";
+/**
+ * 지금 콕(또는 매력 투표)을 찌를 수 있나.
+ *
+ * **매력 투표는 시각으로 닫힌다** (ADR-37) — `voteEndAt` 이 지나면 `prevote` 단계인 채로
+ * 투표만 닫힌다. 단계는 그대로라 명단도 프로필도 그대로 보인다. 파티 콕은 시각을 보지 않는다 —
+ * 파티 시작과 발표는 운영자가 누르는 것이고, 그 사이에 마감할 시각이 없다 (ADR-14).
+ *
+ * `voteEndAt` 이 없는 옛 회차는 **닫히지 않는다.** 없는 마감을 만들어 조용히 막지 않는다.
+ */
+export function canPoke(phase: Phase, now: number, schedule: EventSchedule): boolean {
+  if (phase === "party") return true;
+  if (phase !== "prevote") return false;
+  return !schedule.voteEndAt || now < schedule.voteEndAt;
 }
 
 /**

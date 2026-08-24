@@ -439,6 +439,27 @@ describe("뿌리 화면", () => {
 // ─────────────────────────────────────────── 콕
 
 describe("참가자 화면 · 콕", () => {
+  it("★ 매력 투표가 마감되면 목록이 이유를 말한다 (ADR-37)", async () => {
+    /*
+     * 마감되면 `남은 횟수` 칸이 사라지고 버튼이 잠긴다. 잠긴 버튼은 눌러도 아무 말이 없어서,
+     * 아무 설명 없이 자리만 비면 참가자는 앱이 고장 난 줄 안다.
+     */
+    renderParticipant(
+      fakeSource({
+        load: async () =>
+          participantState({
+            event: {
+              ...participantState().event,
+              schedule: { ...participantState().event.schedule, voteEndAt: Date.now() - 60_000 },
+            },
+          }),
+      }),
+    );
+    await screen.findByText(POKE.blocked.voteEndedLine);
+    // 남은 횟수는 사라진다 — 쓸 수 없는 숫자를 남겨두면 그게 더 헷갈린다
+    expect(screen.queryByText(PEOPLE.pokeLeftLabel("pre"))).toBeNull();
+  });
+
   it("★ 콕 찌르기는 확인을 거치고, 확인창이 숫자를 보여준다", async () => {
     const source = fakeSource();
     renderParticipant(source);
@@ -784,10 +805,31 @@ describe("참가자 화면 · 자리", () => {
   it("자리가 발행되면 전체 화면으로 확인을 받는다", async () => {
     const source = fakeSource({ load: async () => participantState({ seat }) });
     renderParticipant(source);
-    await screen.findByText(SEAT.ack.headline(2));
+    await screen.findByText(SEAT.ack.headline(2, false));
 
-    fireEvent.click(screen.getByText(SEAT.ack.submit));
+    fireEvent.click(screen.getByText(SEAT.ack.submit(false)));
     await waitFor(() => expect(source.calls.ack).toEqual([1]));
+  });
+
+  it("★ 파티 전과 파티 중이 다르게 말한다 (ADR-37)", async () => {
+    /*
+     * 첫 자리는 파티가 시작되기 전에 나간다. 그때 이 화면을 받는 사람은 **아직 오는 중**일 수 있어서
+     * "이동해주세요" 도 "지켜보고 있어요" 도 그 사람에게는 재촉이다.
+     */
+    const party = fakeSource({
+      load: async () => participantState({ seat, event: { ...participantState().event, phase: "party" } }),
+    });
+    renderParticipant(party);
+    await screen.findByText(SEAT.ack.headline(2, true));
+    expect(screen.getByText(SEAT.ack.watching)).toBeTruthy();
+
+    cleanup();
+
+    // 픽스처의 기본 단계는 매력 투표다 — 파티 전이다
+    renderParticipant(fakeSource({ load: async () => participantState({ seat }) }));
+    await screen.findByText(SEAT.ack.headline(2, false));
+    expect(screen.getByText(SEAT.ack.beforeParty)).toBeTruthy();
+    expect(screen.queryByText(SEAT.ack.watching)).toBeNull();
   });
 
   it("★ 확인 저장이 실패하면 안내가 그대로 남는다 — 조용히 삼키지 않는다", async () => {
@@ -802,10 +844,10 @@ describe("참가자 화면 · 자리", () => {
       },
     });
     renderParticipant(source);
-    await screen.findByText(SEAT.ack.headline(2));
-    fireEvent.click(screen.getByText(SEAT.ack.submit));
+    await screen.findByText(SEAT.ack.headline(2, false));
+    fireEvent.click(screen.getByText(SEAT.ack.submit(false)));
     // 되돌아와서 한 번 더 누를 수 있다
-    await waitFor(() => expect(screen.getByText(SEAT.ack.submit)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(SEAT.ack.submit(false))).toBeTruthy());
   });
 
   it("★ 이미 확인한 사람은 홈에서 다시 열 수 있다", async () => {
@@ -831,7 +873,7 @@ describe("참가자 화면 · 자리", () => {
     );
     // 확인했으므로 전체 화면은 안 뜬다
     await screen.findByText(SEAT.banner(2));
-    expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+    expect(screen.queryByText(SEAT.ack.submit(false))).toBeNull();
 
     // 홈의 자리 카드를 누르면 다시 열린다
     fireEvent.click(screen.getByText(SEAT.banner(2)).closest("button")!);
@@ -880,8 +922,8 @@ describe("참가자 화면 · 자리", () => {
         />
       </MemoryRouter>,
     );
-    await screen.findByText(SEAT.ack.headline(2));
-    expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+    await screen.findByText(SEAT.ack.headline(2, false));
+    expect(screen.queryByText(SEAT.ack.submit(false))).toBeNull();
     expect(screen.getByText(BTN.close)).toBeTruthy();
   });
 
@@ -892,7 +934,7 @@ describe("참가자 화면 · 자리", () => {
     });
     renderParticipant(source);
     await screen.findByText(/그녀/);
-    expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+    expect(screen.queryByText(SEAT.ack.submit(false))).toBeNull();
   });
 });
 
@@ -2001,5 +2043,27 @@ describe("홈 · 남은 시간", () => {
     await screen.findByText(HOME.todo.reg.title);
     expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
     expect(screen.queryByText(STATUS.untilPrevote)).toBeNull();
+  });
+
+  it("★ 매력 투표 중에는 마감까지를 센다 (ADR-37)", async () => {
+    /*
+     * 예전에는 이 자리에서 파티를 셌다 — 마감이 운영자 손에 있어 셀 시각이 없었다.
+     * 시각이 생기면서 **다음에 일어날 일**이 마감으로 바뀌었다.
+     */
+    home(withSchedule("prevote", { voteEndAt: Date.now() + 1_800_000, partyAt: Date.now() + 5_400_000 }));
+    await screen.findByText(HOME.todo.prevote.title);
+    expect(screen.getByText(STATUS.untilVoteEnd)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilParty)).toBeNull();
+  });
+
+  it("★ 마감이 지나면 할 일 카드가 바뀌고 파티를 센다", async () => {
+    /*
+     * 단계는 아직 `prevote` 지만 할 일이 다르다 — 투표는 끝났고 자리를 기다린다.
+     * 단계 이름만으로는 이 카드를 고를 수 없다는 게 이 화면의 새로운 사정이다.
+     */
+    home(withSchedule("prevote", { voteEndAt: Date.now() - 60_000, partyAt: Date.now() + 3_600_000 }));
+    await screen.findByText(HOME.todo.voteClosed.title);
+    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilVoteEnd)).toBeNull();
   });
 });
