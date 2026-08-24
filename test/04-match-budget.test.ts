@@ -251,6 +251,42 @@ describe("콕 상한", () => {
     const mine = await api<ParticipantState>("/api/me", { cookie: me.cookie });
     expect(JSON.stringify(mine.body.roster)).not.toContain("received");
   });
+
+  it("★ 한쪽만 찌른 것은 운영자 응답에도 숫자로만 남는다", async () => {
+    /*
+     * **도움말이 참가자에게 그렇게 말한다** (`HELP.qa.host`). 말한 것을 화면이 아니라 여기가 지킨다.
+     *
+     * 서로 찌른 쌍은 운영자가 본다 — 발표를 누르는 게 사람이라 그럴 수밖에 없고,
+     * 문구도 그렇게 적혀 있다. **한쪽만 찌른 것은 다르다**: 자리 배정 재료(`oneWay`)로
+     * DO 안에서만 쓰이고 응답에는 실리지 않는다. 실리는 순간 명단에서 두 사람을 짚어
+     * "쟤가 쟤를 찔렀다" 가 되고, 이 앱이 없애려던 경험이 운영자 손에서 만들어진다.
+     */
+    const ev = await freshEvent();
+    const a = await join(ev, { gender: "M" });
+    const b = await join(ev, { gender: "F" });
+    const c = await join(ev, { gender: "F" });
+    await setPhase(ev.id, "party");
+
+    // a → b 는 한쪽만이고, a ↔ c 는 서로다
+    await api("/api/poke", { method: "POST", cookie: a.cookie, body: { toId: b.id } });
+    await api("/api/poke", { method: "POST", cookie: a.cookie, body: { toId: c.id } });
+    await api("/api/poke", { method: "POST", cookie: c.cookie, body: { toId: a.id } });
+
+    const state = await api<{
+      sent: Record<string, number>;
+      received: Record<string, number>;
+      mutual: Array<[string, string]>;
+    }>(`/api/host/events/${ev.id}/state`, { cookie: master });
+
+    // 숫자는 있다 — 순위가 그것으로 선다 (ADR-30)
+    expect(state.body.sent[a.id]).toBe(2);
+    expect(state.body.received[b.id]).toBe(1);
+
+    // 그런데 **짝으로 묶인 자리는 서로 찌른 쌍뿐이다.** b 는 어느 쌍에도 없다
+    const pair = (p: string[]) => [...p].sort().join("+");
+    expect(state.body.mutual.map(pair)).toEqual([pair([a.id, c.id])]);
+    expect(state.body.mutual.flat()).not.toContain(b.id);
+  });
 });
 
 // ─────────────────────────────────────────── 오늘의 연애운
