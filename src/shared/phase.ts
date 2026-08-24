@@ -16,11 +16,29 @@ export function dueTransition(ev: EventMeta, now: number): Phase | null {
   return null;
 }
 
-/** 이미 지나온 전환만 잠근다. 파티 일시는 잠그지 않는다 — 장소가 바뀌면 시각도 바뀐다. */
+/**
+ * **규칙과 일정은 콕이 오갈 수 있게 된 뒤로는 굳는다** (ADR-35).
+ *
+ * 굳는 것: 콕 대상(`allowSameGender`) · 되돌리기 둘(`allowUndoPre`·`allowUndo`) ·
+ * 알림(`pokeNotify`) · 일정 셋. 파티 도중에 이것들이 바뀌면 참가자가 겪는 규칙이
+ * 도중에 갈린다 — 특히 알림을 켜면 그때까지 쌓인 콕이 한꺼번에 나타나서,
+ * "한 번에 하나씩" 이 통째로 깨진다.
+ *
+ * 열려 있는 것: 이름 · 장소 · 콕 횟수 · 파기 일수. **콕 횟수는 일부러 남긴다** —
+ * 파티 중에 올리는 것이 매칭이 모자랄 때의 손잡이다 (ADR-34).
+ *
+ * 기준을 `phase` 가 아니라 `fired` 로 잡는다. 되돌리기로 단계를 뒤로 물려도
+ * 이미 오간 콕은 남아 있어서, 그때 잠금이 풀리면 같은 구멍이 다시 열린다.
+ * 매력 투표를 건너뛰고 파티로 바로 간 회차도 있어서 셋을 다 본다.
+ */
+export function rulesLocked(fired: FiredMap): boolean {
+  return !!(fired.prevote || fired.party || fired.done);
+}
+
+/** 일정은 굳기 전까지 **지나온 전환만** 잠근다. 굳은 뒤에는 전부 잠근다 (ADR-35) */
 export function schedLocked(fired: FiredMap, key: string): boolean {
-  if (key === "regOpenAt") return !!fired.reg;
-  if (key === "prevoteAt") return !!fired.prevote;
-  return false;
+  if (rulesLocked(fired)) return true;
+  return key === "regOpenAt" && !!fired.reg;
 }
 
 export function canPoke(phase: Phase): boolean {
