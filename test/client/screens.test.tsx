@@ -34,6 +34,9 @@ async function pump(ms: number) {
 
 // ─────────────────────────────────────────── 재료
 
+/** 맨 오른쪽 탭. 이름은 탭 표가 든다 — 여기 문자열로 베껴 두면 이름을 바꿀 때 어긋난다 */
+const FUN_TAB = TABS_PARTICIPANT.find((t) => t.key === "fun")!;
+
 const POKE_STATE: MyPokeState = {
   budget: { pre: { max: 3, used: 1 }, party: { max: 3, used: 0 } },
   sentTo: { her: 1 },
@@ -115,7 +118,7 @@ function renderParticipant(
   source: ParticipantSource,
   profileId?: string,
   onTab: (t: string) => void = () => {},
-  tab: "home" | "people" | "me" | "fortune" = "people",
+  tab: "home" | "people" | "me" | "fun" = "people",
   helpOpen = false,
 ) {
   return render(
@@ -950,7 +953,7 @@ describe("참가자 화면 · 자리", () => {
 
 // ─────────────────────────────────────────── 오늘의 연애운
 
-describe("오늘 탭", () => {
+describe("재미 탭 · 운세 카드", () => {
   /**
    * 이 앱에서 유일하게 기능이 아니라 재미인 자리다. 그래도 규칙은 같다 —
    * 열기 전에는 뒷면이고, 한 번 열면 그대로 남는다.
@@ -964,14 +967,14 @@ describe("오늘 탭", () => {
   function renderFortune(source: ParticipantSource) {
     return render(
       <MemoryRouter>
-        <ParticipantView source={source} tab="fortune" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
+        <ParticipantView source={source} tab="fun" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
   }
 
   it("★ 파티가 시작되면 탭이 생긴다", async () => {
     renderFortune(party());
-    expect(await screen.findByText(FORTUNE.tab)).toBeTruthy();
+    expect(await screen.findByText(FUN_TAB.label)).toBeTruthy();
   });
 
   it("★ 열기 전에는 뒷면이다 — 운세가 미리 보이지 않는다", async () => {
@@ -1907,7 +1910,7 @@ describe("탭 역할 분담", () => {
   const inPhase = (phase: ParticipantState["event"]["phase"]): Partial<ParticipantState> => ({
     event: { ...participantState().event, phase, fired: { reg: 1 } },
   });
-  const fortuneTab = () => screen.getByText(FORTUNE.tab).closest("button")!;
+  const funTab = () => screen.getByText(FUN_TAB.label).closest("button")!;
 
   const renderTab = (t: "home" | "me" | "people", over: Partial<ParticipantState> = {}) =>
     render(
@@ -1980,31 +1983,31 @@ describe("탭 역할 분담", () => {
     // 세 번 받았으면 세 줄이다. "지금까지 3회" 한 줄이 아니다
     expect(screen.getAllByText(POKE.received)).toHaveLength(3);
 
-    /* '오늘' 은 맨 오른쪽에 붙는다 — 도중에 끼어들면 옆 탭들이 밀린다 */
-    expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me", "fortune"]);
+    /* '재미' 는 맨 오른쪽에 붙는다 — 도중에 끼어들면 옆 탭들이 밀린다 */
+    expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me", "fun"]);
     // 매력 투표 중이라 이미 켜져 있다 (ADR-20 후기)
-    expect(fortuneTab().getAttribute("aria-disabled")).toBeNull();
+    expect(funTab().getAttribute("aria-disabled")).toBeNull();
   });
 
   /**
-   * '오늘' 탭은 **없다가 생기지 않는다** (ADR-20 후기).
+   * '재미' 탭은 **없다가 생기지 않는다** (ADR-20 후기).
    *
    * 처음부터 자리를 지키고 매력 투표와 함께 켜진다 — 도중에 생기면 넷이 나눠 쓰던 폭이
    * 통째로 다시 나뉘어, 손가락이 기억한 자리가 어긋난다.
    */
-  it("★ 매력 투표 전에도 '오늘' 탭은 자리를 지킨다 — 꺼져 있을 뿐이다", async () => {
+  it("★ 매력 투표 전에도 '재미' 탭은 자리를 지킨다 — 꺼져 있을 뿐이다", async () => {
     renderTab("home", inPhase("reg"));
-    await screen.findByText(FORTUNE.tab);
+    await screen.findByText(FUN_TAB.label);
 
     expect(document.querySelectorAll(".tabbar button")).toHaveLength(TABS_PARTICIPANT.length);
-    expect(fortuneTab().getAttribute("aria-disabled")).toBe("true");
+    expect(funTab().getAttribute("aria-disabled")).toBe("true");
   });
 
-  it("★ 꺼진 '오늘' 탭은 언제 열리는지 말한다 — 눌러도 조용하면 고장으로 읽힌다", async () => {
+  it("★ 꺼진 '재미' 탭은 언제 열리는지 말한다 — 눌러도 조용하면 고장으로 읽힌다", async () => {
     renderTab("home", inPhase("reg"));
-    await screen.findByText(FORTUNE.tab);
+    await screen.findByText(FUN_TAB.label);
 
-    fireEvent.click(fortuneTab());
+    fireEvent.click(funTab());
     expect(await screen.findByText(FORTUNE.closed)).toBeTruthy();
   });
 });

@@ -1,5 +1,5 @@
 /**
- * 참가자 화면 한 벌. 네 탭(홈·참가자·내 정보·오늘)이 이 컴포넌트 하나를 나눠 쓴다.
+ * 참가자 화면 한 벌. 네 탭(홈·참가자·내 정보·재미)이 이 컴포넌트 하나를 나눠 쓴다.
  *
  * 자료는 통로(source)로 받는다 — 화면은 세션도 요청 경로도 모른다.
  */
@@ -24,7 +24,7 @@ import { canOpenFortune } from "../../shared/phase.ts";
 import FortuneTab from "./Fortune.tsx";
 import StatusBar from "../ui/StatusBar.tsx";
 
-export type Tab = "home" | "fortune" | "people" | "me";
+export type Tab = "home" | "fun" | "people" | "me";
 
 interface ViewProps {
   source: ParticipantSource;
@@ -66,19 +66,19 @@ interface ViewProps {
 /**
  * 하단 탭.
  *
- * **'오늘' 은 없다가 생기지 않는다** (ADR-20 후기). 처음부터 자리를 지키고,
+ * **'재미' 는 없다가 생기지 않는다** (ADR-20 후기). 처음부터 자리를 지키고,
  * 매력 투표와 함께 켜진다 — 탭이 도중에 생기면 넷이 나눠 쓰던 폭이 통째로 다시 나뉘어
  * 손가락이 기억한 자리가 어긋난다.
  *
  * 꺼진 탭은 **죽은 버튼이 아니다.** 누르면 언제 열리는지 말한다 —
  * 눌러도 아무 일이 없으면 고장으로 읽힌다. (`Overlays` 안이라 토스트를 쓸 수 있다)
  */
-function Tabs({ tab, onTab, fortuneOpen }: { tab: Tab; onTab: (t: Tab) => void; fortuneOpen: boolean }) {
+function Tabs({ tab, onTab, funOpen }: { tab: Tab; onTab: (t: Tab) => void; funOpen: boolean }) {
   const { toast } = useOverlay();
   return (
     <nav className="tabbar">
       {TABS_PARTICIPANT.map((t) => {
-        const off = t.key === "fortune" && !fortuneOpen;
+        const off = t.key === "fun" && !funOpen;
         return (
           <button
             key={t.key}
@@ -110,8 +110,8 @@ export default function Participant() {
   const editing = location.pathname.endsWith("/me/edit");
   const tab: Tab = location.pathname.endsWith("/me") || editing
     ? "me"
-    : location.pathname.endsWith("/fortune")
-      ? "fortune"
+    : location.pathname.endsWith("/fun")
+      ? "fun"
       : location.pathname.endsWith("/people") || location.pathname.includes("/p/")
         ? "people"
         : "home";
@@ -254,13 +254,16 @@ function Loaded({
   }, [seatOpen, state.seat, onSeat]);
 
   /*
-   * 아직 안 열린 '오늘' 주소를 직접 연 경우. 탭이 꺼져 있어도 주소는 칠 수 있다 —
+   * 아직 안 열린 '재미' 주소를 직접 연 경우. 탭이 꺼져 있어도 주소는 칠 수 있다 —
    * 자리 화면과 같이 홈으로 **갈아끼운다** (`onTab` 이 replace 한다).
+   *
+   * 탭의 문은 **가장 먼저 열리는 카드의 문**이다. 지금은 그게 운세라 `canOpenFortune` 이
+   * 그대로 탭의 문이고, 더 일찍 열리는 카드가 들어오면 이 줄이 바뀔 자리다.
    */
-  const fortuneOpen = canOpenFortune(state.event.phase);
+  const funOpen = canOpenFortune(state.event.phase);
   useEffect(() => {
-    if (tab === "fortune" && !fortuneOpen) onTab("home");
-  }, [tab, fortuneOpen, onTab]);
+    if (tab === "fun" && !funOpen) onTab("home");
+  }, [tab, funOpen, onTab]);
 
   // 발표가 끝났으면 자리 이동 확인을 띄우지 않는다 (FLOWS.md)
   const needsSeatAck =
@@ -304,13 +307,14 @@ function Loaded({
               onTab={onTab}
             />
           )}
-          {tab === "fortune" && <FortuneTab state={state} reload={reload} />}
+          {/* 재미 탭. 지금은 운세 카드 하나뿐이다 — 이상형 찾기가 여기 두 번째로 붙는다 */}
+          {tab === "fun" && <FortuneTab state={state} reload={reload} />}
           {tab === "me" && (
             <Me state={state} source={source} reload={reload} editing={!!editing} onEdit={onEdit} />
           )}
         </div>
 
-        <Tabs tab={tab} onTab={onTab} fortuneOpen={fortuneOpen} />
+        <Tabs tab={tab} onTab={onTab} funOpen={funOpen} />
 
         {/*
           아직 안 본 사람에게는 **자동으로** 덮치고 확인을 받는다.
