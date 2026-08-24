@@ -321,8 +321,12 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
 
                 {/* 연락처는 **서로 찌른 사이에게만** 열린다 (ADR-19) */}
                 <Contact match={matched.get(profile.id)!} />
-                {/* 열린 게 있을 때만. 아무것도 안 열렸는데 "상대에게도 같은 만큼" 은 빈 말이다 */}
-                {matched.get(profile.id)!.contact && (
+                {/*
+                  연락 수단이 열렸을 때만. 이름만 열린 자리에서 "상대에게도 같은 만큼" 은
+                  틀린 말은 아니지만 `nameOnly` 한 줄이 이미 같은 것을 더 정확히 말한다
+                */}
+                {(matched.get(profile.id)!.contact.phone ||
+                  matched.get(profile.id)!.contact.instagram) && (
                   <span className="tiny dim">{REVEAL.contactNote}</span>
                 )}
               </div>
@@ -430,22 +434,16 @@ function MyCard({ me, phase, onOpen }: { me: Player; phase: Phase; onOpen: () =>
  * 전화와 인스타는 **누를 수 있게** 둔다 — 파티장에서 번호를 손으로 옮겨 적게 하지 않는다.
  * 이 컴포넌트는 `MatchInfo` 없이는 그려지지 않는다. 그 타입이 곧 "발표 후 서로 찌른 쌍"이다.
  *
- * **세 모양이 있다** (ADR-37). 무엇이 오는지는 서버가 정한다 — 두 사람이 등록할 때 고른 것 중
- * 조심스러운 쪽이다. 화면은 **온 것만 그린다**: 여기서 다시 판단하지 마라.
+ * **이름은 늘 있다** (ADR-37). 전화번호와 인스타는 **두 사람이 다 열기로 했을 때만** 온다 —
+ * 무엇이 오는지는 서버가 정한다. 화면은 **온 것만 그린다**: 여기서 다시 판단하지 마라.
  *
- *   연락처 없음   둘 중 하나가 `안 열기` 를 골랐다 → 대신 한 줄
- *   번호 없음     둘 중 하나가 `인스타까지` 를 골랐다 → 인스타까지만 그린다
- *   다 있음       둘 다 `전화번호까지` 를 골랐다
- *
- * ⚠️ **번호가 없는 이유를 화면에 적지 마라.** `상대가 번호를 안 열었어요` 는 사실상
+ * ⚠️ **없는 줄의 이유를 화면에 적지 마라.** `상대가 번호를 안 열었어요` 는 사실상
  * 상대를 지목하는 말이고, 인스타라는 멀쩡한 연락 수단을 실패처럼 보이게 만든다.
- * 없는 줄은 그냥 없다.
+ * 없는 줄은 그냥 없다. 둘 다 없을 때만 `nameOnly` 한 줄이 대신 든다.
  */
 function Contact({ match }: { match: MatchInfo }) {
-  // 아무것도 열리지 않았을 때. **누가 안 열었는지는 말하지 않는다** — 그건 이름 붙은 거절이다
-  if (!match.contact) return <span className="tiny dim">{REVEAL.contactClosed}</span>;
-
   const { realName, phone, instagram } = match.contact;
+
   return (
     <div className="stack">
       {/* 이름은 신원이지 연락 수단이 아니다 — '연락처' 라벨 밖에 둔다 */}
@@ -453,19 +451,32 @@ function Contact({ match }: { match: MatchInfo }) {
         <span className="small dim">{ME.labels.realName}</span>
         <span>{realName}</span>
       </div>
-      <div className="kicker">{REVEAL.contactTitle}</div>
-      {phone && (
-        <div className="row between">
-          <span className="small dim">{ME.labels.phone}</span>
-          <a href={`tel:${phone}`}>{phone}</a>
-        </div>
+
+      {/*
+        연락 수단이 하나도 없으면 `연락처` 라벨을 아예 안 그린다 —
+        비어 있는 칸은 고장 난 화면으로 읽힌다. 대신 왜 그런지 한 줄을 둔다
+      */}
+      {!phone && !instagram ? (
+        <span className="tiny dim">{REVEAL.nameOnly}</span>
+      ) : (
+        <>
+          <div className="kicker">{REVEAL.contactTitle}</div>
+          {phone && (
+            <div className="row between">
+              <span className="small dim">{ME.labels.phone}</span>
+              <a href={`tel:${phone}`}>{phone}</a>
+            </div>
+          )}
+          {instagram && (
+            <div className="row between">
+              <span className="small dim">{ME.labels.instagram}</span>
+              <a href={`https://instagram.com/${instagram}`} target="_blank" rel="noreferrer">
+                @{instagram}
+              </a>
+            </div>
+          )}
+        </>
       )}
-      <div className="row between">
-        <span className="small dim">{ME.labels.instagram}</span>
-        <a href={`https://instagram.com/${instagram}`} target="_blank" rel="noreferrer">
-          @{instagram}
-        </a>
-      </div>
     </div>
   );
 }
