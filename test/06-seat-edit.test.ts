@@ -18,10 +18,6 @@ import { signInMaster, api, freshEvent, join, master, setPhase } from "./helpers
 beforeAll(signInMaster);
 
 /** 참석 상태를 찍는다 (ADR-33). 자리 배정에서 빠지는 유일한 조건이 `left` 다 (ADR-41) */
-const setAttendance = (eventId: string, pid: string, to: "arrived" | "left" | null) =>
-  api(`/api/host/events/${eventId}/players/${pid}/attendance`, {
-    method: "POST", cookie: master, body: { to },
-  });
 
 // ─────────────────────────────────────────── 자리가 보이는 때 (슬라이스 12)
 
@@ -188,62 +184,76 @@ describe("앉힌 자리 고치기", () => {
     return { ev, ids, round: pub.body };
   }
 
-  it("★ `나감` 으로 찍힌 사람은 자리를 받지 않는다", async () => {
-    /*
-     * 배정하고 나서 한 명씩 빼는 길(`unseat`)도 있지만, 그때 자리 배치는
-     * **간 사람 기준으로 이미 짜여 있다.** 처음부터 남은 사람만으로 짜여야 한다 (ADR-41).
-     *
-     * 빠지는 조건은 **하나뿐**이다 — 운영자가 손으로 고르는 목록은 없다.
-     */
+  /** 파티가 시작된 회차에 사람 넷을 넣는다. 자리 이야기의 공통 준비다 */
+  async function party(n = 4) {
     const ev = await freshEvent();
     const ids: string[] = [];
-    for (let i = 0; i < 6; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    for (let i = 0; i < n; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
+    return { ev, ids };
+  }
 
-    // 남녀 한 명씩 나갔다 — 성비가 어긋나면 배정 자체가 이상해진다
+  const makeSeating = (eventId: string, body: unknown) =>
+    api<Round>(`/api/host/events/${eventId}/seating`, { method: "POST", cookie: master, body });
+
+  it("빼고 나서 사람이 모자라면 배정하지 않는다", async () => {
+    // 테이블 하나에 최소 두 명이다. 빠지는 바람에 모자라면 그 자리에서 막는다
+    const { ev, ids } = await party();
+    const res = await makeSeating(ev.id, { tableCount: 2, final: false, exclude: [ids[0], ids[1]] });
+    expect(res.status).toBe(400);
+  });
+
+  /**
+   * ★ **뺀 사람은 처음부터 명단에 없다** (ADR-45).
+   *
+   * 배정하고 나서 한 명씩 빼는 길(`자리 비우기`)도 있지만, 그때 자리 배치는
+   * **그 사람 기준으로 이미 짜여 있다.** 처음부터 남은 사람만으로 짜여야 한다.
+   */
+  it("★ 뺀 사람은 자리를 받지 않는다", async () => {
+    const { ev, ids } = await party(6);
+    // 남녀 한 명씩 뺀다 — 성비가 어긋나면 배정 자체가 이상해진다
     const out = [ids[0], ids[1]];
-    for (const id of out) await setAttendance(ev.id, id, "left");
 
-    const made = await api<Round>(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: false },
-    });
+    const made = await makeSeating(ev.id, { tableCount: 2, final: false, exclude: out });
     expect(made.status, JSON.stringify(made.body)).toBe(200);
     expect(made.body.seats).toHaveLength(4);
     expect(made.body.seats.some((x) => out.includes(x.playerId))).toBe(false);
   });
 
-  it("★ `미도착` 은 자리를 받는다 — 늦게 오는 사람이 조용히 빠지면 안 된다", async () => {
-    /*
-     * 안 찍은 사람과 안 온 사람이 **같은 값**이다 (ADR-33). 미도착까지 빼면
-     * 운영자가 아직 안 누른 사람이 자리 없이 도착한다 — 빈 자리는 보이지만 없는 자리는 안 보인다.
-     */
-    const ev = await freshEvent();
-    const ids: string[] = [];
-    for (let i = 0; i < 4; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
-    await setPhase(ev.id, "prevote");
-    await setPhase(ev.id, "party");
-    // 한 명만 도착으로 찍는다. 나머지 셋은 미도착이다
-    await setAttendance(ev.id, ids[0], "arrived");
-
-    const made = await api<Round>(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: false },
-    });
+  it("★ 아무도 안 빼면 전원이 앉는다 — 그게 대부분의 라운드다", async () => {
+    const { ev } = await party();
+    const made = await makeSeating(ev.id, { tableCount: 2, final: false, exclude: [] });
     expect(made.status, JSON.stringify(made.body)).toBe(200);
     expect(made.body.seats).toHaveLength(4);
   });
 
-  it("★ 나간 사람은 참가자 상태로 남는다 — 지우는 것과 다른 일이다", async () => {
+  /**
+   * ★ **뺀 것은 이번 라운드에만 남는다** (ADR-45).
+   *
+   * 사람에게 붙는 상태로 만들면 시간이 지나 틀리고, 틀린 상태가 다음 라운드에서
+   * 사람을 조용히 빠뜨린다 (FLOWS.md). 노쇼는 다음 라운드에 나타날 수 있다.
+   */
+  it("★ 다음 배정은 전원으로 다시 시작한다", async () => {
+    const { ev, ids } = await party();
+
+    const without = await makeSeating(ev.id, { tableCount: 1, final: false, exclude: [ids[0]] });
+    expect(without.body.seats.some((x) => x.playerId === ids[0])).toBe(false);
+
+    // 목록을 안 보내면 아무도 안 빠진다 — 앞 라운드의 선택이 따라오지 않는다
+    const again = await makeSeating(ev.id, { tableCount: 1, final: false });
+    expect(again.body.seats.some((x) => x.playerId === ids[0])).toBe(true);
+  });
+
+  it("★ 뺀 사람도 참가자로 남는다 — 지우는 것과 다른 일이다", async () => {
     // 지우면 받은 콕과 매칭이 함께 날아간다 (ADR-29). 자리만 없는 것이어야 한다
     const ev = await freshEvent();
     const people: Array<{ id: string; cookie: string | null }> = [];
     for (let i = 0; i < 6; i++) people.push(await join(ev, { gender: i % 2 === 0 ? "M" : "F" }));
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
-    await setAttendance(ev.id, people[0].id, "left");
-    await api(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: false },
-    });
+
+    await makeSeating(ev.id, { tableCount: 2, final: false, exclude: [people[0].id] });
     await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
 
     const seen = await api<ParticipantState>(`/api/me?event=${ev.id}`, { cookie: people[0].cookie });
@@ -252,39 +262,13 @@ describe("앉힌 자리 고치기", () => {
     expect(seen.body.me.id).toBe(people[0].id);
   });
 
-  it("★ 되돌리면 다음 배정에 다시 들어온다", async () => {
-    // 나감이 사람에게 붙는 낙인이 되면 안 된다 — 잠깐 나갔다 온 사람이 있다 (ADR-41)
-    const ev = await freshEvent();
-    const ids: string[] = [];
-    for (let i = 0; i < 4; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
-    await setPhase(ev.id, "prevote");
-    await setPhase(ev.id, "party");
-
-    await setAttendance(ev.id, ids[0], "left");
-    const without = await api<Round>(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 1, final: false },
+  /** 참석 상태를 저장하던 길은 없다 (ADR-45). 문 앞에서 세는 건 사람이 한다 */
+  it("★ 참석 상태를 찍는 길이 없다", async () => {
+    const { ev, ids } = await party();
+    const res = await api(`/api/host/events/${ev.id}/players/${ids[0]}/attendance`, {
+      method: "POST", cookie: master, body: { to: "arrived" },
     });
-    expect(without.body.seats.some((x) => x.playerId === ids[0])).toBe(false);
-
-    await setAttendance(ev.id, ids[0], "arrived");
-    const again = await api<Round>(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 1, final: false },
-    });
-    expect(again.body.seats.some((x) => x.playerId === ids[0])).toBe(true);
-  });
-
-  it("나가고 나서 사람이 모자라면 배정하지 않는다", async () => {
-    // 테이블 하나에 최소 두 명이다. 빠지는 바람에 모자라면 그 자리에서 막는다
-    const ev = await freshEvent();
-    const ids: string[] = [];
-    for (let i = 0; i < 4; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
-    await setPhase(ev.id, "prevote");
-    await setPhase(ev.id, "party");
-    for (const id of [ids[0], ids[1]]) await setAttendance(ev.id, id, "left");
-    const res = await api(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: false },
-    });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
   });
 
   it("★ 앉힐 테이블은 서버가 고른다 — 그 성별이 가장 덜 찬 곳으로", async () => {
