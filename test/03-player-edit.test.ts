@@ -79,11 +79,11 @@ describe("참가자를 지웠을 때", () => {
     // 받은 콕이 함께 줄면 그 둘을 맞춰 발신자를 특정할 수 있다 (ADR-29)
     const { ev, a, b } = await pair();
     const before = await api<ParticipantState>("/api/me", { cookie: a.cookie });
-    expect(before.body.poke.receivedCount).toBe(1);
+    expect(before.body.poke.received.pre + before.body.poke.received.party).toBe(1);
 
     await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
     const after = await api<ParticipantState>("/api/me", { cookie: a.cookie });
-    expect(after.body.poke.receivedCount).toBe(1);
+    expect(after.body.poke.received.pre + after.body.poke.received.party).toBe(1);
     // 명단에서는 사라진다. 남는 건 아무것도 가리키지 않는 숫자뿐이다
     expect(after.body.roster).toEqual([]);
     expect(JSON.stringify(after.body.poke)).not.toContain(b.id);

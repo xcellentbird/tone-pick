@@ -40,7 +40,7 @@ const FUN_TAB = TABS_PARTICIPANT.find((t) => t.key === "fun")!;
 const POKE_STATE: MyPokeState = {
   budget: { pre: { max: 3, used: 1 }, party: { max: 3, used: 0 } },
   sentTo: { her: 1 },
-  receivedCount: 0,
+  received: { pre: 0, party: 0 },
   matches: [],
 };
 
@@ -2173,7 +2173,7 @@ describe("탭 역할 분담", () => {
 
   it("★ 소식은 홈에 있다 — 알림 탭을 따로 두지 않는다", async () => {
     // 파티 한 번에 많아야 몇 개다. 탭 하나를 상시 내줄 양이 아니다
-    renderTab("home", { poke: { ...POKE_STATE, receivedCount: 2 } });
+    renderTab("home", { poke: { ...POKE_STATE, received: { pre: 2, party: 0 } } });
     await screen.findByText(HOME.news);
     expect(screen.getByText(NOTICE.prevote(3).title)).toBeTruthy();
   });
@@ -2207,7 +2207,7 @@ describe("탭 역할 분담", () => {
   });
 
   it("★ 받은 콕은 한 번에 하나씩 쌓인다 — 합쳐서 세지 않는다", async () => {
-    renderTab("home", { poke: { ...POKE_STATE, receivedCount: 3 } });
+    renderTab("home", { poke: { ...POKE_STATE, received: { pre: 3, party: 0 } } });
     await screen.findByText(HOME.news);
     // 세 번 받았으면 세 줄이다. "지금까지 3회" 한 줄이 아니다
     // 매력 투표 중이라 세 줄 다 투표로 불린다 — 줄마다 라운드를 말하지는 않는다 (ADR-46)
@@ -2226,7 +2226,7 @@ describe("탭 역할 분담", () => {
    * 화면이 말하는 것과 참가자가 겪은 것이 갈린다.
    */
   it("★ 매력 투표 중에 받은 줄은 투표라고 부른다", async () => {
-    renderTab("home", { poke: { ...POKE_STATE, receivedCount: 2 } });
+    renderTab("home", { poke: { ...POKE_STATE, received: { pre: 2, party: 0 } } });
     await screen.findByText(HOME.news);
 
     expect(screen.getAllByText(POKE.received("pre"))).toHaveLength(2);
@@ -2234,29 +2234,27 @@ describe("탭 역할 분담", () => {
   });
 
   /**
-   * 다만 **줄마다 라운드를 말하지는 않는다** (ADR-46).
+   * 두 라운드가 섞여 있으면 **줄마다 제 이름으로** 불린다 (ADR-46 후기).
    *
-   * 어느 단계에서 받았는지가 드러나면 그때 누가 있었는지와 맞춰 발신자가 좁혀진다.
-   * 둘이 섞일 수 있는 자리에서는 목록 전체가 **한 이름**으로 불린다 —
-   * 한 줄만 다르게 부르면 그 줄이 어느 라운드였는지 말하는 셈이다.
+   * 합쳐 두던 시절에는 한 낱말로 뭉개져서, 콕을 찌른 적도 없는 사람이 콕을 받은 것이 됐다.
+   * 대가는 어느 줄이 어느 라운드인지 드러나는 것이고, 그건 받아들이기로 한 값이다.
    */
-  it("★ 두 라운드가 섞일 수 있으면 중립으로 부른다 — 어느 줄이 어느 라운드인지 말하지 않는다", async () => {
+  it("★ 표와 콕이 섞여 있으면 줄마다 제 이름으로 부른다", async () => {
     const base = participantState();
     renderTab("home", {
       event: {
         ...base.event,
         phase: "party",
         fired: { reg: 1, prevote: 2, party: 3 },
-        // 둘 다 켜져 있으면 받은 줄에 표와 콕이 함께 들어 있다
         config: { ...base.event.config, preNotify: true, pokeNotify: true },
       },
-      poke: { ...POKE_STATE, receivedCount: 3 },
+      poke: { ...POKE_STATE, received: { pre: 2, party: 3 } },
     });
     await screen.findByText(HOME.news);
 
-    expect(screen.getAllByText(POKE.received(null))).toHaveLength(3);
-    expect(screen.queryByText(POKE.received("pre"))).toBeNull();
-    expect(screen.queryByText(POKE.received("party"))).toBeNull();
+    // 다섯 줄이 두 이름으로 갈려 선다 — 합쳐서 "5회" 한 줄이 아니다
+    expect(screen.getAllByText(POKE.received("pre"))).toHaveLength(2);
+    expect(screen.getAllByText(POKE.received("party"))).toHaveLength(3);
   });
 
   /**

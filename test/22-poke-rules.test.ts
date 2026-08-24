@@ -100,6 +100,9 @@ const poke = (cookie: string | null, toId: string) =>
 const unpoke = (cookie: string | null, toId: string) =>
   api<MyPokeState>("/api/unpoke", { method: "POST", cookie, body: { toId } });
 const meOf = (cookie: string | null) => api<ParticipantState>("/api/me", { cookie });
+/** 받은 수는 라운드마다 따로다 (ADR-46 후기). 총합을 재는 자리에서는 여기서 더한다 */
+const totalReceived = (res: { body: ParticipantState }) =>
+  res.body.poke.received.pre + res.body.poke.received.party;
 
 describe("알림 설정", () => {
   it("★ 알림을 끈 회차에서는 발표 전까지 받은 수가 응답에 없다", async () => {
@@ -113,7 +116,7 @@ describe("알림 설정", () => {
     await setPhase(ev.id, "party");
     await poke(her.cookie, me.id);
 
-    expect((await meOf(me.cookie)).body.poke.receivedCount).toBe(0);
+    expect(totalReceived(await meOf(me.cookie))).toBe(0);
   });
 
   it("★ 발표되면 나간다 — 그래야 '몇 번 받았는지' 를 말할 수 있다", async () => {
@@ -124,7 +127,7 @@ describe("알림 설정", () => {
     await poke(her.cookie, me.id);
     await setPhase(ev.id, "done");
 
-    expect((await meOf(me.cookie)).body.poke.receivedCount).toBe(1);
+    expect(totalReceived(await meOf(me.cookie))).toBe(1);
   });
 
   it("★ 켠 회차에서는 그때그때 보인다", async () => {
@@ -134,7 +137,7 @@ describe("알림 설정", () => {
     await setPhase(ev.id, "party");
     await poke(her.cookie, me.id);
 
-    expect((await meOf(me.cookie)).body.poke.receivedCount).toBe(1);
+    expect(totalReceived(await meOf(me.cookie))).toBe(1);
   });
 });
 
@@ -147,11 +150,11 @@ describe("콕 되돌리기", () => {
     await setPhase(ev.id, "party");
 
     await poke(her.cookie, me.id);
-    expect((await meOf(me.cookie)).body.poke.receivedCount).toBe(1);
+    expect(totalReceived(await meOf(me.cookie))).toBe(1);
 
     const back = await unpoke(her.cookie, me.id);
     expect(back.status, JSON.stringify(back.body)).toBe(200);
-    expect((await meOf(me.cookie)).body.poke.receivedCount).toBe(0);
+    expect(totalReceived(await meOf(me.cookie))).toBe(0);
     // 예산도 돌아온다
     expect(back.body.budget.party.used).toBe(0);
   });

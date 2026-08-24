@@ -14,7 +14,7 @@
  * 되돌리기는 이미 라운드마다 따로였는데(`allowUndoPre`·`allowUndo`) 알림만 하나였다.
  * 둘은 성격이 다르다 — 매력 투표는 **며칠에 걸쳐** 쌓이고, 그동안 순위가 굳는다.
  *
- * ⚠️ 알림을 끄는 건 **화면에서 감추는 일이 아니다.** `receivedCount` 에서 빠져야 한다 —
+ * ⚠️ 알림을 끄는 건 **화면에서 감추는 일이 아니다.** `received` 에서 빠져야 한다 —
  * 그 숫자 하나가 곧 "지금까지 몇 명이 나를 골랐나" 다 (ADR-34).
  */
 import { beforeAll, describe, expect, it } from "vitest";
@@ -134,7 +134,7 @@ describe("알림은 라운드마다 따로다", () => {
 
     const seen = async () => {
       const res = await api<ParticipantState>("/api/me", { cookie: b.cookie });
-      return res.body.poke.receivedCount;
+      return res.body.poke.received.pre + res.body.poke.received.party;
     };
     return { ev, a, b, now: await seen(), seen };
   }
