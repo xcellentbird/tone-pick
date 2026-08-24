@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { FAIL, HOST_UI, phaseAction, schedDiff } from "../../src/shared/copy.ts";
+import { FAIL, GENDER, HOST_UI, phaseAction, schedDiff } from "../../src/shared/copy.ts";
 import { formatGap, formatWhen } from "../../src/shared/time.ts";
 import type { HostState } from "../../src/shared/types.ts";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
@@ -86,6 +86,25 @@ function stubFetch(state: ReturnType<typeof hostState>) {
       });
     }),
   );
+}
+
+/** 히스토리를 직접 밀고 당겨야 하는 테스트용 — 라우터를 돌려준다 */
+function renderPlayers(at: string) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/host/:id",
+        element: <HostConsole />,
+        children: [
+          { path: "players", element: <Players /> },
+          { path: "players/:pid", element: <Players /> },
+        ],
+      },
+    ],
+    { initialEntries: [at] },
+  );
+  render(<RouterProvider router={router} />);
+  return router;
 }
 
 function renderConsole(at = "/host/e1") {
@@ -196,10 +215,11 @@ describe("운영자 콘솔", () => {
     await waitFor(() => expect(calls.find((c) => c.url.includes("/phase"))?.body).toEqual({ to: "prevote" }));
   });
 
-  it("★ 필터 칩은 상태 축이고, 성비는 숫자로 남는다", async () => {
+  it("★ 필터 칩은 성별 축이다 — 칩 셋이 곧 성비다", async () => {
     /*
-     * 성별 칩의 진짜 용도는 "세 숫자를 한 번에 보는 것"(성비)이었다 (ADR-33).
-     * 칩 한 줄은 상태가 쓰고, 성비는 숫자로 옮겼다.
+     * 칩의 진짜 용도는 "세 숫자를 한 번에 보는 것"(성비)이다 —
+     * 고른 쪽만 세면 성비를 보려고 버튼을 두 번 눌러야 한다.
+     * 미등록은 칩에 없다. 그건 위쪽 명단이 맡는다.
      */
     const st = hostState();
     st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
@@ -210,34 +230,133 @@ describe("운영자 콘솔", () => {
     const label = (text: string) =>
       screen.getAllByRole("button").find((b) => b.textContent?.startsWith(text))?.textContent;
 
-    await screen.findByLabelText(HOST_UI.invites.addLabel);
-    expect(label(HOST_UI.players.filterAll)).toContain("3");        // 등록 2 + 미등록 1
-    expect(label(HOST_UI.status.registered)).toContain("2");
-    expect(label(HOST_UI.status.unregistered)).toContain("1");
-    expect(screen.getByText(HOST_UI.players.ratio(1, 1))).toBeTruthy();
+    await screen.findByText(HOST_UI.invites.title);
+    expect(label(HOST_UI.players.filterAll)).toContain("2");   // 등록한 사람만 센다
+    expect(label(GENDER.M)).toContain("1");
+    expect(label(GENDER.F)).toContain("1");
+
+    // 여성만 남긴다 — 카드 목록이 그 축으로 걸러진다
+    fireEvent.click(screen.getAllByRole("button").find((b) => b.textContent?.startsWith(GENDER.F))!);
+    expect(document.body.textContent).not.toContain(st.players[0].realName);
+    expect(document.body.textContent).toContain(st.players[1].realName);
   });
 
-  it("★ 명단과 참가자가 한 목록이다 — 같은 사람이 두 번 나오지 않는다", async () => {
+  it("★ 명단은 등록 전, 카드는 등록 후 — 같은 사람이 두 번 나오지 않는다", async () => {
     /*
-     * 둘은 같은 사람들이고 운영자가 하는 일도 하나다 — 부를 사람을 넣고, 안내문을 보내고, 온 사람을 본다.
-     * 갈라 두니 같은 사람이 두 번 나오고 "누구에게 보냈나" 와 "누가 왔나" 를 따로 세게 됐다.
+     * 역할이 갈린다. 위의 입장 명단은 **등록 전/후**(부를 사람·안내문·아직 등록 안 한 사람),
+     * 아래 카드는 **등록 후**(누가 왔나). 등록하면 명단 행에서 빠지고 카드로 올라온다 —
+     * 두 곳에 나오면 "누구에게 보냈나" 와 "누가 왔나" 를 같은 사람으로 두 번 세게 된다.
      */
     const st = hostState();
     st.invites = [
-      // 이미 등록한 사람 — 위쪽 카드로만 나온다
+      // 이미 등록한 사람 — 아래 카드로만 나온다
       { phone: "01011112222", token: "t1", addedAt: 1, nickname: st.players[0].nickname },
-      // 아직 안 온 사람 — 번호가 그의 유일한 이름이다
+      // 아직 등록 안 한 사람 — 번호가 그의 유일한 이름이다
       { phone: "01099998888", token: "t2", addedAt: 2 },
     ];
     stubFetch(st);
     renderConsole("/host/e1/players");
 
+    await screen.findByText(HOST_UI.invites.title);
+
+    // 탭에는 명단 **요약 한 줄**과 등록한 사람의 카드뿐이다
+    expect(screen.getByText(HOST_UI.invites.count(2, 1))).toBeTruthy();
+    expect(screen.getAllByText("010-1111-2222")).toHaveLength(1);
+    // 아직 등록 안 한 사람의 번호는 탭에 없다 — 시트를 열어야 나온다
+    expect(screen.queryByText("010-9999-8888")).toBeNull();
+
+    // 카드를 누르면 명단 시트가 열리고, 거기 그 사람이 있다
+    fireEvent.click(screen.getByText(HOST_UI.invites.title));
+    expect(await screen.findByText("010-9999-8888")).toBeTruthy();
+    expect(screen.getByText(HOST_UI.invites.waitingCount(1))).toBeTruthy();
+    // 시트를 열어도 등록한 사람은 여전히 한 번만 나온다
+    expect(screen.getAllByText("010-1111-2222")).toHaveLength(1);
+  });
+
+  it("★ 명단 시트는 라우트다 — 뒤로 가기로 닫힌다", async () => {
+    /*
+     * 안드로이드의 뒤로 가기가 시트를 닫아야 한다 (ROUTES.md).
+     * 닫히지 않으면 뒤로 가기 한 번이 콘솔 밖으로 나가버린다.
+     */
+    const st = hostState();
+    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    stubFetch(st);
+    const router = renderPlayers("/host/e1/players");
+
+    fireEvent.click(await screen.findByText(HOST_UI.invites.title));
     await screen.findByLabelText(HOST_UI.invites.addLabel);
 
-    // 안 온 사람은 번호로 나온다
-    expect(screen.getByText("010-9999-8888")).toBeTruthy();
-    // 안 온 사람 수를 세어 준다
-    expect(screen.getByText(HOST_UI.invites.waitingCount(1))).toBeTruthy();
+    await act(async () => void (await router.navigate(-1)));
+    await waitFor(() => expect(screen.queryByLabelText(HOST_UI.invites.addLabel)).toBeNull());
+    // 탭은 그대로다 — 시트만 닫혔다
+    expect(screen.getByText(HOST_UI.invites.title)).toBeTruthy();
+  });
+
+  it("★ 명단 카드는 안내문을 못 보낸 사람이 있을 때 그 수를 말한다", async () => {
+    /*
+     * **여는 이유가 되는 유일한 숫자다.** 없으면 카드를 눌러볼 까닭이 없다.
+     * 이미 등록한 사람은 세지 않는다 — 자기 링크로 들어왔다는 뜻이라 보낼 것이 없다.
+     */
+    const st = hostState();
+    st.invites = [
+      { phone: "01099998888", token: "t2", addedAt: 2 },
+      { phone: "01077776666", token: "t3", addedAt: 3, sentAt: 4 },
+      // 등록했고 보냄 표시는 없는 사람 — 이 수에 들어가면 없는 할 일이 생긴다
+      { phone: "01011112222", token: "t1", addedAt: 1, nickname: st.players[0].nickname },
+    ];
+    stubFetch(st);
+    renderConsole("/host/e1/players");
+
+    await screen.findByText(HOST_UI.invites.title);
+    expect(screen.getByText(HOST_UI.invite.remaining(1))).toBeTruthy();
+  });
+
+  it("★ 참가 상태는 카드 **안** 맨 오른쪽에 붙고, 파티 뒤에는 눌러 찍는다", async () => {
+    /*
+     * 문 앞에서 한 명씩 하는 일이라 한 번에 끝나야 한다 (ADR-33).
+     * 카드 밖에 두면 목록이 들쭉날쭉해지고, 누르는 자리가 카드와 따로 논다.
+     */
+    const st = hostState({ phase: "party" });
+    stubFetch(st);
+    renderConsole("/host/e1/players");
+    await screen.findByText(HOST_UI.invites.title);
+
+    const card = document.querySelector(".person") as HTMLElement;
+    expect(card.textContent).toContain(st.players[0].realName);
+    // 상태값이 그 카드 안에 있다
+    const chip = card.querySelector(".att") as HTMLButtonElement;
+    expect(chip.textContent).toBe(HOST_UI.status.absent);
+
+    fireEvent.click(chip);
+    await waitFor(() =>
+      expect(calls.find((c) => c.url.includes("/attendance"))?.body).toEqual({ to: "arrived" }),
+    );
+  });
+
+  it("★ 상태를 색으로만 말하지 않는다 — 셋 다 글자가 함께 온다", async () => {
+    /*
+     * 톤(도착 초록 · 나감 주황 · 미도착 무채색)은 거들 뿐이다.
+     * 색을 못 읽는 사람에게도 같은 정보가 남아야 한다.
+     */
+    const st = hostState({ phase: "party" });
+    st.attendance = { p1: "arrived", p2: "left" };
+    stubFetch(st);
+    renderConsole("/host/e1/players");
+    await screen.findByText(HOST_UI.invites.title);
+
+    const words = [...document.querySelectorAll(".person > .att")].map((el) => el.textContent);
+    expect(words).toEqual([HOST_UI.status.arrived, HOST_UI.status.left]);
+  });
+
+  it("★ 파티 전에는 참석을 찍지 않는다 — 상태값은 글자로만 있다", async () => {
+    // 전원이 같은 값이라 찍을 것이 없다. `등록함` 이 파티 시작 뒤 `안 옴` 이 되는 같은 값이다
+    stubFetch(hostState());
+    renderConsole("/host/e1/players");
+    await screen.findByText(HOST_UI.invites.title);
+
+    const chip = document.querySelector(".person > .att") as HTMLElement;
+    expect(chip.tagName).toBe("SPAN");
+    expect(chip.textContent).toBe(HOST_UI.status.registered);
   });
 
   it("★ 안내문 미리보기는 눌러야 열린다", async () => {
@@ -245,7 +364,8 @@ describe("운영자 콘솔", () => {
     const st = hostState();
     st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
     stubFetch(st);
-    renderConsole("/host/e1/players");
+    // 시트도 라우트라 주소로 바로 열린다
+    renderConsole("/host/e1/players/invites");
 
     const toggle = await screen.findByText(HOST_UI.invite.preview);
     expect(document.body.textContent).not.toContain("/j/e1/t2");
@@ -261,8 +381,8 @@ describe("운영자 콘솔", () => {
   describe("명단 번호 칸", () => {
     const field = async () => {
       stubFetch(hostState());
-      // 번호 칸은 참가자 탭 안에 있다 — 명단이 목록에 합쳐졌다
-      renderConsole("/host/e1/players");
+      // 번호 칸은 명단 시트 안에 있다. 시트도 라우트라 주소로 바로 열린다
+      renderConsole("/host/e1/players/invites");
       return (await screen.findByLabelText(HOST_UI.invites.addLabel)) as HTMLInputElement;
     };
 
@@ -325,7 +445,7 @@ describe("운영자 콘솔", () => {
     // 알면 그 사람을 다르게 대하게 된다. 이 앱이 없애려던 경험이다 (ADR-22)
     stubFetch(hostState());
     renderConsole("/host/e1/players");
-    await screen.findByLabelText(HOST_UI.invites.addLabel);
+    await screen.findByText(HOST_UI.invites.title);
 
     // 참가자 탭에는 안 보인다. 현황 탭의 순위와는 자리가 다르다 (ADR-30)
     expect(document.body.textContent).not.toContain("받은 콕");
@@ -336,7 +456,7 @@ describe("운영자 콘솔", () => {
     const st = hostState();
     stubFetch(st);
     renderConsole("/host/e1/players");
-    await screen.findByLabelText(HOST_UI.invites.addLabel);
+    await screen.findByText(HOST_UI.invites.title);
 
     const card = screen.getAllByRole("button").find((b) => b.textContent?.includes(st.players[0].realName));
     expect(card, "실명이 카드 앞면에 있어야 한다").toBeTruthy();

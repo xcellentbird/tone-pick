@@ -18,7 +18,8 @@
 | `/host/events` `/host/defaults` | 회차 목록 · 기본 설정 |
 | `/host/new/1..3` | 새 회차 위저드 |
 | `/host/:id` `/players` `/seats` `/settings` | 콘솔 4탭 |
-| `/host/:id/players/:pid` | 참가자 상세 시트 (모달). **명단은 시트가 아니라 참가자 탭 목록에 합쳐져 있다** (ADR-32) |
+| `/host/:id/players/:pid` | 참가자 상세 시트 (모달) |
+| `/host/:id/players/invites` | **입장 명단 시트** (모달) — 참가자 탭 맨 위 카드가 연다. 더하기·안내문·아직 등록 안 한 사람이 전부 여기 (ADR-33 후기). `invites` 는 참가자 아이디와 겹치지 않는다 |
 | `/host/:id/seats/:mode` | 테이블 수 고르기 시트 (모달) — `new` · `final` |
 
 **새로고침해도 같은 화면이 나와야 한다.** 참가자 식별은 URL 이 아니라 HttpOnly 세션 쿠키로 한다.
