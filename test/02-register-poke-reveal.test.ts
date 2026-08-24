@@ -589,7 +589,7 @@ describe("콕", () => {
     });
     expect(third.status).toBe(409);
     expect(third.body.error).toBe("no_budget");
-    expect(third.body.message).toBe(POKE.blocked.noBudget(2));
+    expect(third.body.message).toBe(POKE.blocked.anyNoBudget(2));
 
     // 파티 라운드로 넘어가면 새 예산이 지급되고, 사전 투표에서 찌른 건 그대로 남는다
     await setPhase(ev.id, "party");
@@ -656,7 +656,7 @@ describe("콕", () => {
       body: { toId: her.id },
     });
     expect(early.status).toBe(409);
-    expect(early.body.message).toBe(POKE.blocked.closed);
+    expect(early.body.message).toBe(POKE.blocked.anyClosed);
 
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");

@@ -74,6 +74,22 @@ export const UNIT = {
 /** 확인창 한 줄에 들어가는 짧은 꼴. 단계 이름 전체(`매력 투표`)는 여기 넣기엔 길다 */
 const roundName = (r: PokeRound) => (r === "pre" ? "사전" : "파티");
 
+/**
+ * 라운드마다 **하는 일의 이름이 다르다** (ADR-34).
+ *
+ * ⚠️ **매력 투표에서 '콕' 이라는 말을 쓰지 마라.** 파티의 콕과 헷갈린다 —
+ * 둘은 쓰임이 아예 다르다. 매력 투표는 첫 자리 배정의 재료이고, 콕은 매칭의 재료다.
+ * 참가자가 그 둘을 같은 것으로 읽으면 "아까 찔렀는데 왜 또?" 가 된다.
+ *
+ * 이모지도 가른다. 같은 👉 를 두 라운드에 쓰면 화면만 보고는 지금 무엇을 하는지 알 수 없다.
+ */
+export const ACT = {
+  name: (r: PokeRound) => (r === "pre" ? "매력 투표" : "콕 찌르기"),
+  /** 문장 안에서 쓰는 짧은 꼴 — `${verb}를 모두 썼어요` */
+  verb: (r: PokeRound) => (r === "pre" ? "투표" : "콕"),
+  emoji: (r: PokeRound) => (r === "pre" ? "✨" : "👉"),
+} as const;
+
 /** 남은 시간·차이 표기. 숫자 계산은 `time.ts` 가 하고 여기서는 조립만 한다 */
 export const DURATION = {
   dayHour: (d: number, h: number) => (h ? `${d}일 ${h}시간` : `${d}일`),
@@ -207,25 +223,39 @@ export const REGISTER = {
 export const POKE = {
   /** 찌를 수 없는 상황 — 버튼을 누르면 뜨는 토스트 */
   blocked: {
-    closed: "지금은 콕을 찌를 수 있는 시간이 아니에요",
-    sameGender: "이성에게만 찌를 수 있어요",
-    noBudget: (max: number) => `이번 라운드 콕을 모두 썼어요 (최대 ${max}회)`,
+    closed: (r: PokeRound) => `지금은 ${ACT.name(r)} 시간이 아니에요`,
+    sameGender: "이성에게만 고를 수 있어요",
+    noBudget: (r: PokeRound, max: number) => `이번 라운드 ${ACT.verb(r)}를 모두 썼어요 (최대 ${max}회)`,
+    /**
+     * 서버가 쓰는 꼴. **서버는 라운드를 모른다** — `pokeMessage` 는 실패 사유만 받는다.
+     * 그래서 어느 라운드에서도 어색하지 않게 중립으로 쓴다.
+     * 화면이 먼저 막으므로 여기까지 오는 건 단계가 방금 바뀐 경우뿐이다.
+     */
+    anyClosed: "지금은 보낼 수 있는 시간이 아니에요",
+    anyNoBudget: (max: number) => `이번 라운드 횟수를 모두 썼어요 (최대 ${max}회)`,
   },
 
   /** 확인 다이얼로그 — `+` 에만 붙는다. 되돌리기에는 붙이지 않는다 (되돌릴 수 있는 행동이다) */
   confirm: {
-    title: (already: number) => (already > 0 ? "한 번 더 콕 찌를까요?" : "이 사람을 콕 찌를까요?"),
-    rowTarget: "이 사람에게 보낸 콕",
-    rowBudget: (round: PokeRound) => `${roundName(round)} 남은 횟수`,
+    title: (r: PokeRound, already: number) =>
+      r === "pre"
+        ? already > 0
+          ? "한 번 더 투표할까요?"
+          : "이 사람에게 투표할까요?"
+        : already > 0
+          ? "한 번 더 콕 찌를까요?"
+          : "이 사람을 콕 찌를까요?",
+    rowTarget: (r: PokeRound) => (r === "pre" ? "이 사람에게 한 투표" : "이 사람에게 보낸 콕"),
+    rowBudget: (r: PokeRound) => `${roundName(r)} 남은 횟수`,
     /**
      * 되돌릴 수 있는 회차인지에 따라 문장이 갈린다 (ADR-34).
      * **못 무르는 회차에서 그 사실을 말하지 않으면** 참가자는 무를 수 있는 줄 알고 누른다.
      */
-    note: (canUndo: boolean) =>
+    note: (r: PokeRound, canUndo: boolean) =>
       canUndo
-        ? "상대에게는 누가 찔렀는지 보이지 않아요.\n마음이 바뀌면 되돌릴 수 있어요."
-        : "상대에게는 누가 찔렀는지 보이지 않아요.\n한 번 보낸 콕은 되돌릴 수 없어요.",
-    submit: "콕 찌르기",
+        ? `상대에게는 누가 골랐는지 보이지 않아요.\n마음이 바뀌면 되돌릴 수 있어요.`
+        : `상대에게는 누가 골랐는지 보이지 않아요.\n한 번 보낸 ${ACT.verb(r)}은 되돌릴 수 없어요.`,
+    submit: (r: PokeRound) => ACT.name(r),
   },
 
   /** 되돌리기. 확인창을 붙이지 않는다 — 되돌리는 것 자체가 되돌리기다 */
@@ -235,7 +265,7 @@ export const POKE = {
   },
 
   /** 누적·남은 횟수는 방금 확인창과 상단 상시 표시가 이미 말했다 — 세 번째로 반복하지 않는다 */
-  sent: (nick: string) => `${nick}님에게 콕!`,
+  sent: (r: PokeRound, nick: string) => (r === "pre" ? `${nick}님에게 투표했어요` : `${nick}님에게 콕!`),
   /** 익명으로 도착한 콕. **한 번 받을 때마다 한 줄**로 쌓인다 */
   received: "누군가 콕! 찔렀어요",
   receivedNote: "누구인지는 비밀이에요",
@@ -298,7 +328,7 @@ export const PEOPLE = {
    * 눌리지 않는 콕 버튼으로 읽힌다 — 사이에 필터 줄이 들어간 지금도 마찬가지다.
    * 숫자는 `UNIT.times` 가 만든다. **62px 안에 들어가야 한다** — 길어지면 칸이 흔들린다.
    */
-  pokeLeftLabel: "남은 콕",
+  pokeLeftLabel: (r: PokeRound) => `남은 ${ACT.verb(r)}`,
   /**
    * 내 카드를 누르면 어디로 가는지. **화면에는 보이지 않고** 스크린리더에만 읽힌다 (`.srOnly`).
    *
@@ -760,7 +790,7 @@ export const REVEAL = {
 
 export const STATUS = {
   /** 파티 중 참가자가 가장 자주 확인하는 숫자 */
-  pokeLeft: (n: number) => `콕 ${n}회 남음`,
+  pokeLeft: (r: PokeRound, n: number) => `${ACT.verb(r)} ${n}회 남음`,
   /**
    * 카운트다운이 향하는 곳은 **일정에 실제로 적힌 시각**뿐이다.
    * 투표 마감과 발표는 운영자가 누르는 것이라 셀 수 있는 시각이 없다 —

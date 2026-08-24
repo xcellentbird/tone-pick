@@ -99,6 +99,18 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
   };
 }
 
+/**
+ * 확인창 안의 버튼. **명단의 콕 버튼과 글자가 같다** — 라운드 이름이 곧 버튼 이름이라(ADR-34)
+ * `getByText` 로는 갈리지 않는다. 창 안의 버튼만 `btn wide` 를 쓴다.
+ */
+function dialogBtn(label: string) {
+  const found = screen
+    .getAllByRole("button")
+    .find((b) => b.className.includes("btn wide") && b.textContent === label);
+  if (!found) throw new Error(`확인창에 "${label}" 버튼이 없다`);
+  return found;
+}
+
 function renderParticipant(
   source: ParticipantSource,
   profileId?: string,
@@ -432,17 +444,17 @@ describe("참가자 화면 · 콕", () => {
     renderParticipant(source);
     await screen.findByText(/그녀/);
 
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
 
     // 이미 1회 보냈으므로 "한 번 더" 쪽 문장이다
-    await screen.findByText(POKE.confirm.title(1));
-    expect(screen.getByText(POKE.confirm.rowTarget)).toBeTruthy();
+    await screen.findByText(POKE.confirm.title("pre", 1));
+    expect(screen.getByText(POKE.confirm.rowTarget("pre"))).toBeTruthy();
     // 보낸 콕 2회 · 남은 횟수 1회 — 무엇이 어떻게 바뀌는지 숫자로
     expect(screen.getAllByText(UNIT.times(2)).length).toBeGreaterThan(0);
     expect(screen.getAllByText(UNIT.times(1)).length).toBeGreaterThan(0);
     expect(source.calls.poke).toEqual([]);   // 아직 보내지 않았다
 
-    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    fireEvent.click(dialogBtn(POKE.confirm.submit("pre")));
     await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
   });
 
@@ -462,9 +474,9 @@ describe("참가자 화면 · 콕", () => {
     renderParticipant(source);
     await screen.findByText(/그녀/);
 
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
-    await screen.findByText(POKE.confirm.title(1));
-    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 1));
+    fireEvent.click(dialogBtn(POKE.confirm.submit("pre")));
 
     // 서버는 아직 답하지 않았다. 그런데 화면은 이미 2회다
     await screen.findByText("2");
@@ -479,17 +491,17 @@ describe("참가자 화면 · 콕", () => {
   it("★ 서버가 거절하면 되돌린다 — 쓰지도 않은 콕이 쓴 것으로 남지 않는다", async () => {
     const source = fakeSource({
       poke: async () => {
-        throw new ApiError(409, "closed", POKE.blocked.closed);
+        throw new ApiError(409, "closed", POKE.blocked.closed("pre"));
       },
     });
     renderParticipant(source);
     await screen.findByText(/그녀/);
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
-    await screen.findByText(POKE.confirm.title(1));
-    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 1));
+    fireEvent.click(dialogBtn(POKE.confirm.submit("pre")));
 
     // 잠깐 2회로 보였다가 1회로 돌아온다
-    await screen.findByText(POKE.blocked.closed);
+    await screen.findByText(POKE.blocked.closed("pre"));
     await waitFor(() => expect(screen.queryByText("2")).toBeNull());
     expect(screen.getByText("1")).toBeTruthy();
   });
@@ -509,15 +521,15 @@ describe("참가자 화면 · 콕", () => {
     });
     renderParticipant(source);
     await screen.findByText(/그녀/);
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
-    await screen.findByText(POKE.confirm.title(1));
-    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 1));
+    fireEvent.click(dialogBtn(POKE.confirm.submit("pre")));
     await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
 
     // 답이 오기 전에 또 누른다
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
-    await screen.findByText(POKE.confirm.title(2));
-    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 2));
+    fireEvent.click(dialogBtn(POKE.confirm.submit("pre")));
     await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
 
     release(POKE_STATE);
@@ -553,7 +565,7 @@ describe("참가자 화면 · 콕", () => {
      */
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
-    const btn = screen.getAllByLabelText(POKE.confirm.submit)[0];
+    const btn = screen.getAllByLabelText(POKE.confirm.submit("pre"))[0];
     // 이미 1회 보냈다 (sentTo.her = 1). 그 숫자가 버튼 안에 있다
     expect(btn.querySelector(".n")?.textContent).toBe("1");
     expect(btn.classList.contains("on")).toBe(true);
@@ -567,7 +579,7 @@ describe("참가자 화면 · 콕", () => {
     });
     renderParticipant(source);
     await screen.findByText(/그녀/);
-    expect((screen.getAllByLabelText(POKE.confirm.submit)[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByLabelText(POKE.confirm.submit("party"))[0] as HTMLButtonElement).disabled).toBe(true);
   });
 });
 
@@ -667,19 +679,23 @@ describe("참가자 화면 · 어깨너머 가리기", () => {
     return screen.getAllByRole("button").filter((b) => b.className.includes("pokeBtn"));
   }
 
-  it("★ 되돌리기 버튼은 찌른 사람에게만 나오고, 가리면 함께 사라진다 (ADR-34)", async () => {
+  it("★ 되돌리기는 행이 아니라 확인창 안에 있다 (ADR-34)", async () => {
     /*
-     * 되돌리기가 가린 동안에도 보이면 **"이 사람을 찔렀다" 가 그대로 샌다** —
+     * 행에 버튼을 하나 더 두면 카드가 화면 밖으로 밀리고,
+     * **가린 동안 그 버튼이 보이면 "이 사람을 골랐다" 가 그대로 샌다** —
      * 이 슬라이스의 불변식이 되돌리기 버튼 하나로 깨진다.
+     * 창은 이미 숫자를 보여주고 있으니 거기 둔다.
      */
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
 
-    // POKE_STATE 는 한 명만 찔렀다 — 되돌리기도 하나뿐이다
-    expect(screen.getAllByLabelText(POKE.undo.btn)).toHaveLength(1);
+    // 행에는 없다 — 버튼은 하나뿐이다
+    expect(screen.queryAllByText(POKE.undo.btn)).toHaveLength(0);
 
-    fireEvent.click(screen.getByText(PEOPLE.cover));
-    expect(screen.queryAllByLabelText(POKE.undo.btn)).toHaveLength(0);
+    // 이미 찌른 사람의 창을 열면 그 안에 있다 (POKE_STATE 는 her 를 1회 찔렀다)
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 1));
+    expect(screen.getByText(POKE.undo.btn)).toBeTruthy();
   });
 
   it("★ 가리면 찌른 버튼과 안 찌른 버튼이 구별되지 않는다", async () => {
@@ -711,7 +727,7 @@ describe("참가자 화면 · 어깨너머 가리기", () => {
     fireEvent.click(screen.getByText(PEOPLE.cover));
 
     fireEvent.click(pokeButtons()[0]);
-    expect(screen.queryByText(POKE.confirm.submit)).toBeNull();
+    expect(() => dialogBtn(POKE.confirm.submit("pre"))).toThrow();
     expect(source.calls.poke).toEqual([]);
   });
 
@@ -725,7 +741,7 @@ describe("참가자 화면 · 어깨너머 가리기", () => {
     // 가린 채로 프로필을 연다
     renderParticipant(fakeSource(), "her");
     await screen.findByText(PEOPLE.charmTitle);
-    expect(screen.queryByLabelText(POKE.confirm.submit)).toBeNull();
+    expect(screen.queryByLabelText(POKE.confirm.submit("pre"))).toBeNull();
     expect(screen.getAllByLabelText(PEOPLE.coveredPoke).length).toBeGreaterThan(1);
   });
 
@@ -1048,7 +1064,7 @@ describe("발표 후 참가자 탭", () => {
      */
     renderParticipant(revealed());
     await screen.findByText(/그녀/);
-    expect(screen.queryAllByLabelText(POKE.confirm.submit)).toHaveLength(0);
+    expect(screen.queryAllByLabelText(POKE.confirm.submit("pre"))).toHaveLength(0);
   });
 
   it("★ 서로 찌른 사람은 목록에서 글자로도 구분된다 — 색만으로 말하지 않는다", async () => {
@@ -1361,7 +1377,7 @@ describe("상단 바", () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
     // 내 카드 오른쪽 칸 하나뿐이다 (예산 3, 1회 씀 → 2회 남음)
-    expect(screen.getAllByText(PEOPLE.pokeLeftLabel)).toHaveLength(1);
+    expect(screen.getAllByText(PEOPLE.pokeLeftLabel("pre"))).toHaveLength(1);
     expect(screen.getAllByText(UNIT.times(2))).toHaveLength(1);
   });
 
@@ -1677,7 +1693,7 @@ describe("참가자 탭 · 내 카드", () => {
     renderParticipant(fakeSource());
     await screen.findByText(PEOPLE.mine);
     // 목록에는 '그녀' 하나뿐이니 콕 버튼도 하나뿐이어야 한다 — 내 것이 생기면 둘이 된다
-    expect(screen.getAllByLabelText(POKE.confirm.submit).length).toBe(1);
+    expect(screen.getAllByLabelText(POKE.confirm.submit("pre")).length).toBe(1);
   });
 });
 
@@ -1899,7 +1915,7 @@ describe("탭 역할 분담", () => {
     renderTab("home", { poke: { ...POKE_STATE, budget: { pre: { max: 1, used: 1 }, party: { max: 2, used: 0 } } } });
     await screen.findByText(HOME.spent.prevote.title);
     expect(screen.queryByText(HOME.todo.prevote.title)).toBeNull();
-    expect(screen.queryByText(STATUS.pokeLeft(0))).toBeNull();
+    expect(screen.queryByText(STATUS.pokeLeft("pre", 0))).toBeNull();
     // 명단 구경은 여전히 된다
     expect(screen.getByText(HOME.goPeople)).toBeTruthy();
   });
@@ -1929,11 +1945,11 @@ describe("시트와 확인창", () => {
     renderParticipant(source);
     await screen.findByText(/그녀/);
 
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
-    await screen.findByText(POKE.confirm.title(1));
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 1));
 
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByText(POKE.confirm.title(1))).toBeNull());
+    await waitFor(() => expect(screen.queryByText(POKE.confirm.title("pre", 1))).toBeNull());
     expect(source.calls.poke).toEqual([]);
   });
 
@@ -1941,8 +1957,8 @@ describe("시트와 확인창", () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
 
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
     const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain(POKE.confirm.title(1));
+    expect(dialog.textContent).toContain(POKE.confirm.title("pre", 1));
   });
 });

@@ -8,8 +8,8 @@
  * 되돌리기는 지금 화면에 두지 않는다. 그래서 확인창이 "되돌릴 수 없다"고 분명히 말한다.
  */
 import { useRef, useState } from "react";
-import { BTN, ME, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
-import type { MatchInfo, MyPokeState, ParticipantState, Phase, Player, PublicPlayer } from "../../shared/types.ts";
+import { ACT, BTN, ME, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
+import type { MatchInfo, MyPokeState, ParticipantState, Phase, Player, PokeRound, PublicPlayer } from "../../shared/types.ts";
 import type { Tab } from "./Participant.tsx";
 import { canPoke } from "../../shared/phase.ts";
 import { afterPoke } from "../../shared/poke.ts";
@@ -92,7 +92,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       toast(POKE.undo.done(target.nickname));
     } catch (e) {
       setPoke(before);
-      toast(e instanceof ApiError && e.userMessage ? e.userMessage : POKE.blocked.closed);
+      toast(e instanceof ApiError && e.userMessage ? e.userMessage : POKE.blocked.closed(round));
     } finally {
       sending.current = false;
     }
@@ -100,20 +100,22 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
 
   async function send(target: PublicPlayer) {
     const already = state.poke.sentTo[target.id] ?? 0;
-    if (!open) return toast(POKE.blocked.closed);
+    if (!open) return toast(POKE.blocked.closed(round));
     if (!sameGenderOk && target.gender === state.me.gender) return toast(POKE.blocked.sameGender);
-    if (budget.used >= budget.max) return toast(POKE.blocked.noBudget(budget.max));
+    if (budget.used >= budget.max) return toast(POKE.blocked.noBudget(round, budget.max));
 
     // 확인창은 무엇이 어떻게 바뀌는지 숫자로 보여준다
     confirm(
       {
-        btn: POKE.confirm.submit,
-        title: POKE.confirm.title(already),
-        note: POKE.confirm.note(canUndo),
+        btn: POKE.confirm.submit(round),
+        title: POKE.confirm.title(round, already),
+        note: POKE.confirm.note(round, canUndo),
         facts: [
-          [POKE.confirm.rowTarget, UNIT.times(already + 1)],
+          [POKE.confirm.rowTarget(round), UNIT.times(already + 1)],
           [POKE.confirm.rowBudget(round), UNIT.times(budget.max - budget.used - 1)],
         ],
+        // 이미 보낸 적이 있고 되돌릴 수 있을 때만. 창이 숫자를 이미 보여주고 있다
+        ...(already > 0 && canUndo ? { second: { label: POKE.undo.btn, run: () => undo(target) } } : {}),
       },
       async () => {
         /*
@@ -133,11 +135,11 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
         setPoke(afterPoke(before, target.id, round));
         try {
           setPoke(await source.poke(target.id));
-          toast(POKE.sent(target.nickname));
+          toast(POKE.sent(round, target.nickname));
         } catch (e) {
           // 되돌리지 않으면 **쓰지도 않은 콕이 쓴 것으로 보인다**
           setPoke(before);
-          toast(e instanceof ApiError && e.userMessage ? e.userMessage : POKE.blocked.closed);
+          toast(e instanceof ApiError && e.userMessage ? e.userMessage : POKE.blocked.closed(round));
         } finally {
           sending.current = false;
         }
@@ -165,7 +167,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
         {open && (
           <div className="mineCell">
             <span className="n">{UNIT.times(budget.max - budget.used)}</span>
-            <span className="t">{PEOPLE.pokeLeftLabel}</span>
+            <span className="t">{PEOPLE.pokeLeftLabel(round)}</span>
           </div>
         )}
       </div>
@@ -274,8 +276,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
                   disabled={!open}
                   covered={covered}
                   onSend={() => send(p)}
-                  onUndo={() => void undo(p)}
-                  canUndo={canUndo}
+                  round={round}
                 />
               )}
             </div>
@@ -319,8 +320,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
               {!revealed && (
                 <PokeControls
                   count={state.poke.sentTo[profile.id] ?? 0}
-                  onUndo={() => void undo(profile)}
-                  canUndo={canUndo}
+                  round={round}
                   disabled={!open}
                   covered={covered}
                   onSend={() => send(profile)}
@@ -439,18 +439,16 @@ function PokeControls({
   count,
   disabled,
   covered,
-  canUndo,
+  round,
   onSend,
-  onUndo,
 }: {
   count: number;
   disabled: boolean;
+  /** 라운드가 이름과 이모지를 정한다 (ADR-34) */
+  round: PokeRound;
   /** 어깨너머 가리기 (슬라이스 16) */
   covered?: boolean;
-  /** 되돌릴 수 있는 회차인가 (ADR-34). 매력 투표는 언제나 참이다 */
-  canUndo: boolean;
   onSend: () => void;
-  onUndo: () => void;
 }) {
   /*
    * **찌른 버튼과 안 찌른 버튼이 구별되지 않아야 한다.** 이 슬라이스의 유일한 불변식이다.
@@ -481,22 +479,17 @@ function PokeControls({
   return (
     <div className="pokeCell">
       {/*
-        되돌리기는 **찌른 뒤에만, 가리지 않은 동안에만** 나온다.
-        가린 동안 이 버튼이 보이면 "이 사람을 찔렀다" 가 그대로 새어 — 위의 불변식이 깨진다.
-        (가린 경우는 위에서 이미 통째로 갈라져 나갔다.)
+        **버튼은 하나뿐이다.** 되돌리기를 옆에 두면 한 줄에 둘이 되어 카드가 화면 밖으로 밀린다 —
+        그리고 가린 동안 그 버튼이 보이면 "이 사람을 골랐다" 가 그대로 샌다.
+        되돌리기는 **확인창 안**으로 갔다 (ADR-34).
       */}
-      {count > 0 && canUndo && (
-        <button className="pokeBtn" disabled={disabled} onClick={onUndo} aria-label={POKE.undo.btn}>
-          <span aria-hidden>↩︎</span>
-        </button>
-      )}
       <button
         className={`pokeBtn ${count > 0 ? "on" : ""}`}
         disabled={disabled}
         onClick={onSend}
-        aria-label={POKE.confirm.submit}
+        aria-label={POKE.confirm.submit(round)}
       >
-        <span aria-hidden>👉</span>
+        <span aria-hidden>{ACT.emoji(round)}</span>
         {count > 0 && <span className="n">{count}</span>}
       </button>
     </div>
