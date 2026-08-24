@@ -389,7 +389,7 @@ describe("되돌리기", () => {
     const sched = await api(`/api/host/events/${ev.id}/schedule`, {
       method: "PUT",
       cookie: master,
-      body: { regOpenAt: past - 60_000, prevoteAt: past },
+      body: { prevoteAt: past },
     });
     expect(sched.status).toBe(200);
     await setPhase(ev.id, "prevote");

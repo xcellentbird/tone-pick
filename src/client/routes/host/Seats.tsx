@@ -16,7 +16,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
-import type { Player, SeatingRound } from "../../../shared/types.ts";
+import type { Attendance, Player, SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
@@ -228,6 +228,7 @@ export default function Seats() {
       <Sheet open={!!mode} onClose={() => navigate(-1)} title={HOST_UI.seats.tableCount}>
         <TablePicker
           players={state.players}
+          attendance={state.attendance}
           pairs={state.mutual.length}
           final={mode === "final"}
           start={lastTableCount}
@@ -309,6 +310,7 @@ export default function Seats() {
  */
 function TablePicker({
   players,
+  attendance,
   pairs,
   final,
   start,
@@ -316,6 +318,8 @@ function TablePicker({
   onGo,
 }: {
   players: Player[];
+  /** 참석 상태 (ADR-33). 뺄 사람을 **제안**하는 데만 쓴다 — 고르는 건 사람이다 */
+  attendance: Record<string, Attendance>;
   pairs: number;
   final: boolean;
   start: number;
@@ -327,8 +331,14 @@ function TablePicker({
    * **이번 라운드에서만** 뺀다. 참가자에게 붙는 상태를 만들지 않는다 —
    * 노쇼는 다음 라운드에 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다.
    * 그래서 시트를 닫으면 함께 사라진다.
+   *
+   * **아직 안 온 사람으로 시작한다** (ADR-39). 첫 자리를 짜는 때는 대개 사람들이
+   * 오는 중이라, 전원 배정으로 시작하면 운영자가 매번 같은 목록을 손으로 골라야 한다.
+   * 제안일 뿐이라 그대로 눌러서 되돌릴 수 있다 — 참석 상태가 없는 회차에서는 전원이 남는다.
    */
-  const [out, setOut] = useState<Set<string>>(new Set());
+  const [out, setOut] = useState<Set<string>>(
+    () => new Set(players.filter((p) => attendance[p.id] !== "arrived").map((p) => p.id)),
+  );
   const [open, setOpen] = useState(false);
   const seated = players.filter((p) => !out.has(p.id));
   const people = seated.length;

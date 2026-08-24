@@ -7,16 +7,22 @@
  * **다시 열 때는 확인을 받지 않는다** (슬라이스 12). 늦게 도착해 앱을 처음 켠 사람에게
  * 전체 화면이 덮치면 반사적으로 누르기 쉬운데, 그때 테이블 번호를 못 읽고 사라진다 —
  * 그래서 홈에서 다시 열 수 있게 했다. 이미 센 사람을 또 세면 `acks` 가 뜻을 잃는다.
+ *
+ * **파티 전에도 뜬다** (ADR-39). 그때 이 화면을 받는 사람은 아직 오는 중일 수 있어서
+ * 문장이 달라진다 — 옮기라는 말도, 지켜본다는 말도 그 사람에게는 재촉이다.
  */
 import { BTN, SEAT } from "../../shared/copy.ts";
 import type { MySeat } from "../../shared/types.ts";
 
 export default function SeatTakeover({
   seat,
+  started,
   onAck,
   onClose,
 }: {
   seat: MySeat;
+  /** 파티가 시작됐나. 첫 자리는 시작 전에 나간다 (ADR-39) */
+  started: boolean;
   /** 아직 확인 안 한 사람에게만 온다 */
   onAck?: () => void;
   /** 다시 연 경우. 닫기만 있다 */
@@ -26,14 +32,16 @@ export default function SeatTakeover({
     <div className="takeover">
       {/* 마지막 자리라는 사실은 참가자에게 알리지 않는다 — kicker 가 알아서 문장을 고른다 */}
       <div className="kicker">{SEAT.ack.kicker(seat.round)}</div>
-      <div className="table">{SEAT.ack.headline(seat.table)}</div>
+      <div className="table">{SEAT.ack.headline(seat.table, started)}</div>
       <div className="dim">{SEAT.ack.mates(seat.mates, seat.men)}</div>
+      {!started && <div className="dim">{SEAT.ack.beforeParty}</div>}
       {onAck ? (
         <>
           <button className="btn primary block" onClick={onAck}>
-            {SEAT.ack.submit}
+            {SEAT.ack.submit(started)}
           </button>
-          <div className="tiny dim">{SEAT.ack.watching}</div>
+          {/* 파티 전에는 띄우지 않는다 — 오는 중인 사람에게 "지켜보고 있다" 는 재촉이다 */}
+          {started && <div className="tiny dim">{SEAT.ack.watching}</div>}
         </>
       ) : (
         <button className="btn block" onClick={onClose}>

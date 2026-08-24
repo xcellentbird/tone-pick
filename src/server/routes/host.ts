@@ -67,6 +67,7 @@ hostRoutes.put("/defaults", async (c) => {
       maxParty: body.maxParty,
       place: String(body.place ?? "").trim().slice(0, LIMITS.placeMax),
       prevoteBeforeH: body.prevoteBeforeH,
+      voteEndBeforeH: body.voteEndBeforeH,
       inviteTemplate: String(body.inviteTemplate ?? "").slice(0, LIMITS.inviteTemplateMax),
     }),
   );
@@ -105,7 +106,8 @@ hostRoutes.post("/events", async (c) => {
    */
   const partyAt = Number(body.partyAt);
   const prevoteAt = Number(body.prevoteAt);
-  if (![partyAt, prevoteAt].every(Number.isFinite)) return apiError(c, "bad_request");
+  const voteEndAt = Number(body.voteEndAt);
+  if (![partyAt, prevoteAt, voteEndAt].every(Number.isFinite)) return apiError(c, "bad_request");
 
   const reserved = await registry(c.env).reserve({
     code: body.code,
@@ -123,7 +125,7 @@ hostRoutes.post("/events", async (c) => {
     // 만드는 순간 등록이 열린다. 시각은 **기록으로** 남긴다 — 지나간 예약을 지우지 않는 것과 같다
     phase: "reg",
     fired: { reg: now },
-    schedule: { partyAt, regOpenAt: now, prevoteAt },
+    schedule: { partyAt, regOpenAt: now, prevoteAt, voteEndAt },
     // 좁혔을 때만 적는다. 기본값을 굳이 써 넣으면 설정의 모양이 회차마다 달라진다
     config: {
       maxPre: body.config.maxPre,
@@ -418,6 +420,8 @@ function validDefaults(d: Defaults): boolean {
     validConfig(d) &&
     (d.place === undefined || typeof d.place === "string") &&
     Number.isFinite(d.prevoteBeforeH) &&
-    d.prevoteBeforeH >= 0
+    d.prevoteBeforeH >= 0 &&
+    Number.isFinite(d.voteEndBeforeH) &&
+    d.voteEndBeforeH >= 0
   );
 }

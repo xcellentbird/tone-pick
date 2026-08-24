@@ -68,6 +68,7 @@ async function freshEvent(): Promise<EventMeta> {
       pin: String(4000 + seq),
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
+      voteEndAt: Date.now() + 3 * 24 * HOUR - HOUR,
       config: { maxPre: 2, maxParty: 3 },
       requestId: `a-${seq}-${Date.now()}`,
     },

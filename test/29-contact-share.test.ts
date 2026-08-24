@@ -163,7 +163,7 @@ describe("고르는 때", () => {
     expect(open.status, JSON.stringify(open.body)).toBe(200);
 
     /*
-     * 사전 투표부터는 잠긴다 (ADR-31). **이 잠금이 ADR-37 의 방패다** —
+     * 사전 투표부터는 잠긴다 (ADR-31). **이 잠금이 ADR-39 의 방패다** —
      * 발표를 보고 나서 고칠 수 있으면 안 여는 것이 이름 붙은 거절이 된다.
      */
     await setPhase(ev.id, "prevote");

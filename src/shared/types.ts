@@ -153,6 +153,16 @@ export interface EventSchedule {
   partyAt?: number;
   regOpenAt?: number;
   prevoteAt?: number;
+  /**
+   * 매력 투표가 닫히는 시각 (ADR-39). 기본은 파티 **1시간 전**.
+   *
+   * **전환이 아니라 판정이다.** 알람이 울리지 않고 `phase` 도 그대로 `prevote` 다 —
+   * `canPoke()` 가 서버 시각과 견줘 답할 뿐이다. 그래서 `fired` 에 짝이 없다.
+   *
+   * 시각으로 못 박은 이유는 **현장이 아니라 준비가 이 시각을 쓰기** 때문이다.
+   * 마감돼야 자리를 짤 수 있고, 짜는 데 시간이 걸린다 (ADR-14 예외).
+   */
+  voteEndAt?: number;
 }
 
 /** 실제로 전환이 일어난 시각. 예약은 여기가 비어 있을 때만 한 번 울린다. (ADR-2) */
@@ -224,6 +234,7 @@ export interface Defaults extends EventConfig {
   /** 파티 장소. 늘 같은 곳에서 여는 모임이라 여기 둔다 — 회차마다 고칠 수 있다 (ADR-38) */
   place: string;
   prevoteBeforeH: number;   // 파티 N시간 전에 매력 투표 시작
+  voteEndBeforeH: number;   // 파티 N시간 전에 매력 투표 마감 (ADR-39)
   /**
    * 참가자에게 보낼 안내문 (ADR-32). `{장소}` `{일시}` `{링크}` 를 회차가 채운다.
    * **회차마다 다시 쓰지 않는다** — 회차별 덮어쓰기는 만들지 않았다.
@@ -303,6 +314,8 @@ export interface CreateEventInput {
    * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열 이유가 없었다.
    */
   prevoteAt: number;
+  /** 매력 투표 마감 (ADR-39). 기본은 파티 1시간 전 */
+  voteEndAt: number;
   config: EventConfig;
   /** 멱등키. 같은 값으로 두 번 오면 같은 회차를 돌려준다 */
   requestId: string;
@@ -346,7 +359,6 @@ export type ErrorCode =
   | "forbidden"
   | "not_found"
   | "code_taken"
-  | "schedule_order"
   | "bad_request"
   // 슬라이스 02~05 에서 늘어난 것
   | "not_invited"    // 403 · 초대 명단에 없는 번호다
