@@ -254,7 +254,11 @@ describe("콕 상한", () => {
 // ─────────────────────────────────────────── 오늘의 연애운
 
 describe("오늘의 연애운", () => {
-  it("★ 파티가 시작돼야 열린다", async () => {
+  it("★ 매력 투표가 시작돼야 열린다 — 미션은 파티부터", async () => {
+    /*
+     * 운세는 읽는 것이라 미리 열려도 잃을 게 없다. **미션은 다르다** —
+     * 파티장에서만 할 수 있는 것이라 그 전에 뒤집으면 못 할 미션이 그대로 굳는다 (ADR-20 후기).
+     */
     const ev = await freshEvent();
     const me = await join(ev);
 
@@ -262,10 +266,12 @@ describe("오늘의 연애운", () => {
     expect(early.status).toBe(409);
 
     await setPhase(ev.id, "prevote");
-    expect((await api("/api/fortune", { method: "POST", cookie: me.cookie })).status).toBe(409);
+    expect((await api("/api/fortune", { method: "POST", cookie: me.cookie })).status).toBe(200);
+    // 운세는 열렸지만 미션은 아직이다
+    expect((await api("/api/fortune/mission", { method: "POST", cookie: me.cookie })).status).toBe(409);
 
     await setPhase(ev.id, "party");
-    expect((await api("/api/fortune", { method: "POST", cookie: me.cookie })).status).toBe(200);
+    expect((await api("/api/fortune/mission", { method: "POST", cookie: me.cookie })).status).toBe(200);
   });
 
   it("★ 한 번 연 운세는 다시 열어도 그대로다", async () => {

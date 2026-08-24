@@ -46,9 +46,24 @@ export function canPoke(phase: Phase): boolean {
 }
 
 /**
- * 오늘의 연애운은 **파티가 시작돼야** 열린다 (ADR-20).
+ * 오늘의 연애운은 **매력 투표가 시작되면** 열린다 (ADR-20 후기).
  * 발표 뒤에도 그대로 남는다 — 오늘 하루의 것이라 파티가 끝났다고 사라질 이유가 없다.
+ *
+ * 그 전에도 **탭은 자리를 지킨다** — 없다가 생기는 게 아니라 비활성으로 서 있다가 켜진다.
+ * 탭이 도중에 생기면 손가락이 기억한 자리가 어긋난다.
  */
 export function canOpenFortune(phase: Phase): boolean {
+  return phase === "prevote" || phase === "party" || phase === "done";
+}
+
+/**
+ * **미션만은 파티가 시작돼야 열린다** (ADR-20 후기).
+ *
+ * 미션은 "30분 안에 되고 실패해도 티가 나지 않는 것" 이고, 그 문장에는 **언제 할지**가
+ * 들어간다 — "자리를 옮기고 막 앉았을 때" 처럼 파티장에서만 성립하는 상황이다.
+ * 매력 투표는 파티 스무 시간 전에 열리므로, 그때 뒤집으면 할 수 없는 미션이
+ * **한 번 열면 그대로** 남는다 (ADR-20). 운세는 읽는 것이라 미리 열려도 잃을 게 없다.
+ */
+export function canOpenMission(phase: Phase): boolean {
   return phase === "party" || phase === "done";
 }
