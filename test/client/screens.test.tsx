@@ -2210,12 +2210,53 @@ describe("탭 역할 분담", () => {
     renderTab("home", { poke: { ...POKE_STATE, receivedCount: 3 } });
     await screen.findByText(HOME.news);
     // 세 번 받았으면 세 줄이다. "지금까지 3회" 한 줄이 아니다
-    expect(screen.getAllByText(POKE.received)).toHaveLength(3);
+    // 매력 투표 중이라 세 줄 다 투표로 불린다 — 줄마다 라운드를 말하지는 않는다 (ADR-46)
+    expect(screen.getAllByText(POKE.received("pre"))).toHaveLength(3);
 
     /* '재미' 는 맨 오른쪽에 붙는다 — 도중에 끼어들면 옆 탭들이 밀린다 */
     expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me", "fun"]);
     // 매력 투표 중이라 이미 켜져 있다 (ADR-20 후기)
     expect(funTab().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  /**
+   * 매력 투표 중에는 **콕이라고 부르지 않는다** (ADR-34).
+   *
+   * 그 단계에서 참가자는 콕을 찌른 적이 없다 — 표를 냈다. 받은 줄이 `콕! 찔렀어요` 라고 하면
+   * 화면이 말하는 것과 참가자가 겪은 것이 갈린다.
+   */
+  it("★ 매력 투표 중에 받은 줄은 투표라고 부른다", async () => {
+    renderTab("home", { poke: { ...POKE_STATE, receivedCount: 2 } });
+    await screen.findByText(HOME.news);
+
+    expect(screen.getAllByText(POKE.received("pre"))).toHaveLength(2);
+    expect(screen.queryByText(POKE.received("party"))).toBeNull();
+  });
+
+  /**
+   * 다만 **줄마다 라운드를 말하지는 않는다** (ADR-46).
+   *
+   * 어느 단계에서 받았는지가 드러나면 그때 누가 있었는지와 맞춰 발신자가 좁혀진다.
+   * 둘이 섞일 수 있는 자리에서는 목록 전체가 **한 이름**으로 불린다 —
+   * 한 줄만 다르게 부르면 그 줄이 어느 라운드였는지 말하는 셈이다.
+   */
+  it("★ 두 라운드가 섞일 수 있으면 중립으로 부른다 — 어느 줄이 어느 라운드인지 말하지 않는다", async () => {
+    const base = participantState();
+    renderTab("home", {
+      event: {
+        ...base.event,
+        phase: "party",
+        fired: { reg: 1, prevote: 2, party: 3 },
+        // 둘 다 켜져 있으면 받은 줄에 표와 콕이 함께 들어 있다
+        config: { ...base.event.config, preNotify: true, pokeNotify: true },
+      },
+      poke: { ...POKE_STATE, receivedCount: 3 },
+    });
+    await screen.findByText(HOME.news);
+
+    expect(screen.getAllByText(POKE.received(null))).toHaveLength(3);
+    expect(screen.queryByText(POKE.received("pre"))).toBeNull();
+    expect(screen.queryByText(POKE.received("party"))).toBeNull();
   });
 
   /**

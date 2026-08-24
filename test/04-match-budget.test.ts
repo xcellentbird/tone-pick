@@ -303,13 +303,14 @@ describe("콕 상한", () => {
     await api("/api/poke", { method: "POST", cookie: c.cookie, body: { toId: a.id } });
 
     const state = await api<{
-      sent: Record<string, number>;
+      sent: Record<"pre" | "party", Record<string, number>>;
       received: Record<"pre" | "party", Record<string, number>>;
       mutual: Array<[string, string]>;
     }>(`/api/host/events/${ev.id}/state`, { cookie: master });
 
-    // 숫자는 있다 — 순위가 그것으로 선다 (ADR-30). 받은 수는 라운드마다 따로다 (ADR-46)
-    expect(state.body.sent[a.id]).toBe(2);
+    // 숫자는 있다 — 순위가 그것으로 선다 (ADR-30). 보낸 수도 받은 수도 라운드마다 따로다 (ADR-46)
+    expect(state.body.sent.party[a.id]).toBe(2);
+    expect(state.body.sent.pre[a.id]).toBe(0);
     expect(state.body.received.party[b.id]).toBe(1);
 
     // 그런데 **짝으로 묶인 자리는 서로 찌른 쌍뿐이다.** b 는 어느 쌍에도 없다
