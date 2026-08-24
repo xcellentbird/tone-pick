@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
-import { BTN, ENTRY, ENV_BANNER, FAIL, HELP, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
+import { ACT, BTN, ENTRY, ENV_BANNER, FAIL, HELP, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
@@ -2308,6 +2308,17 @@ describe("탭 역할 분담", () => {
     // 다섯 줄이 두 이름으로 갈려 선다 — 합쳐서 "5회" 한 줄이 아니다
     expect(screen.getAllByText(POKE.received("pre"))).toHaveLength(2);
     expect(screen.getAllByText(POKE.received("party"))).toHaveLength(3);
+
+    /*
+     * **이모지도 버튼과 같다** (`ACT.emoji`). 참가자가 누른 버튼과 받은 줄이 같은 그림이면
+     * *내가 한 그 일을 누군가 나에게 했다* 가 글자 없이도 읽힌다.
+     * 하트 하나를 둘에 같이 쓰던 자리라, 갈렸다는 것이 그림으로도 보여야 한다.
+     */
+    const iconOf = (title: string) =>
+      screen.getAllByText(title).map((el) => el.closest(".banner")!.querySelector(".icon")!.textContent);
+    expect(iconOf(POKE.received("pre"))).toEqual([ACT.emoji("pre"), ACT.emoji("pre")]);
+    expect(iconOf(POKE.received("party"))).toEqual(Array(3).fill(ACT.emoji("party")));
+    expect(ACT.emoji("pre")).not.toBe(ACT.emoji("party"));
   });
 
   /**

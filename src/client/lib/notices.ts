@@ -5,7 +5,7 @@
  * 이미 보낸 알림을 어떻게 할 것인가"가 곧바로 생긴다. 파생시키면 상태가 하나뿐이라
  * 되돌리기만 해도 알림이 알아서 "되돌렸어요"로 바뀐다.
  */
-import { NOTICE, POKE } from "../../shared/copy.ts";
+import { ACT, NOTICE, POKE } from "../../shared/copy.ts";
 import type { ParticipantState, PokeRound } from "../../shared/types.ts";
 
 /**
@@ -89,7 +89,14 @@ export function noticesOf(state: ParticipantState): Notice[] {
     for (let i = 0; i < state.poke.received[round]; i++) {
       list.push({
         key: `poked:${round}:${i}`,
-        icon: "💘",
+        /*
+         * **버튼과 같은 이모지다** (`ACT.emoji`) — 매력 투표 ✨ · 파티 콕 👉.
+         *
+         * 하트 하나를 둘에 같이 쓰던 자리다. 참가자가 누른 버튼과 받은 줄이 같은 그림이면
+         * *내가 한 그 일을 누군가 나에게 했다* 가 글자 없이도 읽힌다.
+         * **여기서 이모지를 새로 고르지 마라** — 버튼이 바뀌면 이 줄도 함께 바뀌어야 한다.
+         */
+        icon: ACT.emoji(round),
         title: POKE.received(round),
         body: POKE.receivedNote,
         at: 0,
