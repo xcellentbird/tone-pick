@@ -16,7 +16,7 @@ import type {
   SeatingInput,
 } from "../../shared/types.ts";
 import { HOST, HOST_UI } from "../../shared/copy.ts";
-import { LIMITS } from "../../shared/constants.ts";
+import { LIMITS, RETENTION_DAYS } from "../../shared/constants.ts";
 import { PHASE_ORDER } from "../../shared/phase.ts";
 import { HOST_COOKIE, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
 import {
@@ -123,11 +123,16 @@ hostRoutes.post("/events", async (c) => {
     phase: openNow ? "reg" : "prep",
     fired: openNow ? { reg: now } : {},
     schedule: { partyAt, regOpenAt, prevoteAt },
-    // 좁혔을 때만 적는다. 기본값을 굳이 써 넣으면 설정의 모양이 회차마다 달라진다
+    // 좁혔을 때만 적는다. 기본값을 굳이 써 넣으면 설정의 모양이 회차마다 달라진다.
+    // **위저드가 고른 값은 여기서 버려지면 안 된다** — 파기 일수를 7일로 골라 놓고
+    // 3일 뒤에 사라지는 회차가 되면, 참가자에게 한 약속이 조용히 어긋난다
     config: {
       maxPre: body.config.maxPre,
       maxParty: body.config.maxParty,
       ...(body.config.allowSameGender === false ? { allowSameGender: false } : {}),
+      ...(body.config.retentionDays !== undefined && body.config.retentionDays !== RETENTION_DAYS
+        ? { retentionDays: body.config.retentionDays }
+        : {}),
     },
     createdAt: now,
   });

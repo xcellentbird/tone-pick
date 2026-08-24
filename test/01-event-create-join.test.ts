@@ -11,6 +11,7 @@
 import { SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ENTRY, HOST } from "../src/shared/copy.ts";
+import { RETENTION_DAYS } from "../src/shared/constants.ts";
 import type { CreateEventInput, EventMeta, EventSummary, PublicEvent } from "../src/shared/types.ts";
 
 const MASTER_PIN = "1234";
@@ -303,6 +304,39 @@ describe("B. 회차 생성", () => {
     // And   기존 회차 설정도 그대로다
     const kept = await api<EventMeta>(`/api/host/events/${ev.body.id}`, { cookie: master });
     expect(kept.body.config).toEqual({ maxPre: 5, maxParty: 9 });
+  });
+
+  /**
+   * 만들 때 고른 설정은 **버려지지 않는다.**
+   *
+   * 파기 대기 일수는 참가자에게 한 약속이다 — 등록 화면이 이 숫자를 읽는다.
+   * 7일로 골라 놓은 회차가 조용히 3일짜리가 되면, 그 사실은 회차가 사라진 뒤에야 드러난다.
+   * 콕 대상도 같다. 등록이 열린 뒤에 고치면 이미 명단을 훑은 사람의 전제가 바뀐다.
+   */
+  it("★ 만들 때 고른 콕 대상·파기 대기 일수가 그대로 저장된다", async () => {
+    const ev = await createEvent(master, {
+      config: { maxPre: 3, maxParty: 3, allowSameGender: false, retentionDays: 7 },
+    });
+    expect(ev.status).toBe(200);
+
+    const got = await api<EventMeta>(`/api/host/events/${ev.body.id}`, { cookie: master });
+    expect(got.body.config.allowSameGender).toBe(false);
+    expect(got.body.config.retentionDays).toBe(7);
+  });
+
+  it("기본값과 같으면 적지 않는다 — 설정 모양이 회차마다 달라지지 않게", async () => {
+    const ev = await createEvent(master, {
+      config: { maxPre: 3, maxParty: 3, allowSameGender: true, retentionDays: RETENTION_DAYS },
+    });
+    const got = await api<EventMeta>(`/api/host/events/${ev.body.id}`, { cookie: master });
+    expect(got.body.config).toEqual({ maxPre: 3, maxParty: 3 });
+  });
+
+  it("파기 대기 일수가 범위 밖이면 회차를 만들지 않는다", async () => {
+    for (const retentionDays of [0, 15, 1.5]) {
+      const res = await createEvent(master, { config: { maxPre: 3, maxParty: 3, retentionDays } });
+      expect(res.status, `retentionDays=${retentionDays}`).toBe(400);
+    }
   });
 });
 
