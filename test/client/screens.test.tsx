@@ -634,6 +634,58 @@ describe("파티 룰 도움말", () => {
     expect(now.closest("li")?.textContent).toContain(HELP.steps[0].title);
   });
 
+  it("★ 매력 투표 문구에 '콕' 을 쓰지 않는다", async () => {
+    /*
+     * ADR-34 — 둘은 쓰임이 아예 다르다. 매력 투표는 만나기 전에 프로필만 보고 고르는 것이고,
+     * 콕은 만나본 뒤에 고르는 것이며 **발표에 이어지는 건 콕뿐이다.**
+     * 같은 말로 부르면 참가자가 "아까 찔렀는데 왜 또?" 가 된다.
+     *
+     * 실제로 이름만 `매력 투표` 로 바꾸고 이 문구들을 안 고쳐서 한동안 어긋나 있었다 —
+     * 도움말은 `콕 찔러요` 라고 했고 홈 카드는 `서로 찔렀을 때만 공개돼요` 라고 했는데
+     * **뒤엣것은 사실도 아니었다.** 그래서 사람 눈이 아니라 여기가 지킨다.
+     */
+    const prevoteStep = HELP.steps.find((v) => v.key === "prevote")!;
+
+    // 지금 하는 일을 이름 붙이는 자리 — 여기엔 `콕` 이 한 글자도 없어야 한다
+    for (const [where, text] of [
+      ["도움말 단계", prevoteStep.body],
+      ["도움말 문답", HELP.qa.prevote.a],
+      ["홈 제목", HOME.todo.prevote.title],
+      ["다 썼을 때 제목", HOME.spent.prevote.title],
+    ] as const) {
+      expect(text, `${where}: ${text}`).not.toContain("콕");
+    }
+
+    /*
+     * 본문은 다르다. **다음 단계를 가리키는 `콕` 은 오히려 있어야 한다** —
+     * `파티에서 만나본 뒤에 콕 찌를 기회가 따로 있어요` 가 둘이 다른 일임을 알려준다.
+     * 그래서 금지하는 건 낱말이 아니라 **주어**다: `콕` 이 나오는 줄은 `파티` 를 함께 말해야 한다.
+     * 그 조건이 없으면 지금 하는 일을 콕이라 부른 것이다.
+     */
+    for (const [where, text] of [
+      ["홈 본문", HOME.todo.prevote.body],
+      ["다 썼을 때 본문", HOME.spent.prevote.body],
+    ] as const) {
+      for (const line of text.split("\n").filter((l) => l.includes("콕"))) {
+        expect(line, `${where}: ${line}`).toContain("파티");
+      }
+    }
+  });
+
+  it("★ 매력 투표와 콕 찌르기를 가르는 문답이 있다", async () => {
+    // 단계 그림만으로는 "둘이 뭐가 다른가" 가 안 풀린다. 바로 아래에서 풀어준다
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.prevote.q);
+    await screen.findByText(HELP.qa.poke.q);
+    /*
+     * **핵심은 "발표에 이어지는 게 어느 쪽이냐" 다.** 두 줄이 이름과 시점만 말하고
+     * 이걸 안 말하면, 바로 위 단계 그림을 되풀이한 것에 지나지 않는다.
+     */
+    expect(HELP.qa.poke.a).toContain("발표");
+    // 그리고 투표도 해야 한다는 걸 알려준다 — 안 그러면 "그럼 투표는 왜?" 로 끝난다
+    expect(HELP.qa.prevote.a).toContain("파티");
+  });
+
   it("★ 동성에게 못 찌르는 회차에서만 그 줄이 보인다", async () => {
     /*
      * 지금까지는 **눌러봐야** 알았다 (`POKE.blocked.sameGender` 토스트).
