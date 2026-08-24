@@ -138,6 +138,59 @@ export default function HostDefaults() {
   );
 }
 
+/**
+ * 켜고 끄는 설정 한 줄. **셋 중 하나가 늘 눌려 있는** 선택 줄과 같은 모양이다 —
+ * 스위치로 두면 지금 어느 쪽인지 색으로만 말하게 된다.
+ *
+ * `on` 쪽 라벨을 왼쪽에 둘지 오른쪽에 둘지는 부르는 쪽이 정한다 —
+ * 기본값이 왼쪽에 오는 게 읽기 편하다.
+ */
+/** 되돌리기 선택지. 기본(할 수 있음)이 왼쪽이다 */
+export const UNDO_OPTIONS = [
+  { on: true, label: HOST_UI.fields.undoOn },
+  { on: false, label: HOST_UI.fields.undoOff },
+] as const;
+
+/** 알림 선택지. 기본(안 보냄)이 왼쪽이다 */
+export const NOTIFY_OPTIONS = [
+  { on: false, label: HOST_UI.fields.pokeNotifyOff },
+  { on: true, label: HOST_UI.fields.pokeNotifyOn },
+] as const;
+
+export function Toggle({
+  label,
+  value,
+  options,
+  note,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  /** `[왼쪽, 오른쪽]`. 각각 그 자리의 값과 글자 */
+  options: readonly [{ on: boolean; label: string }, { on: boolean; label: string }];
+  note?: string;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="field">
+      <label>{label}</label>
+      <div className="choice">
+        {options.map((opt) => (
+          <button
+            key={opt.label}
+            type="button"
+            aria-pressed={value === opt.on}
+            onClick={() => onChange(opt.on)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      {note && <span className="tiny dim">{note}</span>}
+    </div>
+  );
+}
+
 export function Num({
   label,
   value,

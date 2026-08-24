@@ -76,11 +76,11 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
   const sending = useRef(false);
   const [covered, setCovered] = useCovered();
 
-  /*
-   * 되돌릴 수 있나 (ADR-34). **매력 투표는 언제나** 무를 수 있다 — 자리 배정의 재료일 뿐이다.
-   * 파티 콕은 회차 설정을 따르고, 없으면 무를 수 있다.
-   */
-  const canUndo = round === "pre" || state.event.config.allowUndo !== false;
+  /** 되돌릴 수 있나 (ADR-34). **라운드마다 따로** 정한다. 없으면 무를 수 있다 */
+  const canUndo =
+    round === "pre"
+      ? state.event.config.allowUndoPre !== false
+      : state.event.config.allowUndo !== false;
 
   /** 되돌리기. **확인창을 붙이지 않는다** — 되돌리는 것 자체가 되돌리기다 */
   async function undo(target: PublicPlayer) {

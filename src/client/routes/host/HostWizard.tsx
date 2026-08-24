@@ -20,7 +20,7 @@ import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from ".
 import { ApiError, api, post } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
-import { Num } from "./HostDefaults.tsx";
+import { NOTIFY_OPTIONS, Num, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
 
 const HOUR = 3600_000;
 const DAY = 24 * HOUR;
@@ -47,6 +47,7 @@ export default function HostWizard() {
   const [place, setPlace] = useState("");
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
   const [allowUndo, setAllowUndo] = useState(true);
+  const [allowUndoPre, setAllowUndoPre] = useState(true);
   const [pokeNotify, setPokeNotify] = useState(false);
   const [openNow, setOpenNow] = useState(false);
   const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
@@ -99,7 +100,7 @@ export default function HostWizard() {
         partyAt,
         regOpenAt: openNow ? "now" : regOpenAt,
         prevoteAt,
-        config: { maxPre, maxParty, allowUndo, pokeNotify },
+        config: { maxPre, maxParty, allowUndo, allowUndoPre, pokeNotify },
         requestId,
       };
       const made = await post<EventMeta>("/host/events", body);
@@ -212,46 +213,26 @@ export default function HostWizard() {
             {/* 기대 상호 매칭 쌍 수는 파티 규모와 무관하게 k² 에 수렴한다 — 고르는 자리에서 보여준다 */}
             <p className={`small ${label.tone === "good" ? "okText" : "warnText"}`}>{label.label}</p>
 
-            {/* 되돌리기·알림 (ADR-34). 둘은 한 몸이라 나란히 둔다 */}
-            <div className="field">
-              <label>{HOST_UI.fields.allowUndo}</label>
-              <div className="choice">
-                {[
-                  { on: true, label: HOST_UI.fields.allowUndoYes },
-                  { on: false, label: HOST_UI.fields.allowUndoNo },
-                ].map((opt) => (
-                  <button
-                    key={opt.label}
-                    type="button"
-                    aria-pressed={allowUndo === opt.on}
-                    onClick={() => setAllowUndo(opt.on)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              <span className="tiny dim">{HOST_UI.fields.allowUndoNote}</span>
-            </div>
-
-            <div className="field">
-              <label>{HOST_UI.fields.pokeNotify}</label>
-              <div className="choice">
-                {[
-                  { on: false, label: HOST_UI.fields.pokeNotifyOff },
-                  { on: true, label: HOST_UI.fields.pokeNotifyOn },
-                ].map((opt) => (
-                  <button
-                    key={opt.label}
-                    type="button"
-                    aria-pressed={pokeNotify === opt.on}
-                    onClick={() => setPokeNotify(opt.on)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              <span className="tiny dim pre">{HOST_UI.fields.pokeNotifyNote}</span>
-            </div>
+            {/* 되돌리기·알림 (ADR-34). 라운드마다 따로 정한다 */}
+            <Toggle
+              label={HOST_UI.fields.undoPre}
+              value={allowUndoPre}
+              options={UNDO_OPTIONS}
+              onChange={setAllowUndoPre}
+            />
+            <Toggle
+              label={HOST_UI.fields.undoParty}
+              value={allowUndo}
+              options={UNDO_OPTIONS}
+              onChange={setAllowUndo}
+            />
+            <Toggle
+              label={HOST_UI.fields.pokeNotify}
+              value={pokeNotify}
+              options={NOTIFY_OPTIONS}
+              note={HOST_UI.fields.pokeNotifyNote}
+              onChange={setPokeNotify}
+            />
           </>
         )}
 

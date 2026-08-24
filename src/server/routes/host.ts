@@ -133,6 +133,7 @@ hostRoutes.post("/events", async (c) => {
       ...(body.config.allowSameGender === false ? { allowSameGender: false } : {}),
       // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
       ...(body.config.allowUndo === false ? { allowUndo: false } : {}),
+      ...(body.config.allowUndoPre === false ? { allowUndoPre: false } : {}),
       ...(body.config.pokeNotify === true ? { pokeNotify: true } : {}),
     },
     createdAt: now,
@@ -392,9 +393,9 @@ async function json<T>(c: Ctx): Promise<T> {
 
 function validConfig(config: EventConfig | undefined): boolean {
   if (!config) return false;
-  const { maxPre, maxParty, retentionDays, allowUndo, pokeNotify } = config;
+  const { maxPre, maxParty, retentionDays, allowUndo, allowUndoPre, pokeNotify } = config;
   // 없으면 기본값이다. 있으면 불리언이어야 한다 — `"true"` 라는 글자가 들어오면 안 된다
-  for (const flag of [allowUndo, pokeNotify]) {
+  for (const flag of [allowUndo, allowUndoPre, pokeNotify]) {
     if (flag !== undefined && typeof flag !== "boolean") return false;
   }
   if (retentionDays !== undefined) {
