@@ -66,12 +66,20 @@ export default function Players() {
   const tpl = useLoad(() => api<Defaults>("/host/defaults"));
   const template = tpl.data?.inviteTemplate ?? INVITE_TEMPLATE;
 
-  /** 그 사람의 안내문. **링크가 사람마다 다르므로 한 사람분씩 만든다** */
+  /** 그 사람의 링크. **사람마다 다르다** — 한 곳에서만 만들어 두 버튼이 같은 값을 본다 */
+  const linkFor = (i: Invite) => `${location.origin}/j/${state.meta.id}/${i.token}`;
+
+  /**
+   * 그 사람의 안내문.
+   *
+   * 기본 문구에는 링크가 없다 — 문구와 링크를 **따로 복사해 두 번에 나눠 보낸다**.
+   * 그래도 `{링크}` 자리는 채워 준다: 예전에 저장해 둔 문구가 깨지면 안 된다.
+   */
   const noteFor = (i: Invite) =>
     renderInvite(template, {
       place: state.meta.place ?? "",
       when: formatWhen(state.meta.schedule.partyAt),
-      link: `${location.origin}/j/${state.meta.id}/${i.token}`,
+      link: linkFor(i),
     });
 
   /**
@@ -88,6 +96,19 @@ export default function Players() {
         if (!i.sentAt) void setSent(i, true);
       })
       .catch(() => toast(HOST_UI.copyFailed));
+  }
+
+  /**
+   * 링크만 복사한다. **보냄으로 찍지 않는다** —
+   * 보통 문구를 먼저 보내고 링크를 잇는데, 링크가 먼저 찍어버리면 그 행의 문구 버튼이
+   * `보냄` 으로 바뀌어 정작 문구를 못 보낸다. 보냈다고 말하는 건 문구 쪽 하나다.
+   * 링크는 "안 열려요" 연락이 왔을 때 다시 보내는 길이기도 해서, 보낸 뒤에도 남아 있어야 한다.
+   */
+  function copyLink(i: Invite) {
+    navigator.clipboard
+      ?.writeText(linkFor(i))
+      .then(() => toast(HOST_UI.copiedLink))
+      .catch(() => toast(HOST_UI.copyFailedLink));
   }
 
   /** 보냄 표시. 되돌릴 수 있어서 확인창이 없다 */
@@ -338,9 +359,14 @@ export default function Players() {
             {(() => {
               const mine = state.invites.find((i) => i.phone === picked.phone);
               return mine ? (
-                <button className="btn ghost block" style={{ marginTop: 16 }} onClick={() => copyNote(mine)}>
-                  {HOST_UI.invite.copy}
-                </button>
+                <div className="row" style={{ marginTop: 16 }}>
+                  <button className="btn wide ghost" onClick={() => copyNote(mine)}>
+                    {HOST_UI.invite.copy}
+                  </button>
+                  <button className="btn wide ghost" onClick={() => copyLink(mine)}>
+                    {HOST_UI.invite.copyLink}
+                  </button>
+                </div>
               ) : null;
             })()}
 
@@ -364,6 +390,7 @@ export default function Players() {
           hasPlace={!!state.meta.place}
           noteFor={noteFor}
           onCopy={copyNote}
+          onCopyLink={copyLink}
           onSent={setSent}
           onRemove={askRemove}
           onEditTemplate={() => navigate("/host/defaults")}
@@ -394,6 +421,7 @@ function Invites({
   hasPlace,
   noteFor,
   onCopy,
+  onCopyLink,
   onSent,
   onRemove,
   onEditTemplate,
@@ -409,6 +437,8 @@ function Invites({
   noteFor: (i: Invite) => string;
   /** 그 사람의 안내문을 복사한다 — 복사하면 보낸 것으로 본다 */
   onCopy: (i: Invite) => void;
+  /** 그 사람의 링크만 복사한다. 보냄으로 찍지 않는다 */
+  onCopyLink: (i: Invite) => void;
   /** 보냄 표시를 되돌린다 */
   onSent: (i: Invite, sent: boolean) => void;
   /** 명단에서 뺀다. 확인창을 거친다 */
@@ -515,8 +545,12 @@ function Invites({
           {/* 장소가 비었다는 건 **접어두지 않는다** — 그대로 보내면 안내문에 자리만 빈다 */}
           {!hasPlace && <p className="tiny warnText">{HOST_UI.invite.noPlace}</p>}
 
-          {/* 첫 사람 기준으로 그린다. 사람마다 다른 건 링크뿐이다 */}
+          {/*
+            전원이 같은 글을 받는다 — 기본 문구에는 링크가 없어서 사람마다 다를 것이 없다.
+            **링크는 여기 그리지 않는다.** 첫 사람 것을 보여주면 그걸 보고 남의 링크를 보내게 된다.
+          */}
           {showNote && <p className="small pre" style={{ margin: 0 }}>{noteFor(invites[0])}</p>}
+          <p className="tiny dim">{HOST_UI.invite.twoStepHint}</p>
         </div>
       )}
 
@@ -543,9 +577,16 @@ function Invites({
                   </button>
                 ) : (
                   <button className="btn ghost compact" onClick={() => onCopy(i)}>
-                    {HOST_UI.invite.copy}
+                    {HOST_UI.invite.note}
                   </button>
                 )}
+                {/*
+                  **보낸 뒤에도 남는다.** 문구는 한 번 보내면 끝이지만 링크는 다시 보낼 일이 있다 —
+                  "안 열려요" 연락이 오는 자리다. 보냄 표시를 되돌렸다 다시 찍게 만들지 않는다.
+                */}
+                <button className="btn ghost compact" onClick={() => onCopyLink(i)}>
+                  {HOST_UI.invite.link}
+                </button>
                 <button className="btn ghost compact" onClick={() => onRemove(i)}>
                   {HOST_UI.invites.remove}
                 </button>
