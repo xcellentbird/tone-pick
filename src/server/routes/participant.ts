@@ -9,7 +9,7 @@
  *    새 화면이 필요해도 여기서 자료를 조립하지 말고 그쪽을 넓혀라.
  */
 import { Hono } from "hono";
-import type { EnterResult, RegisterInput } from "../../shared/types.ts";
+import type { EnterResult, EntryOutcome, RegisterInput } from "../../shared/types.ts";
 import { ENTRY, FORTUNE, ME } from "../../shared/copy.ts";
 import { canOpenFortune, canOpenMission } from "../../shared/phase.ts";
 import { fortuneInput, missionInput, validBirth } from "../../shared/fortune.ts";
@@ -20,6 +20,8 @@ import {
   INVITE_COOKIE,
   PLAYER_COOKIE,
   clearCookie,
+  cookieName,
+  newRef,
   sessionTtl,
   setCookie,
   signSession,
@@ -33,6 +35,7 @@ import {
   playerScope,
   registry,
   serverNow,
+  sessionRef,
   unwrap,
   type Ctx,
   type Env,
@@ -109,7 +112,7 @@ participantRoutes.post("/events/:id/enter", async (c) => {
   const { value, response } = unwrap(c, checked, enterMessage);
   if (response) return response;
 
-  const result = value as EnterResult;
+  const result = value as EntryOutcome;
   /*
    * **쿠키에 번호를 담지 않는다** (ADR-32). 세션은 서명만 하고 암호화하지 않아서
    * 페이로드가 개발자 도구에 그대로 읽힌다 — 번호를 치지 않기로 했으면
@@ -120,10 +123,20 @@ participantRoutes.post("/events/:id/enter", async (c) => {
     : ({ kind: "invited", eventId: id, token: link } as const);
   if (!scope) return apiError(c, "forbidden", ENTRY.notInvited);
 
-  const token = await signSession(scope, c.env.SESSION_SECRET, serverNow());
-  const cookie = scope.kind === "player" ? PLAYER_COOKIE : INVITE_COOKIE;
-  c.header("set-cookie", setCookie(cookie, token, isSecure(c), sessionTtl(scope)));
-  return c.json(result);
+  /*
+   * **들어올 때마다 새 이름표를 준다** (ADR-44). 이 탭이 그걸 들고 다니면
+   * 다른 탭이 다른 링크로 들어와도 서로를 덮지 않는다 — 링크가 사람마다 달라도
+   * 세션이 하나면 소용이 없었다.
+   */
+  const ref = newRef();
+  putSession(
+    c,
+    scope.kind === "player" ? PLAYER_COOKIE : INVITE_COOKIE,
+    ref,
+    await signSession(scope, c.env.SESSION_SECRET, serverNow()),
+    sessionTtl(scope),
+  );
+  return c.json({ ...result, ref } satisfies EnterResult);
 });
 
 /**
@@ -140,16 +153,36 @@ participantRoutes.post("/register", async (c) => {
   const { value, response } = unwrap(c, result, registerMessage(String(input.nickname ?? "")));
   if (response) return response;
 
+  /*
+   * **이름표는 들어온 것을 그대로 쓴다** (ADR-44). 새로 만들면 이 탭이 방금 만든 세션을
+   * 놓치고, 기본 쿠키만 남아 다른 탭에 열린 참가자를 덮는다.
+   */
+  const ref = sessionRef(c);
   const player = { kind: "player", eventId: scope.eventId, playerId: value!.state.me.id } as const;
-  const token = await signSession(player, c.env.SESSION_SECRET, serverNow());
-  c.header("set-cookie", setCookie(PLAYER_COOKIE, token, isSecure(c), sessionTtl(player)));
-  // 두 번째 쿠키는 **덧붙여야** 한다. 그냥 쓰면 앞의 참가자 세션을 덮어써서 로그인이 날아간다
-  c.header("set-cookie", clearCookie(INVITE_COOKIE, isSecure(c)), { append: true });
+  putSession(c, PLAYER_COOKIE, ref, await signSession(player, c.env.SESSION_SECRET, serverNow()), sessionTtl(player));
+  // 뒤따르는 쿠키는 **덧붙여야** 한다. 그냥 쓰면 앞의 참가자 세션을 덮어써서 로그인이 날아간다
+  c.header("set-cookie", clearCookie(cookieName(INVITE_COOKIE, ref), isSecure(c)), { append: true });
+  if (ref) c.header("set-cookie", clearCookie(INVITE_COOKIE, isSecure(c)), { append: true });
   return c.json(value);
 });
 
 /**
- * 한 브라우저에 참가자 세션은 하나뿐이다. 다른 회차에 등록하면 앞의 세션이 덮인다.
+ * 세션 쿠키를 **두 벌** 심는다 (ADR-44).
+ *
+ * · `tp_play_<이름표>` — 이 탭의 것. 다른 탭이 다른 사람으로 들어와도 안 건드린다
+ * · `tp_play`         — 이름표 없이 온 요청(링크를 닫고 앱 주소만 연 사람)이 읽을 기본값
+ *
+ * 기본값이 없으면 링크를 잃고 앱 주소만 다시 연 참가자가 로그인을 잃는다.
+ * 기본값만 있으면 탭이 서로를 덮는다. 둘 다 필요하다.
+ */
+function putSession(c: Ctx, base: string, ref: string | undefined, token: string, ttl: number): void {
+  c.header("set-cookie", setCookie(cookieName(base, ref), token, isSecure(c), ttl));
+  if (ref) c.header("set-cookie", setCookie(base, token, isSecure(c), ttl), { append: true });
+}
+
+/**
+ * 참가자 세션은 **탭마다** 다를 수 있다 (ADR-44). 다만 이름표 없이 온 요청은 기본 세션을
+ * 읽고, 그건 마지막으로 들어온 사람이다 — 다른 회차에 들어가면 앞의 세션이 덮인다.
  * 그때 `/e/앞회차코드` 를 열면 **다른 회차의 자료가 그 URL 로 보인다** —
  * 그래서 화면이 어느 회차를 보고 있는지 함께 받아 확인한다.
  */

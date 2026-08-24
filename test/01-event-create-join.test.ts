@@ -46,14 +46,23 @@ async function api<T = unknown>(
   } catch {
     body = { raw: text };
   }
-  const set = res.headers.get("set-cookie");
   const st = res.headers.get("x-server-time");
   return {
     status: res.status,
     body: body as T,
-    cookie: set ? set.split(";")[0] : null,
+    cookie: baseCookie(res),
     serverTime: st ? Number(st) : null,
   };
+}
+
+/**
+ * 세션 쿠키는 **두 벌** 나간다 (ADR-44) — `tp_play_<이름표>` 와 이름표 없는 `tp_play`.
+ * 테스트는 이름표를 보내지 않으므로 **기본 쿠키**를 집는다.
+ */
+function baseCookie(res: Response): string | null {
+  const all = res.headers.getSetCookie?.() ?? [];
+  const one = all.map((c) => c.split(";")[0]).find((c) => /^tp_(host|play|inv)=./.test(c));
+  return one ?? res.headers.get("set-cookie")?.split(";")[0] ?? null;
 }
 
 /** 운영자 PIN 으로 로그인하고 세션 쿠키를 돌려준다. PIN 은 하나뿐이다 (ADR-12) */

@@ -443,7 +443,19 @@ export interface EnterResult {
   registered: boolean;
   /** 등록을 마친 사람에게만. 자기 화면 주소(`/e/:code`)로 가는 데 쓴다 */
   code?: string;
+  /**
+   * 이 탭이 쓸 세션 이름표 (ADR-44). **비밀이 아니다** —
+   * 쿠키 여럿 중 어느 것을 읽을지 고르는 값일 뿐이라, 이것만으로는 아무 문도 열리지 않는다.
+   * 증명은 끝까지 HttpOnly 쿠키 안에 있다.
+   */
+  ref: string;
 }
+
+/**
+ * 회차 DO 가 내리는 입장 판정. **이름표는 여기 없다** —
+ * 세션은 Worker 의 일이고, DO 는 쿠키도 탭도 모른다 (설계 경계).
+ */
+export type EntryOutcome = Omit<EnterResult, "ref">;
 
 /**
  * 참가자에게 내려가는 회차 상태.

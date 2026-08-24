@@ -17,7 +17,7 @@ import type {
   EventMeta,
   EventSchedule,
   EventSummary,
-  EnterResult,
+  EntryOutcome,
   Gender,
   Invite,
   MatchInfo,
@@ -433,7 +433,7 @@ export class EventDO extends DurableObject {
    * 실패는 회차·접속지별로 센다. 문은 여전히 인증 없이 열려 있다 — 다만
    * **"번호 넣어보기" 는 이제 일어나지 않는다.** 넣어볼 칸이 없다.
    */
-  async checkEntry(token: string, ipHash: string, now: number): Promise<Result<EnterResult>> {
+  async checkEntry(token: string, ipHash: string, now: number): Promise<Result<EntryOutcome>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
 

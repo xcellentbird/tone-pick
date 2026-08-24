@@ -24,15 +24,33 @@ export interface Res<T> {
   status: number;
   body: T;
   cookie: string | null;
+  /** 이 응답이 심은 쿠키 전부 (`이름=값`). 탭이 갈리는 경우를 확인할 때 쓴다 */
+  setCookies: string[];
+}
+
+/**
+ * 세션 쿠키는 **두 벌** 나간다 (ADR-44) — `tp_play_<이름표>` 와 이름표 없는 `tp_play`.
+ * 테스트는 이름표를 보내지 않으므로 **기본 쿠키**를 집는다. 탭이 갈리는 경우는
+ * `x-tp-ref` 를 직접 실어 따로 확인한다 (`test/44-tab-sessions.test.ts`).
+ */
+export function baseCookie(res: Response): string | null {
+  const all = res.headers.getSetCookie?.() ?? [];
+  const one = all.map((c) => c.split(";")[0]).find((c) => /^tp_(host|play|inv)=./.test(c));
+  return one ?? res.headers.get("set-cookie")?.split(";")[0] ?? null;
 }
 
 export async function api<T = unknown>(
   path: string,
-  init: { method?: string; body?: unknown; cookie?: string | null } = {},
+  init: { method?: string; body?: unknown; cookie?: string | null; ref?: string } = {},
 ): Promise<Res<T>> {
   const res = await SELF.fetch(`https://tone-pick.test${path}`, {
     method: init.method ?? "GET",
-    headers: { "content-type": "application/json", ...(init.cookie ? { cookie: init.cookie } : {}) },
+    headers: {
+      "content-type": "application/json",
+      ...(init.cookie ? { cookie: init.cookie } : {}),
+      // 이 탭이 어느 세션을 읽을지 고르는 이름표 (ADR-44). 없으면 기본 세션이다
+      ...(init.ref ? { "x-tp-ref": init.ref } : {}),
+    },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
   const text = await res.text();
@@ -42,8 +60,12 @@ export async function api<T = unknown>(
   } catch {
     body = { raw: text };
   }
-  const set = res.headers.get("set-cookie");
-  return { status: res.status, body: body as T, cookie: set ? set.split(";")[0] : null };
+  return {
+    status: res.status,
+    body: body as T,
+    cookie: baseCookie(res),
+    setCookies: (res.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]),
+  };
 }
 
 export let master: string | null = null;

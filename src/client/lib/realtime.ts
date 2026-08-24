@@ -1,4 +1,5 @@
 import type { ClientEvent, ServerEvent } from "../../shared/types.ts";
+import { tabRef } from "./session.ts";
 
 /**
  * 폴링이 아니라 WebSocket 인 이유는 실시간성보다 비용이다.
@@ -26,7 +27,15 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
   let beat: ReturnType<typeof setInterval>;
 
   function open() {
-    ws = new WebSocket(`${proto}://${location.host}/ws/${code}`);
+    /*
+     * **이름표는 붙일 때마다 다시 읽는다.** 이 탭이 등록을 마치면 이름표가 생기는데,
+     * 연결 함수가 만들어질 때 한 번 읽고 말면 그 뒤 재연결이 계속 옛 세션으로 붙는다.
+     *
+     * 브라우저 WebSocket 은 헤더를 못 실어서 여기만 쿼리다. 이름표는 비밀이 아니라
+     * 주소에 실려도 되고, 증명은 여전히 쿠키다 (ADR-44).
+     */
+    const ref = tabRef();
+    ws = new WebSocket(`${proto}://${location.host}/ws/${code}${ref ? `?ref=${ref}` : ""}`);
 
     ws.onopen = () => {
       retry = 0;
