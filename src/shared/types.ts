@@ -145,7 +145,6 @@ export interface Seat {
 export interface SeatingRound {
   round: number;
   tableCount: number;       // 라운드마다 다를 수 있으므로 함께 저장 (ADR-5)
-  final: boolean;
   status: "draft" | "published";
   seats: Seat[];
   acks: string[];           // 자리 이동을 확인한 playerId
@@ -519,7 +518,6 @@ export interface PublicEventState {
 export interface MySeat {
   round: number;
   table: number;
-  final: boolean;
   mates: number;
   men: number;
   acked: boolean;
@@ -653,7 +651,6 @@ export interface HostState {
  */
 export interface SeatingInput {
   tableCount: number;
-  final: boolean;
   /**
    * 이번 라운드에서 뺄 사람 (ADR-45). **이 요청에만 있고 저장되지 않는다** —
    * 사람에게 붙는 상태로 만들면 시간이 지나 틀리고, 틀린 상태가 다음 라운드에서

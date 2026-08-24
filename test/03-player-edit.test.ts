@@ -123,7 +123,7 @@ describe("참가자를 지웠을 때", () => {
     const ids: string[] = [];
     for (let i = 0; i < 4; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
     await api(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: false },
+      method: "POST", cookie: master, body: { tableCount: 2 },
     });
     await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
 

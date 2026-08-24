@@ -291,9 +291,7 @@ flowchart LR
     gAll["목록이 전체로 열림 · 동성도 찌를 수 있음"]
     gOpp["목록이 이성만으로 열림"]
 
-    qFinal{"마지막 자리로 발송했나"}
-    closedSeat["배정 닫힘 · 다시 열기 필요"]
-    openSeat["다음 라운드 계속"]
+    openSeat["자리 발송 · 다음 라운드 계속"]
 
     create --> sReg
     sReg --> qClosed
@@ -311,16 +309,14 @@ flowchart LR
     qSame -->|"모두에게"| gAll
     qSame -->|"이성에게만"| gOpp
 
-    sParty --> qFinal
-    qFinal -->|"마지막 자리"| closedSeat
-    qFinal -->|"보통 발송"| openSeat
+    sParty --> openSeat
 
     style warn fill:#FFCDC2,stroke:#FF7556
-    style closedSeat fill:#FFE0C2,stroke:#FF9E42
     style gAll fill:#DCCCFF,stroke:#874FFF
     style gCount fill:#C2E5FF,stroke:#3DADFF
 ```
 
 - **생성 위저드는 매력 투표 시작 하나만 받는다** (ADR-38). 등록은 만드는 순간 열린다
-- 마지막 자리라는 사실은 **참가자에게 알리지 않는다.** 운영자에게만 배정이 닫힌다
+- **배정은 발표 전까지 닫히지 않는다** (ADR-28). 라운드 횟수에도 제한이 없다 —
+  못 붙은 쌍은 운영자가 자리 탭의 💔 를 보고 맞교환으로 붙인다 (ADR-49)
 - 동성 콕을 열어도 **자리 배정의 남녀 정원은 그대로다.** 콕은 가중치로만 들어간다

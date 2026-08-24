@@ -960,9 +960,22 @@ describe("자리 배정 시트", () => {
     await waitFor(() => expect(calls.find((c) => c.url.endsWith("/seating"))).toBeTruthy());
     expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({
       tableCount: 1,
-      final: false,
       exclude: [],
     });
+  });
+
+  /**
+   * ★ **배정 버튼은 하나뿐이다** (ADR-49).
+   *
+   * 옆에 `💘 커플 자리 배정` 이 있었다. 콕이 매 라운드 자리에 반영되므로 쌍만 모으는
+   * 전용 라운드가 필요 없어졌고, 못 붙은 쌍은 운영자가 자리에서 보고 맞교환으로 옮긴다.
+   */
+  it("★ 자리 탭의 배정 버튼은 하나뿐이다", async () => {
+    stubFetch(party());
+    renderConsole("/host/e1/seats");
+
+    const buttons = await screen.findAllByText(HOST_UI.seats.make);
+    expect(buttons).toHaveLength(1);
   });
 
   it("★ 뺀 사람이 배정 요청에 실린다", async () => {
@@ -981,8 +994,83 @@ describe("자리 배정 시트", () => {
     await waitFor(() => expect(calls.find((c) => c.url.endsWith("/seating"))).toBeTruthy());
     expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({
       tableCount: 1,
-      final: false,
       exclude: ["p1"],
     });
+  });
+});
+
+// ─────────────────────────────────────────── 자리에서 쌍 짚어주기
+
+/**
+ * **쌍을 붙이는 일이 알고리즘에서 운영자의 손으로 옮겨왔다** (ADR-49).
+ *
+ * 커플 자리 라운드가 하던 일을 이제 사람이 한다 — 그래서 화면이 짚어주지 않으면
+ * 할 수 있는 일이 없다. 💘 는 붙었다는 뜻이고, **💔 은 옮길 수 있다는 신호다.**
+ */
+describe("자리 검토 — 서로 찌른 쌍", () => {
+  /** 두 테이블, 네 사람. p1–p2 가 서로 찔렀고 어디 앉힐지는 테스트가 정한다 */
+  function withSeats(sameTable: boolean) {
+    const st = hostState({ phase: "party" });
+    st.players = [
+      ...st.players,
+      { ...st.players[0], id: "p3", nickname: "다", realName: "김다" },
+      { ...st.players[1], id: "p4", nickname: "라", realName: "김라" },
+    ];
+    st.mutual = [["p1", "p2"]];
+    st.seatings = [
+      {
+        round: 1,
+        tableCount: 2,
+        status: "draft",
+        acks: [],
+        createdAt: Date.now(),
+        seats: [
+          { playerId: "p1", table: 1 },
+          { playerId: "p2", table: sameTable ? 1 : 2 },
+          { playerId: "p3", table: 2 },
+          { playerId: "p4", table: sameTable ? 2 : 1 },
+        ],
+      },
+    ];
+    return st;
+  }
+
+  /** 자리 칩에 찍힌 글자들. 그림과 글자가 같은 말을 하는지 여기서 본다 */
+  const chips = () => [...document.querySelectorAll(".seatChip")].map((el) => el.textContent ?? "");
+
+  it("★ 같은 테이블에 앉은 쌍은 💘 로 표시된다", async () => {
+    stubFetch(withSeats(true));
+    renderConsole("/host/e1/seats");
+
+    await screen.findByText(HOST_UI.seats.pairAllTogether);
+    const marked = chips().filter((t) => t.includes(HOST_UI.seats.pairChip(1)));
+    expect(marked).toHaveLength(2);
+    // 그림만으로 말하지 않는다 — 같은 것을 글자로도 준다
+    for (const t of marked) expect(t).toContain(HOST_UI.seats.pairChipNote(1));
+  });
+
+  it("★ 떨어져 앉은 쌍은 💔 이고, 누구인지 이름으로 말한다", async () => {
+    stubFetch(withSeats(false));
+    renderConsole("/host/e1/seats");
+
+    // 떨어진 쌍은 이름으로 — 그게 운영자가 손볼 목록이다
+    await screen.findByText(HOST_UI.seats.pairSplit("가 ↔ 나"));
+    expect(screen.queryByText(HOST_UI.seats.pairAllTogether)).toBeNull();
+
+    const marked = chips().filter((t) => t.includes(HOST_UI.seats.pairChip(0)));
+    expect(marked).toHaveLength(2);
+    for (const t of marked) expect(t).toContain(HOST_UI.seats.pairChipNote(0));
+  });
+
+  /** 짝이 없는 사람에게는 아무 표시도 붙이지 않는다 — 없는 일을 알리지 않는다 */
+  it("★ 짝이 없는 사람에게는 표시가 없다", async () => {
+    stubFetch(withSeats(true));
+    renderConsole("/host/e1/seats");
+
+    await screen.findByText(HOST_UI.seats.pairAllTogether);
+    // 넷이 앉아 있고 그중 둘만 쌍이다
+    expect(chips()).toHaveLength(4);
+    expect(chips().filter((t) => t.includes(HOST_UI.seats.pairChipNote(1)))).toHaveLength(2);
+    expect(chips().filter((t) => t.includes(HOST_UI.seats.pairChipNote(0)))).toHaveLength(0);
   });
 });

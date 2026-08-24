@@ -122,7 +122,7 @@ CREATE INDEX IF NOT EXISTS votes_ann ON votes(ann_id);
 CREATE TABLE IF NOT EXISTS seatings (
   round        INTEGER PRIMARY KEY,
   table_count  INTEGER NOT NULL,
-  final        INTEGER NOT NULL DEFAULT 0,
+  final        INTEGER NOT NULL DEFAULT 0,   -- 안 쓴다 (ADR-49 가 ADR-23 을 걷어냈다). 옛 회차의 값이 남아 있을 뿐이다
   status       TEXT NOT NULL DEFAULT 'draft',
   seats        TEXT NOT NULL,        -- JSON Seat[]
   acks         TEXT NOT NULL DEFAULT '[]',
@@ -1113,12 +1113,7 @@ export class EventDO extends DurableObject {
   // ─────────────────────────── 자리
 
   /** 초안 생성. 참가자에게는 보이지 않으므로 확인 없이 몇 번이든 다시 만든다 (ADR-6) */
-  async makeSeating(
-    tableCount: number,
-    final: boolean,
-    exclude: string[],
-    now: number,
-  ): Promise<Result<SeatingRound>> {
+  async makeSeating(tableCount: number, exclude: string[], now: number): Promise<Result<SeatingRound>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (meta.phase === "done") return fail("closed");
@@ -1148,7 +1143,6 @@ export class EventDO extends DurableObject {
       players,
       tableCount,
       round,
-      final,
       history: published.map((s) => s.seats),
       mutual,
       votes,
@@ -1158,7 +1152,6 @@ export class EventDO extends DurableObject {
     const draft: SeatingRound = {
       round,
       tableCount,
-      final,
       status: "draft",
       seats,
       acks: [],
@@ -1299,7 +1292,7 @@ export class EventDO extends DurableObject {
     const gender = new Map(
       this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
     );
-    const held = draft.final ? this.pairedSeatIds(draft) : new Set<string>();
+    const held = this.pairedSeatIds(draft);
 
     for (const g of ["M", "F"] as const) {
       // 이 성별이 앉아 있던 자리들과 사람들을 따로 모아, 사람 쪽만 섞어 도로 앉힌다.
@@ -1655,7 +1648,6 @@ export class EventDO extends DurableObject {
     return this.rows<SeatingRow>("SELECT * FROM seatings ORDER BY round").map((r) => ({
       round: r.round,
       tableCount: r.table_count,
-      final: !!r.final,
       status: r.status,
       seats: JSON.parse(r.seats) as Seat[],
       acks: JSON.parse(r.acks) as string[],
@@ -1705,7 +1697,6 @@ export class EventDO extends DurableObject {
     return {
       round: last.round,
       table: mine.table,
-      final: last.final,
       mates: mates.length,
       men,
       acked: last.acks.includes(playerId),
@@ -1713,15 +1704,19 @@ export class EventDO extends DurableObject {
   }
 
   private writeSeating(s: SeatingRound) {
+    /*
+     * **`final` 칸은 쓰지 않는다** (ADR-49). 칸은 남겨둔다 — `DROP COLUMN` 은 옛 회차의
+     * 표를 건드리는 일이고, `NOT NULL DEFAULT 0` 이라 안 적어도 들어간다.
+     * `contact_share`·`attendance` 와 같은 자리다.
+     */
     this.ctx.storage.sql.exec(
-      `INSERT INTO seatings (round, table_count, final, status, seats, acks, created_at, published_at)
-       VALUES (?,?,?,?,?,?,?,?)
+      `INSERT INTO seatings (round, table_count, status, seats, acks, created_at, published_at)
+       VALUES (?,?,?,?,?,?,?)
        ON CONFLICT(round) DO UPDATE SET
-         table_count=excluded.table_count, final=excluded.final, status=excluded.status,
+         table_count=excluded.table_count, status=excluded.status,
          seats=excluded.seats, acks=excluded.acks, published_at=excluded.published_at`,
       s.round,
       s.tableCount,
-      s.final ? 1 : 0,
       s.status,
       JSON.stringify(s.seats),
       JSON.stringify(s.acks),
@@ -1772,7 +1767,6 @@ interface PlayerRow {
 interface SeatingRow {
   round: number;
   table_count: number;
-  final: number;
   status: "draft" | "published";
   seats: string;
   acks: string;
