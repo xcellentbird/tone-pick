@@ -4,7 +4,7 @@
  * 특히 단계 전환 — 참가자 전원의 화면이 바뀌는 행동이라 확인창이 **무엇이 어떻게 바뀌는지**
  * 항목으로 보여줘야 하고, 확인을 누르기 전에는 아무 일도 일어나면 안 된다.
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { FAIL, GENDER, HOST_UI, phaseAction, schedDiff } from "../../src/shared/copy.ts";
@@ -13,6 +13,7 @@ import type { HostState } from "../../src/shared/types.ts";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
 import Dash, { topRanks } from "../../src/client/routes/host/Dash.tsx";
 import Players from "../../src/client/routes/host/Players.tsx";
+import Seats from "../../src/client/routes/host/Seats.tsx";
 import Settings from "../../src/client/routes/host/Settings.tsx";
 
 afterEach(cleanup);
@@ -119,6 +120,9 @@ function renderConsole(at = "/host/e1") {
           { index: true, element: <Dash /> },
           { path: "players", element: <Players /> },
           { path: "players/:pid", element: <Players /> },
+          { path: "seats", element: <Seats /> },
+          // 테이블 수 시트도 라우트다 — 주소로 열린다 (ROUTES.md)
+          { path: "seats/:mode", element: <Seats /> },
           { path: "settings", element: <Settings /> },
         ],
       },
@@ -614,5 +618,56 @@ describe("운영자 콘솔", () => {
       direction: "early",
     })!;
     expect(screen.getByText(line[1])).toBeTruthy();
+  });
+});
+
+// ─────────────────────────────────────────── 자리 배정 시트
+
+/**
+ * **빠지는 사람은 `나감` 하나로 정해진다** (ADR-40).
+ *
+ * 고르는 목록이 없어졌으므로, 화면이 할 일은 **서버가 무엇을 할지 미리 말하는 것**뿐이다.
+ * 숫자가 어긋나면 운영자는 `테이블당 N명` 을 보고 짠 계획이 틀린 채로 배정을 누른다.
+ */
+describe("자리 배정 시트", () => {
+  const party = () => {
+    const st = hostState({ phase: "party" });
+    st.attendance = { p1: "arrived", p2: "left" };
+    return st;
+  };
+
+  it("★ 나간 사람은 인원에서 빠지고, 왜 빠졌는지 말한다", async () => {
+    stubFetch(party());
+    renderConsole("/host/e1/seats/new");
+
+    // 둘 중 하나가 나갔다 — `2명 배정` 이 아니라 `1명 배정 · 나감 1명 제외`
+    await screen.findByText(HOST_UI.seats.leftOut(1, 1));
+    expect(screen.queryByText(HOST_UI.seats.seatedAll(2))).toBeNull();
+  });
+
+  it("★ 전원이 남아 있으면 나감을 말하지 않는다 — 없는 일을 알리지 않는다", async () => {
+    const st = hostState({ phase: "party" });
+    st.attendance = { p1: "arrived" };
+    stubFetch(st);
+    renderConsole("/host/e1/seats/new");
+
+    await screen.findByText(HOST_UI.seats.seatedAll(2));
+    expect(screen.queryByText(HOST_UI.seats.leftOutNote)).toBeNull();
+  });
+
+  it("★ 배정 요청에는 테이블 수만 간다 — 뺄 사람 목록을 보내지 않는다", async () => {
+    /*
+     * 화면이 목록을 보내면 그 목록이 낡을 수 있고, 낡은 목록은 사람을 조용히 빠뜨린다.
+     * 누가 빠지는지는 **서버가 참석 상태에서 읽는다** (ADR-40).
+     */
+    stubFetch(party());
+    renderConsole("/host/e1/seats/new");
+    await screen.findByText(HOST_UI.seats.leftOut(1, 1));
+
+    // 목록 화면에도 같은 이름의 버튼이 있다. 누르는 건 **시트 안**의 것이다
+    const sheet = document.querySelector('[role="dialog"]') as HTMLElement;
+    fireEvent.click(within(sheet).getByText(HOST_UI.seats.make));
+    await waitFor(() => expect(calls.find((c) => c.url.endsWith("/seating"))).toBeTruthy());
+    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({ tableCount: 1, final: false });
   });
 });
