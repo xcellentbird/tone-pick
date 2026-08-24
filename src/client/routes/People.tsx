@@ -115,7 +115,31 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
     const already = state.poke.sentTo[target.id] ?? 0;
     if (!open) return toast(closedWhy);
     if (!sameGenderOk && target.gender === state.me.gender) return toast(POKE.blocked.sameGender);
-    if (budget.used >= budget.max) return toast(POKE.blocked.noBudget(round, budget.max));
+
+    /*
+     * **다 썼어도 되돌릴 것이 있으면 창을 연다** (ADR-34 후기).
+     *
+     * 되돌리기는 이 창 안에만 있다. 그래서 예산이 0 이 되는 순간 창이 안 열려
+     * **되돌릴 길이 통째로 사라졌다** — 토스트만 뜨고 끝이었다.
+     * 하필 다 쓴 순간이 옮기고 싶은 순간이다. 셋을 다 쓰고 나서야 넷째 사람을 만난다.
+     *
+     * 그때 창에는 되돌리기 하나만 둔다. 보낼 것이 없으니 보내기 버튼을 그릴 수 없다.
+     * 되돌릴 것도 없으면 그때는 토스트가 맞다 — 이 사람에게는 할 수 있는 일이 없다.
+     */
+    if (budget.used >= budget.max) {
+      if (!(already > 0 && canUndo)) return toast(POKE.blocked.noBudget(round, budget.max));
+      const spent = budget.max - budget.used;
+      return confirm(
+        {
+          btn: POKE.undo.btn,
+          title: POKE.confirm.spentTitle(round),
+          note: POKE.confirm.spentNote,
+          // 되돌리면 **늘어난다.** 화살표 방향이 반대인 것이 이 창이 하는 일이다
+          facts: [[POKE.confirm.rowBudget(round), POKE.confirm.change(spent, spent + 1)]],
+        },
+        () => undo(target),
+      );
+    }
 
     /*
      * 확인창은 무엇이 **어떻게 바뀌는지** 숫자로 보여준다 (규칙 4).

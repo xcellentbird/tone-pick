@@ -497,6 +497,53 @@ describe("참가자 화면 · 콕", () => {
     await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
   });
 
+  /**
+   * ★ **다 쓰고 나면 되돌릴 길이 사라졌다.**
+   *
+   * 되돌리기는 확인창 **안에만** 있는데(ADR-34), 예산이 0 이 되면 창이 열리기 전에
+   * 토스트로 끊겼다. 하필 다 쓴 순간이 옮기고 싶은 순간이다 —
+   * 셋을 다 쓰고 나서야 넷째 사람을 만난다.
+   */
+  it("★ 다 써도 찌른 사람에게는 창이 열리고, 되돌릴 수 있다", async () => {
+    const source = fakeSource({
+      load: async () =>
+        participantState({
+          poke: { ...POKE_STATE, budget: { pre: { max: 3, used: 3 }, party: { max: 3, used: 0 } } },
+        }),
+    });
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+
+    await screen.findByText(POKE.confirm.spentTitle("pre"));
+    // 보낼 것이 없으니 보내기 버튼은 그리지 않는다
+    expect(() => dialogBtn(POKE.confirm.submit("pre"))).toThrow();
+    // 되돌리면 **늘어난다** — 화살표 방향이 반대인 것이 이 창이 하는 일이다
+    expect(screen.getByText(POKE.confirm.change(0, 1))).toBeTruthy();
+
+    fireEvent.click(dialogBtn(POKE.undo.btn));
+    await waitFor(() => expect(source.calls.poke).toEqual(["-her"]));
+  });
+
+  /** 되돌릴 것조차 없으면 그때는 토스트가 맞다 — 이 사람에게는 할 수 있는 일이 없다 */
+  it("★ 다 썼고 찌른 적도 없는 사람에게는 창을 열지 않는다", async () => {
+    const source = fakeSource({
+      load: async () =>
+        participantState({
+          poke: { ...POKE_STATE, sentTo: {}, budget: { pre: { max: 3, used: 3 }, party: { max: 3, used: 0 } } },
+        }),
+    });
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+
+    await screen.findByText(POKE.blocked.noBudget("pre", 3));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(source.calls.poke).toEqual([]);
+  });
+
   it("★ 확인을 누르면 서버를 기다리지 않고 그 자리에서 바뀐다", async () => {
     /*
      * 예전에는 왕복을 두 번 — 보내고, 화면 전체를 다시 읽고 — 기다린 뒤에야 버튼이 바뀌었다.
