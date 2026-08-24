@@ -143,6 +143,14 @@ button {
   min-height: var(--tap);
   min-width: var(--tap);
   font-family: inherit;
+  /*
+   * **색도 물려받는다.** 안 적으면 브라우저 기본값(`buttontext` — 검정)이 들어와,
+   * 색을 따로 정하지 않은 버튼이 어두운 바탕 위에서 **검은 글씨로 뜬다.**
+   * `<button className="card">` 로 만드는 카드들(초대 명단·회차 목록·홈의 자리 카드)이
+   * 그렇게 읽히지 않았다 — `.person > .open` 에 같은 줄을 따로 적어 막고 있던 것을 여기로 올린다.
+   * 색이 필요한 버튼은 저마다 정한다 (`.btn`·`.choice button`).
+   */
+  color: inherit;
   cursor: pointer;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
@@ -399,6 +407,46 @@ button {
 
 .tabs a.active { background: var(--card-2); color: var(--fg); }
 
+/*
+ * 설정 탭의 묶음 고르기 (`Settings.tsx`). 위 `.tabs` 와 **같은 알약 꼴**이라 새로 배울 게 없다 —
+ * 다만 저건 라우트(`a`)고 이건 화면 상태(`button`)라 태그가 다르다.
+ *
+ * 넷이 390px 에 들어가지만, 긴 이름이 붙어도 줄바꿈 대신 **가로로 밀리게** 둔다 —
+ * 두 줄이 되면 아래 내용이 그만큼 밀려 내려간다.
+ */
+.segmented {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  margin-bottom: 4px;
+}
+
+.segmented button {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.segmented button.active {
+  background: var(--card-2);
+  color: var(--fg);
+  font-weight: 700;
+}
+
+/* 안 저장된 것이 있는 묶음. **색만으로 말하지 않는다** — 점은 글자로도 거기 있다 */
+.segmented .dot {
+  color: var(--accent);
+  font-size: 18px;
+  line-height: 1;
+}
+
 /* ─────────────────────────── 참가자 카드 */
 
 .person {
@@ -435,7 +483,6 @@ button {
   padding: 0;
   border: 0;
   background: transparent;
-  color: inherit;
   text-align: left;
   font-family: inherit;
 }
