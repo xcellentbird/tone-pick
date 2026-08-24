@@ -15,13 +15,22 @@ import { BTN, type ActionCopy } from "../../shared/copy.ts";
 import Sheet from "./Sheet.tsx";
 
 interface Pending {
-  copy: ActionCopy & { note?: string };
+  copy: ActionCopy & { note?: string; second?: { label: string; run: () => Promise<void> | void } };
   run: () => Promise<void> | void;
 }
 
 interface Overlay {
   toast: (message: string) => void;
-  confirm: (copy: ActionCopy & { note?: string }, run: () => Promise<void> | void) => void;
+  /**
+   * `second` 는 **되돌리는 행동**을 위한 자리다 (ADR-34).
+   * 목록 행에 버튼을 하나 더 두면 카드가 화면 밖으로 밀리고,
+   * 가린 동안 그 버튼이 보이면 "이 사람을 골랐다" 가 그대로 샌다.
+   * 그래서 이미 숫자를 보여주고 있는 이 창 안에 둔다.
+   */
+  confirm: (
+    copy: ActionCopy & { note?: string; second?: { label: string; run: () => Promise<void> | void } },
+    run: () => Promise<void> | void,
+  ) => void;
 }
 
 const Ctx = createContext<Overlay | null>(null);
@@ -119,6 +128,19 @@ export function Overlays({ children }: { children: ReactNode }) {
                 {pending.copy.btn}
               </button>
             </div>
+            {/* 되돌리는 행동은 **줄을 따로 쓴다** — 확인 버튼 옆에 두면 잘못 누른다 */}
+            {pending.copy.second && (
+              <button
+                className="btn ghost block"
+                onClick={() => {
+                  const run = pending.copy.second!.run;
+                  close();
+                  void run();
+                }}
+              >
+                {pending.copy.second.label}
+              </button>
+            )}
           </>
         )}
       </Sheet>

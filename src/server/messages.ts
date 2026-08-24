@@ -7,9 +7,10 @@
 import { ENTRY, HOST, HOST_UI, POKE, REGISTER } from "../shared/copy.ts";
 
 export function pokeMessage(error: string, detail?: number): string | undefined {
-  if (error === "closed") return POKE.blocked.closed;
+  // 서버는 라운드를 모른다. 중립 문구를 쓴다 (ADR-34)
+  if (error === "closed") return POKE.blocked.anyClosed;
   if (error === "same_gender") return POKE.blocked.sameGender;
-  if (error === "no_budget") return POKE.blocked.noBudget(detail ?? 0);
+  if (error === "no_budget") return POKE.blocked.anyNoBudget(detail ?? 0);
   return undefined;
 }
 

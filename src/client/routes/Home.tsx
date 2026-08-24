@@ -68,7 +68,7 @@ export default function Home({
         {canPoke(phase) && (
           <>
             {/* 남은 게 있을 때만 센다. 0 은 제목이 이미 말했다 */}
-            {left > 0 && <div className="kicker">{STATUS.pokeLeft(left)}</div>}
+            {left > 0 && <div className="kicker">{STATUS.pokeLeft(phase === "prevote" ? "pre" : "party", left)}</div>}
             {/* 다 썼어도 명단 구경은 된다 — 버튼은 그대로 */}
             <button className="btn primary block" onClick={() => onTab("people")}>
               {HOME.goPeople}
