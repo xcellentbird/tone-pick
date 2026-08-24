@@ -24,6 +24,8 @@ import { signInMaster, api, enter, freshEvent, invite, join, master, nextPhone, 
 
 beforeAll(signInMaster);
 
+const HOUR = 3600_000;
+
 // ─────────────────────────────────────────── 등록
 
 describe("등록", () => {
@@ -642,6 +644,60 @@ describe("콕", () => {
     });
     expect(res.status).toBe(409);
     expect(res.body.message).toBe(POKE.blocked.sameGender);
+  });
+
+  /**
+   * **회차를 만들 때 고른 값이 그대로 적용돼야 한다** (위저드 3스텝).
+   *
+   * 위 테스트는 만든 **뒤에** 설정 탭에서 좁히는 길을 본다. 그런데 이 값은
+   * 콕이 오가기 시작하면 굳어서(ADR-35) 나중에는 못 고친다 — 즉 **만들 때가 사실상 유일한 기회**다.
+   * 그 자리에서 새면 운영자는 좁힌 줄 알고 파티를 연다.
+   */
+  it("★ 만들 때 '이성에게만' 으로 좁히면 그대로 적용된다", async () => {
+    const ev = await freshEvent({ allowSameGender: false });
+    expect(ev.config.allowSameGender, "고른 값이 회차에 안 실렸다").toBe(false);
+
+    const me = await join(ev);
+    const him = await join(ev);
+    await setPhase(ev.id, "prevote");
+
+    // 설정 탭을 한 번도 거치지 않았는데 막혀야 한다
+    const res = await api<{ message: string }>("/api/poke", {
+      method: "POST",
+      cookie: me.cookie,
+      body: { toId: him.id },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toBe(POKE.blocked.sameGender);
+  });
+
+  it("★ 굳는 규칙에 이상한 값이 들어오면 회차를 못 만든다", async () => {
+    /*
+     * `"false"` 라는 **글자**가 들어오면 `=== false` 가 아니라서 조용히 '모두에게' 가 된다.
+     * 운영자는 좁힌 줄 알고 파티를 연다 — 그래서 접지 말고 **거절**한다.
+     * 굳는 규칙 다섯이 다 `validConfig` 에 있어야 하는 이유다 (ADR-35).
+     */
+    const now = Date.now();
+    for (const bad of [
+      { allowSameGender: "false" },
+      { allowUndo: 0 },
+      { preNotify: "true" },
+    ]) {
+      const res = await api("/api/host/events", {
+        method: "POST",
+        cookie: master,
+        body: {
+          name: "이상한 설정",
+          partyAt: now + 3 * 24 * HOUR,
+          prevoteAt: now + 24 * HOUR,
+          voteEndAt: now + 3 * 24 * HOUR - HOUR,
+          revealAt: now + 3 * 24 * HOUR + 3 * HOUR,
+          config: { maxPre: 2, maxParty: 3, ...bad },
+          requestId: `bad-${JSON.stringify(bad)}-${now}`,
+        },
+      });
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+    }
   });
 
   it("★ 자기 자신은 어떤 설정에서도 찌를 수 없다", async () => {

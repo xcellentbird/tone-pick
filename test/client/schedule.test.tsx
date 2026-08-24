@@ -7,7 +7,7 @@
  * 실제 전환 시각(`fired`)은 대상이 아니다. 그건 사람이 고른 값이 아니라 일어난 일이라서
  * 초 단위 그대로 남아야 한다.
  */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { SCHEDULE_STEP_MIN, formatCountdown, snapSchedule, toLocalInput } from "../../src/shared/time.ts";
@@ -114,6 +114,55 @@ describe("위저드", () => {
     for (const [i, input] of [...inputs].entries()) {
       expect((input as HTMLInputElement).value, `${i}번 칸이 비었다`).not.toBe("");
     }
+  });
+
+  /**
+   * **위저드가 실제로 보내는지는 여기서만 잡힌다.**
+   *
+   * 서버 테스트는 API 를 직접 두드리므로 위저드가 그 값을 payload 에 안 실어도 초록이다.
+   * 그런데 굳는 규칙 다섯은 **콕이 오가면 못 고친다** (ADR-35) — 만들 때가 사실상 유일한
+   * 기회라, 화면에서 고른 것이 그대로 나가는지가 곧 규칙이다.
+   */
+  it("★ 3스텝에서 고른 규칙이 만들기 요청에 그대로 실린다", async () => {
+    let sent: { config: Record<string, unknown> } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === "POST" && String(url).includes("/host/events")) {
+          sent = JSON.parse(String(init.body));
+          return new Response(JSON.stringify({ id: "e1" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(
+          JSON.stringify({ maxPre: 3, maxParty: 3, place: "", prevoteBeforeH: 24, voteEndBeforeH: 1, revealAfterH: 3 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+
+    const router = createMemoryRouter([{ path: "/host/new/:step", element: <HostWizard /> }], {
+      initialEntries: ["/host/new/3"],
+    });
+    render(<RouterProvider router={router} />);
+
+    // 대상을 '이성에게만' 으로 좁히고, 매력 투표 알림을 켠다
+    await screen.findByText(HOST_UI.fields.pokeTarget);
+    fireEvent.click(screen.getByText(HOST_UI.fields.pokeTargetOpposite));
+    const preRow = screen.getByText(HOST_UI.fields.preNotify).closest(".field")!;
+    fireEvent.click(within(preRow as HTMLElement).getByText(HOST_UI.fields.pokeNotifyOn));
+
+    // 머리글 h1 도 같은 말이라 버튼만 골라낸다
+    fireEvent.click(screen.getAllByRole("button").find((b) => b.textContent === HOST_UI.newEvent)!);
+
+    await waitFor(() => expect(sent).not.toBeNull());
+    const { config } = sent!;
+    expect(config.allowSameGender, "고른 대상이 안 실렸다").toBe(false);
+    expect(config.preNotify, "고른 알림이 안 실렸다").toBe(true);
+    // 안 건드린 것은 기본값 그대로 나간다
+    expect(config.allowUndo).toBe(true);
+    expect(config.pokeNotify).toBe(false);
   });
 
   it("★ 장소 기본값을 들고 시작한다 (ADR-38)", async () => {

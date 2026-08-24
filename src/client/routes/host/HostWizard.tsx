@@ -19,7 +19,7 @@ import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from ".
 import { ApiError, api, post } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
-import { NOTIFY_OPTIONS, Num, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
+import { NOTIFY_OPTIONS, Num, TARGET_OPTIONS, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
 
 const HOUR = 3600_000;
 
@@ -44,6 +44,12 @@ export default function HostWizard() {
   const [name, setName] = useState("");
   /** 늘 같은 곳에서 여는 모임이면 기본값이 채워 온다 (ADR-38). 회차마다 고칠 수 있다 */
   const [place, setPlace] = useState("");
+  /**
+   * 콕을 찌를 수 있는 대상. **기본은 '모두에게'** 다 —
+   * 누구에게 마음이 가는지는 앱이 정할 일이 아니다 (ADR-17).
+   * 좁히고 싶은 회차에서만 '이성에게만' 으로 바꾼다.
+   */
+  const [allowSameGender, setAllowSameGender] = useState(true);
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
   const [allowUndo, setAllowUndo] = useState(true);
   const [allowUndoPre, setAllowUndoPre] = useState(true);
@@ -113,7 +119,7 @@ export default function HostWizard() {
         prevoteAt,
         voteEndAt,
         revealAt,
-        config: { maxPre, maxParty, allowUndo, allowUndoPre, preNotify, pokeNotify },
+        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify },
         requestId,
       };
       const made = await post<EventMeta>("/host/events", body);
@@ -240,7 +246,19 @@ export default function HostWizard() {
             {/* 기대 상호 매칭 쌍 수는 파티 규모와 무관하게 k² 에 수렴한다 — 고르는 자리에서 보여준다 */}
             <p className={`small ${label.tone === "good" ? "okText" : "warnText"}`}>{label.label}</p>
 
-            {/* 되돌리기·알림 (ADR-34). 라운드마다 따로 정한다 */}
+            {/*
+              대상·되돌리기 둘·알림 둘. **다섯은 콕이 오가기 시작하면 함께 굳는다** (ADR-35) —
+              여기서 고르지 않으면 나중에 못 고친다. 그래서 설정 탭과 **같은 순서**로 둔다:
+              대상 → 되돌리기(매력 투표·콕) → 알림(매력 투표·콕).
+              두 화면의 순서가 다르면 운영자가 매번 다시 찾는다.
+            */}
+            <Toggle
+              label={HOST_UI.fields.pokeTarget}
+              value={allowSameGender}
+              options={TARGET_OPTIONS}
+              note={HOST_UI.fields.pokeTargetNote}
+              onChange={setAllowSameGender}
+            />
             <Toggle
               label={HOST_UI.fields.undoPre}
               value={allowUndoPre}
@@ -253,7 +271,6 @@ export default function HostWizard() {
               options={UNDO_OPTIONS}
               onChange={setAllowUndo}
             />
-            {/* 알림도 라운드마다 따로다 (ADR-43). 되돌리기와 같은 순서로 둔다 — 매력 투표가 먼저 */}
             <Toggle
               label={HOST_UI.fields.preNotify}
               value={preNotify}
