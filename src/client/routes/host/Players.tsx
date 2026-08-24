@@ -5,10 +5,10 @@
  *   누르면 시트가 열려 그 안에서 다 한다: 더하기 · 안내문 · 아직 등록 안 한 사람 · 빼기.
  *   명단에 더하는 길도 그 시트 하나뿐이다.
  *   **시트로 접은 이유** — 명단 일은 파티 **며칠 전에 한 번에** 하는 일이고,
- *   카드 일(참석 찍기)은 **문 앞에서** 하는 일이다. 늘 펼쳐 두면 당일에 쓰는 목록이
- *   지난 일 아래로 밀린다. 카드 한 줄이 "지금 할 일이 있나" 를 대신 말해준다
- * - 아래의 **참가자 카드** — 등록 **후**를 맡는다. 온 사람이 누구인가.
- *   참석 상태는 카드 안 맨 오른쪽에 붙는다 (ADR-33)
+ *   카드는 당일에 훑는 목록이다. 늘 펼쳐 두면 당일에 쓰는 목록이 지난 일 아래로 밀린다.
+ *   카드 한 줄이 "지금 할 일이 있나" 를 대신 말해준다
+ * - 아래의 **참가자 카드** — 등록 **후**를 맡는다. 누가 왔는가.
+ *   **참석 상태는 여기 없다** (ADR-45) — 문 앞에서 세는 건 사람이 하고, 앱은 안 흉내 낸다
  *
  * 한 사람은 **한 번만** 나온다 — 등록하면 명단 행에서 빠지고 카드로 올라온다.
  * 그래서 명단은 파티가 다가올수록 줄고 카드가 그만큼 는다.
@@ -23,7 +23,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
-import type { Attendance, Gender, Invite } from "../../../shared/types.ts";
+import type { Gender, Invite } from "../../../shared/types.ts";
 import type { Defaults } from "../../../shared/types.ts";
 import { LIMITS, PHONE_SEED, formatPhone, typedPhone } from "../../../shared/constants.ts";
 import { INVITE_TEMPLATE } from "../../../shared/copy.ts";
@@ -40,7 +40,6 @@ import { useConsole } from "./HostConsole.tsx";
 
 /**
  * 필터는 **성별 축**이다. 카드 목록은 등록한 사람만 담으므로 상태로 나눌 것이 없고,
- * 참석은 카드마다 오른쪽에 붙어 있어 훑으면 보인다.
  *
  * 칩 셋의 진짜 용도는 **세 숫자를 한 번에 보는 것**(성비)이다 — 고른 쪽만 세면
  * 성비를 보려고 버튼을 두 번 눌러야 한다.
@@ -122,9 +121,6 @@ export default function Players() {
   }
 
   const [filter, setFilter] = useState<Filter>("all");
-  /** 파티가 시작되면 같은 값이 다른 이름으로 읽힌다 — `등록함` 이 `안 옴` 이 된다 */
-  const started = state.meta.phase === "party" || state.meta.phase === "done";
-
   /**
    * 명단 카드가 말하는 두 숫자. 나머지는 시트 안에서 센다.
    *
@@ -134,40 +130,12 @@ export default function Players() {
    */
   const joinedN = state.invites.filter((i) => i.nickname).length;
 
-  const att = (id: string) => state.attendance[id];
   const shown = state.players.filter((p) => filter === "all" || p.gender === filter);
   const count: Record<Filter, number> = {
     all: state.players.length,
     M: state.players.filter((p) => p.gender === "M").length,
     F: state.players.filter((p) => p.gender === "F").length,
   };
-
-  /**
-   * 카드 오른쪽에 붙는 **참가 상태**. 파티 전후로 이름이 갈린다.
-   *
-   * 톤은 저장된 값(`key`)이 정하고 글자(`label`)가 같은 정보를 다시 말한다 —
-   * 색만으로 말하면 못 읽는 사람이 생긴다. `등록함` 과 `미도착` 은 **같은 값**이라
-   * 같은 톤(조용한 기본)을 쓴다.
-   */
-  const statusOf = (id: string) => {
-    const a = att(id);
-    if (a === "left") return { key: "left", label: HOST_UI.status.left };
-    if (a === "arrived") return { key: "arrived", label: HOST_UI.status.arrived };
-    return { key: "absent", label: started ? HOST_UI.status.absent : HOST_UI.status.registered };
-  };
-
-  /** 칩을 눌러 바로 찍는다 (ADR-33). 문 앞에서 한 명씩 하는 일이라 한 번에 끝나야 한다 */
-  async function toggleArrived(playerId: string) {
-    const now = att(playerId);
-    const to = now === "arrived" ? null : "arrived";
-    await post(`/host/events/${state.meta.id}/players/${playerId}/attendance`, { to });
-    reload();
-  }
-
-  async function setAttendance(playerId: string, to: Attendance | null) {
-    await post(`/host/events/${state.meta.id}/players/${playerId}/attendance`, { to });
-    reload();
-  }
 
   function askDelete(playerId: string) {
     const rounds = state.seatings.filter((s) => s.seats.some((x) => x.playerId === playerId)).length;
@@ -226,20 +194,6 @@ export default function Players() {
         ))}
       </div>
 
-      {/*
-        참석 숫자는 **한 줄로만** 둔다 (ADR-33). 카드마다 상태가 붙어 있어도
-        "몇 명 남았나" 는 세어서 알 일이 아니다. 파티 전에는 전원이 같은 값이라 뜨지 않는다.
-      */}
-      {started && state.players.length > 0 && (
-        <p className="tiny dim">
-          {HOST_UI.status.summary(
-            state.players.filter((p) => att(p.id) === "arrived").length,
-            state.players.filter((p) => !att(p.id)).length,
-            state.players.filter((p) => att(p.id) === "left").length,
-          )}
-        </p>
-      )}
-
       {state.players.length === 0 && <p className="dim center">{HOST_UI.players.empty}</p>}
       {state.players.length > 0 && shown.length === 0 && (
         <p className="dim center">{HOST_UI.players.emptyFiltered}</p>
@@ -249,8 +203,7 @@ export default function Players() {
         **문 앞에서 사람을 찾는 화면이다.** 얼굴과 맞추는 건 실명이지 닉네임이 아니다 —
         그래서 실명이 앞에 온다. MBTI·콕 횟수는 상세로 갔다 (ADR-33).
 
-        카드가 **버튼 하나가 아니라 상자**인 이유는 오른쪽 참석 칩 때문이다 —
-        버튼 안에 버튼을 넣을 수 없다. 왼쪽 전체가 상세를 여는 손잡이다.
+        카드 전체가 상세를 여는 손잡이다. 오른쪽에 붙던 참석 칩은 걷어냈다 (ADR-45).
       */}
       {shown.map((p) => (
         <div className="person" key={p.id}>
@@ -264,24 +217,6 @@ export default function Players() {
               <span className="charm ellipsis">{formatPhone(p.phone)}</span>
             </span>
           </button>
-          {/*
-            파티가 시작되면 **상태 배지가 곧 버튼이다** — 문 앞에서 한 명씩 찍는 자리라
-            한 번에 끝나야 한다. `나감` 은 눌러서 바꾸지 않는다. 되돌릴 자리는 상세다.
-          */}
-          {started && att(p.id) !== "left" ? (
-            <button
-              className="att live"
-              data-att={statusOf(p.id).key}
-              aria-pressed={att(p.id) === "arrived"}
-              onClick={() => void toggleArrived(p.id)}
-            >
-              {statusOf(p.id).label}
-            </button>
-          ) : (
-            <span className={`att${started ? " live" : ""}`} data-att={statusOf(p.id).key}>
-              {statusOf(p.id).label}
-            </span>
-          )}
         </div>
       ))}
 
@@ -303,27 +238,6 @@ export default function Players() {
               토글 둘로 두면 "나갔는데 온 적 없음" 같은 조합이 생긴다 (ADR-33).
               되돌릴 수 있어서 확인창이 없다.
             */}
-            <p className="kicker" style={{ marginTop: 16 }}>
-              {HOST_UI.status.title}
-            </p>
-            <div className="choice">
-              {(
-                [
-                  [null, HOST_UI.status.setAbsent],
-                  ["arrived", HOST_UI.status.setArrived],
-                  ["left", HOST_UI.status.setLeft],
-                ] as const
-              ).map(([to, label]) => (
-                <button
-                  key={label}
-                  type="button"
-                  aria-pressed={(state.attendance[picked.id] ?? null) === to}
-                  onClick={() => void setAttendance(picked.id, to)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
 
             <p className="kicker" style={{ marginTop: 16 }}>
               {ME.labels.charms}
