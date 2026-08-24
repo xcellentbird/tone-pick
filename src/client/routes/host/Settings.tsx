@@ -1,7 +1,11 @@
 /**
  * 설정 탭.
  *
- * **지나온 일정 항목만 잠근다** — 등록이 시작됐어도 발표 시각은 여전히 수정 가능하다 (ADR-2).
+ * **콕이 오가기 시작하면 규칙 넷과 일정이 굳는다** (ADR-35) — 대상·되돌리기 둘·알림·일정 셋.
+ * 잠긴 줄도 지우지 않고 그대로 둔다. 지금 어느 규칙으로 돌아가는 중인지는
+ * 파티 도중에 가장 자주 확인하는 값이라, 감추면 확인할 자리가 사라진다.
+ * 그 전에는 **지나온 일정 항목만** 잠근다.
+ *
  * 예약 값 자체는 지우지 않는다. "예약은 21:00 이었는데 20:45 에 진행했다"를 보여줄 수 있어야 한다.
  */
 import { useEffect, useState } from "react";
@@ -9,10 +13,10 @@ import { useNavigate } from "react-router";
 import { BTN, DELETE_EVENT, HOST_UI, UNIT } from "../../../shared/copy.ts";
 import type { EventMeta, EventSchedule } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
-import { schedLocked } from "../../../shared/phase.ts";
+import { rulesLocked, schedLocked } from "../../../shared/phase.ts";
 import { SCHEDULE_STEP_MIN, formatWhen, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, del, put } from "../../lib/api.ts";
-import { NOTIFY_OPTIONS, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
+import { NOTIFY_OPTIONS, TARGET_OPTIONS, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import { Num } from "./HostDefaults.tsx";
 import { useConsole } from "./HostConsole.tsx";
@@ -34,6 +38,9 @@ export default function Settings() {
   const [pokeNotify, setPokeNotify] = useState(meta.config.pokeNotify === true);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
+
+  /** 굳었나 (ADR-35). 서버도 같은 판단을 하니, 여기서는 **못 고르게** 하는 것까지만 한다 */
+  const frozen = rulesLocked(meta.fired);
 
   useEffect(() => {
     setName(meta.name);
@@ -157,37 +164,30 @@ export default function Settings() {
         onChange={setMaxParty}
       />
 
-      <div className="field">
-        <label>{HOST_UI.fields.pokeTarget}</label>
-        <div className="choice">
-          {[
-            { on: false, label: HOST_UI.fields.pokeTargetOpposite },
-            { on: true, label: HOST_UI.fields.pokeTargetAll },
-          ].map((opt) => (
-            <button
-              key={opt.label}
-              type="button"
-              aria-pressed={allowSameGender === opt.on}
-              onClick={() => setAllowSameGender(opt.on)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <span className="tiny dim">{HOST_UI.fields.pokeTargetNote}</span>
-      </div>
-
-      {/* 되돌리기·알림 (ADR-34). 라운드마다 따로 정한다. 셋은 한 덩어리라 나란히 둔다 */}
+      {/*
+        대상·되돌리기 둘·알림. **넷은 콕이 오가기 시작하면 함께 굳는다** (ADR-35) —
+        도중에 바뀌면 참가자가 겪는 규칙이 갈린다. 콕 횟수만 위에서 계속 열려 있다.
+      */}
+      <Toggle
+        label={HOST_UI.fields.pokeTarget}
+        value={allowSameGender}
+        options={TARGET_OPTIONS}
+        note={HOST_UI.fields.pokeTargetNote}
+        locked={frozen}
+        onChange={setAllowSameGender}
+      />
       <Toggle
         label={HOST_UI.fields.undoPre}
         value={allowUndoPre}
         options={UNDO_OPTIONS}
+        locked={frozen}
         onChange={setAllowUndoPre}
       />
       <Toggle
         label={HOST_UI.fields.undoParty}
         value={allowUndo}
         options={UNDO_OPTIONS}
+        locked={frozen}
         onChange={setAllowUndo}
       />
       <Toggle
@@ -195,15 +195,19 @@ export default function Settings() {
         value={pokeNotify}
         options={NOTIFY_OPTIONS}
         note={HOST_UI.fields.pokeNotifyNote}
+        locked={frozen}
         onChange={setPokeNotify}
       />
 
       <div className="kicker">{HOST_UI.settings.schedule}</div>
-      {/* 파티 일시는 잠그지 않는다 — 장소가 바뀌면 시각도 바뀐다 */}
+      {/*
+        파티 일시는 그 전까지 열려 있다 — 장소가 바뀌면 시각도 바뀐다.
+        굳은 뒤에는 셋 다 잠긴다 (ADR-35). 그때는 남은 예약 자체가 없다.
+      */}
       <When
         label={HOST_UI.fields.partyAt}
         value={schedule.partyAt}
-        locked={false}
+        locked={schedLocked(meta.fired, "partyAt")}
         onChange={(v) => setSchedule({ ...schedule, partyAt: v })}
       />
       <When

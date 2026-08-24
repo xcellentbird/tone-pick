@@ -4,7 +4,7 @@
  * 이 매핑이 주는 것:
  *  - 요청이 순차 처리되므로 닉네임 유일성·콕 예산 차감에 경쟁 조건이 없다
  *  - 브로드캐스트 대상이 정확히 그 회차 참가자다
- *  - 운영자가 회차를 지우면 이 DO 하나로 개인정보가 다 사라진다 (자동 파기는 없다 — ADR-35)
+ *  - 운영자가 회차를 지우면 이 DO 하나로 개인정보가 다 사라진다 (자동 파기는 없다 — ADR-36)
  *
  * 무료 플랜에서 쓰려면 wrangler.jsonc 의 migrations 가 `new_sqlite_classes` 여야 한다.
  *
@@ -55,7 +55,7 @@ import {
   normalizePhone,
   realNameProblem,
 } from "../shared/constants.ts";
-import { PHASE_ORDER, canPoke, dueTransition } from "../shared/phase.ts";
+import { PHASE_ORDER, canPoke, dueTransition, rulesLocked } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
@@ -140,6 +140,7 @@ type Fail =
   | "nick_taken"
   | "closed"
   | "same_gender"
+  | "locked"
   | "no_budget";
 
 /** `detail` 은 문구에 들어갈 숫자다 (예: 남은 콕 최대 횟수). 문장은 Worker 가 고른다 */
@@ -279,6 +280,14 @@ export class EventDO extends DurableObject {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     const next: EventSchedule = { ...meta.schedule, ...patch };
+    /*
+     * 굳은 뒤에는 일정을 못 고친다 (ADR-35). **같은 값이 오는 건 통과시킨다** —
+     * 설정 탭은 저장할 때마다 일정을 통째로 다시 보내기 때문에, 있고 없고로 막으면
+     * 이름만 고쳐도 거절당한다. 막는 것은 '보냈나'가 아니라 '달라졌나'다.
+     */
+    if (rulesLocked(meta.fired) && SCHEDULE_KEYS.some((k) => next[k] !== meta.schedule[k])) {
+      return fail("locked");
+    }
     if (!validSchedule(next)) return fail("schedule_order");
     meta.schedule = next;
     await this.ctx.storage.put("meta", meta);
@@ -304,12 +313,23 @@ export class EventDO extends DurableObject {
       else delete meta.place;
     }
     if (patch.config) {
-      const { maxPre, maxParty, allowSameGender } = patch.config;
+      const { maxPre, maxParty } = patch.config;
       // 안 보내면 지금 값을 지킨다 — 콕 횟수만 고치다 알림 설정이 딸려 초기화되면 안 된다
+      const allowSameGender = patch.config.allowSameGender ?? meta.config.allowSameGender;
       const allowUndo = patch.config.allowUndo ?? meta.config.allowUndo;
       const allowUndoPre = patch.config.allowUndoPre ?? meta.config.allowUndoPre;
       const pokeNotify = patch.config.pokeNotify ?? meta.config.pokeNotify;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
+
+      /*
+       * 굳은 규칙은 못 고친다 (ADR-35). 일정과 같은 이유로 **달라졌을 때만** 막는다.
+       * 비교는 '적혀 있나'가 아니라 **뜻**으로 한다 — 기본값과 같으면 아예 안 적히므로
+       * (`allowUndo` 없음 = 할 수 있음), 키 유무로 재면 저장할 때마다 달라 보인다.
+       */
+      if (rulesLocked(meta.fired)) {
+        const next = { ...meta.config, allowSameGender, allowUndo, allowUndoPre, pokeNotify };
+        if (frozenRules(next).some((v, i) => v !== frozenRules(meta.config)[i])) return fail("locked");
+      }
 
       /**
        * 이미 쓴 횟수보다 낮게 내릴 수 없다.
@@ -1788,4 +1808,22 @@ function nextDue(meta: EventMeta): number | null {
  */
 export function validSchedule(s: EventSchedule): boolean {
   return !(s.regOpenAt && s.prevoteAt && s.prevoteAt <= s.regOpenAt);
+}
+
+const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt"] as const;
+
+/**
+ * 굳는 규칙 넷을 **뜻으로** 편다 (ADR-35).
+ *
+ * 기본값이 항목마다 다르다 — 대상·되돌리기는 없으면 '열림', 알림은 없으면 '끔'.
+ * 그래서 `undefined` 를 그대로 견주면 안 되고, 저마다의 기본으로 접어서 본다.
+ * 새 규칙을 굳히려면 이 배열에 한 줄을 더한다. 그게 잠금 목록의 전부다.
+ */
+function frozenRules(c: EventConfig): boolean[] {
+  return [
+    c.allowSameGender !== false,
+    c.allowUndo !== false,
+    c.allowUndoPre !== false,
+    c.pokeNotify === true,
+  ];
 }

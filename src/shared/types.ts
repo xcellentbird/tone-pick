@@ -320,6 +320,7 @@ export type ErrorCode =
   | "closed"         // 409 · 지금 단계에서는 할 수 없다
   | "no_budget"      // 409 · 이번 라운드 콕을 다 썼다
   | "same_gender"    // 409 · 이성에게만 찌를 수 있다
+  | "locked"         // 409 · 콕이 오가기 시작해 굳은 설정이다 (ADR-35)
   | "conflict";      // 409 · 그 밖의 충돌
 
 export interface ApiErrorBody {

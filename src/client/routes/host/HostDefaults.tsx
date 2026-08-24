@@ -157,11 +157,18 @@ export const NOTIFY_OPTIONS = [
   { on: true, label: HOST_UI.fields.pokeNotifyOn },
 ] as const;
 
+/** 콕 대상 선택지. 기본(모두에게)이 오른쪽이다 — 좁히는 쪽을 먼저 읽는 줄이라 그대로 둔다 */
+export const TARGET_OPTIONS = [
+  { on: false, label: HOST_UI.fields.pokeTargetOpposite },
+  { on: true, label: HOST_UI.fields.pokeTargetAll },
+] as const;
+
 export function Toggle({
   label,
   value,
   options,
   note,
+  locked,
   onChange,
 }: {
   label: string;
@@ -169,6 +176,11 @@ export function Toggle({
   /** `[왼쪽, 오른쪽]`. 각각 그 자리의 값과 글자 */
   options: readonly [{ on: boolean; label: string }, { on: boolean; label: string }];
   note?: string;
+  /**
+   * 굳어서 못 고치는 줄 (ADR-35). **숨기지 않고 잠근다** —
+   * 지금 어느 쪽으로 돌아가고 있는지는 파티 중에 가장 자주 확인하는 값이다.
+   */
+  locked?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
@@ -180,13 +192,15 @@ export function Toggle({
             key={opt.label}
             type="button"
             aria-pressed={value === opt.on}
+            disabled={locked}
             onClick={() => onChange(opt.on)}
           >
             {opt.label}
           </button>
         ))}
       </div>
-      {note && <span className="tiny dim">{note}</span>}
+      {/* 잠긴 이유가 먼저다. 고를 수 없는 줄에 고르는 근거를 남겨두면 읽는 순서가 어긋난다 */}
+      {locked ? <span className="tiny dim">{HOST_UI.frozen}</span> : note && <span className="tiny dim">{note}</span>}
     </div>
   );
 }

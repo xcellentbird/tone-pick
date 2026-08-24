@@ -30,9 +30,16 @@ export function registerMessage(nickname: string) {
     error === "nick_taken" ? REGISTER.err.nickTaken(nickname) : undefined;
 }
 
-/** 이미 쓴 횟수보다 낮게 내리려 할 때. `detail` 은 지금 가장 많이 쓴 횟수다 */
-export function pokeLimitMessage(error: string, detail?: number): string | undefined {
-  return error === "conflict" ? HOST_UI.pokeFloor(detail ?? 0) : undefined;
+/**
+ * 설정·일정 저장이 막혔을 때.
+ *
+ * `conflict` — 이미 쓴 횟수보다 낮게 내리려 했다. `detail` 은 지금 가장 많이 쓴 횟수다
+ * `locked`   — 콕이 오가기 시작해 굳은 항목이다 (ADR-35)
+ */
+export function settingsMessage(error: string, detail?: number): string | undefined {
+  if (error === "conflict") return HOST_UI.pokeFloor(detail ?? 0);
+  if (error === "locked") return HOST_UI.frozen;
+  return undefined;
 }
 
 /** 발표가 끝나면 자리를 더 바꾸지 않는다. 그 밖에는 막을 일이 없다 */
