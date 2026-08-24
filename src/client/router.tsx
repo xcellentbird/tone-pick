@@ -74,7 +74,7 @@ export const HOST_CONSOLE_ROUTES = [
     { path: "seats", element: <Seats /> },
     // 배정 시트도 라우트다 — 뒤로 가기로 닫힌다.
     // **걸음이 곧 주소다** — 뺄 사람 고르기 → 테이블 수 (ADR-45). push 라 뒤로 가면 앞 걸음이다.
-    // 예전에는 `:mode` 로 `new`·`final` 둘을 받았다. 커플 자리를 걷어내며 길이 하나가 됐다 (ADR-49)
+    // 예전에는 `:mode` 로 `new`·`final` 둘을 받았다. 커플 자리를 걷어내며 길이 하나가 됐다 (ADR-51)
     { path: "seats/new", element: <Seats /> },
     { path: "seats/new/tables", element: <Seats /> },
     { path: "settings", element: <Settings /> },

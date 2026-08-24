@@ -43,6 +43,13 @@ export default function Seats() {
    * 초안에서 고른 사람이 발행된 라운드의 다음 클릭과 짝지어지면 엉뚱한 맞교환이 된다.
    */
   const [picked, setPicked] = useState<{ round: number; playerId: string } | null>(null);
+  /**
+   * 지금 고치고 있는 발행 라운드 (ADR-51). `null` 이면 전부 잠겨 있다.
+   *
+   * **기본이 잠김이다** — 이 카드는 대부분 *누가 어디 앉았나* 를 읽으러 여는 자리고,
+   * 그때 손가락이 스치면 두 사람이 말없이 바뀐다. 초안은 여기 해당하지 않는다.
+   */
+  const [openEdit, setOpenEdit] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   /**
    * 이번 라운드에서 뺄 사람 (ADR-45).
@@ -65,7 +72,7 @@ export default function Seats() {
   const base = `/host/events/${state.meta.id}/seating`;
   const draft = state.seatings.find((s) => s.status === "draft");
   /**
-   * 서로 찌른 사람들. **모든 라운드에서 쓴다** (ADR-49) — 쌍을 붙이는 일이
+   * 서로 찌른 사람들. **모든 라운드에서 쓴다** (ADR-51) — 쌍을 붙이는 일이
    * 알고리즘에서 운영자의 손으로 옮겨왔으므로, 어느 라운드에서든 짚어줘야 한다.
    *
    * **한 사람이 여러 명과 이어질 수 있다** (A-B, A-C). 콕이 1인당 여러 번이라 당연한 일이다.
@@ -112,7 +119,7 @@ export default function Seats() {
   }
 
   /**
-   * 이 맞교환으로 **떨어지게 되는 짝**들. **모든 라운드에서 본다** (ADR-49) —
+   * 이 맞교환으로 **떨어지게 되는 짝**들. **모든 라운드에서 본다** (ADR-51) —
    * 운영자가 손으로 붙여둔 쌍을 다음 맞교환이 조용히 떼면 그 손이 헛일이 된다.
    * 첫 라운드에는 상호 매칭이 없어 이 목록이 늘 비어 있다.
    *
@@ -209,7 +216,7 @@ export default function Seats() {
           [HOST_UI.seats.tableCount, `${round.tableCount}`],
           [HOST_UI.seats.seated, HOST_UI.seats.seatedCount(round.seats.length, Math.round(perTable))],
           /*
-           * **쌍이 있을 때만 그 줄을 넣는다** (ADR-49). 첫 라운드에는 상호 매칭이 없어서
+           * **쌍이 있을 때만 그 줄을 넣는다** (ADR-51). 첫 라운드에는 상호 매칭이 없어서
            * `0쌍 중 0쌍` 이 뜨는데, 그건 나쁜 소식처럼 읽히고 실은 아무 말도 아니다.
            */
           ...((pairs.total > 0
@@ -240,7 +247,7 @@ export default function Seats() {
         상시 노출된 스테퍼는 설정처럼 보였다 — 누를 때 묻는 게 구조와 화면을 일치시킨다.
       */}
       {/*
-        **버튼은 하나뿐이다** (ADR-49). 옆에 `💘 커플 자리 배정` 이 있었는데 걷어냈다 —
+        **버튼은 하나뿐이다** (ADR-51). 옆에 `💘 커플 자리 배정` 이 있었는데 걷어냈다 —
         콕이 매 라운드 자리에 반영되므로 쌍만 모으는 전용 라운드가 필요 없고,
         못 붙은 쌍은 아래 카드가 💘·💔 로 짚어준다. 붙이는 건 맞교환이 한다.
       */}
@@ -289,7 +296,7 @@ export default function Seats() {
         <div className="card stack">
           <div className="kicker">{HOST_UI.seats.roundTitle(draft.round)}</div>
           {/*
-            쌍 성적표. **모든 라운드에서 보인다** (ADR-49) — 떨어진 쌍의 이름이
+            쌍 성적표. **모든 라운드에서 보인다** (ADR-51) — 떨어진 쌍의 이름이
             운영자가 맞교환으로 손볼 목록 그 자체다.
           */}
           <PairReport round={draft} mutual={state.mutual} state={state} />
@@ -328,27 +335,60 @@ export default function Seats() {
 
       {published.length === 0 && (!draft || revealed) && <p className="dim center">{HOST_UI.seats.noRounds}</p>}
 
-      {[...published].reverse().map((round) => (
-        <div className="card stack" key={round.round}>
-          <div className="row between">
-            <span className="kicker">{HOST_UI.seats.roundTitle(round.round)}</span>
-            <span className="small dim">{HOST.ack.progress(round.acks.length, round.seats.length)}</span>
+      {[...published].reverse().map((round, i) => {
+        /*
+         * **가장 최신 라운드만 고칠 수 있다** (ADR-49).
+         *
+         * 목록은 최신이 위라 `i === 0` 이 그것이다. 지난 라운드를 고쳐도 사람들은 이미
+         * 다음 자리에 앉아 있어서 아무 데도 반영되지 않는다 — 고쳤다는 사실만 남는다.
+         * 발표 뒤에는 최신 라운드도 잠긴다 (ADR-28). 서버도 같은 문을 닫아둔다.
+         */
+        const editable = i === 0 && !revealed;
+        const editing = editable && openEdit === round.round;
+        return (
+          <div className="card stack" key={round.round}>
+            {/*
+              자리 이동 확인 수는 **고치는 문이 열려도 남는다** — 지금 사람들이 답하고 있는
+              라운드가 바로 이것이라, 여기서 사라지면 볼 자리가 없어진다.
+            */}
+            <div className="row">
+              <span className="kicker grow ellipsis">{HOST_UI.seats.roundTitle(round.round)}</span>
+              <span className="small dim">{HOST.ack.progress(round.acks.length, round.seats.length)}</span>
+              {editable && (
+                <button
+                  className={`btn ghost tiny ${editing ? "primary" : ""}`}
+                  onClick={() => {
+                    setPicked(null);
+                    setOpenEdit(editing ? null : round.round);
+                  }}
+                >
+                  {editing ? HOST_UI.seats.editDone : HOST_UI.seats.edit}
+                </button>
+              )}
+            </div>
+            {/*
+              **설명은 고치는 동안에만, 한 줄만 선다** (ADR-49). 읽으러 연 사람에게는
+              테이블이 먼저다 — 늘 떠 있던 설명 넷이 화면 위쪽을 통째로 먹고 있었다.
+            */}
+            {editing && editBar(round)}
+            {/*
+              쌍 성적표도 **고치는 동안에만** 선다 (ADR-49 + ADR-51). 이건 읽을거리가 아니라
+              **작업 목록**이다 — 떨어진 쌍의 이름이 곧 맞교환할 대상이다.
+              읽으러 연 사람에게는 테이블이 먼저라는 이 카드의 규칙을 그대로 따른다.
+            */}
+            {editing && <PairReport round={round} mutual={state.mutual} state={state} />}
+            <Tables
+              round={round}
+              picked={picked?.round === round.round ? picked.playerId : null}
+              onPick={(id) => swap(round, id)}
+              state={state}
+              partners={partners}
+              locked={!editing}
+            />
+            <Unassigned round={round} state={state} onSeat={editing ? (id) => seat(round, id) : undefined} />
           </div>
-          {/* 알림이 가지 않는다는 걸 고치기 전에 말한다 — 앱이 말해주는 줄 알면 그 사람은 옛 자리에 앉아 있다 */}
-          {!revealed && <p className="tiny dim">{HOST_UI.seats.editQuiet}</p>}
-          {!revealed && editBar(round)}
-          <PairReport round={round} mutual={state.mutual} state={state} />
-          <Tables
-            round={round}
-            picked={picked?.round === round.round ? picked.playerId : null}
-            onPick={(id) => swap(round, id)}
-            state={state}
-            partners={partners}
-            locked={revealed}
-          />
-          <Unassigned round={round} state={state} onSeat={revealed ? undefined : (id) => seat(round, id)} />
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -513,7 +553,7 @@ function TablePicker({
 }
 
 /**
- * 서로 찌른 쌍이 **같은 테이블에 앉았는가**. 자리 검토의 성적표다 (ADR-49).
+ * 서로 찌른 쌍이 **같은 테이블에 앉았는가**. 자리 검토의 성적표다 (ADR-51).
  *
  * **쌍 목록을 그대로 센다.** 사람→짝 지도에서 세면 한 사람이 여러 명과 이어졌을 때
  * 쌍 하나가 통째로 빠진다 (ADR-24).
@@ -570,7 +610,7 @@ function Tables({
   picked: string | null;
   onPick: (playerId: string) => void;
   /**
-   * 사람 → 서로 찌른 상대들 (ADR-49). **모든 라운드에서 넘어온다.**
+   * 사람 → 서로 찌른 상대들 (ADR-51). **모든 라운드에서 넘어온다.**
    * 붙어 앉았으면 💘, 다른 테이블에 있으면 💔 — 뒤엣것이 곧 옮길 수 있다는 신호다.
    */
   partners: Map<string, Set<string>>;

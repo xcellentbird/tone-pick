@@ -141,7 +141,6 @@ flowchart LR
         hParty["파티 진행 시작"]
         hSeat["자리 발송"]
         hReveal["결과 발표"]
-        hUndo["발표 되돌리기"]
         hConfig["콕 횟수 또는 대상 변경"]
         hDelete["참가자 삭제"]
     end
@@ -153,7 +152,6 @@ flowchart LR
         gSeat["전체 화면 이동 확인"]
         gResult["홈에 요약 · 내 정보에 상세"]
         gLock["콕 즉시 잠김"]
-        gHidden["경고 배너 · 결과 다시 숨김"]
         gRecalc["남은 횟수 그 자리에서 재계산"]
         gGone["목록 · 자리 · 집계에서 사라짐"]
     end
@@ -180,7 +178,6 @@ flowchart LR
     hSeat --> gSeat
     hReveal --> gResult
     hReveal --> gLock
-    hUndo --> gHidden
     hConfig --> gRecalc
     hDelete --> gGone
 
@@ -196,7 +193,6 @@ flowchart LR
     style guest fill:#C2E5FF,stroke:#3DADFF
     style back fill:#C2E5FF,stroke:#3DADFF
     style gLock fill:#FFCDC2,stroke:#FF7556
-    style gHidden fill:#FFCDC2,stroke:#FF7556
 ```
 
 참가자 화면은 실시간(WS)으로 **"다시 읽어라"** 신호만 받고 서버에서 한 벌을 다시 가져온다.
@@ -219,8 +215,7 @@ stateDiagram-v2
     reg --> prevote: 수동
     prevote --> party: 예약 알람 또는 수동
     party --> done: 예약 알람 또는 수동
-    done --> party: 발표 되돌리기
-    done --> [*]: 발표 후 3일
+    done --> [*]: 운영자가 회차를 지울 때까지 (ADR-36)
 ```
 
 **예약은 한 번만 울리는 알람이다** (ADR-2). 실제 전환 시각을 `fired` 에 남기고, 알람은 `fired` 가
@@ -318,5 +313,5 @@ flowchart LR
 
 - **생성 위저드는 매력 투표 시작 하나만 받는다** (ADR-38). 등록은 만드는 순간 열린다
 - **배정은 발표 전까지 닫히지 않는다** (ADR-28). 라운드 횟수에도 제한이 없다 —
-  못 붙은 쌍은 운영자가 자리 탭의 💔 를 보고 맞교환으로 붙인다 (ADR-49)
+  못 붙은 쌍은 운영자가 자리 탭의 💔 를 보고 맞교환으로 붙인다 (ADR-51)
 - 동성 콕을 열어도 **자리 배정의 남녀 정원은 그대로다.** 콕은 가중치로만 들어간다

@@ -65,19 +65,23 @@ describe("커플 발표 예약", () => {
   });
 
   /**
-   * 알람은 **한 번만** 운다 (ADR-2). 이게 없으면 되돌리기가 그 자리에서 도로 밀려서
-   * 운영자가 손쓸 틈이 없다 — 잘못 눌렀을 때 물릴 방법이 사라진다.
+   * **예약이 울려 발표된 회차도 되돌릴 수 없다** (ADR-50). 손으로 누른 발표와 다를 이유가
+   * 없고, 한쪽만 물릴 수 있으면 이 결정은 절반만 지켜진다.
+   *
+   * 예전에는 이 자리가 *한 번 울린 알람은 되돌려도 다시 울지 않는다*(ADR-2)를 지켰다.
+   * 이제 `done` 밖으로 나갈 수 없어 발표에서는 그 길로 확인할 수 없다 —
+   * 뒤로 가는 전환은 `04-match-budget` 의 `단계 되돌리기` 가 그대로 지킨다.
    */
-  it("★ 한 번 울린 예약은 되돌려도 다시 울리지 않는다", async () => {
+  it("★ 예약이 울려 발표된 회차도 되돌릴 수 없다", async () => {
     const ev = await freshEvent();
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
     expect((await putSchedule(ev.id, { revealAt: Date.now() - 1000 })).status).toBe(200);
     expect(await phaseNow(ev.id)).toBe("done");
 
-    // 잘못 발표된 걸 파티로 물린다. 예약 시각은 여전히 지나 있다
-    await setPhase(ev.id, "party");
-    expect(await phaseNow(ev.id), "되돌렸는데 예약이 도로 밀었다").toBe("party");
+    const res = await api(`/api/host/events/${ev.id}/phase`, { method: "POST", cookie: master, body: { to: "party" } });
+    expect(res.status, "예약으로 발표된 회차가 되돌아갔다").toBe(400);
+    expect(await phaseNow(ev.id)).toBe("done");
   });
 
   it("★ 발표가 파티보다 앞이면 회차를 못 만든다", async () => {

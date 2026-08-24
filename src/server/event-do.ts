@@ -122,7 +122,7 @@ CREATE INDEX IF NOT EXISTS votes_ann ON votes(ann_id);
 CREATE TABLE IF NOT EXISTS seatings (
   round        INTEGER PRIMARY KEY,
   table_count  INTEGER NOT NULL,
-  final        INTEGER NOT NULL DEFAULT 0,   -- 안 쓴다 (ADR-49 가 ADR-23 을 걷어냈다). 옛 회차의 값이 남아 있을 뿐이다
+  final        INTEGER NOT NULL DEFAULT 0,   -- 안 쓴다 (ADR-51 가 ADR-23 을 걷어냈다). 옛 회차의 값이 남아 있을 뿐이다
   status       TEXT NOT NULL DEFAULT 'draft',
   seats        TEXT NOT NULL,        -- JSON Seat[]
   acks         TEXT NOT NULL DEFAULT '[]',
@@ -268,6 +268,19 @@ export class EventDO extends DurableObject {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (!PHASE_ORDER.includes(to)) return fail("bad_request");
+    /*
+     * **발표는 끝이다** (ADR-50). `done` 에서는 어디로도 못 나간다.
+     *
+     * 화면에서 버튼만 걷어내면 요청은 그대로 통한다 — 이 앱에서 되돌리기가 위험한 건
+     * 운영자가 실수해서가 아니라, **한 번 본 것은 못 되돌리기 때문**이다. 결과를 본 사람과
+     * 못 본 사람이 갈린 채로 화면만 닫히고, 그 뒤에 오는 질문에 앱이 답할 말이 없다.
+     * 그래서 문을 여기서 잠근다.
+     *
+     * **다만 `done` → `done` 은 통과시킨다.** 두 번 눌린 발표를 실패로 답하면 운영자는
+     * 안 된 줄 알고 다시 누른다 — 앞의 `forward` 판정이 거짓이라 `fired.done` 은
+     * 처음 발표한 시각 그대로 남는다.
+     */
+    if (meta.phase === "done" && to !== "done") return fail("bad_request");
 
     const forward = PHASE_ORDER.indexOf(to) > PHASE_ORDER.indexOf(meta.phase);
     meta.phase = to;
@@ -1705,7 +1718,7 @@ export class EventDO extends DurableObject {
 
   private writeSeating(s: SeatingRound) {
     /*
-     * **`final` 칸은 쓰지 않는다** (ADR-49). 칸은 남겨둔다 — `DROP COLUMN` 은 옛 회차의
+     * **`final` 칸은 쓰지 않는다** (ADR-51). 칸은 남겨둔다 — `DROP COLUMN` 은 옛 회차의
      * 표를 건드리는 일이고, `NOT NULL DEFAULT 0` 이라 안 적어도 들어간다.
      * `contact_share`·`attendance` 와 같은 자리다.
      */

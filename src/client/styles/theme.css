@@ -1044,7 +1044,6 @@ button {
   color: var(--fg);
 }
 
-.banner.warn { border-left-color: var(--warn); }
 
 /* ─────────────────────────── 시트 · 다이얼로그 */
 

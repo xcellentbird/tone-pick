@@ -191,7 +191,7 @@ function News({ state }: { state: ParticipantState }) {
       <div className="kicker">{HOME.news}</div>
       <div className="stack">
         {list.map((n) => (
-          <div className={`banner ${n.warn ? "warn" : ""}`} key={n.key}>
+          <div className="banner" key={n.key}>
             <span className="icon">{n.icon}</span>
             <span className="grow">
               <span className="name">{n.title}</span>

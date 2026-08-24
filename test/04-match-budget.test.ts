@@ -1,5 +1,5 @@
 /**
- * 슬라이스 03·05·06 — 여러 매칭 · 자리 섞기 · 콕 상한 · 오늘의 연애운 · 되돌리기
+ * 슬라이스 03·05·06 — 여러 매칭 · 자리 섞기 · 콕 상한 · 오늘의 연애운 · 단계 되돌리기
  *
  * 여기 붙는 규칙 둘이 특히 비싸다.
  *   · **짝은 한 사람에 하나가 아니다** (ADR-24) — A–B 와 A–C 가 동시에 성립한다
@@ -133,7 +133,7 @@ describe("자리 섞기", () => {
   /**
    * ★ **섞어도 붙어 앉은 쌍은 제자리다** (ADR-23).
    *
-   * 예전에는 커플 자리 라운드에서만 그랬다. 그 라운드를 걷어내면서(ADR-49)
+   * 예전에는 커플 자리 라운드에서만 그랬다. 그 라운드를 걷어내면서(ADR-51)
    * **모든 라운드로 넓혔다** — 운영자가 손으로 붙여둔 쌍을 섞기가 흩어놓으면
    * 버튼 하나로 그 손이 헛일이 된다.
    */
@@ -454,9 +454,9 @@ describe("오늘의 연애운", () => {
   });
 });
 
-// ─────────────────────────────────────────── 되돌리기
+// ─────────────────────────────────────────── 단계 되돌리기 (발표만은 못 되돌린다)
 
-describe("되돌리기", () => {
+describe("단계 되돌리기", () => {
   it("★ 되돌려도 예약 때문에 즉시 다시 앞으로 밀리지 않는다", async () => {
     const ev = await freshEvent();
 
@@ -479,17 +479,45 @@ describe("되돌리기", () => {
     expect(after.body.fired.prevote).toBeGreaterThan(0);
   });
 
-  it("발표를 되돌리면 파티 진행으로 돌아간다", async () => {
+  it("★ 발표는 되돌릴 수 없다 — 화면이 아니라 여기가 막는다", async () => {
+    /*
+     * **한 번 본 것은 못 되돌린다** (ADR-50). 결과를 본 사람과 못 본 사람이 갈린 채로
+     * 화면만 닫히고, 그 뒤에 오는 질문에 앱이 답할 말이 없다.
+     *
+     * 화면에서 버튼만 걷으면 요청은 그대로 통하므로 **문은 서버가 잠근다.**
+     * 운영자 콘솔은 인증을 지나온 자리라 더더욱, 눌러서 되는 일은 언젠가 눌린다.
+     */
     const ev = await freshEvent();
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
     await setPhase(ev.id, "done");
-    await setPhase(ev.id, "party");
+
+    for (const to of ["party", "prevote", "reg", "prep"]) {
+      const res = await api(`/api/host/events/${ev.id}/phase`, { method: "POST", cookie: master, body: { to } });
+      expect(res.status, `${to} 로 되돌아갔다`).toBe(400);
+    }
 
     const after = await api<EventMeta>(`/api/host/events/${ev.id}`, { cookie: master });
-    expect(after.body.phase).toBe("party");
-    // 되돌려도 "발표했었다"는 사실은 남는다
-    expect(after.body.fired.done).toBeGreaterThan(0);
+    expect(after.body.phase).toBe("done");
+  });
+
+  it("두 번 눌린 발표는 실패가 아니다 — 처음 시각 그대로 남는다", async () => {
+    /*
+     * `done` 을 잠그되 **자기 자신으로 오는 것은 통과시킨다.** 실패로 답하면 운영자는
+     * 안 된 줄 알고 다시 누른다. `fired.done` 은 처음 발표한 시각이어야 한다 —
+     * 그 값으로 참가자 소식의 차례가 선다.
+     */
+    const ev = await freshEvent();
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+    await setPhase(ev.id, "done");
+    const first = await api<EventMeta>(`/api/host/events/${ev.id}`, { cookie: master });
+
+    await setPhase(ev.id, "done");
+
+    const after = await api<EventMeta>(`/api/host/events/${ev.id}`, { cookie: master });
+    expect(after.body.phase).toBe("done");
+    expect(after.body.fired.done).toBe(first.body.fired.done);
   });
 });
 
