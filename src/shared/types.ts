@@ -570,9 +570,16 @@ export interface HostState {
    * 참가자 탭의 개인 행에는 넣지 않는다 — 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
    */
   sent: Record<string, number>;
-  received: Record<string, number>;
-  /** 사전 투표에서 받은 콕 순위 (내림차순) */
-  prevoteRank: Array<{ id: string; count: number }>;
+  /**
+   * 받은 수를 **라운드마다 따로** 센다 (ADR-45).
+   *
+   * 합쳐 세면 현황 탭의 `콕 TOP` 에 매력 투표 표가 얹혀서, 운영자가
+   * *이 사람이 파티에서 몇 번 받았나* 를 못 읽는다 — 그 둘은 쓰임이 다르다 (ADR-34).
+   * 매력 투표는 프로필만 보고 고른 것이고, 콕은 만나보고 고른 것이다.
+   *
+   * ⚠️ **다시 합치지 마라.** 합계가 필요하면 쓰는 쪽에서 더한다.
+   */
+  received: Record<PokeRound, Record<string, number>>;
   mutual: Array<[string, string]>;
   pokeCount: Record<PokeRound, number>;
   /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다 */

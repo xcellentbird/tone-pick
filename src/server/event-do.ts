@@ -865,22 +865,24 @@ export class EventDO extends DurableObject {
     }
 
     const sent: Record<string, number> = {};
-    const received: Record<string, number> = {};
-    const preReceived: Record<string, number> = {};
+    /*
+     * **라운드마다 따로 센다** (ADR-45). 합치면 현황 탭의 `콕 TOP` 에 매력 투표 표가 얹혀서,
+     * 운영자가 "이 사람이 파티에서 몇 번 받았나" 를 못 읽는다 — 그 둘은 쓰임이 다르다 (ADR-34).
+     */
+    const received: Record<PokeRound, Record<string, number>> = { pre: {}, party: {} };
     // 상한을 내릴 수 있는지 판단하려면 **한 사람이 라운드마다 몇 번 썼는지**가 필요하다
     const usedBy: Record<PokeRound, Record<string, number>> = { pre: {}, party: {} };
     for (const p of players) {
       sent[p.id] = 0;
-      received[p.id] = 0;
-      preReceived[p.id] = 0;
+      received.pre[p.id] = 0;
+      received.party[p.id] = 0;
     }
     const pokeCount: Record<PokeRound, number> = { pre: 0, party: 0 };
     const pairs = new Set<string>();
     const when = new Map<string, Set<PokeRound>>();
     for (const k of pokes) {
       sent[k.fromId] = (sent[k.fromId] ?? 0) + 1;
-      received[k.toId] = (received[k.toId] ?? 0) + 1;
-      if (k.round === "pre") preReceived[k.toId] = (preReceived[k.toId] ?? 0) + 1;
+      received[k.round][k.toId] = (received[k.round][k.toId] ?? 0) + 1;
       usedBy[k.round][k.fromId] = (usedBy[k.round][k.fromId] ?? 0) + 1;
       pokeCount[k.round]++;
       pairs.add(`${k.fromId}>${k.toId}`);
@@ -909,9 +911,6 @@ export class EventDO extends DurableObject {
       players,
       sent,
       received,
-      prevoteRank: Object.entries(preReceived)
-        .map(([id, count]) => ({ id, count }))
-        .sort((a, b) => b.count - a.count),
       mutual,
       pokeCount,
       pokeUsedMax,

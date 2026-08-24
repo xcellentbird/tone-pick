@@ -60,8 +60,8 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
       },
     ],
     sent: { p1: 1, p2: 0 },
-    received: { p1: 0, p2: 1 },
-    prevoteRank: [{ id: "p2", count: 1 }, { id: "p1", count: 0 }],
+    // 라운드마다 따로 센다 (ADR-45) — 합쳐 두면 현황 탭이 어느 쪽을 그리는지 테스트가 못 가른다
+    received: { pre: { p1: 0, p2: 1 }, party: { p1: 2, p2: 0 } },
     mutual: [],
     pokeCount: { pre: 1, party: 0 },
     pokeUsedMax: { pre: 1, party: 0 },
@@ -180,7 +180,8 @@ describe("매칭 목록", () => {
      * 죽은 값을 그리느니 지운다.
      */
     stubFetch(
-      hostState({}, {
+      // 매칭 카드는 파티부터 선다 (ADR-45) — 그전에는 있을 수가 없어서 그리지 않는다
+      hostState({ phase: "party" }, {
         mutual: [["a", "b"], ["a", "c"], ["b", "c"], ["c", "d"]],
       }),
     );
@@ -190,6 +191,117 @@ describe("매칭 목록", () => {
     // 갈래 카드가 없다 — 쌍 수를 세는 칸이 어디에도 뜨지 않는다
     expect(screen.queryByText("1쌍")).toBeNull();
     expect(screen.queryByText("0쌍")).toBeNull();
+  });
+});
+
+/**
+ * 현황 탭의 순위 둘 (ADR-45).
+ *
+ * 두 라운드는 쓰임이 다르다 — 매력 투표 표는 **자리의 재료**고, 파티 콕은 **매칭의 재료**다 (ADR-34).
+ * 그래서 한 수로 합치면 `콕 TOP` 이 *파티에서 몇 번 받았나* 를 말하지 못한다.
+ *
+ * ⚠️ 이 파일이 순위의 **내용**을 재는 유일한 자리다. 서버 테스트는 두 표가 갈렸는지만 보고,
+ * 어느 표가 어느 제목 아래 그려지는지는 못 본다 — 둘을 맞바꿔도 서버는 초록이다.
+ */
+describe("현황 탭의 순위 둘", () => {
+  /** 제목 줄부터 **다음 제목 줄 전까지**를 한 묶음으로 본다. 순위 행은 그 사이에만 있다 */
+  function rankRows(title: string) {
+    const rows: Array<[string, string]> = [];
+    let el = screen.getByText(title).closest(".row")!.nextElementSibling;
+    while (el && !el.classList.contains("row")) {
+      for (const r of el.querySelectorAll(".rank")) {
+        rows.push([r.querySelector(".name")!.textContent!, r.querySelector(".ct")!.textContent!]);
+      }
+      el = el.nextElementSibling;
+    }
+    return rows;
+  }
+
+  it("★ 콕 TOP 에 매력 투표 표가 얹히지 않는다", async () => {
+    // `가` 는 매력 투표에서 9표를 받았지만 파티에서는 한 번도 못 받았다
+    stubFetch(hostState({ phase: "party" }, { received: { pre: { p1: 9, p2: 1 }, party: { p1: 0, p2: 2 } } }));
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.rankTitle(1));
+
+    expect(rankRows(HOST_UI.dash.preRankTitle(2))).toEqual([["가", "9"], ["나", "1"]]);
+    // 합쳐 세면 `가` 가 9회로 여기 1위에 선다. 그 순간 이 숫자는 파티를 말하지 않는다
+    expect(rankRows(HOST_UI.dash.rankTitle(1))).toEqual([["나", "2"]]);
+  });
+
+  it("★ 매력 투표도 TOP 5 — 1위만 크게 보여주지 않는다", async () => {
+    const mk = (n: number) => ({
+      id: `x${n}`, nickname: `사람${n}`, realName: `김${n}`, age: 30, gender: (n % 2 ? "M" : "F") as "M" | "F",
+      phone: `0100000000${n}`, instagram: `gram_${n}`, mbti: "ENFP",
+      charms: ["a", "b", "c"] as [string, string, string], createdAt: n,
+    });
+    const players = [1, 2, 3, 4, 5, 6, 7].map(mk);
+    // 7·6·5·4·3·2·1 — 여섯째부터는 TOP 5 밖이다
+    const pre = Object.fromEntries(players.map((p, i) => [p.id, 7 - i]));
+    stubFetch(hostState({ phase: "party" }, { players, received: { pre, party: {} } }));
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.preRankTitle(5));
+
+    const rows = rankRows(HOST_UI.dash.preRankTitle(5));
+    expect(rows.map(([who]) => who)).toEqual(["사람1", "사람2", "사람3", "사람4", "사람5"]);
+    // 콕 쪽은 아무도 못 받았으니 순위가 아니라 빈 문구다
+    expect(rankRows(HOST_UI.dash.rankTitle(5))).toEqual([]);
+    expect(screen.getByText(HOST_UI.dash.rankEmpty)).toBeTruthy();
+  });
+
+  /**
+   * 낱말이 라운드마다 다르다 (ADR-34). 매력 투표 자리에서 `콕` 이라고 하면
+   * 운영자가 읽는 것과 참가자가 겪는 것이 갈린다 — 참가자는 그 단계에서 콕을 찌른 적이 없다.
+   */
+  it("★ 아무도 못 받았을 때 두 자리가 다른 말을 한다", async () => {
+    stubFetch(hostState({ phase: "party" }, { received: { pre: {}, party: {} } }));
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.preRankEmpty);
+
+    expect(screen.getByText(HOST_UI.dash.rankEmpty)).toBeTruthy();
+    expect(HOST_UI.dash.preRankEmpty).not.toBe(HOST_UI.dash.rankEmpty);
+  });
+
+  /** 화면에 선 카드 제목을 **위에서 아래 순서 그대로** 읽는다 */
+  const sections = () => [...document.querySelectorAll(".kicker")].map((k) => k.textContent);
+
+  /**
+   * **파티 전에는 매력 투표 하나뿐이다** (ADR-45).
+   *
+   * 매칭도 파티 콕도 그전에는 **있을 수가 없다** (ADR-34) — 빈 카드를 미리 세워두면
+   * 운영자가 매번 그게 정상인지 확인하게 되고, 정작 볼 것(표가 어디로 몰렸나)이 아래로 밀린다.
+   */
+  it("★ 파티 전에는 매칭도 콕 TOP 도 서지 않는다", async () => {
+    for (const phase of ["reg", "prevote"] as const) {
+      cleanup();
+      stubFetch(hostState({ phase }, { received: { pre: { p1: 2, p2: 1 }, party: {} }, mutual: [] }));
+      renderConsole();
+      await screen.findByText(HOST_UI.dash.preRankTitle(2));
+
+      expect(sections(), `${phase} 에 다른 카드가 섰다`).toEqual([HOST_UI.dash.preRankTitle(2)]);
+      // 빈 콕 문구도 없어야 한다 — 감춘 게 아니라 그리지 않는 것이다
+      expect(screen.queryByText(HOST_UI.dash.rankEmpty)).toBeNull();
+      expect(screen.queryByText(HOST_UI.dash.mutualNone)).toBeNull();
+    }
+  });
+
+  /**
+   * **파티가 시작되면 순서가 바뀐다** — 지금 쓰이는 것이 위로 온다.
+   * 매칭이 맨 위인 건 자리를 붙일지 판단하는 게 그 시점의 일이라서고,
+   * 매력 투표는 끝난 라운드라 기록으로 맨 아래에 남는다.
+   */
+  it("★ 파티가 시작되면 매칭 · 콕 TOP · 매력 투표 순으로 선다", async () => {
+    for (const phase of ["party", "done"] as const) {
+      cleanup();
+      stubFetch(hostState({ phase }, { received: { pre: { p1: 2, p2: 1 }, party: { p1: 1, p2: 0 } }, mutual: [["p1", "p2"]] }));
+      renderConsole();
+      await screen.findByText(HOST_UI.dash.rankTitle(1));
+
+      expect(sections(), `${phase} 의 순서가 다르다`).toEqual([
+        HOST_UI.dash.mutualTitle(1),
+        HOST_UI.dash.rankTitle(1),
+        HOST_UI.dash.preRankTitle(2),
+      ]);
+    }
   });
 });
 
