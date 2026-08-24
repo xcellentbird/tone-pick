@@ -745,6 +745,51 @@ describe("자리 배정 시트", () => {
     expect(screen.queryByText(HOST_UI.seats.seatedAll(2))).toBeNull();
   });
 
+  /**
+   * 사람이 서른을 넘으면 한 목록에서 한 사람을 찾는 게 일이 된다.
+   * **참가자 탭과 같은 칩**이라 운영자가 어느 쪽인지 다시 익힐 것이 없다.
+   */
+  it("★ 성별 칩으로 목록을 좁힌다", async () => {
+    stubFetch(party());
+    renderConsole("/host/e1/seats/new");
+    await screen.findByText(HOST_UI.seats.seatedAll(2));
+
+    // 전체로 시작한다 — 남 하나, 여 하나
+    expect(inSheet().getByText("가")).toBeTruthy();
+    expect(inSheet().getByText("나")).toBeTruthy();
+
+    fireEvent.click(inSheet().getByText(GENDER.M, { exact: false }));
+    expect(inSheet().getByText("가")).toBeTruthy();
+    expect(inSheet().queryByText("나")).toBeNull();
+  });
+
+  /**
+   * ★ **거르는 것은 보는 방법이지 빼는 방법이 아니다.**
+   *
+   * 남성만 보고 있다고 여성이 배정에서 빠지면, 운영자는 화면에 안 보이는 사람이
+   * 조용히 사라진 것을 배정하고 나서야 안다.
+   */
+  it("★ 걸러 놔도 안 보이는 사람은 그대로 배정된다", async () => {
+    stubFetch(party());
+    renderConsole("/host/e1/seats/new");
+    await screen.findByText(HOST_UI.seats.seatedAll(2));
+
+    fireEvent.click(inSheet().getByText(GENDER.M, { exact: false }));
+    // 인원 줄은 여전히 전원 기준이다
+    expect(screen.getByText(HOST_UI.seats.seatedAll(2))).toBeTruthy();
+
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
+    await screen.findAllByText(HOST_UI.seats.tableCount);
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.make));
+
+    await waitFor(() => expect(calls.find((c) => c.url.endsWith("/seating"))).toBeTruthy());
+    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({
+      tableCount: 1,
+      final: false,
+      exclude: [],
+    });
+  });
+
   it("★ 뺀 사람이 배정 요청에 실린다", async () => {
     // 한 명을 빼고도 테이블 하나를 채울 수 있어야 다음 걸음으로 넘어간다 (최소 2명)
     const st = party();
