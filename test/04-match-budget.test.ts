@@ -64,15 +64,17 @@ describe("한 사람이 여러 명과 이어질 때", () => {
     expect(raw).not.toContain("박씨이");
   });
 
-  it("A 에게는 둘 다 보이고, 각자의 연락처가 온다", async () => {
+  it("A 에게는 둘 다 보이고, 각자의 실명이 온다", async () => {
     const { ev, a, b, c } = await triangle();
     await setPhase(ev.id, "party");
     await setPhase(ev.id, "done");
 
     const mine = await api<ParticipantState>("/api/me", { cookie: a.cookie });
     expect(mine.body.poke.matches.map((m) => m.player.id).sort()).toEqual([b.id, c.id].sort());
-    // 셋 다 `전체 공개` 로 등록했으니 번호까지 온다 (ADR-37) — 좁히는 쪽은 29 가 따로 본다
-    for (const m of mine.body.poke.matches) expect(m.contact?.phone?.length).toBeGreaterThan(0);
+    // 나가는 건 실명뿐이다 (ADR-42). 번호·인스타는 어느 매칭에도 없다
+    for (const m of mine.body.poke.matches) expect(m.realName.length).toBeGreaterThan(0);
+    const raw = JSON.stringify(mine.body);
+    for (const p of [b.phone, c.phone]) expect(raw, "번호가 남아 있다").not.toContain(p);
   });
 
   it("★ 커플 자리에서 셋이 같은 테이블이면 두 쌍 다 성공이다", async () => {

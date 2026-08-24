@@ -8,7 +8,7 @@
  * 되돌리기는 지금 화면에 두지 않는다. 그래서 확인창이 "되돌릴 수 없다"고 분명히 말한다.
  */
 import { useRef, useState } from "react";
-import { ACT, BTN, ME, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
+import { ACT, BTN, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
 import type { MatchInfo, MyPokeState, ParticipantState, Phase, Player, PokeRound, PublicPlayer } from "../../shared/types.ts";
 import type { Tab } from "./Participant.tsx";
 import { canPoke } from "../../shared/phase.ts";
@@ -319,16 +319,8 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
                     : REVEAL.hintOther}
                 </span>
 
-                {/* 연락처는 **서로 찌른 사이에게만** 열린다 (ADR-19) */}
-                <Contact match={matched.get(profile.id)!} />
-                {/*
-                  연락 수단이 열렸을 때만. 이름만 열린 자리에서 "상대에게도 같은 만큼" 은
-                  틀린 말은 아니지만 `nameOnly` 한 줄이 이미 같은 것을 더 정확히 말한다
-                */}
-                {(matched.get(profile.id)!.contact.phone ||
-                  matched.get(profile.id)!.contact.instagram) && (
-                  <span className="tiny dim">{REVEAL.contactNote}</span>
-                )}
+                {/* 실명은 **서로 찌른 사이에게만** 나간다 (ADR-19·42) */}
+                <MatchName match={matched.get(profile.id)!} />
               </div>
             )}
             <div className="row">
@@ -429,54 +421,27 @@ function MyCard({ me, phase, onOpen }: { me: Player; phase: Phase; onOpen: () =>
 }
 
 /**
- * 서로 찌른 상대의 연락처.
+ * 서로 찌른 상대의 **실명.**
  *
- * 전화와 인스타는 **누를 수 있게** 둔다 — 파티장에서 번호를 손으로 옮겨 적게 하지 않는다.
- * 이 컴포넌트는 `MatchInfo` 없이는 그려지지 않는다. 그 타입이 곧 "발표 후 서로 찌른 쌍"이다.
+ * 전에는 여기가 연락처 카드였다 — 전화번호와 인스타를 눌러서 걸고 열 수 있었다.
+ * **지금은 이름 한 줄뿐이다** (ADR-42). 연락처는 매칭된 쌍에게도 나가지 않고,
+ * `MatchInfo` 에 그 값이 아예 없다.
  *
- * **이름은 늘 있다** (ADR-37). 전화번호와 인스타는 **두 사람이 다 열기로 했을 때만** 온다 —
- * 무엇이 오는지는 서버가 정한다. 화면은 **온 것만 그린다**: 여기서 다시 판단하지 마라.
+ * ⚠️ **전화번호·인스타 줄을 다시 만들지 마라.** 타입에 자리가 없는 것이 곧 방어다 —
+ * 되살리려면 `MatchInfo` 부터 고쳐야 하고, 그건 이 앱이 참가자에게 한 약속을 바꾸는 일이다
+ * (등록 화면의 `REGISTER.contactNote` 가 먼저다).
  *
- * ⚠️ **없는 줄의 이유를 화면에 적지 마라.** `상대가 번호를 안 열었어요` 는 사실상
- * 상대를 지목하는 말이고, 인스타라는 멀쩡한 연락 수단을 실패처럼 보이게 만든다.
- * 없는 줄은 그냥 없다. 둘 다 없을 때만 `nameOnly` 한 줄이 대신 든다.
+ * 라벨을 `연락처` 라고 쓰지 않는다. 그렇게 쓰면 뒤에 뭔가 더 있어야 하는 칸이 된다.
  */
-function Contact({ match }: { match: MatchInfo }) {
-  const { realName, phone, instagram } = match.contact;
-
+function MatchName({ match }: { match: MatchInfo }) {
   return (
     <div className="stack">
-      {/* 이름은 신원이지 연락 수단이 아니다 — '연락처' 라벨 밖에 둔다 */}
       <div className="row between">
-        <span className="small dim">{ME.labels.realName}</span>
-        <span>{realName}</span>
+        <span className="small dim">{REVEAL.nameTitle}</span>
+        <span>{match.realName}</span>
       </div>
-
-      {/*
-        연락 수단이 하나도 없으면 `연락처` 라벨을 아예 안 그린다 —
-        비어 있는 칸은 고장 난 화면으로 읽힌다. 대신 왜 그런지 한 줄을 둔다
-      */}
-      {!phone && !instagram ? (
-        <span className="tiny dim">{REVEAL.nameOnly}</span>
-      ) : (
-        <>
-          <div className="kicker">{REVEAL.contactTitle}</div>
-          {phone && (
-            <div className="row between">
-              <span className="small dim">{ME.labels.phone}</span>
-              <a href={`tel:${phone}`}>{phone}</a>
-            </div>
-          )}
-          {instagram && (
-            <div className="row between">
-              <span className="small dim">{ME.labels.instagram}</span>
-              <a href={`https://instagram.com/${instagram}`} target="_blank" rel="noreferrer">
-                @{instagram}
-              </a>
-            </div>
-          )}
-        </>
-      )}
+      {/* 왜 이름까지만인지 그 자리에서 말한다 — 안 그러면 그 질문이 운영자에게 간다 */}
+      <span className="tiny dim">{REVEAL.nameNote}</span>
     </div>
   );
 }
