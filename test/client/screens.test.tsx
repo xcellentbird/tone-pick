@@ -693,9 +693,17 @@ describe("참가자 화면 · 어깨너머 가리기", () => {
     expect(screen.queryAllByText(POKE.undo.btn)).toHaveLength(0);
 
     // 이미 찌른 사람의 창을 열면 그 안에 있다 (POKE_STATE 는 her 를 1회 찔렀다)
+    const source = fakeSource();
+    cleanup();
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
     fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
     await screen.findByText(POKE.confirm.title("pre", 1));
     expect(screen.getByText(POKE.undo.btn)).toBeTruthy();
+
+    // 누르면 되돌아간다. 확인을 한 번 더 묻지 않는다 — 되돌리는 것 자체가 되돌리기다
+    fireEvent.click(screen.getByText(POKE.undo.btn));
+    await waitFor(() => expect(source.calls.poke).toEqual(["-her"]));
   });
 
   it("★ 가리면 찌른 버튼과 안 찌른 버튼이 구별되지 않는다", async () => {
