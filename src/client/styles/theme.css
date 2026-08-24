@@ -334,7 +334,13 @@ button {
   padding: 0 14px;
 }
 
-.choice button[aria-pressed="true"] {
+/*
+ * `aria-checked` 도 함께 본다. 둘 중 하나를 고르는 자리에 `role="radio"` 를 쓰면
+ * 눌린 상태가 `aria-pressed` 가 아니라 `aria-checked` 로 온다 (`ShareChoice.tsx`) —
+ * 한쪽만 적어두면 **골라도 아무 표시가 안 나서** 안 눌린 것처럼 보인다.
+ */
+.choice button[aria-pressed="true"],
+.choice button[aria-checked="true"] {
   background: var(--card-2);
   color: var(--fg);
   font-weight: 700;
@@ -342,39 +348,14 @@ button {
 }
 
 /*
- * 연락처 공개 범위 고르기 (ADR-37). 알약 한 줄이 아니라 **세로 카드 셋**이다 —
- * 동의를 받는 자리라 셋의 뜻이 고르기 전에 다 보여야 한다 (`ShareChoice.tsx`).
+ * 연락처 공개 범위 고르기 (ADR-37). 칸마다 라벨 한 줄 + 알약 한 줄 (`ShareChoice.tsx`).
+ * 세로로 쌓는다 — 390px 에서 라벨과 알약을 한 줄에 놓으면 알약이 눌린다.
  */
-.shareChoice {
+.shareRow {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.shareChoice button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  min-height: var(--tap);
-  padding: 10px 14px;
-  text-align: left;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--card);
-  color: var(--dim);
-}
-
-/* 고른 것은 **테두리와 글자 굵기 둘 다** 로 말한다 — 색 하나로만 말하지 않는다 */
-.shareChoice button[aria-checked="true"] {
-  background: var(--card-2);
-  border-color: var(--accent);
-  color: var(--fg);
-}
-
-.shareChoice button[aria-checked="true"] b {
-  font-weight: 800;
+  gap: 4px;
+  margin-top: 8px;
 }
 
 /* ─────────────────────────── 탭바 */

@@ -40,7 +40,7 @@ const PLAYER: Player = {
   instagram: "secret_gram",
   mbti: "INFP",
   charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
-  contactShare: "all" as const,
+  contactShare: { phone: true, instagram: true },
   createdAt: 1,
 };
 

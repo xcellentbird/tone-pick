@@ -210,7 +210,10 @@ export default function Register() {
               **약속 바로 아래에서 고른다** (ADR-37). 위의 `contactNote` 가 어디까지 가는지
               말하고, 여기서 얼마나 열지 정한다 — 받을 때 한 약속과 고르는 자리가 같은 화면이다
             */}
-            <ShareChoice value={draft.contactShare} onChange={(v) => set("contactShare", v)} />
+            <ShareChoice
+              value={draft.contactShare}
+              onChange={(key, on) => set("contactShare", { ...draft.contactShare, [key]: on })}
+            />
             {err("contactShare")}
           </>
         )}

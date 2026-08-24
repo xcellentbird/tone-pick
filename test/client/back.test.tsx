@@ -8,7 +8,7 @@
  *   홈 탭에서 뒤로 → 앱 밖
  *   시트에서 뒤로 → 시트만 닫히고 목록은 그대로
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { BTN, GENDER, HELP, HOME, MBTI_AXES, ME, REGISTER, SCREEN_TITLE, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
@@ -38,7 +38,7 @@ const STATE: ParticipantState = {
     instagram: "gram_a",
     mbti: "ENFP",
     charms: ["하나", "둘", "셋"],
-    contactShare: "all" as const,
+    contactShare: { phone: true, instagram: true },
     createdAt: 1,
   },
   roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["가", "나", "다"] }],
@@ -189,8 +189,10 @@ describe("등록 직후 첫 안내", () => {
 
     await screen.findByLabelText(ME.labels.instagram);
     set("instagram", "na_gram");
-    // 기본값이 없어서 안 고르면 여기서 막힌다 (ADR-37). 뒤로 가기 시험이라 값 자체는 아무거나
-    fireEvent.click(screen.getByText(REGISTER.share.all.title));
+    // 기본값이 없어서 **둘 다** 골라야 넘어간다 (ADR-37). 뒤로 가기 시험이라 값 자체는 아무거나
+    for (const g of screen.getAllByRole("radiogroup")) {
+      fireEvent.click(within(g).getByText(REGISTER.share.on));
+    }
     fireEvent.click(screen.getByText(BTN.next));
 
     await screen.findByText(MBTI_AXES[0].q);
@@ -217,17 +219,27 @@ describe("등록 직후 첫 안내", () => {
     fireEvent.click(screen.getByText(BTN.next));
 
     await screen.findByLabelText(ME.labels.instagram);
-    const opts = screen.getAllByRole("radio");
-    expect(opts.length, "세 갈래가 다 보인다").toBe(3);
-    for (const o of opts) {
+    // 전화번호·인스타 두 줄, 각각 열기/안 열기 — 이름은 고르는 값이 아니라 줄이 없다
+    const groups = screen.getAllByRole("radiogroup");
+    expect(groups.length, "고르는 칸은 둘이다").toBe(2);
+    for (const o of screen.getAllByRole("radio")) {
       expect(o.getAttribute("aria-checked"), `'${o.textContent}' 가 미리 눌려 있다`).toBe("false");
     }
+    // 이름이 늘 열린다는 걸 **고르기 전에** 말한다
+    expect(screen.getByText(REGISTER.share.always)).toBeTruthy();
 
-    // 안 고르고 넘어가려 하면 막히고, 3스텝으로 가지 않는다
     set("instagram", "na_gram");
+
+    // 한 칸만 골라도 막힌다 — 둘 다 있어야 동의다
+    fireEvent.click(within(groups[0]).getByText(REGISTER.share.on));
     fireEvent.click(screen.getByText(BTN.next));
     await screen.findByText(REGISTER.err.share);
-    expect(screen.queryByText(MBTI_AXES[0].q), "안 골랐는데 넘어갔다").toBeNull();
+    expect(screen.queryByText(MBTI_AXES[0].q), "한 칸만 골랐는데 넘어갔다").toBeNull();
+
+    // 나머지를 채우면 넘어간다 — `안 열기` 도 고른 것이다
+    fireEvent.click(within(groups[1]).getByText(REGISTER.share.off));
+    fireEvent.click(screen.getByText(BTN.next));
+    await screen.findByText(MBTI_AXES[0].q);
   });
 
   it("★ 등록을 마치면 진행 방식이 열려 있다", async () => {

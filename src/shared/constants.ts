@@ -160,30 +160,59 @@ export function formatPhone(digits: string): string {
 }
 
 /**
- * 연락처를 여는 정도. **화면에 놓는 순서**이자 서버가 값을 검사하는 목록이다 (ADR-37).
+ * 고를 수 있는 연락 수단 (ADR-37). **이름은 여기 없다 — 늘 열린다.**
  *
- * 많이 여는 쪽부터 늘어놓는다 — "얼마나 열까" 는 사다리로 읽히는 질문이라,
- * 거꾸로 놓으면 고르는 사람이 매번 되짚어야 한다.
- * **여기 순서로 무엇이 더 조심스러운지 판단하지 마라** — 그건 `minShare` 의 일이다.
+ * 화면이 늘어놓는 순서이자 서버가 검사하는 목록이다. `ME.labels` 의 같은 이름 칸이
+ * 그대로 라벨이 된다 — 낱말을 따로 적으면 앱의 다른 곳과 갈린다.
  */
-export const CONTACT_SHARE: readonly ContactShare[] = ["all", "instagram", "none"];
+export const SHARE_KEYS = ["phone", "instagram"] as const;
 
-/** 조심스러운 정도. 낮을수록 조심스럽다. `minShare` 만 쓴다 — 밖에서 숫자를 비교하지 마라 */
-const SHARE_RANK: Record<ContactShare, number> = { none: 0, instagram: 1, all: 2 };
+/** 아무것도 안 정해진 옛 행이 뜻하던 것 — 그때 등록 화면이 한 약속은 "발표 때 열린다" 였다 */
+const SHARE_ALL: ContactShare = { phone: true, instagram: true };
 
 /**
- * 한 쌍에 실제로 적용되는 값 — **둘 중 더 조심스러운 쪽.**
+ * 저장된 값을 읽는다. **세 가지 모양을 만난다.**
+ *
+ *   `null`                       칸이 없던 옛 회차 → 둘 다 열림
+ *   `"all"` `"instagram"` `"none"`  사다리 3단이던 시절 (ADR-37 첫 판) → 뜻대로 옮긴다
+ *   `{"phone":…,"instagram":…}`  지금
+ *
+ * **사다리 시절 값을 조용히 버리지 마라.** QA 에 그 값으로 등록한 행이 남아 있고,
+ * 못 읽어서 기본값으로 떨어뜨리면 그 사람이 좁혀 둔 것이 도로 열린다.
+ */
+export function parseShare(raw: string | null | undefined): ContactShare {
+  if (!raw) return { ...SHARE_ALL };
+  // 사다리 3단이던 시절. `none` 이어도 이름은 이제 열린다 — 그건 고르는 값이 아니게 됐다
+  if (raw === "all") return { phone: true, instagram: true };
+  if (raw === "instagram") return { phone: false, instagram: true };
+  if (raw === "none") return { phone: false, instagram: false };
+  try {
+    const v = JSON.parse(raw) as Partial<ContactShare>;
+    return { phone: v.phone === true, instagram: v.instagram === true };
+  } catch {
+    // 읽을 수 없는 값이면 **넓게** 잡는다. 좁히는 건 약속을 어기는 쪽이다
+    return { ...SHARE_ALL };
+  }
+}
+
+/** 저장할 모양. `parseShare` 와 짝이다 — 한쪽만 고치지 마라 */
+export function writeShare(s: ContactShare): string {
+  return JSON.stringify({ phone: s.phone, instagram: s.instagram });
+}
+
+/**
+ * 한 쌍에 실제로 적용되는 값 — **칸마다 둘 다 허락한 것만.**
  *
  * 각자 자기 것만 여는(비대칭) 방식도 있었지만 이걸 골랐다 (ADR-37).
  * 아무도 자기가 낸 것보다 더 받지 않아야 "열었는데 못 받았다" 가 생기지 않는다.
  *
- * **옛 회차의 행에는 이 칸이 없다.** 그때 등록 화면이 한 약속은 "발표 때 열린다" 였으므로
- * 없으면 `all` 로 읽는다 — 받을 때 한 약속이 먼저다. 여기서 조용히 좁히면 그것도 약속을 어기는 것이다.
+ * 없는 값(`null`)은 둘 다 열림으로 읽는다 — 옛 회차의 행이고, 그때 한 약속이 그것이었다.
+ * 여기서 조용히 좁히는 것도 약속을 어기는 일이다.
  */
 export function minShare(a: ContactShare | null | undefined, b: ContactShare | null | undefined): ContactShare {
-  const x = a ?? "all";
-  const y = b ?? "all";
-  return SHARE_RANK[x] <= SHARE_RANK[y] ? x : y;
+  const x = a ?? SHARE_ALL;
+  const y = b ?? SHARE_ALL;
+  return { phone: x.phone && y.phone, instagram: x.instagram && y.instagram };
 }
 
 /**

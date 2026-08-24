@@ -79,7 +79,7 @@ function Saved({ me, canEdit, edit }: { me: Player; canEdit: boolean; edit: () =
           연락처 자체가 아니라 **얼마나 열지 정한 값**이라 가리지 않는다 (ADR-37) —
           어깨너머로 보여도 새어나갈 것이 없고, 내가 뭘 골랐는지는 늘 보여야 한다
         */}
-        <Row label={ME.labels.contactShare} value={REGISTER.share[me.contactShare].title} />
+        <Row label={ME.labels.contactShare} value={REGISTER.share.summary(me.contactShare)} />
         <button className="btn ghost" onClick={() => setShown((v) => !v)}>
           {shown ? ME.hide : ME.show}
         </button>
@@ -242,7 +242,10 @@ function EditForm({
           {err("instagram")}
         </div>
         {/* 등록에서 고른 것과 **같은 컨트롤**이다. 잠기는 때도 프로필과 같다 (ADR-31·37) */}
-        <ShareChoice value={draft.contactShare} onChange={(v) => set("contactShare", v)} />
+        <ShareChoice
+          value={draft.contactShare}
+          onChange={(key, on) => set("contactShare", { ...draft.contactShare, [key]: on })}
+        />
         {err("contactShare")}
 
         {/* 전화번호는 파티의 문이라 고칠 수 없다 (ADR-15). 칸이 아니라 사실로 보여준다 */}
