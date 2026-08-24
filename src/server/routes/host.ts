@@ -207,7 +207,7 @@ hostRoutes.delete("/events/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-// ─────────────────────────────────── 입장 명단 (ADR-15)
+// ─────────────────────────────────── 초대 명단 (ADR-15)
 
 /** 명단에 더한다. 통째로 갈아치우는 길은 두지 않는다 — 실수 한 번이 파티를 날린다 */
 hostRoutes.post("/events/:id/invites", async (c) => {

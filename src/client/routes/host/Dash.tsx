@@ -53,7 +53,6 @@ export default function Dash() {
     // 마지막으로 발행한 라운드에 몇 명이 앉아 있나. 초안은 아직 참가자에게 안 나갔으므로 세지 않는다
     const published = state.seatings.filter((s) => s.status === "published");
     const copy = phaseAction(to, {
-      code: meta.code,
       maxPre: meta.config.maxPre,
       maxParty: meta.config.maxParty,
       seated: published.at(-1)?.seats.length ?? 0,
@@ -88,7 +87,7 @@ export default function Dash() {
     <div className="stack">
       {nextPhase && (
         <button className="btn primary block" onClick={() => ask(nextPhase)}>
-          {phaseAction(nextPhase, { code: meta.code, maxPre: meta.config.maxPre, maxParty: meta.config.maxParty })?.btn}
+          {phaseAction(nextPhase, { maxPre: meta.config.maxPre, maxParty: meta.config.maxParty })?.btn}
         </button>
       )}
       {meta.phase === "done" && (
