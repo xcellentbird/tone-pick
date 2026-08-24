@@ -705,7 +705,8 @@ function Unassigned({
   }
   return (
     <div className="stack">
-      <span className="small warnText">{HOST_UI.seats.unassigned}</span>
+      {/* 경고가 아니라 할 일이다 — 아래 칩과 같은 색으로 묶는다 */}
+      <span className="small accentText">{HOST_UI.seats.unassigned}</span>
       <div className="chips">
         {missing.map((p) => (
           <button className="btn ghost chipBtn" key={p.id} onClick={() => onSeat(p.id)}>
