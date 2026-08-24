@@ -268,6 +268,19 @@ export class EventDO extends DurableObject {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (!PHASE_ORDER.includes(to)) return fail("bad_request");
+    /*
+     * **발표는 끝이다** (ADR-50). `done` 에서는 어디로도 못 나간다.
+     *
+     * 화면에서 버튼만 걷어내면 요청은 그대로 통한다 — 이 앱에서 되돌리기가 위험한 건
+     * 운영자가 실수해서가 아니라, **한 번 본 것은 못 되돌리기 때문**이다. 결과를 본 사람과
+     * 못 본 사람이 갈린 채로 화면만 닫히고, 그 뒤에 오는 질문에 앱이 답할 말이 없다.
+     * 그래서 문을 여기서 잠근다.
+     *
+     * **다만 `done` → `done` 은 통과시킨다.** 두 번 눌린 발표를 실패로 답하면 운영자는
+     * 안 된 줄 알고 다시 누른다 — 앞의 `forward` 판정이 거짓이라 `fired.done` 은
+     * 처음 발표한 시각 그대로 남는다.
+     */
+    if (meta.phase === "done" && to !== "done") return fail("bad_request");
 
     const forward = PHASE_ORDER.indexOf(to) > PHASE_ORDER.indexOf(meta.phase);
     meta.phase = to;
