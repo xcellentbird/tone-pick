@@ -64,6 +64,7 @@ export default function HostDefaults() {
           [HOST_UI.fields.maxParty, `${UNIT.times(form!.maxParty)} → ${UNIT.times(DEFAULTS.maxParty)}`],
           [HOST_UI.fields.prevoteAt, `${form!.prevoteBeforeH}h → ${DEFAULTS.prevoteBeforeH}h`],
           [HOST_UI.fields.voteEndAt, `${form!.voteEndBeforeH}h → ${DEFAULTS.voteEndBeforeH}h`],
+          [HOST_UI.fields.revealAt, `${form!.revealAfterH}h → ${DEFAULTS.revealAfterH}h`],
           // 빈 값도 뜻이 있다 — 회차마다 다른 곳에서 연다는 뜻이라 '—' 로 보여준다
           [HOST_UI.fields.place, `${form!.place || "—"} → ${DEFAULTS.place || "—"}`],
         ],
@@ -114,6 +115,14 @@ export default function HostDefaults() {
           min={0}
           max={720}
           onChange={(v) => set("voteEndBeforeH", v)}
+        />
+        {/* 유일하게 파티 **뒤**를 재는 값이다 (ADR-43). 0 이면 시작과 동시에 발표라 막는다 */}
+        <Num
+          label={HOST_UI.fields.revealAfterH}
+          value={form.revealAfterH}
+          min={1}
+          max={24}
+          onChange={(v) => set("revealAfterH", v)}
         />
         {/* 등록 시작 오프셋은 없다 (ADR-38) — 회차를 만들면 곧바로 열린다 */}
         <p className="tiny dim">{HOST_UI.regOpensNow}</p>

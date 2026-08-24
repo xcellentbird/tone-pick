@@ -68,6 +68,7 @@ hostRoutes.put("/defaults", async (c) => {
       place: String(body.place ?? "").trim().slice(0, LIMITS.placeMax),
       prevoteBeforeH: body.prevoteBeforeH,
       voteEndBeforeH: body.voteEndBeforeH,
+      revealAfterH: body.revealAfterH,
       inviteTemplate: String(body.inviteTemplate ?? "").slice(0, LIMITS.inviteTemplateMax),
     }),
   );
@@ -107,7 +108,10 @@ hostRoutes.post("/events", async (c) => {
   const partyAt = Number(body.partyAt);
   const prevoteAt = Number(body.prevoteAt);
   const voteEndAt = Number(body.voteEndAt);
-  if (![partyAt, prevoteAt, voteEndAt].every(Number.isFinite)) return apiError(c, "bad_request");
+  const revealAt = Number(body.revealAt);
+  if (![partyAt, prevoteAt, voteEndAt, revealAt].every(Number.isFinite)) return apiError(c, "bad_request");
+  // 발표가 파티보다 앞이면 파티가 시작되자마자 끝난다 (ADR-43)
+  if (revealAt <= partyAt) return apiError(c, "bad_request");
 
   const reserved = await registry(c.env).reserve({
     code: body.code,
@@ -125,7 +129,7 @@ hostRoutes.post("/events", async (c) => {
     // 만드는 순간 등록이 열린다. 시각은 **기록으로** 남긴다 — 지나간 예약을 지우지 않는 것과 같다
     phase: "reg",
     fired: { reg: now },
-    schedule: { partyAt, regOpenAt: now, prevoteAt, voteEndAt },
+    schedule: { partyAt, regOpenAt: now, prevoteAt, voteEndAt, revealAt },
     // 좁혔을 때만 적는다. 기본값을 굳이 써 넣으면 설정의 모양이 회차마다 달라진다
     config: {
       maxPre: body.config.maxPre,
@@ -134,6 +138,7 @@ hostRoutes.post("/events", async (c) => {
       // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
       ...(body.config.allowUndo === false ? { allowUndo: false } : {}),
       ...(body.config.allowUndoPre === false ? { allowUndoPre: false } : {}),
+      ...(body.config.preNotify === true ? { preNotify: true } : {}),
       ...(body.config.pokeNotify === true ? { pokeNotify: true } : {}),
     },
     createdAt: now,
@@ -390,9 +395,9 @@ async function json<T>(c: Ctx): Promise<T> {
 
 function validConfig(config: EventConfig | undefined): boolean {
   if (!config) return false;
-  const { maxPre, maxParty, allowUndo, allowUndoPre, pokeNotify } = config;
+  const { maxPre, maxParty, allowUndo, allowUndoPre, preNotify, pokeNotify } = config;
   // 없으면 기본값이다. 있으면 불리언이어야 한다 — `"true"` 라는 글자가 들어오면 안 된다
-  for (const flag of [allowUndo, allowUndoPre, pokeNotify]) {
+  for (const flag of [allowUndo, allowUndoPre, preNotify, pokeNotify]) {
     if (flag !== undefined && typeof flag !== "boolean") return false;
   }
   return (
@@ -417,6 +422,9 @@ function validDefaults(d: Defaults): boolean {
     Number.isFinite(d.prevoteBeforeH) &&
     d.prevoteBeforeH >= 0 &&
     Number.isFinite(d.voteEndBeforeH) &&
-    d.voteEndBeforeH >= 0
+    d.voteEndBeforeH >= 0 &&
+    // 발표만 파티 **뒤**를 잰다 (ADR-43). 0 이면 파티 시작과 동시에 발표라 뜻이 없다
+    Number.isFinite(d.revealAfterH) &&
+    d.revealAfterH > 0
   );
 }

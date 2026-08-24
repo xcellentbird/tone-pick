@@ -69,6 +69,7 @@ async function freshEvent(): Promise<EventMeta> {
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
       voteEndAt: Date.now() + 3 * 24 * HOUR - HOUR,
+      revealAt: Date.now() + 3 * 24 * HOUR + 3 * HOUR,
       config: { maxPre: 2, maxParty: 3 },
       requestId: `a-${seq}-${Date.now()}`,
     },

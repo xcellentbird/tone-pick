@@ -68,6 +68,7 @@ async function freshEvent(over: Partial<CreateEventInput> = {}): Promise<EventMe
       partyAt: now + 7 * DAY,
       prevoteAt: now + 25 * HOUR,
       voteEndAt: now + 7 * 24 * HOUR - HOUR,
+      revealAt: now + 7 * 24 * HOUR + 3 * HOUR,
       config: { maxPre: 3, maxParty: 3 },
       requestId: `r13-${seq}-${now}`,
       ...over,

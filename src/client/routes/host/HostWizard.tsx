@@ -47,20 +47,28 @@ export default function HostWizard() {
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
   const [allowUndo, setAllowUndo] = useState(true);
   const [allowUndoPre, setAllowUndoPre] = useState(true);
+  const [preNotify, setPreNotify] = useState(false);
   const [pokeNotify, setPokeNotify] = useState(false);
   const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
   const [prevoteAt, setPrevoteAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.prevoteBeforeH * HOUR);
   /** 매력 투표 마감 (ADR-39). 이 뒤로 파티 시작까지가 운영자가 첫 자리를 짜는 시간이다 */
   const [voteEndAt, setVoteEndAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.voteEndBeforeH * HOUR);
+  /** 커플 발표 (ADR-43). **더하기다** — 파티 뒤를 재는 유일한 값이라 부호가 반대다 */
+  const [revealAt, setRevealAt] = useState<number>(() => defaultPartyAt(Date.now()) + DEFAULTS.revealAfterH * HOUR);
   // 직접 고친 값은 파티 일시를 옮겨도 따라가지 않는다. 고쳐놓은 걸 되돌리는 건 사고다
-  const [touched, setTouched] = useState<{ prevote?: boolean; voteEnd?: boolean }>({});
+  const [touched, setTouched] = useState<{ prevote?: boolean; voteEnd?: boolean; reveal?: boolean }>({});
   const [maxPre, setMaxPre] = useState(DEFAULTS.maxPre);
   const [maxParty, setMaxParty] = useState(DEFAULTS.maxParty);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const d = defaults.data;
+    /*
+     * **빠진 칸은 코드의 기본값으로 메운다.** 서버가 `withDefaults` 로 채워 보내지만,
+     * 새 칸이 붙은 직후에는 그렇지 않은 응답이 올 수 있다 — 그때 `undefined * HOUR` 가
+     * `NaN` 이 되고, 시각 칸이 **빈 채로** 뜬다. 빈 칸은 만들기 버튼에서야 막힌다.
+     */
+    const d = defaults.data && { ...DEFAULTS, ...defaults.data };
     if (!d) return;
     setMaxPre(d.maxPre);
     setMaxParty(d.maxParty);
@@ -68,6 +76,7 @@ export default function HostWizard() {
     setPlace((prev) => prev || d.place);
     setPrevoteAt((prev) => (touched.prevote ? prev : partyAt - d.prevoteBeforeH * HOUR));
     setVoteEndAt((prev) => (touched.voteEnd ? prev : partyAt - d.voteEndBeforeH * HOUR));
+    setRevealAt((prev) => (touched.reveal ? prev : partyAt + d.revealAfterH * HOUR));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaults.data]);
 
@@ -76,19 +85,21 @@ export default function HostWizard() {
     if (!raw) return;
     const ts = snapSchedule(raw);
     setPartyAt(ts);
-    const d = defaults.data ?? DEFAULTS;
+    const d = { ...DEFAULTS, ...defaults.data };
     if (!touched.prevote) setPrevoteAt(ts - d.prevoteBeforeH * HOUR);
     if (!touched.voteEnd) setVoteEndAt(ts - d.voteEndBeforeH * HOUR);
+    if (!touched.reveal) setRevealAt(ts + d.revealAfterH * HOUR);
   }
 
-  function changeWhen(key: "prevote" | "voteEnd", value: string) {
+  function changeWhen(key: "prevote" | "voteEnd" | "reveal", value: string) {
     const raw = fromLocalInput(value);
     if (!raw) return;
     // 직접 타이핑하면 브라우저가 step 을 강제하지 않는다. 받은 값을 여기서 맞춘다
     const ts = snapSchedule(raw);
     setTouched({ ...touched, [key]: true });
     if (key === "prevote") setPrevoteAt(ts);
-    else setVoteEndAt(ts);
+    else if (key === "voteEnd") setVoteEndAt(ts);
+    else setRevealAt(ts);
   }
 
   async function finish() {
@@ -101,7 +112,8 @@ export default function HostWizard() {
         partyAt,
         prevoteAt,
         voteEndAt,
-        config: { maxPre, maxParty, allowUndo, allowUndoPre, pokeNotify },
+        revealAt,
+        config: { maxPre, maxParty, allowUndo, allowUndoPre, preNotify, pokeNotify },
         requestId,
       };
       const made = await post<EventMeta>("/host/events", body);
@@ -187,6 +199,23 @@ export default function HostWizard() {
               />
               <span className="tiny dim">{HOST_UI.fields.voteEndHint}</span>
             </div>
+            {/*
+              커플 발표 (ADR-43). **파티 뒤를 재는 유일한 칸이라 맨 아래에 둔다** — 일정 칸이
+              위에서 아래로 시간 순이면 어느 것이 먼저인지 다시 계산하지 않아도 된다.
+              힌트는 `파티를 시작해야 울린다` 를 말한다. 그걸 모르면 이 시각만 믿고
+              `파티 시작` 을 안 눌러서, 발표도 콕도 안 열린 채 시각만 지나간다.
+            */}
+            <div className="field">
+              <label htmlFor="reveal">{HOST_UI.fields.revealAt}</label>
+              <input
+                id="reveal"
+                type="datetime-local"
+                step={SCHEDULE_STEP_MIN * 60}
+                value={toLocalInput(revealAt)}
+                onChange={(e) => changeWhen("reveal", e.target.value)}
+              />
+              <span className="tiny dim">{HOST_UI.fields.revealHint}</span>
+            </div>
             <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
             <p className="tiny dim">{HOST_UI.regOpensNow}</p>
           </>
@@ -223,6 +252,14 @@ export default function HostWizard() {
               value={allowUndo}
               options={UNDO_OPTIONS}
               onChange={setAllowUndo}
+            />
+            {/* 알림도 라운드마다 따로다 (ADR-43). 되돌리기와 같은 순서로 둔다 — 매력 투표가 먼저 */}
+            <Toggle
+              label={HOST_UI.fields.preNotify}
+              value={preNotify}
+              options={NOTIFY_OPTIONS}
+              note={HOST_UI.fields.preNotifyNote}
+              onChange={setPreNotify}
             />
             <Toggle
               label={HOST_UI.fields.pokeNotify}
