@@ -157,6 +157,14 @@ export interface EventConfig {
   retentionDays?: number;
 }
 
+/**
+ * 참석 상태 (ADR-33). **없으면 `안 옴`** — 값을 셋 두는 대신 둘만 저장한다.
+ *
+ * `나감` 은 도착했던 사람만 될 수 있어서 순서가 있는 한 축이다.
+ * 시각 둘(`arrivedAt`·`leftAt`)로 두면 "나갔는데 온 적 없음" 같은 조합이 생긴다.
+ */
+export type Attendance = "arrived" | "left";
+
 export interface EventMeta {
   id: string;
   name: string;
@@ -507,6 +515,11 @@ export interface HostState {
   /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다 */
   pokeUsedMax: Record<PokeRound, number>;
   seatings: SeatingRound[];
+  /**
+   * 참석 상태 (ADR-33). **운영자만 본다** — `sent`·`received` 와 같은 모양으로 여기 둔다.
+   * `Player` 에 넣으면 `me` 로 참가자에게 따라 나간다. 없는 키는 `안 옴` 이다.
+   */
+  attendance: Record<string, Attendance>;
   /** 초대 명단. 참가자 응답에는 절대 실리지 않는다 */
   invites: Invite[];
   /** 운영자가 보낸 알림. 최신순 */
