@@ -10,11 +10,10 @@ import { RouterProvider, createMemoryRouter } from "react-router";
 import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, phaseAction, schedDiff } from "../../src/shared/copy.ts";
 import { formatGap, formatWhen } from "../../src/shared/time.ts";
 import type { HostState } from "../../src/shared/types.ts";
+import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
-import Dash, { topRanks } from "../../src/client/routes/host/Dash.tsx";
+import { topRanks } from "../../src/client/routes/host/Dash.tsx";
 import Players from "../../src/client/routes/host/Players.tsx";
-import Seats from "../../src/client/routes/host/Seats.tsx";
-import Settings from "../../src/client/routes/host/Settings.tsx";
 
 afterEach(cleanup);
 
@@ -60,13 +59,12 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
       },
     ],
     sent: { p1: 1, p2: 0 },
-    received: { p1: 0, p2: 1 },
-    prevoteRank: [{ id: "p2", count: 1 }, { id: "p1", count: 0 }],
+    // 라운드마다 따로 센다 (ADR-46) — 합쳐 두면 현황 탭이 어느 쪽을 그리는지 테스트가 못 가른다
+    received: { pre: { p1: 0, p2: 1 }, party: { p1: 2, p2: 0 } },
     mutual: [],
     pokeCount: { pre: 1, party: 0 },
     pokeUsedMax: { pre: 1, party: 0 },
     seatings: [],
-    attendance: {},
     invites: [],
     announcements: [],
     ...more,
@@ -111,19 +109,8 @@ function renderPlayers(at: string) {
 function renderConsole(at = "/host/e1") {
   const router = createMemoryRouter(
     [
-      {
-        path: "/host/:id",
-        element: <HostConsole />,
-        children: [
-          { index: true, element: <Dash /> },
-          { path: "players", element: <Players /> },
-          { path: "players/:pid", element: <Players /> },
-          { path: "seats", element: <Seats /> },
-          // 테이블 수 시트도 라우트다 — 주소로 열린다 (ROUTES.md)
-          { path: "seats/:mode", element: <Seats /> },
-          { path: "settings", element: <Settings /> },
-        ],
-      },
+      // **실제 표를 그대로 쓴다.** 베껴 두면 새 경로가 빠져도 테스트는 자기 사본으로 통과한다
+      { path: "/host/:id", element: <HostConsole />, children: HOST_CONSOLE_ROUTES },
     ],
     { initialEntries: [at] },
   );
@@ -180,7 +167,8 @@ describe("매칭 목록", () => {
      * 죽은 값을 그리느니 지운다.
      */
     stubFetch(
-      hostState({}, {
+      // 매칭 카드는 파티부터 선다 (ADR-46) — 그전에는 있을 수가 없어서 그리지 않는다
+      hostState({ phase: "party" }, {
         mutual: [["a", "b"], ["a", "c"], ["b", "c"], ["c", "d"]],
       }),
     );
@@ -193,6 +181,117 @@ describe("매칭 목록", () => {
   });
 });
 
+/**
+ * 현황 탭의 순위 둘 (ADR-46).
+ *
+ * 두 라운드는 쓰임이 다르다 — 매력 투표 표는 **자리의 재료**고, 파티 콕은 **매칭의 재료**다 (ADR-34).
+ * 그래서 한 수로 합치면 `콕 TOP` 이 *파티에서 몇 번 받았나* 를 말하지 못한다.
+ *
+ * ⚠️ 이 파일이 순위의 **내용**을 재는 유일한 자리다. 서버 테스트는 두 표가 갈렸는지만 보고,
+ * 어느 표가 어느 제목 아래 그려지는지는 못 본다 — 둘을 맞바꿔도 서버는 초록이다.
+ */
+describe("현황 탭의 순위 둘", () => {
+  /** 제목 줄부터 **다음 제목 줄 전까지**를 한 묶음으로 본다. 순위 행은 그 사이에만 있다 */
+  function rankRows(title: string) {
+    const rows: Array<[string, string]> = [];
+    let el = screen.getByText(title).closest(".row")!.nextElementSibling;
+    while (el && !el.classList.contains("row")) {
+      for (const r of el.querySelectorAll(".rank")) {
+        rows.push([r.querySelector(".name")!.textContent!, r.querySelector(".ct")!.textContent!]);
+      }
+      el = el.nextElementSibling;
+    }
+    return rows;
+  }
+
+  it("★ 콕 TOP 에 매력 투표 표가 얹히지 않는다", async () => {
+    // `가` 는 매력 투표에서 9표를 받았지만 파티에서는 한 번도 못 받았다
+    stubFetch(hostState({ phase: "party" }, { received: { pre: { p1: 9, p2: 1 }, party: { p1: 0, p2: 2 } } }));
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.rankTitle(1));
+
+    expect(rankRows(HOST_UI.dash.preRankTitle(2))).toEqual([["가", "9"], ["나", "1"]]);
+    // 합쳐 세면 `가` 가 9회로 여기 1위에 선다. 그 순간 이 숫자는 파티를 말하지 않는다
+    expect(rankRows(HOST_UI.dash.rankTitle(1))).toEqual([["나", "2"]]);
+  });
+
+  it("★ 매력 투표도 TOP 5 — 1위만 크게 보여주지 않는다", async () => {
+    const mk = (n: number) => ({
+      id: `x${n}`, nickname: `사람${n}`, realName: `김${n}`, age: 30, gender: (n % 2 ? "M" : "F") as "M" | "F",
+      phone: `0100000000${n}`, instagram: `gram_${n}`, mbti: "ENFP",
+      charms: ["a", "b", "c"] as [string, string, string], createdAt: n,
+    });
+    const players = [1, 2, 3, 4, 5, 6, 7].map(mk);
+    // 7·6·5·4·3·2·1 — 여섯째부터는 TOP 5 밖이다
+    const pre = Object.fromEntries(players.map((p, i) => [p.id, 7 - i]));
+    stubFetch(hostState({ phase: "party" }, { players, received: { pre, party: {} } }));
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.preRankTitle(5));
+
+    const rows = rankRows(HOST_UI.dash.preRankTitle(5));
+    expect(rows.map(([who]) => who)).toEqual(["사람1", "사람2", "사람3", "사람4", "사람5"]);
+    // 콕 쪽은 아무도 못 받았으니 순위가 아니라 빈 문구다
+    expect(rankRows(HOST_UI.dash.rankTitle(5))).toEqual([]);
+    expect(screen.getByText(HOST_UI.dash.rankEmpty)).toBeTruthy();
+  });
+
+  /**
+   * 낱말이 라운드마다 다르다 (ADR-34). 매력 투표 자리에서 `콕` 이라고 하면
+   * 운영자가 읽는 것과 참가자가 겪는 것이 갈린다 — 참가자는 그 단계에서 콕을 찌른 적이 없다.
+   */
+  it("★ 아무도 못 받았을 때 두 자리가 다른 말을 한다", async () => {
+    stubFetch(hostState({ phase: "party" }, { received: { pre: {}, party: {} } }));
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.preRankEmpty);
+
+    expect(screen.getByText(HOST_UI.dash.rankEmpty)).toBeTruthy();
+    expect(HOST_UI.dash.preRankEmpty).not.toBe(HOST_UI.dash.rankEmpty);
+  });
+
+  /** 화면에 선 카드 제목을 **위에서 아래 순서 그대로** 읽는다 */
+  const sections = () => [...document.querySelectorAll(".kicker")].map((k) => k.textContent);
+
+  /**
+   * **파티 전에는 매력 투표 하나뿐이다** (ADR-46).
+   *
+   * 매칭도 파티 콕도 그전에는 **있을 수가 없다** (ADR-34) — 빈 카드를 미리 세워두면
+   * 운영자가 매번 그게 정상인지 확인하게 되고, 정작 볼 것(표가 어디로 몰렸나)이 아래로 밀린다.
+   */
+  it("★ 파티 전에는 매칭도 콕 TOP 도 서지 않는다", async () => {
+    for (const phase of ["reg", "prevote"] as const) {
+      cleanup();
+      stubFetch(hostState({ phase }, { received: { pre: { p1: 2, p2: 1 }, party: {} }, mutual: [] }));
+      renderConsole();
+      await screen.findByText(HOST_UI.dash.preRankTitle(2));
+
+      expect(sections(), `${phase} 에 다른 카드가 섰다`).toEqual([HOST_UI.dash.preRankTitle(2)]);
+      // 빈 콕 문구도 없어야 한다 — 감춘 게 아니라 그리지 않는 것이다
+      expect(screen.queryByText(HOST_UI.dash.rankEmpty)).toBeNull();
+      expect(screen.queryByText(HOST_UI.dash.mutualNone)).toBeNull();
+    }
+  });
+
+  /**
+   * **파티가 시작되면 순서가 바뀐다** — 지금 쓰이는 것이 위로 온다.
+   * 매칭이 맨 위인 건 자리를 붙일지 판단하는 게 그 시점의 일이라서고,
+   * 매력 투표는 끝난 라운드라 기록으로 맨 아래에 남는다.
+   */
+  it("★ 파티가 시작되면 매칭 · 콕 TOP · 매력 투표 순으로 선다", async () => {
+    for (const phase of ["party", "done"] as const) {
+      cleanup();
+      stubFetch(hostState({ phase }, { received: { pre: { p1: 2, p2: 1 }, party: { p1: 1, p2: 0 } }, mutual: [["p1", "p2"]] }));
+      renderConsole();
+      await screen.findByText(HOST_UI.dash.rankTitle(1));
+
+      expect(sections(), `${phase} 의 순서가 다르다`).toEqual([
+        HOST_UI.dash.mutualTitle(1),
+        HOST_UI.dash.rankTitle(1),
+        HOST_UI.dash.preRankTitle(2),
+      ]);
+    }
+  });
+});
+
 describe("운영자 콘솔", () => {
   it("현황 탭이 뜨고 다음 단계 버튼이 보인다", async () => {
     stubFetch(hostState());
@@ -202,6 +301,58 @@ describe("운영자 콘솔", () => {
     // 등록 중 다음은 사전 투표 시작이다
     expect(screen.getByText(phaseAction("prevote", { maxPre: 3, maxParty: 3 })!.btn)).toBeTruthy();
     expect(screen.getByText(HOST_UI.dash.registered(2))).toBeTruthy();
+  });
+
+  /**
+   * 단계 버튼이 하는 일은 **예약을 앞당기는 것**이다. 그래서 옆에 남은 시간이 함께 선다 —
+   * 가만히 두면 언제 저절로 넘어가는지 모르면 "지금 눌러도 되나" 를 판단할 수 없다.
+   *
+   * **파티 시작에는 붙지 않는다.** 예약이 없는 전환이라(ADR-14) 셀 시각이 없다.
+   * 없는 시각을 지어내면 현장이 그 숫자를 따라가게 되고, 그게 ADR-14 가 막으려던 일이다.
+   */
+  it("★ 버튼 옆 카운트다운은 예약이 있는 전환에만 붙는다", async () => {
+    // 등록 중 — 다음은 매력 투표 시작이고, 예약이 걸려 있다
+    stubFetch(hostState());
+    renderConsole();
+    await screen.findByText("테스트 회차");
+    expect(document.querySelector(".phaseBtn > .due")).toBeTruthy();
+    cleanup();
+
+    // 매력 투표 중 — 다음은 파티 시작이고, 그건 운영자가 누를 때만 일어난다
+    stubFetch(
+      hostState({
+        phase: "prevote",
+        fired: { reg: Date.now() - 2 * HOUR, prevote: Date.now() - HOUR },
+      }),
+    );
+    renderConsole();
+    await screen.findByText("테스트 회차");
+    expect(document.querySelector(".phaseBtn > .due")).toBeNull();
+  });
+
+  /**
+   * 매력 투표 마감은 **버튼이 아니라 줄이다** (ADR-39).
+   *
+   * 앞당길 수 있는 전환이 아니라 시각이 내리는 판정이라 누를 손잡이가 없다.
+   * 그래도 매력 투표 동안 다음에 일어날 일은 이것이라, 버튼 아래에서 그 사실을 말한다.
+   */
+  it("★ 매력 투표 마감은 버튼이 되지 않고 남은 시간만 말한다", async () => {
+    const voteEndAt = Date.now() + 30 * 60_000;
+    stubFetch(
+      hostState({
+        phase: "prevote",
+        fired: { reg: Date.now() - 2 * HOUR, prevote: Date.now() - HOUR },
+        schedule: { partyAt: Date.now() + 2 * HOUR, regOpenAt: Date.now() - 2 * HOUR, voteEndAt },
+      }),
+    );
+    renderConsole();
+    await screen.findByText("테스트 회차");
+
+    // 남은 시간을 말하는 줄이 있다
+    expect(screen.getByText(new RegExp(HOST_UI.dash.untilVoteEnd("").trim()))).toBeTruthy();
+    // 그리고 그 자리는 버튼이 아니다 — 다음 단계 버튼은 여전히 파티 시작 하나뿐이다
+    expect(document.querySelectorAll(".btn.primary.block").length).toBe(1);
+    expect(screen.getByText(phaseAction("party", { maxPre: 3, maxParty: 3 })!.btn)).toBeTruthy();
   });
 
   it("★ 단계 전환은 확인을 거치고, 확인창이 바뀌는 것을 항목으로 보여준다", async () => {
@@ -296,62 +447,6 @@ describe("운영자 콘솔", () => {
     expect(screen.getByText(HOST_UI.invites.title)).toBeTruthy();
   });
 
-  it("★ 참가 상태는 카드 **안** 맨 오른쪽에 붙고, 파티 뒤에는 눌러 찍는다", async () => {
-    /*
-     * 문 앞에서 한 명씩 하는 일이라 한 번에 끝나야 한다 (ADR-33).
-     * 카드 밖에 두면 목록이 들쭉날쭉해지고, 누르는 자리가 카드와 따로 논다.
-     */
-    const st = hostState({ phase: "party" });
-    stubFetch(st);
-    renderConsole("/host/e1/players");
-    await screen.findByText(HOST_UI.invites.title);
-
-    const card = document.querySelector(".person") as HTMLElement;
-    expect(card.textContent).toContain(st.players[0].realName);
-    // 상태값이 그 카드 안에 있다
-    const chip = card.querySelector(".att") as HTMLButtonElement;
-    expect(chip.textContent).toBe(HOST_UI.status.absent);
-
-    fireEvent.click(chip);
-    await waitFor(() =>
-      expect(calls.find((c) => c.url.includes("/attendance"))?.body).toEqual({ to: "arrived" }),
-    );
-  });
-
-  it("★ 상태를 색으로만 말하지 않는다 — 셋 다 글자가 함께 온다", async () => {
-    /*
-     * 톤(도착 초록 · 나감 주황 · 미도착 무채색)은 거들 뿐이다.
-     * 색을 못 읽는 사람에게도 같은 정보가 남아야 한다.
-     */
-    const st = hostState({ phase: "party" });
-    st.attendance = { p1: "arrived", p2: "left" };
-    stubFetch(st);
-    renderConsole("/host/e1/players");
-    await screen.findByText(HOST_UI.invites.title);
-
-    const words = [...document.querySelectorAll(".person > .att")].map((el) => el.textContent);
-    expect(words).toEqual([HOST_UI.status.arrived, HOST_UI.status.left]);
-  });
-
-  it("★ 파티 전에는 카드에 상태값이 붙지 않는다", async () => {
-    /*
-     * **이 탭에 있다는 것이 곧 등록했다는 뜻이다.** `등록함` 은 전원에게 같은 말을
-     * 한 번씩 더 하는 자리였고, 카드마다 붙으면 정작 파티 중에 뜨는 참석 상태가 덜 도드라진다.
-     */
-    stubFetch(hostState());
-    renderConsole("/host/e1/players");
-    await screen.findByText(HOST_UI.invites.title);
-
-    expect(document.querySelectorAll(".person").length).toBe(2);
-    expect(document.querySelector(".person > .att")).toBeNull();
-  });
-
-  /**
-   * 안내문 카드는 **버튼 둘이 전부다** — 복사와 고치기.
-   *
-   * 미리보기를 두지 않는다: 고치는 화면이 글을 그대로 띄우고 있어 같은 일을 두 번 한다.
-   * 명단은 계속 보면서 일하는 목록이라, 한 번 확인하면 되는 글이 그 위를 차지하면 안 된다.
-   */
   it("★ 안내문 카드에 미리보기를 두지 않는다 — 고치는 화면이 그 일을 한다", async () => {
     const st = hostState();
     st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
@@ -771,50 +866,112 @@ describe("운영자 콘솔", () => {
 // ─────────────────────────────────────────── 자리 배정 시트
 
 /**
- * **빠지는 사람은 `나감` 하나로 정해진다** (ADR-41).
+ * **배정은 두 걸음이다** (ADR-45) — 뺄 사람 고르기 → 테이블 수.
  *
- * 고르는 목록이 없어졌으므로, 화면이 할 일은 **서버가 무엇을 할지 미리 말하는 것**뿐이다.
- * 숫자가 어긋나면 운영자는 `테이블당 N명` 을 보고 짠 계획이 틀린 채로 배정을 누른다.
+ * 순서가 이래야 하는 이유가 하나다. 둘째 걸음의 `테이블당 N명` 이 첫 걸음에서 남은
+ * 인원으로 계산되므로, 뒤집히면 운영자가 방금 읽은 숫자가 곧바로 틀린 것이 된다.
  */
 describe("자리 배정 시트", () => {
-  const party = () => {
-    const st = hostState({ phase: "party" });
-    st.attendance = { p1: "arrived", p2: "left" };
-    return st;
-  };
+  const party = () => hostState({ phase: "party" });
 
-  it("★ 나간 사람은 인원에서 빠지고, 왜 빠졌는지 말한다", async () => {
+  /** 시트 안의 것을 누른다 — 목록 화면에도 같은 이름의 버튼이 있다 */
+  const inSheet = () => within(document.querySelector('[role="dialog"]') as HTMLElement);
+
+  it("★ 테이블 수보다 뺄 사람을 먼저 묻는다", async () => {
     stubFetch(party());
     renderConsole("/host/e1/seats/new");
 
-    // 둘 중 하나가 나갔다 — `2명 배정` 이 아니라 `1명 배정 · 나감 1명 제외`
-    await screen.findByText(HOST_UI.seats.leftOut(1, 1));
-    expect(screen.queryByText(HOST_UI.seats.seatedAll(2))).toBeNull();
+    // 첫 걸음에는 테이블 수 스테퍼가 없다
+    await screen.findByText(HOST_UI.seats.excludeNote);
+    expect(screen.queryByText(HOST_UI.seats.tableCount)).toBeNull();
+
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
+    // 시트 제목과 스테퍼 라벨이 같은 말이다. 둘 다 떴는지만 본다
+    expect((await screen.findAllByText(HOST_UI.seats.tableCount)).length).toBeGreaterThan(0);
   });
 
-  it("★ 전원이 남아 있으면 나감을 말하지 않는다 — 없는 일을 알리지 않는다", async () => {
-    const st = hostState({ phase: "party" });
-    st.attendance = { p1: "arrived" };
-    stubFetch(st);
+  it("★ 아무도 안 빼면 전원이 배정된다 — 없는 일을 알리지 않는다", async () => {
+    stubFetch(party());
     renderConsole("/host/e1/seats/new");
 
     await screen.findByText(HOST_UI.seats.seatedAll(2));
     expect(screen.queryByText(HOST_UI.seats.leftOutNote)).toBeNull();
   });
 
-  it("★ 배정 요청에는 테이블 수만 간다 — 뺄 사람 목록을 보내지 않는다", async () => {
-    /*
-     * 화면이 목록을 보내면 그 목록이 낡을 수 있고, 낡은 목록은 사람을 조용히 빠뜨린다.
-     * 누가 빠지는지는 **서버가 참석 상태에서 읽는다** (ADR-41).
-     */
+  it("★ 뺀 사람은 인원에서 빠지고, 왜 빠졌는지 말한다", async () => {
     stubFetch(party());
     renderConsole("/host/e1/seats/new");
-    await screen.findByText(HOST_UI.seats.leftOut(1, 1));
+    await screen.findByText(HOST_UI.seats.seatedAll(2));
 
-    // 목록 화면에도 같은 이름의 버튼이 있다. 누르는 건 **시트 안**의 것이다
-    const sheet = document.querySelector('[role="dialog"]') as HTMLElement;
-    fireEvent.click(within(sheet).getByText(HOST_UI.seats.make));
+    // 한 명을 뺀다 — `2명 배정` 이 아니라 `1명 배정 · 1명 제외`
+    fireEvent.click(inSheet().getByText("가"));
+    await screen.findByText(HOST_UI.seats.leftOut(1, 1));
+    expect(screen.queryByText(HOST_UI.seats.seatedAll(2))).toBeNull();
+  });
+
+  /**
+   * 사람이 서른을 넘으면 한 목록에서 한 사람을 찾는 게 일이 된다.
+   * **참가자 탭과 같은 칩**이라 운영자가 어느 쪽인지 다시 익힐 것이 없다.
+   */
+  it("★ 성별 칩으로 목록을 좁힌다", async () => {
+    stubFetch(party());
+    renderConsole("/host/e1/seats/new");
+    await screen.findByText(HOST_UI.seats.seatedAll(2));
+
+    // 전체로 시작한다 — 남 하나, 여 하나
+    expect(inSheet().getByText("가")).toBeTruthy();
+    expect(inSheet().getByText("나")).toBeTruthy();
+
+    fireEvent.click(inSheet().getByText(GENDER.M, { exact: false }));
+    expect(inSheet().getByText("가")).toBeTruthy();
+    expect(inSheet().queryByText("나")).toBeNull();
+  });
+
+  /**
+   * ★ **거르는 것은 보는 방법이지 빼는 방법이 아니다.**
+   *
+   * 남성만 보고 있다고 여성이 배정에서 빠지면, 운영자는 화면에 안 보이는 사람이
+   * 조용히 사라진 것을 배정하고 나서야 안다.
+   */
+  it("★ 걸러 놔도 안 보이는 사람은 그대로 배정된다", async () => {
+    stubFetch(party());
+    renderConsole("/host/e1/seats/new");
+    await screen.findByText(HOST_UI.seats.seatedAll(2));
+
+    fireEvent.click(inSheet().getByText(GENDER.M, { exact: false }));
+    // 인원 줄은 여전히 전원 기준이다
+    expect(screen.getByText(HOST_UI.seats.seatedAll(2))).toBeTruthy();
+
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
+    await screen.findAllByText(HOST_UI.seats.tableCount);
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.make));
+
     await waitFor(() => expect(calls.find((c) => c.url.endsWith("/seating"))).toBeTruthy());
-    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({ tableCount: 1, final: false });
+    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({
+      tableCount: 1,
+      final: false,
+      exclude: [],
+    });
+  });
+
+  it("★ 뺀 사람이 배정 요청에 실린다", async () => {
+    // 한 명을 빼고도 테이블 하나를 채울 수 있어야 다음 걸음으로 넘어간다 (최소 2명)
+    const st = party();
+    st.players = [...st.players, { ...st.players[1], id: "p3", nickname: "다", realName: "김다" }];
+    stubFetch(st);
+    renderConsole("/host/e1/seats/new");
+    await screen.findByText(HOST_UI.seats.seatedAll(3));
+
+    fireEvent.click(inSheet().getByText("가"));
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
+    await screen.findAllByText(HOST_UI.seats.tableCount);
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.make));
+
+    await waitFor(() => expect(calls.find((c) => c.url.endsWith("/seating"))).toBeTruthy());
+    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({
+      tableCount: 1,
+      final: false,
+      exclude: ["p1"],
+    });
   });
 });

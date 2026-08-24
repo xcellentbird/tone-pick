@@ -1,6 +1,9 @@
 /**
- * 자리 탭.  테이블 수 선택 → 초안 → 검토·고치기 → 📣 알림 발송
+ * 자리 탭.  뺄 사람 고르기 → 테이블 수 → 초안 → 검토·고치기 → 📣 알림 발송
  *
+ * · 배정은 **두 걸음**이다 (ADR-45). 뺄 사람을 먼저 고르고 그 다음 테이블 수다 —
+ *   `테이블당 N명` 이 남은 인원으로 계산되므로, 순서가 뒤집히면 방금 읽은 숫자가 틀린 것이 된다
+ * · 뺀 사람은 **이 라운드에만** 빠진다. 사람에게 붙는 상태가 아니라 다음 배정은 전원으로 시작한다
  * · 테이블 수는 **배정할 때마다** 고른다. 설정값이 아니다 (ADR-5)
  * · 초안 생성에는 확인을 붙이지 않는다 — 참가자에게 안 보이고 몇 번이든 다시 만들 수 있다
  * · 발송에는 확인을 붙인다 — 참가자 화면을 덮는 확인 화면이 뜬다
@@ -14,9 +17,9 @@
  * 앱이 대신 말할 게 없다. 화면은 방송으로 다시 읽는다 (ADR-26).
  */
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
-import { HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
-import type { Attendance, Player, SeatingRound } from "../../../shared/types.ts";
+import { useLocation, useNavigate, useParams } from "react-router";
+import { GENDER, HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
+import type { Gender, Player, SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
@@ -29,8 +32,10 @@ export default function Seats() {
   const { state, reload } = useConsole();
   const { confirm, toast } = useOverlay();
   const navigate = useNavigate();
-  // 테이블 수를 고르는 시트도 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md)
+  // 배정 시트도 라우트다. 뒤로 가기로 앞 걸음, 한 번 더 누르면 닫힌다 (ROUTES.md)
   const { mode } = useParams();
+  /** 두 걸음 중 어디인가. 주소가 진실이라 새로고침해도 같은 걸음이 뜬다 */
+  const atTables = useLocation().pathname.endsWith("/tables");
   const here = `/host/${state.meta.id}/seats`;
   /**
    * 고르는 중인 사람. **라운드까지 함께 기억한다** — 카드가 여럿이라
@@ -38,6 +43,20 @@ export default function Seats() {
    */
   const [picked, setPicked] = useState<{ round: number; playerId: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * 이번 라운드에서 뺄 사람 (ADR-45).
+   *
+   * **어디에도 저장하지 않는다.** 사람에게 붙는 상태로 만들면 시간이 지나 틀리고,
+   * 틀린 상태가 다음 라운드에서 사람을 조용히 빠뜨린다 (FLOWS.md).
+   * 배정 버튼을 누를 때 비워서, 시트를 새로 열면 언제나 전원으로 시작한다.
+   */
+  const [out, setOut] = useState<Set<string>>(new Set());
+
+  /** 배정 시트를 연다. **고른 것을 비우고 연다** — 지난 라운드의 선택이 따라오면 안 된다 */
+  function openSeating(next: "new" | "final") {
+    setOut(new Set());
+    navigate(`${here}/${next}`);
+  }
   // 두 번째 라운드에서는 같은 테이블 수를 다시 고르는 일이 흔하다. 지난번 값에서 시작한다
   const lastTableCount =
     state.seatings.at(-1)?.tableCount ?? Math.max(1, Math.round(state.players.length / 6)) ?? 1;
@@ -65,7 +84,7 @@ export default function Seats() {
   async function make(final: boolean, tableCount: number) {
     setBusy(true);
     try {
-      await post(base, { tableCount, final });
+      await post(base, { tableCount, final, exclude: [...out] });
       navigate(here, { replace: true });
       reload();
     } catch (e) {
@@ -211,30 +230,53 @@ export default function Seats() {
       <div className="row">
         <button
           className="btn wide"
-          onClick={() => navigate(`${here}/new`)}
+          onClick={() => openSeating("new")}
           disabled={revealed || state.players.length < 2}
         >
           {HOST_UI.seats.make}
         </button>
         <button
           className="btn wide gold"
-          onClick={() => navigate(`${here}/final`)}
+          onClick={() => openSeating("final")}
           disabled={revealed || state.players.length < 2}
         >
           {HOST.seating.makeFinal}
         </button>
       </div>
 
-      <Sheet open={!!mode} onClose={() => navigate(-1)} title={HOST_UI.seats.tableCount}>
-        <TablePicker
-          players={state.players}
-          attendance={state.attendance}
-          pairs={state.mutual.length}
-          final={mode === "final"}
-          start={lastTableCount}
-          busy={busy}
-          onGo={(count) => make(mode === "final", count)}
-        />
+      {/*
+        **두 걸음이 한 시트를 나눠 쓴다** (ADR-45). 걸음은 주소가 정하므로
+        뒤로 가기가 곧 `이전` 이고, 한 번 더 누르면 시트가 닫힌다.
+      */}
+      <Sheet
+        open={!!mode}
+        onClose={() => navigate(-1)}
+        title={atTables ? HOST_UI.seats.tableCount : HOST_UI.seats.excludeTitle}
+      >
+        {atTables ? (
+          <TablePicker
+            players={state.players.filter((p) => !out.has(p.id))}
+            excluded={out.size}
+            pairs={state.mutual.length}
+            final={mode === "final"}
+            start={lastTableCount}
+            busy={busy}
+            onGo={(count) => make(mode === "final", count)}
+          />
+        ) : (
+          <ExcludePicker
+            players={state.players}
+            out={out}
+            onToggle={(id) =>
+              setOut((prev) => {
+                const next = new Set(prev);
+                next.has(id) ? next.delete(id) : next.add(id);
+                return next;
+              })
+            }
+            onNext={() => navigate(`${here}/${mode}/tables`)}
+          />
+        )}
       </Sheet>
 
       {draft && !revealed && (
@@ -302,15 +344,112 @@ export default function Seats() {
 }
 
 /**
- * 테이블 수를 고르는 자리. 배정 버튼을 누르면 여기부터 열린다.
+ * **첫 걸음 — 뺄 사람을 고른다** (ADR-45).
+ *
+ * 테이블 수보다 먼저 오는 이유가 하나다. 다음 걸음의 `테이블당 N명` 이 여기서 남은
+ * 인원으로 계산되므로, 순서가 뒤집히면 방금 읽은 숫자가 곧바로 틀린 것이 된다.
+ *
+ * **이번 라운드에만 빠진다.** 참가자에게 붙는 상태를 만들지 않는다 — 노쇼는 다음 라운드에
+ * 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다. 시트를 새로 열면 전원으로 돌아온다.
+ *
+ * 기본은 **전원 배정**이다. 대부분의 라운드가 그렇고, 아무도 안 뺄 사람은 그대로 다음을 누른다.
+ */
+function ExcludePicker({
+  players,
+  out,
+  onToggle,
+  onNext,
+}: {
+  players: Player[];
+  out: Set<string>;
+  onToggle: (id: string) => void;
+  onNext: () => void;
+}) {
+  const seated = players.length - out.size;
+  /**
+   * 성별로 걸러 본다. **참가자 탭과 같은 칩·같은 순서다** —
+   * 사람이 서른을 넘으면 한 목록에서 한 사람을 찾는 게 일이 된다.
+   * 두 화면이 다른 모양으로 거르면 운영자가 매번 어느 쪽인지 다시 익혀야 한다.
+   */
+  const [filter, setFilter] = useState<"all" | Gender>("all");
+  const shown = players.filter((p) => filter === "all" || p.gender === filter);
+  const count = {
+    all: players.length,
+    M: players.filter((p) => p.gender === "M").length,
+    F: players.filter((p) => p.gender === "F").length,
+  } as const;
+
+  return (
+    <div className="stack">
+      <p className="small dim">{HOST_UI.seats.excludeNote}</p>
+
+      {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
+      <div className="choice">
+        {(
+          [
+            ["all", HOST_UI.players.filterAll],
+            ["M", GENDER.M],
+            ["F", GENDER.F],
+          ] as const
+        ).map(([key, label]) => (
+          <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>
+            {label} <span className="filterCount">{count[key]}</span>
+          </button>
+        ))}
+      </div>
+
+      {shown.length === 0 && <p className="dim center">{HOST_UI.players.emptyFiltered}</p>}
+
+      <div className="stack">
+        {shown.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            className={`fact ${out.has(p.id) ? "" : "on"}`}
+            aria-pressed={!out.has(p.id)}
+            onClick={() => onToggle(p.id)}
+          >
+            <Avatar nickname={p.nickname} gender={p.gender} size="sm" />
+            <span className="grow ellipsis">{p.nickname}</span>
+            {/* 톤만으로 말하지 않는다. 지금 어느 쪽인지 글자가 같은 정보를 다시 준다 */}
+            <span className={out.has(p.id) ? "dim" : ""}>
+              {out.has(p.id) ? HOST_UI.seats.excludeOut : HOST_UI.seats.excludeIn}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/*
+        다음 걸음이 이 숫자로 계산한다. 넘어가기 전에 한 번 말해준다.
+        **거른 것과 상관없이 언제나 전원 기준이다** — 남성만 보고 있다고 여성이 빠진 게 아니다.
+      */}
+      <div className="fact">
+        <span className="grow">
+          {out.size > 0 ? HOST_UI.seats.leftOut(seated, out.size) : HOST_UI.seats.seatedAll(seated)}
+        </span>
+      </div>
+
+      {/* 테이블 하나에 둘은 앉아야 한다. 그 아래로는 다음 걸음에서 할 수 있는 게 없다 */}
+      <button className="btn primary block" disabled={seated < 2} onClick={onNext}>
+        {HOST_UI.seats.excludeNext}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * **둘째 걸음 — 테이블 수를 고른다.**
  *
  * 숫자만 받지 않는다 — 그 숫자가 **어떤 자리를 만드는지** 함께 보여준다.
  * 테이블당 몇 명이고 남녀가 몇인지 보이지 않으면, 8을 넣어보고 결과를 보고 다시 6으로
  * 되돌리는 일을 반복하게 된다.
+ *
+ * 받는 명단은 **이미 뺄 사람이 빠진 것**이다. 여기서 다시 거르지 않는다 —
+ * 거르는 곳이 둘이면 언젠가 둘이 어긋난다.
  */
 function TablePicker({
   players,
-  attendance,
+  excluded,
   pairs,
   final,
   start,
@@ -318,8 +457,8 @@ function TablePicker({
   onGo,
 }: {
   players: Player[];
-  /** 참석 상태 (ADR-33). **`나감` 이 곧 제외다** (ADR-41) — 고르는 자리는 없다 */
-  attendance: Record<string, Attendance>;
+  /** 앞 걸음에서 뺀 사람 수. 인원이 왜 줄었는지 이 걸음에서도 말해야 한다 */
+  excluded: number;
   pairs: number;
   final: boolean;
   start: number;
@@ -327,20 +466,8 @@ function TablePicker({
   onGo: (tableCount: number) => void;
 }) {
   const [count, setCount] = useState(start);
-  /*
-   * **빠지는 사람은 `나감` 하나로 정해진다** (ADR-41). 손으로 고르는 목록을 걷어냈다 —
-   * 가는 사람은 문 앞에서 이미 찍히고, 같은 것을 여기서 또 고르면 두 번째가 틀린다.
-   *
-   * 서버도 같은 것을 본다(`makeSeating`). 여기 숫자는 **그 결과를 미리 말해주는 것**이지
-   * 서버에 보내는 값이 아니다 — 보내는 건 테이블 수뿐이다.
-   *
-   * **`미도착` 은 앉는다.** 늦게 오는 사람이 기본이고, 안 찍은 사람과 안 온 사람이
-   * 같은 값이라 여기서 빼면 온 사람이 조용히 빠진다.
-   */
-  const seated = players.filter((p) => attendance[p.id] !== "left");
-  const out = players.length - seated.length;
-  const people = seated.length;
-  const men = seated.filter((p) => p.gender === "M").length;
+  const people = players.length;
+  const men = players.filter((p) => p.gender === "M").length;
   const per = count > 0 ? people / count : 0;
   const perMen = count > 0 ? men / count : 0;
 
@@ -353,10 +480,10 @@ function TablePicker({
       */}
       <div className="fact">
         <span className="grow">
-          {out > 0 ? HOST_UI.seats.leftOut(people, out) : HOST_UI.seats.seatedAll(people)}
+          {excluded > 0 ? HOST_UI.seats.leftOut(people, excluded) : HOST_UI.seats.seatedAll(people)}
         </span>
       </div>
-      {out > 0 && <p className="small dim">{HOST_UI.seats.leftOutNote}</p>}
+      {excluded > 0 && <p className="small dim">{HOST_UI.seats.leftOutNote}</p>}
 
       <Num
         label={HOST_UI.seats.tableCount}
