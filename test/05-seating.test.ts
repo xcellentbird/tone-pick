@@ -39,8 +39,7 @@ function makePlayers(men: number, women: number, seed = 42): Player[] {
       phone: `010${String(i).padStart(8, "0")}`,
       mbti: rand() < 0.5 ? "ENFP" : "ISTJ",
       charms: ["a", "b", "c"],
-      contactShare: { phone: true, instagram: true },
-      createdAt: i,
+        createdAt: i,
     });
   }
   return out;

@@ -8,7 +8,7 @@
  *   홈 탭에서 뒤로 → 앱 밖
  *   시트에서 뒤로 → 시트만 닫히고 목록은 그대로
  */
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { BTN, GENDER, HELP, HOME, MBTI_AXES, ME, REGISTER, SCREEN_TITLE, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
@@ -38,7 +38,6 @@ const STATE: ParticipantState = {
     instagram: "gram_a",
     mbti: "ENFP",
     charms: ["하나", "둘", "셋"],
-    contactShare: { phone: true, instagram: true },
     createdAt: 1,
   },
   roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["가", "나", "다"] }],
@@ -189,10 +188,6 @@ describe("등록 직후 첫 안내", () => {
 
     await screen.findByLabelText(ME.labels.instagram);
     set("instagram", "na_gram");
-    // 기본값이 없어서 **둘 다** 골라야 넘어간다 (ADR-37). 뒤로 가기 시험이라 값 자체는 아무거나
-    for (const g of screen.getAllByRole("radiogroup")) {
-      fireEvent.click(within(g).getByText(REGISTER.share.on));
-    }
     fireEvent.click(screen.getByText(BTN.next));
 
     await screen.findByText(MBTI_AXES[0].q);
@@ -203,10 +198,13 @@ describe("등록 직후 첫 안내", () => {
   }
 
   /**
-   * **미리 눌린 것이 없어야 한다** (ADR-37). 하나가 눌린 채로 시작하면 그냥 지나친 사람도
-   * 고른 것이 되고, 그러면 이건 동의가 아니라 동의를 지어낸 것이다.
+   * **등록 화면이 하는 약속이 코드와 같아야 한다** (ADR-42, `CLAUDE.md`).
+   *
+   * 한동안 여기서 `매칭되면 상대에게 열 것` 을 골랐다 (ADR-37). 그 기능을 걷어냈으므로
+   * 고르는 자리도, "상대에게 보여요" 라는 말도 남아 있으면 안 된다 —
+   * 문구가 코드보다 넓게 말하면 그 순간부터 거짓말이다.
    */
-  it("★ 연락처 공개 범위는 아무것도 골라져 있지 않다", async () => {
+  it("★ 연락처를 고르는 자리가 없고, 운영자만 본다고 말한다", async () => {
     render(<RouterProvider router={registerRouter()} />);
     const set = (id: string, value: string) =>
       fireEvent.change(document.getElementById(id)!, { target: { value } });
@@ -219,25 +217,17 @@ describe("등록 직후 첫 안내", () => {
     fireEvent.click(screen.getByText(BTN.next));
 
     await screen.findByLabelText(ME.labels.instagram);
-    // 전화번호·인스타 두 줄, 각각 열기/안 열기 — 이름은 고르는 값이 아니라 줄이 없다
-    const groups = screen.getAllByRole("radiogroup");
-    expect(groups.length, "고르는 칸은 둘이다").toBe(2);
-    for (const o of screen.getAllByRole("radio")) {
-      expect(o.getAttribute("aria-checked"), `'${o.textContent}' 가 미리 눌려 있다`).toBe("false");
-    }
-    // 이름이 늘 열린다는 걸 **고르기 전에** 말한다
-    expect(screen.getByText(REGISTER.share.always)).toBeTruthy();
+    // 고르는 컨트롤이 통째로 없다
+    expect(screen.queryAllByRole("radiogroup"), "공개 범위를 고르는 자리가 남아 있다").toHaveLength(0);
 
+    // 약속은 **운영자만 본다** 하나다
+    expect(REGISTER.contactNote).toContain("운영자");
+    expect(REGISTER.contactNote, "매칭 상대에게 연락처가 간다고 말하면 안 된다").not.toContain("열");
+    // 인스타를 왜 받는지 그 자리에서 말한다 — 안 그러면 연락 수단으로 읽는다
+    expect(screen.getByText(REGISTER.instaWhy)).toBeTruthy();
+
+    // 아무것도 안 고르고 바로 넘어간다 — 막을 것이 없다
     set("instagram", "na_gram");
-
-    // 한 칸만 골라도 막힌다 — 둘 다 있어야 동의다
-    fireEvent.click(within(groups[0]).getByText(REGISTER.share.on));
-    fireEvent.click(screen.getByText(BTN.next));
-    await screen.findByText(REGISTER.err.share);
-    expect(screen.queryByText(MBTI_AXES[0].q), "한 칸만 골랐는데 넘어갔다").toBeNull();
-
-    // 나머지를 채우면 넘어간다 — `안 열기` 도 고른 것이다
-    fireEvent.click(within(groups[1]).getByText(REGISTER.share.off));
     fireEvent.click(screen.getByText(BTN.next));
     await screen.findByText(MBTI_AXES[0].q);
   });

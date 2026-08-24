@@ -20,7 +20,6 @@ import { ApiError, api, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
 import type { ProfileDraft } from "../lib/profileForm.ts";
 import { EMPTY_DRAFT, toInput, validateProfile } from "../lib/profileForm.ts";
-import ShareChoice from "../ui/ShareChoice.tsx";
 
 /** 초안·검증은 내 정보 수정 폼과 함께 쓴다 (`lib/profileForm.ts`) */
 type Draft = ProfileDraft;
@@ -204,17 +203,13 @@ export default function Register() {
             <div className="field">
               <label htmlFor="instagram">{ME.labels.instagram}</label>
               <input id="instagram" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} {...invalid("instagram")} />
+              {/*
+                **왜 받는지 그 자리에서 말한다** (ADR-42). 이 줄이 없으면 참가자가
+                `연락 수단으로 쓰이겠구나` 로 읽는데, 그건 이제 사실이 아니다
+              */}
+              <p className="tiny dim">{REGISTER.instaWhy}</p>
               {err("instagram")}
             </div>
-            {/*
-              **약속 바로 아래에서 고른다** (ADR-37). 위의 `contactNote` 가 어디까지 가는지
-              말하고, 여기서 얼마나 열지 정한다 — 받을 때 한 약속과 고르는 자리가 같은 화면이다
-            */}
-            <ShareChoice
-              value={draft.contactShare}
-              onChange={(key, on) => set("contactShare", { ...draft.contactShare, [key]: on })}
-            />
-            {err("contactShare")}
           </>
         )}
 

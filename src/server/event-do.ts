@@ -13,7 +13,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type {
   Attendance,
-  ContactShare,
   EventConfig,
   EventMeta,
   EventSchedule,
@@ -50,9 +49,6 @@ import {
   ENTRY_TRIES,
   LIMITS,
   cleanName,
-  minShare,
-  parseShare,
-  writeShare,
   nicknameProblem,
   normalizeInstagram,
   normalizeNickname,
@@ -79,8 +75,9 @@ CREATE TABLE IF NOT EXISTS players (
   charms     TEXT NOT NULL,          -- JSON string[3]
   created_at INTEGER NOT NULL,
   attendance TEXT,                   -- 'arrived' | 'left'. 없으면 안 옴 (ADR-33)
-  contact_share TEXT,                -- {"phone":bool,"instagram":bool}. 매칭 상대에게 열 것 (ADR-37).
-                                     -- 없거나 옛 사다리 값('all'|'instagram'|'none')이면 parseShare 가 옮긴다
+  contact_share TEXT,                -- 안 쓴다 (ADR-42 가 ADR-37 을 되돌렸다). 읽지도 쓰지도 않는다.
+                                     -- 지우지 마라 — DROP COLUMN 은 옛 회차의 표를 건드리는 일이고,
+                                     -- 남은 값은 참·거짓 둘뿐이라 개인정보도 아니다
   token      TEXT                    -- 등록할 때 초대 명단에서 복사해 온다 (ADR-32).
                                      -- 명단에서 지워져도 자기 링크로 계속 들어오게 하는 값이다
 );
@@ -617,17 +614,16 @@ export class EventDO extends DurableObject {
       instagram: clean.instagram,
       mbti: clean.mbti,
       charms: clean.charms,
-      contactShare: clean.contactShare,
       createdAt: who.createdAt,
     };
 
     this.ctx.storage.sql.exec(
-      `INSERT INTO players (id, nickname, nick_norm, real_name, age, gender, phone, instagram, mbti, charms, contact_share, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO players (id, nickname, nick_norm, real_name, age, gender, phone, instagram, mbti, charms, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET
          nickname=excluded.nickname, nick_norm=excluded.nick_norm, real_name=excluded.real_name,
          age=excluded.age, gender=excluded.gender, instagram=excluded.instagram,
-         mbti=excluded.mbti, charms=excluded.charms, contact_share=excluded.contact_share`,
+         mbti=excluded.mbti, charms=excluded.charms`,
       player.id,
       player.nickname,
       clean.nickNorm,
@@ -638,7 +634,6 @@ export class EventDO extends DurableObject {
       player.instagram ?? null,
       player.mbti,
       JSON.stringify(player.charms),
-      writeShare(player.contactShare),
       player.createdAt,
     );
     return ok(player);
@@ -1535,8 +1530,6 @@ export class EventDO extends DurableObject {
       const { mutual } = this.pairs("party");
       const mySeat = this.mySeat(playerId);
       const last = this.lastPublished();
-      // 내가 등록할 때 고른 값. 매칭마다 상대 것과 견줘 **조심스러운 쪽**을 쓴다 (ADR-37)
-      const myShare = this.player(playerId)?.contactShare;
       for (const [a, b] of mutual) {
         const otherId = a === playerId ? b : b === playerId ? a : null;
         if (!otherId) continue;
@@ -1545,24 +1538,18 @@ export class EventDO extends DurableObject {
         const theirTable = last?.seats.find((s) => s.playerId === otherId)?.table;
 
         /*
-         * 연락처가 참가자에게 나가는 유일한 자리다 (ADR-19). 조건 셋이 여기 겹쳐 있다 —
+         * **실명이 참가자에게 나가는 유일한 자리다** (ADR-19·42). 조건 셋이 여기 겹쳐 있다 —
          * 이 블록은 `meta.phase === "done"` 안이고(①), `mutual` 에 든 쌍만 지나며(②),
-         * 꺼내는 건 `other` 의 것이다(③). **무엇까지** 나갈지는 `share` 가 정한다(④, ADR-37).
+         * 꺼내는 건 `other` 의 것이다(③).
          *
-         * **이름은 늘 간다** — 고르는 값이 아니다. 안 열린 칸은 키째로 뺀다.
-         * 빈 문자열을 넣으면 개발자 도구에서 "열려 있는데 비었다" 로 읽히고,
-         * 그 구분이 곧 상대의 선택이 된다.
+         * ⚠️ **여기에 `other.phone`·`other.instagram` 을 다시 더하지 마라** (ADR-42).
+         * 연락처는 매칭된 쌍에게도 안 나간다 — 앱은 *누구와 마음이 맞았는지*까지만 알려주고,
+         * 연락은 그 자리에서 두 사람이 직접 한다. `MatchInfo` 에 담을 자리가 없는 것이 곧 방어다.
          */
-        const share = minShare(myShare, other.contactShare);
         matches.push({
           player: toPublic(other, meta.phase),
           sameTable: mySeat && theirTable === mySeat.table ? mySeat.table : undefined,
-          contact: {
-            realName: other.realName,
-            // 각 칸은 **두 사람이 다 열기로 했을 때만** (`minShare` 가 이미 겹쳐 놨다)
-            ...(share.phone ? { phone: other.phone } : {}),
-            ...(share.instagram ? { instagram: other.instagram } : {}),
-          },
+          realName: other.realName,
         });
       }
     }
@@ -1748,8 +1735,6 @@ interface PlayerRow {
   instagram: string;
   mbti: string;
   charms: string;
-  /** 없을 수도, 옛 사다리 값일 수도 있다 (ADR-37) — `toPlayer` 가 `parseShare` 로 읽는다 */
-  contact_share: string | null;
   created_at: number;
 }
 
@@ -1766,7 +1751,6 @@ interface SeatingRow {
 
 /** 검증을 지난 정규화본. 여기까지 온 값만 저장한다 */
 interface CleanProfile {
-  contactShare: ContactShare;
   nickname: string;
   nickNorm: string;
   realName: string;
@@ -1805,18 +1789,7 @@ function cleanProfile(input: RegisterInput): CleanProfile | null {
   const instagram = normalizeInstagram(String(input.instagram ?? ""));
   if (instagram.length > LIMITS.instagramMax || !/^[A-Za-z0-9._]+$/.test(instagram)) return null;
 
-  /*
-   * **기본값으로 메우지 않는다** (ADR-37). 연락처를 여는 동의라서,
-   * 안 보낸 것을 열림으로 읽으면 그건 동의가 아니라 동의를 지어낸 것이다.
-   * `=== true` 가 아니라 **참·거짓인지**를 본다 — 빠진 칸은 `undefined` 라 여기서 걸린다.
-   * 화면이 둘 다 고르게 하고, 서버는 그걸 다시 본다.
-   */
-  const share = input.contactShare;
-  if (!share || typeof share !== "object") return null;
-  if (typeof share.phone !== "boolean" || typeof share.instagram !== "boolean") return null;
-
   return {
-    contactShare: { phone: share.phone, instagram: share.instagram },
     nickname,
     nickNorm: normalizeNickname(nickname),
     realName,
@@ -1839,8 +1812,6 @@ function toPlayer(r: PlayerRow): Player {
     instagram: r.instagram,
     mbti: r.mbti,
     charms: JSON.parse(r.charms) as [string, string, string],
-    // 없는 값도, 사다리 3단이던 시절의 값도 여기서 지금 모양으로 옮긴다 (ADR-37)
-    contactShare: parseShare(r.contact_share),
     createdAt: r.created_at,
   };
 }

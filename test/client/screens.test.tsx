@@ -66,8 +66,7 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
       instagram: "na_gram",
       mbti: "ENFP",
       charms: ["하나", "둘", "셋"],
-      contactShare: { phone: true, instagram: true },
-      createdAt: 1,
+        createdAt: 1,
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE_STATE,
@@ -1148,7 +1147,7 @@ describe("발표 후 참가자 탭", () => {
           charms: ["매력가", "매력나", "매력다"],
         },
         sameTable: 2,
-        contact: { realName: "이실명", phone: "01055556666", instagram: "her_gram" },
+        realName: "이실명",
       },
     ],
   };
@@ -1163,73 +1162,46 @@ describe("발표 후 참가자 탭", () => {
         }),
     });
 
-  /** 매칭 한 건을 통째로 갈아끼운다 — 연락처가 얼마나 열렸는지에 따라 화면이 달라진다 (ADR-37) */
-  const revealedWith = (match: MyPokeState["matches"][number]) =>
-    fakeSource({
-      load: async () =>
-        participantState({
-          event: { ...participantState().event, phase: "done" },
-          poke: { ...matched, matches: [match] },
-        }),
-    });
-
   /**
-   * 둘 중 한 명이라도 전화번호·인스타를 **둘 다** 닫았을 때 (ADR-37).
-   * 이름은 늘 오므로 `연락처` 칸만 사라지고 그 자리에 한 줄이 든다.
+   * **매칭 카드에는 이름뿐이다** (ADR-42). 전화번호·인스타는 `MatchInfo` 에 담길 자리가 없어서
+   * 서버가 애초에 안 보낸다 — 화면은 그걸 그대로 그린다.
+   *
+   * 그래서 이 테스트가 재는 건 **없는 것**이다. 픽스처에 연락처를 넣을 수조차 없으므로
+   * (타입이 막는다) 여기서는 화면에 그 낱말이 안 뜨는지, 그리고 왜 없는지를 말하는지 본다.
    */
-  it("★ 연락 수단이 하나도 안 열리면 이름만 남는다", async () => {
-    const closed = revealedWith({
-      ...matched.matches[0],
-      contact: { realName: "이실명" },
-    });
-    renderParticipant(closed, "her");
+  it("★ 매칭 카드에 이름은 있고 연락처 칸은 없다", async () => {
+    renderParticipant(revealed(), "her");
 
-    // 먼저 기다린다 — 동기 조회를 앞에 두면 아직 안 그려진 화면을 재게 된다
-    await screen.findByText(REVEAL.nameOnly);
-    // 이름은 늘 열린다. 이게 없으면 `이름만` 이라는 문구가 화면과 어긋난다
-    expect(screen.getByText("이실명")).toBeTruthy();
-    // 매칭 자체는 그대로 보인다 — 좁아진 건 연락 수단뿐이다
+    await screen.findByText("이실명");
+    // 왜 이름까지만인지 그 자리에서 말한다 — 안 그러면 그 질문이 운영자에게 간다
+    expect(screen.getByText(REVEAL.nameNote)).toBeTruthy();
+    // 매칭 자체는 그대로 보인다
     expect(screen.getAllByText(new RegExp(REVEAL.matchBadge)).length).toBeGreaterThan(0);
 
-    expect(screen.queryByText("01055556666"), "번호가 남아 있다").toBeNull();
-    expect(screen.queryByText("@her_gram"), "인스타가 남아 있다").toBeNull();
-    // 빈 `연락처` 칸은 고장 난 화면으로 읽힌다 — 라벨째로 없어야 한다
-    expect(screen.queryByText(REVEAL.contactTitle)).toBeNull();
-    // "상대에게도 같은 만큼 보여요" 는 열린 수단이 있을 때만 할 말이다
-    expect(screen.queryByText(REVEAL.contactNote)).toBeNull();
-  });
-
-  it("★ 연락처가 좁혀진 이유를 상대 탓으로 말하지 않는다", async () => {
     /*
-     * `상대가 열지 않았어요` 는 **이름 붙은 거절**이다. 서로 콕 찌른 사이라 상대가 누구인지
-     * 이미 아는 화면이라, 그 한 줄이 이 앱이 없애려는 경험을 그대로 만든다 (ADR-37).
-     * 그래서 문구는 **등록할 때 미리 고른 값**이라는 것만 말한다.
+     * `연락처` 라는 라벨을 두지 않는다 — 그렇게 쓰면 뒤에 뭔가 더 있어야 하는 칸이 되고,
+     * 빈 채로 남으면 고장 난 화면으로 읽힌다.
      */
-    for (const word of ["상대가", "거절", "수락"]) {
-      expect(REVEAL.nameOnly, `'${word}' 가 들어 있다`).not.toContain(word);
+    expect(screen.queryByText("연락처"), "연락처 칸이 남아 있다").toBeNull();
+    for (const [what, needle] of [
+      ["전화번호 라벨", ME.labels.phone],
+      ["인스타 라벨", ME.labels.instagram],
+    ] as const) {
+      expect(screen.queryByText(needle), `${what} 가 남아 있다`).toBeNull();
     }
-    expect(REVEAL.nameOnly, "미리 고른 값이라는 걸 말해야 한다").toContain("등록");
-    // `안 열렸어요` 가 아니다 — 이름은 바로 위에 떠 있다
-    expect(REVEAL.nameOnly, "이름만 열린다는 걸 말해야 한다").toContain("이름");
+    // 걸 수 있는 링크도 없어야 한다 — 있으면 값이 어딘가로 흘렀다는 뜻이다
+    expect(document.querySelector('a[href^="tel:"]'), "전화 링크가 남아 있다").toBeNull();
+    expect(document.querySelector('a[href*="instagram.com"]'), "인스타 링크가 남아 있다").toBeNull();
   });
 
-  /*
-   * **사다리 3단이던 시절에는 못 하던 조합이다.** 둘이 독립이라 어느 쪽만 열어도 되고,
-   * 화면은 **온 것만** 그려야 한다 — 없는 줄의 이유를 적으면 멀쩡한 수단이 실패처럼 보인다.
-   */
-  it("★ 한 수단만 열리면 그 줄만 그리고 이유는 적지 않는다", async () => {
-    for (const [what, contact, shown, gone] of [
-      ["인스타만", { realName: "이실명", instagram: "her_gram" }, "@her_gram", ME.labels.phone],
-      ["전화번호만", { realName: "이실명", phone: "01055556666" }, "01055556666", ME.labels.instagram],
-    ] as const) {
-      renderParticipant(revealedWith({ ...matched.matches[0], contact }), "her");
-
-      await screen.findByText(shown);
-      expect(screen.getByText("이실명"), `${what}: 이름이 없다`).toBeTruthy();
-      expect(screen.queryByText(gone), `${what}: 닫은 칸의 줄이 남아 있다`).toBeNull();
-      // 열린 게 있으니 `이름만` 은 뜨지 않는다
-      expect(screen.queryByText(REVEAL.nameOnly), `${what}: 이름만 문구가 떴다`).toBeNull();
-      cleanup();
+  it("★ 연락처가 없는 이유를 상대 탓으로 말하지 않는다", async () => {
+    /*
+     * `상대가 안 열었어요` 는 **이름 붙은 거절**이다. 서로 콕 찌른 사이라 상대가 누구인지
+     * 이미 아는 화면이라, 그 한 줄이 이 앱이 없애려는 경험을 그대로 만든다.
+     * 연락처가 안 가는 건 **이 앱의 규칙**이지 그 사람의 선택이 아니고, 문구도 그렇게 말한다.
+     */
+    for (const word of ["상대가", "거절", "수락", "고른"]) {
+      expect(REVEAL.nameNote, `'${word}' 가 들어 있다`).not.toContain(word);
     }
   });
 
@@ -1280,17 +1252,6 @@ describe("발표 후 참가자 탭", () => {
     expect(screen.queryByText(new RegExp(REVEAL.matchBadge))).toBeNull();
   });
 
-  it("★ 서로 찌른 상대의 연락처가 프로필에서 열린다", async () => {
-    // 프로필 시트를 연 채로 그린다
-    renderParticipant(revealed(), "her");
-
-    await screen.findByText(REVEAL.contactTitle);
-    expect(screen.getByText("이실명")).toBeTruthy();
-    // 번호는 눌러서 걸 수 있어야 한다 — 파티장에서 손으로 옮겨 적게 하지 않는다
-    expect(screen.getByText("01055556666").getAttribute("href")).toBe("tel:01055556666");
-    // 상대에게도 내 연락처가 간다는 걸 그 자리에서 말한다
-    expect(screen.getByText(REVEAL.contactNote)).toBeTruthy();
-  });
 });
 
 // ─────────────────────────────────────────── 두 회차

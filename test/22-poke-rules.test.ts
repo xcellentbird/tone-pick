@@ -76,7 +76,6 @@ async function join(ev: EventMeta, gender: "M" | "F" = "M") {
     realName: "김실명", age: 28, gender,
     instagram: `pk_${seq}`, mbti: "ENFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
-    contactShare: { phone: true, instagram: true },
   };
   const res = await api<RegisterResult>("/api/register", { method: "POST", cookie: gate.cookie, body: input });
   expect(res.status, JSON.stringify(res.body)).toBe(200);

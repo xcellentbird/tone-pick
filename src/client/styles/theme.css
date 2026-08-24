@@ -334,28 +334,11 @@ button {
   padding: 0 14px;
 }
 
-/*
- * `aria-checked` 도 함께 본다. 둘 중 하나를 고르는 자리에 `role="radio"` 를 쓰면
- * 눌린 상태가 `aria-pressed` 가 아니라 `aria-checked` 로 온다 (`ShareChoice.tsx`) —
- * 한쪽만 적어두면 **골라도 아무 표시가 안 나서** 안 눌린 것처럼 보인다.
- */
-.choice button[aria-pressed="true"],
-.choice button[aria-checked="true"] {
+.choice button[aria-pressed="true"] {
   background: var(--card-2);
   color: var(--fg);
   font-weight: 700;
   box-shadow: var(--shadow);
-}
-
-/*
- * 연락처 공개 범위 고르기 (ADR-37). 칸마다 라벨 한 줄 + 알약 한 줄 (`ShareChoice.tsx`).
- * 세로로 쌓는다 — 390px 에서 라벨과 알약을 한 줄에 놓으면 알약이 눌린다.
- */
-.shareRow {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
 }
 
 /* ─────────────────────────── 탭바 */

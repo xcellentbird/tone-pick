@@ -473,10 +473,13 @@ describe("공개 범위", () => {
   });
 
   /**
-   * 연락처가 참가자에게 나가는 **유일한 통로**다 (ADR-19).
-   * 세 조건이 모두 맞아야 한다 — 발표 단계 · 서로 찌름 · 그 상대의 것.
+   * 발표 후 서로 찌른 상대에게 나가는 것은 **실명 하나뿐이다** (ADR-42).
+   *
+   * 한동안 전화번호와 인스타도 함께 나갔다 (ADR-19). 그 통로를 닫았다 —
+   * 앱이 하는 일은 *누구와 마음이 맞았는지*까지고, 연락은 그 자리에서 두 사람이 직접 한다.
+   * **`MatchInfo` 에 그 값이 담길 자리 자체가 없다**는 게 지금의 방어다.
    */
-  it("★ 발표 후 서로 찌른 상대의 연락처가 열린다", async () => {
+  it("★ 발표 후 서로 찌른 상대의 실명이 열린다 — 연락처는 아니다", async () => {
     const ev = await freshEvent();
     const me = await join(ev, { nickname: "나야나" });
     const her = await join(ev, { gender: "F", nickname: "그녀", realName: "이실명", instagram: "her_gram" });
@@ -490,16 +493,22 @@ describe("공개 범위", () => {
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
     expect(state.body.poke.matches.length).toBe(1);
     expect(state.body.poke.matches[0].player.nickname).toBe("그녀");
-    expect(state.body.poke.matches[0].contact).toEqual({
-      realName: "이실명",
-      phone: her.phone,
-      instagram: "her_gram",
-    });
+    expect(state.body.poke.matches[0].realName).toBe("이실명");
 
-    // 명단(roster)은 여전히 깨끗하다. 연락처는 매칭 안에만 있다
-    const roster = JSON.stringify(state.body.roster);
-    expect(roster).not.toContain("이실명");
-    expect(roster).not.toContain(her.phone);
+    /*
+     * **매칭 안에도 연락처가 없다.** 화면에서 감추는 걸로는 부족하다 —
+     * 개발자 도구로 응답을 여는 참가자가 반드시 있고, 그 사람에게도 없어야 한다.
+     */
+    const raw = JSON.stringify(state.body);
+    for (const [what, needle] of [
+      ["전화번호", her.phone],
+      ["인스타", "her_gram"],
+    ] as const) {
+      expect(raw, `${what} 가 응답에 남아 있다`).not.toContain(needle);
+    }
+
+    // 명단(roster)은 여전히 깨끗하다. 실명은 매칭 안에만 있다
+    expect(JSON.stringify(state.body.roster)).not.toContain("이실명");
   });
 
   it("★ 발표 전에는 서로 찔렀어도 연락처가 없다", async () => {
