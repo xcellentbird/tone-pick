@@ -2178,6 +2178,59 @@ describe("탭 역할 분담", () => {
     expect(screen.getByText(NOTICE.prevote(3).title)).toBeTruthy();
   });
 
+  /**
+   * ★ **소식 칸은 위가 늘 최신이다** (ADR-48).
+   *
+   * 받은 콕에는 시각이 없지만(있으면 발신자가 좁혀진다) **제자리에는 서야 한다.**
+   * 그 자리는 라운드가 정한다 — 매력 투표 콕은 `매력 투표가 시작됐어요` 위,
+   * 파티 콕은 `파티가 시작됐어요` 위.
+   *
+   * 여기가 깨지면 방금 받은 콕이 며칠 전 단계 알림 **아래**에 깔린다.
+   */
+  it("★ 소식은 최신이 위다 — 콕도 제자리에 선다", async () => {
+    const T = (m: number) => new Date(`2026-08-25T04:${m}:00`).getTime();
+    renderTab("home", {
+      event: {
+        ...participantState().event,
+        phase: "party" as const,
+        fired: { reg: T(20), prevote: T(23), party: T(26) },
+      },
+      poke: { ...POKE_STATE, received: { pre: 1, party: 2 } },
+    });
+    await screen.findByText(HOME.news);
+
+    // 소식 칸의 제목을 위에서 아래 순서 그대로 읽는다
+    const titles = [...document.querySelectorAll(".banner .name")].map((n) => n.textContent);
+    expect(titles).toEqual([
+      POKE.received("party"),           // 파티 콕 둘 — 가장 최신
+      POKE.received("party"),
+      NOTICE.party(3).title,            // 04:26
+      POKE.received("pre"),             // 매력 투표 표 하나
+      NOTICE.prevote(3).title,          // 04:23
+    ]);
+  });
+
+  /**
+   * ★ **콕에는 시각이 없다.** 자리는 잡되 시각은 안 붙는다 —
+   * "21:03에 왔다" 를 알면 그때 누가 화면을 보고 있었는지와 맞춰 발신자를 좁힌다.
+   */
+  it("★ 콕에는 시각이 붙지 않는다 — 단계 알림에는 붙는다", async () => {
+    const T = (m: number) => new Date(`2026-08-25T04:${m}:00`).getTime();
+    renderTab("home", {
+      event: { ...participantState().event, phase: "party" as const, fired: { reg: T(20), prevote: T(23), party: T(26) } },
+      poke: { ...POKE_STATE, received: { pre: 0, party: 1 } },
+    });
+    await screen.findByText(HOME.news);
+
+    const rows = [...document.querySelectorAll(".banner")];
+    const timeOf = (row: Element) => [...row.querySelectorAll(".tiny.dim")].map((e) => e.textContent).join("");
+    const poked = rows.find((r) => r.querySelector(".name")?.textContent === POKE.received("party"))!;
+    const stage = rows.find((r) => r.querySelector(".name")?.textContent === NOTICE.party(3).title)!;
+
+    expect(timeOf(poked), "콕에 시각이 붙었다").toBe("");
+    expect(timeOf(stage), "단계 알림에서 시각이 사라졌다").not.toBe("");
+  });
+
   it("★ 발표 배너는 결과가 있는 탭에는 뜨지 않는다 — 서로를 가리키면 안 된다", async () => {
     /*
      * 배너가 "홈으로 가라" 하고 홈 카드가 "참가자 탭으로 가라" 하면 두 화면이 서로를 가리킨다.
