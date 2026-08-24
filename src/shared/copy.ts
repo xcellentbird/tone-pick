@@ -1084,6 +1084,20 @@ export const HOST_UI = {
     pokeTargetOpposite: "이성에게만",
     pokeTargetAll: "모두에게",
     pokeTargetNote: "기본은 '모두에게'예요. '이성에게만'으로 좁힐 수도 있어요 — 자리 배정의 남녀 정원은 어느 쪽이든 그대로입니다.",
+    /**
+     * 되돌리기·알림 (ADR-34). 회차마다 정한다.
+     * **둘은 한 몸이다** — 알림을 켠 채 되돌리기를 열면 받은 수가 줄어드는 걸 보고
+     * "방금 누가 되돌렸다" 에서 발신자를 좁힐 수 있다. 그 설명을 여기서 한다.
+     */
+    allowUndo: "콕을 되돌릴 수 있나",
+    allowUndoYes: "되돌릴 수 있어요",
+    allowUndoNo: "한 번 보내면 끝",
+    allowUndoNote: "매력 투표는 이 설정과 상관없이 언제나 되돌릴 수 있어요 — 자리 배정에만 쓰이니까요.",
+    pokeNotify: "콕을 받으면 알릴까요",
+    pokeNotifyOn: "알려요",
+    pokeNotifyOff: "알리지 않아요",
+    pokeNotifyNote:
+      "지난 회차에서 콕을 한 번도 못 받은 사람이 열에 셋이었어요. 알림이 있으면 그 쏠림이 그 자리에서 느껴집니다.\n발표 후에 '몇 번 받았는지' 는 어느 쪽이든 알려줘요.",
     regOpenBeforeD: "파티 며칠 전에 등록을 열까요",
     prevoteBeforeH: "파티 몇 시간 전에 매력 투표를 시작할까요",
     retentionDays: "파티가 끝나고 며칠 뒤에 지울까요 (1~14)",

@@ -27,6 +27,9 @@ export default function Settings() {
   const [maxPre, setMaxPre] = useState(meta.config.maxPre);
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
   const [allowSameGender, setAllowSameGender] = useState(meta.config.allowSameGender !== false);
+  // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
+  const [allowUndo, setAllowUndo] = useState(meta.config.allowUndo !== false);
+  const [pokeNotify, setPokeNotify] = useState(meta.config.pokeNotify === true);
   const [retentionDays, setRetentionDays] = useState(meta.config.retentionDays ?? RETENTION_DAYS);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +39,8 @@ export default function Settings() {
     setMaxPre(meta.config.maxPre);
     setMaxParty(meta.config.maxParty);
     setAllowSameGender(meta.config.allowSameGender !== false);
+    setAllowUndo(meta.config.allowUndo !== false);
+    setPokeNotify(meta.config.pokeNotify === true);
     setRetentionDays(meta.config.retentionDays ?? RETENTION_DAYS);
     setPlace(meta.place ?? "");
     setSchedule(meta.schedule);
@@ -60,6 +65,16 @@ export default function Settings() {
       allowSameGender ? HOST_UI.fields.pokeTargetAll : HOST_UI.fields.pokeTargetOpposite,
     );
     changed(
+      HOST_UI.fields.allowUndo,
+      meta.config.allowUndo === false ? HOST_UI.fields.allowUndoNo : HOST_UI.fields.allowUndoYes,
+      allowUndo ? HOST_UI.fields.allowUndoYes : HOST_UI.fields.allowUndoNo,
+    );
+    changed(
+      HOST_UI.fields.pokeNotify,
+      meta.config.pokeNotify === true ? HOST_UI.fields.pokeNotifyOn : HOST_UI.fields.pokeNotifyOff,
+      pokeNotify ? HOST_UI.fields.pokeNotifyOn : HOST_UI.fields.pokeNotifyOff,
+    );
+    changed(
       HOST_UI.settings.privacy,
       UNIT.days(meta.config.retentionDays ?? RETENTION_DAYS),
       UNIT.days(retentionDays),
@@ -79,7 +94,7 @@ export default function Settings() {
       await put<EventMeta>(`/host/events/${meta.id}`, {
         name,
         place,
-        config: { maxPre, maxParty, allowSameGender, retentionDays },
+        config: { maxPre, maxParty, allowSameGender, allowUndo, pokeNotify, retentionDays },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
       toast(BTN.saved);
@@ -169,6 +184,37 @@ export default function Settings() {
           ))}
         </div>
         <span className="tiny dim">{HOST_UI.fields.pokeTargetNote}</span>
+      </div>
+
+      {/* 되돌리기·알림 (ADR-34). 둘은 한 몸이라 나란히 둔다 */}
+      <div className="field">
+        <label>{HOST_UI.fields.allowUndo}</label>
+        <div className="choice">
+          {[
+            { on: true, label: HOST_UI.fields.allowUndoYes },
+            { on: false, label: HOST_UI.fields.allowUndoNo },
+          ].map((opt) => (
+            <button key={opt.label} type="button" aria-pressed={allowUndo === opt.on} onClick={() => setAllowUndo(opt.on)}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <span className="tiny dim">{HOST_UI.fields.allowUndoNote}</span>
+      </div>
+
+      <div className="field">
+        <label>{HOST_UI.fields.pokeNotify}</label>
+        <div className="choice">
+          {[
+            { on: false, label: HOST_UI.fields.pokeNotifyOff },
+            { on: true, label: HOST_UI.fields.pokeNotifyOn },
+          ].map((opt) => (
+            <button key={opt.label} type="button" aria-pressed={pokeNotify === opt.on} onClick={() => setPokeNotify(opt.on)}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <span className="tiny dim pre">{HOST_UI.fields.pokeNotifyNote}</span>
       </div>
 
       <div className="kicker">{HOST_UI.settings.schedule}</div>
