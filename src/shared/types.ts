@@ -400,8 +400,6 @@ export interface Invite {
    * 운영자 응답에만 실린다 — 참가자에게 남의 토큰이 가면 그 사람이 될 수 있다.
    */
   token: string;
-  /** 운영자가 안내문을 보냈다고 표시한 시각. 없으면 아직 안 보냈다 */
-  sentAt?: number;
   /** 이미 등록한 사람이면 그 닉네임. 운영자가 누가 왔는지 명단에서 바로 본다 */
   nickname?: string;
 }

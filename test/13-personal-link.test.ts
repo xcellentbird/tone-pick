@@ -360,8 +360,8 @@ describe("B. 안내문", () => {
 
     // Then  토큰이 있고, 추측할 수 없을 만큼 길다
     expect(row.token).toMatch(/^[0-9a-f]{32}$/);
-    // And   보낸 적이 없다 — 명단에 넣는 것은 발송이 아니다
-    expect(row.sentAt).toBeUndefined();
+    // And   그뿐이다 — 명단에 넣는 것은 발송이 아니고, 발송 여부는 아예 세지 않는다
+    expect(Object.keys(row).sort()).toEqual(["addedAt", "phone", "token"]);
   });
 
   it("S-B1b ★ 토큰은 사람마다 다르다", async () => {
@@ -371,31 +371,27 @@ describe("B. 안내문", () => {
     expect(tokens.size).toBe(5);
   });
 
-  it("S-B3 ★ 보냄 표시는 남는다", async () => {
+  /**
+   * 보냄 표시는 걷었다 (ADR-32 후기).
+   *
+   * 복사가 곧 발송이 아니고(붙여넣기 전에 마음이 바뀐다), 되돌릴 수 있는 표시는
+   * 틀렸을 때 아무도 모른다. 길을 없앴으니 **길이 없는 것**을 여기서 고정한다.
+   */
+  it("S-B3 ★ 보냄으로 찍는 길이 없다", async () => {
     const ev = await freshEvent();
     const phone = nextPhone();
     await invite(ev.id, phone);
 
-    // When  운영자가 보냄을 체크한다
-    const mark = await api<Invite[]>(`/api/host/events/${ev.id}/invites/${phone}/sent`, {
+    const mark = await api(`/api/host/events/${ev.id}/invites/${phone}/sent`, {
       method: "POST",
       cookie: master,
       body: { sent: true },
     });
-    expect(mark.status, JSON.stringify(mark.body)).toBe(200);
+    expect(mark.status).toBe(404);
 
-    // Then  다시 읽어도 남아 있다
+    // 명단은 그대로다 — 없는 길을 두드려도 아무 일도 일어나지 않는다
     const list = await hostInvites(ev.id);
-    expect(list.find((i) => i.phone === phone)?.sentAt).toBeTypeOf("number");
-
-    // And   되돌릴 수 있다
-    await api(`/api/host/events/${ev.id}/invites/${phone}/sent`, {
-      method: "POST",
-      cookie: master,
-      body: { sent: false },
-    });
-    const after = await hostInvites(ev.id);
-    expect(after.find((i) => i.phone === phone)?.sentAt).toBeUndefined();
+    expect(list.find((i) => i.phone === phone)).toBeTruthy();
   });
 });
 

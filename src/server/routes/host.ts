@@ -218,21 +218,6 @@ hostRoutes.post("/events/:id/invites", async (c) => {
   return response ?? c.json(value);
 });
 
-/**
- * 안내문을 보냈다고 표시한다 (ADR-32). **한 명씩 보내니 어디까지 갔는지 알아야 한다.**
- * 되돌릴 수 있는 표시라 확인창은 없다.
- */
-hostRoutes.post("/events/:id/invites/:phone/sent", async (c) => {
-  const gate = await openEvent(c);
-  if (gate.response) return gate.response;
-  const body = await json<{ sent?: unknown }>(c);
-  const { value, response } = unwrap(
-    c,
-    await gate.stub.markSent(c.req.param("phone"), body.sent !== false, serverNow()),
-  );
-  return response ?? c.json(value);
-});
-
 hostRoutes.delete("/events/:id/invites/:phone", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;

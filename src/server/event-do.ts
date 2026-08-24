@@ -93,8 +93,7 @@ CREATE INDEX IF NOT EXISTS pokes_to   ON pokes(to_id);
 CREATE TABLE IF NOT EXISTS invites (
   phone    TEXT PRIMARY KEY,      -- 숫자만. 운영자가 미리 넣어두는 초대 명단
   added_at INTEGER NOT NULL,
-  token    TEXT,                  -- 이 사람의 참가 링크. 넣는 순간 생긴다 (ADR-32)
-  sent_at  INTEGER                -- 운영자가 안내문을 보냈다고 표시한 시각
+  token    TEXT                   -- 이 사람의 참가 링크. 넣는 순간 생긴다 (ADR-32)
 );
 CREATE TABLE IF NOT EXISTS entry_tries (
   ip_hash TEXT NOT NULL,          -- 접속지 해시. 원본 IP 는 저장하지 않는다
@@ -175,7 +174,8 @@ export class EventDO extends DurableObject {
       // copy-ok — SQL 이지 화면 문구가 아니다
       for (const sql of [
         "ALTER TABLE invites ADD COLUMN token TEXT",
-        "ALTER TABLE invites ADD COLUMN sent_at INTEGER",
+        // 보냄 표시를 걷었다 (ADR-32 후기). 안 읽는 칸을 들고 다니면 다음 사람이 쓰이는 줄 안다
+        "ALTER TABLE invites DROP COLUMN sent_at",
         "ALTER TABLE players ADD COLUMN token TEXT",
         "ALTER TABLE players ADD COLUMN attendance TEXT",
         "ALTER TABLE players ADD COLUMN contact_share TEXT",
@@ -494,28 +494,18 @@ export class EventDO extends DurableObject {
 
   private invites(): Invite[] {
     const byPhone = new Map(this.players().map((p) => [p.phone, p.nickname]));
-    return this.rows<{ phone: string; added_at: number; token: string | null; sent_at: number | null }>(
-      "SELECT * FROM invites ORDER BY added_at, phone",
+    /*
+     * 칸을 골라 읽는다. `SELECT *` 로 두면 걷어낸 `sent_at` 이 남아 있는 옛 회차에서
+     * 그 값이 응답에 딸려 나간다 — 지운 기능이 조용히 되살아 보이는 자리다.
+     */
+    return this.rows<{ phone: string; added_at: number; token: string | null }>(
+      "SELECT phone, added_at, token FROM invites ORDER BY added_at, phone",
     ).map((r) => ({
       phone: r.phone,
       addedAt: r.added_at,
       token: r.token ?? "",
-      ...(r.sent_at ? { sentAt: r.sent_at } : {}),
       nickname: byPhone.get(r.phone),
     }));
-  }
-
-  /**
-   * 안내문을 보냈다고 표시한다. **한 명씩 보내니 어디까지 갔는지 알아야 한다** (S-B3).
-   * 되돌릴 수 있는 표시라 확인창을 두지 않는다 — 잘못 눌러도 다시 누르면 그만이다.
-   */
-  async markSent(phone: string, sent: boolean, now: number): Promise<Result<Invite[]>> {
-    this.ctx.storage.sql.exec(
-      "UPDATE invites SET sent_at = ? WHERE phone = ?",
-      sent ? now : null,
-      normalizePhone(phone),
-    );
-    return ok(this.invites());
   }
 
   // ─────────────────────────── 참가자
