@@ -20,6 +20,7 @@ import { ApiError, api, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
 import type { ProfileDraft } from "../lib/profileForm.ts";
 import { EMPTY_DRAFT, toInput, validateProfile } from "../lib/profileForm.ts";
+import ShareChoice from "../ui/ShareChoice.tsx";
 
 /** 초안·검증은 내 정보 수정 폼과 함께 쓴다 (`lib/profileForm.ts`) */
 type Draft = ProfileDraft;
@@ -205,6 +206,12 @@ export default function Register() {
               <input id="instagram" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} {...invalid("instagram")} />
               {err("instagram")}
             </div>
+            {/*
+              **약속 바로 아래에서 고른다** (ADR-37). 위의 `contactNote` 가 어디까지 가는지
+              말하고, 여기서 얼마나 열지 정한다 — 받을 때 한 약속과 고르는 자리가 같은 화면이다
+            */}
+            <ShareChoice value={draft.contactShare} onChange={(v) => set("contactShare", v)} />
+            {err("contactShare")}
           </>
         )}
 

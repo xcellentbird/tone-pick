@@ -1,4 +1,4 @@
-import type { Defaults } from "./types.ts";
+import type { ContactShare, Defaults } from "./types.ts";
 import { INVITE_TEMPLATE } from "./copy.ts";
 
 /**
@@ -146,6 +146,33 @@ export function typedPhone(raw: string): string {
 export function formatPhone(digits: string): string {
   const d = digits.slice(0, 11);
   return [d.slice(0, 3), d.slice(3, 7), d.slice(7)].filter(Boolean).join("-");
+}
+
+/**
+ * 연락처를 여는 정도. **화면에 놓는 순서**이자 서버가 값을 검사하는 목록이다 (ADR-37).
+ *
+ * 많이 여는 쪽부터 늘어놓는다 — "얼마나 열까" 는 사다리로 읽히는 질문이라,
+ * 거꾸로 놓으면 고르는 사람이 매번 되짚어야 한다.
+ * **여기 순서로 무엇이 더 조심스러운지 판단하지 마라** — 그건 `minShare` 의 일이다.
+ */
+export const CONTACT_SHARE: readonly ContactShare[] = ["all", "instagram", "none"];
+
+/** 조심스러운 정도. 낮을수록 조심스럽다. `minShare` 만 쓴다 — 밖에서 숫자를 비교하지 마라 */
+const SHARE_RANK: Record<ContactShare, number> = { none: 0, instagram: 1, all: 2 };
+
+/**
+ * 한 쌍에 실제로 적용되는 값 — **둘 중 더 조심스러운 쪽.**
+ *
+ * 각자 자기 것만 여는(비대칭) 방식도 있었지만 이걸 골랐다 (ADR-37).
+ * 아무도 자기가 낸 것보다 더 받지 않아야 "열었는데 못 받았다" 가 생기지 않는다.
+ *
+ * **옛 회차의 행에는 이 칸이 없다.** 그때 등록 화면이 한 약속은 "발표 때 열린다" 였으므로
+ * 없으면 `all` 로 읽는다 — 받을 때 한 약속이 먼저다. 여기서 조용히 좁히면 그것도 약속을 어기는 것이다.
+ */
+export function minShare(a: ContactShare | null | undefined, b: ContactShare | null | undefined): ContactShare {
+  const x = a ?? "all";
+  const y = b ?? "all";
+  return SHARE_RANK[x] <= SHARE_RANK[y] ? x : y;
 }
 
 /**

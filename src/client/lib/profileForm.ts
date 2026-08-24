@@ -8,8 +8,8 @@
  * **전화번호는 여기 없다.** 입장할 때 확인한 값이라 폼에서 받지 않는다 (ADR-15).
  */
 import { MBTI_AXES, REGISTER } from "../../shared/copy.ts";
-import type { Player, RegisterInput } from "../../shared/types.ts";
-import { LIMITS, nicknameProblem, normalizeInstagram, realNameProblem } from "../../shared/constants.ts";
+import type { ContactShare, Player, RegisterInput } from "../../shared/types.ts";
+import { CONTACT_SHARE, LIMITS, nicknameProblem, normalizeInstagram, realNameProblem } from "../../shared/constants.ts";
 
 export interface ProfileDraft {
   nickname: string;
@@ -18,6 +18,8 @@ export interface ProfileDraft {
   age: string;
   gender: "M" | "F" | "";
   instagram: string;
+  /** 빈 문자열은 **아직 안 골랐다**는 뜻이다 — 기본값을 두지 않는다 (ADR-37) */
+  contactShare: ContactShare | "";
   mbti: Record<number, string>;
   charms: [string, string, string];
 }
@@ -28,6 +30,8 @@ export const EMPTY_DRAFT: ProfileDraft = {
   age: "",
   gender: "",
   instagram: "",
+  // 비워 둔다. 안 고른 것을 허락으로 읽지 않는 게 이 값의 요점이다 (ADR-37)
+  contactShare: "",
   mbti: {},
   charms: ["", "", ""],
 };
@@ -40,6 +44,7 @@ export function draftOf(me: Player): ProfileDraft {
     age: String(me.age),
     gender: me.gender,
     instagram: me.instagram ?? "",
+    contactShare: me.contactShare,
     // MBTI 는 네 글자를 4문항 토글로 되돌린다 — 저장은 "ENFP", 화면은 문항별 선택이다
     mbti: Object.fromEntries(MBTI_AXES.map((_, i) => [i, me.mbti[i] ?? ""])),
     charms: [...me.charms] as [string, string, string],
@@ -54,6 +59,7 @@ export function toInput(d: ProfileDraft): RegisterInput {
     age: Number(d.age),
     gender: d.gender as "M" | "F",
     instagram: normalizeInstagram(d.instagram),
+    contactShare: d.contactShare as ContactShare,
     mbti: MBTI_AXES.map((_, i) => d.mbti[i]).join(""),
     charms: d.charms.map((c) => c.trim()) as [string, string, string],
   };
@@ -108,6 +114,10 @@ export function validateProfile(d: ProfileDraft, step?: number): { field: string
     // 상한은 서버와 같은 상수다 — 여기서 안 막으면 3스텝을 다 쓴 뒤에야 실패를 만난다
     if (d.instagram.trim().length > LIMITS.instagramMax) {
       return { field: "instagram", text: REGISTER.err.instaLen(LIMITS.instagramMax) };
+    }
+    // 연락처를 여는 동의라, 안 고르면 여기서 막는다. 서버도 같은 것을 다시 본다 (ADR-37)
+    if (!CONTACT_SHARE.includes(d.contactShare as ContactShare)) {
+      return { field: "contactShare", text: REGISTER.err.share };
     }
   }
   if (step === undefined || step === 3) {
