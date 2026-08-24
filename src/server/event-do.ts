@@ -310,6 +310,7 @@ export class EventDO extends DurableObject {
       const { maxPre, maxParty, allowSameGender } = patch.config;
       // 안 보내면 지금 값을 지킨다 — 콕 횟수만 고치다 알림 설정이 딸려 초기화되면 안 된다
       const allowUndo = patch.config.allowUndo ?? meta.config.allowUndo;
+      const allowUndoPre = patch.config.allowUndoPre ?? meta.config.allowUndoPre;
       const pokeNotify = patch.config.pokeNotify ?? meta.config.pokeNotify;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
 
@@ -342,6 +343,7 @@ export class EventDO extends DurableObject {
         ...(allowSameGender === false ? { allowSameGender: false } : {}),
         // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
         ...(allowUndo === false ? { allowUndo: false } : {}),
+        ...(allowUndoPre === false ? { allowUndoPre: false } : {}),
         ...(pokeNotify === true ? { pokeNotify: true } : {}),
         ...(retentionDays !== undefined && retentionDays !== RETENTION_DAYS ? { retentionDays } : {}),
       };
@@ -739,7 +741,7 @@ export class EventDO extends DurableObject {
   /**
    * 콕 되돌리기 (ADR-34). **하나씩 무른다** — 그 사람에게 여러 번 찔렀으면 한 번만 준다.
    *
-   * 매력 투표는 언제나 무를 수 있다. 파티 콕은 **회차 설정을 따른다** (`allowUndo`).
+   * **라운드마다 따로 정한다** — 매력 투표는 `allowUndoPre`, 파티 콕은 `allowUndo`.
    *
    * 알림은 저장하지 않고 `receivedCount` 에서 파생되므로(`noticesOf`),
    * 무르면 그 줄이 저절로 사라져 **받지 않았던 상태로 돌아간다.**
@@ -750,7 +752,8 @@ export class EventDO extends DurableObject {
     if (!canPoke(meta.phase)) return fail("closed");
 
     const round = roundOf(meta.phase);
-    if (round === "party" && meta.config.allowUndo === false) return fail("closed");
+    const allowed = round === "pre" ? meta.config.allowUndoPre !== false : meta.config.allowUndo !== false;
+    if (!allowed) return fail("closed");
 
     const one = this.rows<{ id: string }>(
       "SELECT id FROM pokes WHERE from_id = ? AND to_id = ? AND round = ? ORDER BY at DESC LIMIT 1",

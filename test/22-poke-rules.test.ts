@@ -166,8 +166,8 @@ describe("콕 되돌리기", () => {
     expect(state.body.poke.budget.party.used).toBe(1);
   });
 
-  it("★ 매력 투표는 그 설정과 무관하게 언제나 무를 수 있다", async () => {
-    // 자리 배정의 재료일 뿐이라 붙들어 둘 이유가 없다 (ADR-34)
+  it("★ 되돌리기는 라운드마다 따로 정한다", async () => {
+    // 파티 콕만 막은 회차에서 매력 투표는 그대로 무를 수 있다 (ADR-34)
     const ev = await freshEvent({ allowUndo: false });
     const me = await join(ev);
     const her = await join(ev, "F");
@@ -177,6 +177,21 @@ describe("콕 되돌리기", () => {
     const back = await unpoke(her.cookie, me.id);
     expect(back.status, JSON.stringify(back.body)).toBe(200);
     expect(back.body.budget.pre.used).toBe(0);
+  });
+
+  it("★ 매력 투표만 막을 수도 있다", async () => {
+    const ev = await freshEvent({ allowUndoPre: false });
+    const me = await join(ev);
+    const her = await join(ev, "F");
+
+    await setPhase(ev.id, "prevote");
+    await poke(her.cookie, me.id);
+    expect((await unpoke(her.cookie, me.id)).status).not.toBe(200);
+
+    // 파티 콕은 그대로 무를 수 있다 — 설정이 갈려 있다
+    await setPhase(ev.id, "party");
+    await poke(her.cookie, me.id);
+    expect((await unpoke(her.cookie, me.id)).status).toBe(200);
   });
 
   it("찌른 적 없는 사람은 무를 것이 없다", async () => {

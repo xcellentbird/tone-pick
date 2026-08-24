@@ -368,32 +368,38 @@ describe("운영자 콘솔", () => {
     );
   });
 
-  it("★ 되돌리기·알림을 회차마다 정한다 (ADR-34)", async () => {
+  it("★ 되돌리기·알림을 회차마다, 라운드마다 정한다 (ADR-34)", async () => {
     /*
-     * 둘은 **한 몸이다** — 알림을 켠 채 되돌리기를 열면 받은 수가 줄어드는 걸 보고
+     * 되돌리기와 알림은 **한 몸이다** — 알림을 켠 채 되돌리기를 열면 받은 수가 줄어드는 걸 보고
      * "방금 누가 되돌렸다" 에서 발신자를 좁힐 수 있다.
-     * 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다.
+     * 기본은 셋 다 안전한 쪽이다 — 되돌릴 수 있고, 알리지 않는다.
      */
     stubFetch(hostState());
     renderConsole("/host/e1/settings");
     await screen.findByLabelText(HOST_UI.fields.name);
 
-    // 기본값이 눌려 있다
-    const pressed = (label: string) =>
-      screen.getAllByRole("button").find((b) => b.textContent === label)?.getAttribute("aria-pressed");
-    expect(pressed(HOST_UI.fields.allowUndoYes)).toBe("true");
-    expect(pressed(HOST_UI.fields.pokeNotifyOff)).toBe("true");
+    /** 그 설정 줄 안의 버튼만 집는다 — 세 줄이 같은 글자를 쓴다 */
+    const rowBtn = (label: string, option: string) => {
+      const field = screen.getAllByText(label).find((el) => el.tagName === "LABEL")!.parentElement!;
+      return [...field.querySelectorAll("button")].find((b) => b.textContent === option)!;
+    };
 
-    // 둘 다 뒤집는다
-    fireEvent.click(screen.getByText(HOST_UI.fields.allowUndoNo));
-    fireEvent.click(screen.getByText(HOST_UI.fields.pokeNotifyOn));
+    // 기본값이 눌려 있다 (매력 투표·콕 되돌리기는 됨, 알림은 안 보냄)
+    expect(rowBtn(HOST_UI.fields.undoPre, HOST_UI.fields.undoOn).getAttribute("aria-pressed")).toBe("true");
+    expect(rowBtn(HOST_UI.fields.undoParty, HOST_UI.fields.undoOn).getAttribute("aria-pressed")).toBe("true");
+    expect(rowBtn(HOST_UI.fields.pokeNotify, HOST_UI.fields.pokeNotifyOff).getAttribute("aria-pressed")).toBe("true");
+
+    // 셋 다 뒤집는다
+    fireEvent.click(rowBtn(HOST_UI.fields.undoPre, HOST_UI.fields.undoOff));
+    fireEvent.click(rowBtn(HOST_UI.fields.undoParty, HOST_UI.fields.undoOff));
+    fireEvent.click(rowBtn(HOST_UI.fields.pokeNotify, HOST_UI.fields.pokeNotifyOn));
     fireEvent.click(screen.getByText(HOST_UI.applySettings));
 
     // 확인창이 무엇이 어떻게 바뀌는지 말한다 (CLAUDE.md 규칙 4)
     await screen.findByText(HOST_UI.applyTitle);
     expect(
-      screen.getByText(`${HOST_UI.fields.allowUndoYes} → ${HOST_UI.fields.allowUndoNo}`),
-    ).toBeTruthy();
+      screen.getAllByText(`${HOST_UI.fields.undoOn} → ${HOST_UI.fields.undoOff}`),
+    ).toHaveLength(2);
     expect(
       screen.getByText(`${HOST_UI.fields.pokeNotifyOff} → ${HOST_UI.fields.pokeNotifyOn}`),
     ).toBeTruthy();
@@ -401,7 +407,7 @@ describe("운영자 콘솔", () => {
     fireEvent.click(screen.getAllByText(HOST_UI.applySettings)[1]);
     await waitFor(() =>
       expect(calls.find((c) => c.url.endsWith("/host/events/e1"))?.body).toMatchObject({
-        config: { allowUndo: false, pokeNotify: true },
+        config: { allowUndo: false, allowUndoPre: false, pokeNotify: true },
       }),
     );
   });
