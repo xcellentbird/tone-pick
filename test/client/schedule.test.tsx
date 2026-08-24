@@ -7,11 +7,12 @@
  * 실제 전환 시각(`fired`)은 대상이 아니다. 그건 사람이 고른 값이 아니라 일어난 일이라서
  * 초 단위 그대로 남아야 한다.
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { SCHEDULE_STEP_MIN, formatCountdown, snapSchedule, toLocalInput } from "../../src/shared/time.ts";
 import { HOST_UI } from "../../src/shared/copy.ts";
+import { RETENTION_DAYS } from "../../src/shared/constants.ts";
 import HostWizard from "../../src/client/routes/host/HostWizard.tsx";
 
 afterEach(cleanup);
@@ -74,6 +75,56 @@ describe("위저드", () => {
       // 기본값도 맞아 있어야 한다 — 분 자리가 00 이나 30
       expect((input as HTMLInputElement).value.slice(-2)).toMatch(/^(00|30)$/);
     }
+  });
+
+  /**
+   * 3스텝에서 고른 값이 **실제로 회차 생성에 실린다.**
+   *
+   * 칸이 화면에 있는 것과 그 값이 서버로 나가는 것은 다른 일이다. 상태에만 담고 안 보내면
+   * 운영자는 골랐다고 믿는데 회차는 기본값으로 만들어지고, 파기 대기 일수는
+   * **회차가 사라진 뒤에야** 어긋난 게 드러난다.
+   */
+  it("★ 3스텝에서 고른 콕 대상·파기 대기 일수가 회차 생성에 실린다", async () => {
+    const calls: Array<{ url: string; body: { config?: Record<string, unknown> } }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : {} });
+        const payload = String(url).includes("/host/defaults")
+          ? { maxPre: 3, maxParty: 3, regOpenBeforeD: 6, prevoteBeforeH: 24 }
+          : { id: "e1" };
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    const router = createMemoryRouter(
+      [
+        { path: "/host/new/:step", element: <HostWizard /> },
+        // 만들고 나면 콘솔로 간다. 갈 곳이 없으면 라우터가 경고를 뱉는다
+        { path: "/host/:id", element: <div /> },
+      ],
+      { initialEntries: ["/host/new/3"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    // 콕 대상을 '이성에게만' 으로 좁히고, 파기 대기 일수를 하루 늘린다
+    fireEvent.click(await screen.findByText(HOST_UI.fields.pokeTargetOpposite));
+    const retention = screen.getByText(HOST_UI.fields.retentionDays).closest(".field")!;
+    fireEvent.click(within(retention as HTMLElement).getByText("+"));
+
+    // 제목과 버튼이 같은 문구다 — 누를 것은 버튼이다
+    fireEvent.click(screen.getByRole("button", { name: HOST_UI.newEvent }));
+
+    await waitFor(() => {
+      const made = calls.find((c) => c.url.includes("/host/events"));
+      expect(made?.body.config).toMatchObject({
+        allowSameGender: false,
+        retentionDays: RETENTION_DAYS + 1,
+      });
+    });
   });
 });
 

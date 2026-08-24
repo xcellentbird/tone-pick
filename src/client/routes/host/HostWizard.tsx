@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, HOST_UI, SCREEN_TITLE, pokeEstimateLabel } from "../../../shared/copy.ts";
 import type { CreateEventInput, Defaults, EventMeta } from "../../../shared/types.ts";
-import { DEFAULTS, LIMITS, pokeEstimate } from "../../../shared/constants.ts";
+import { DEFAULTS, LIMITS, RETENTION_DAYS, pokeEstimate } from "../../../shared/constants.ts";
 import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, api, post } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
@@ -52,6 +52,12 @@ export default function HostWizard() {
   const [touched, setTouched] = useState<{ reg?: boolean; prevote?: boolean }>({});
   const [maxPre, setMaxPre] = useState(DEFAULTS.maxPre);
   const [maxParty, setMaxParty] = useState(DEFAULTS.maxParty);
+  /**
+   * 콕 대상과 파기 대기 일수는 **회차 기본 설정에 없다** (`Defaults` 는 콕 횟수 둘 · 일정 오프셋 둘).
+   * 그래서 상수에서 시작한다 — 없으면 '모두에게'이고, 없으면 `RETENTION_DAYS` 다.
+   */
+  const [allowSameGender, setAllowSameGender] = useState(true);
+  const [retentionDays, setRetentionDays] = useState(RETENTION_DAYS);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -94,7 +100,7 @@ export default function HostWizard() {
         partyAt,
         regOpenAt: openNow ? "now" : regOpenAt,
         prevoteAt,
-        config: { maxPre, maxParty },
+        config: { maxPre, maxParty, allowSameGender, retentionDays },
         requestId,
       };
       const made = await post<EventMeta>("/host/events", body);
@@ -181,8 +187,14 @@ export default function HostWizard() {
           </>
         )}
 
+        {/*
+          설정 탭과 **같은 값을 같은 이름으로** 묻는다. 만들 때 못 고르면 회차를 만들자마자
+          설정 탭으로 들어가 고쳐야 하는데, 그 사이에 등록이 열리면 이미 명단을 훑은 사람이 생긴다.
+          묶음도 설정 탭과 같게 나눈다 — 콕 규칙과 파기는 답하는 질문이 다르다.
+        */}
         {at === 3 && (
           <>
+            <div className="kicker">{HOST_UI.settings.rules}</div>
             <Num
               label={HOST_UI.fields.maxPre}
               value={maxPre}
@@ -199,6 +211,41 @@ export default function HostWizard() {
             />
             {/* 기대 상호 매칭 쌍 수는 파티 규모와 무관하게 k² 에 수렴한다 — 고르는 자리에서 보여준다 */}
             <p className={`small ${label.tone === "good" ? "okText" : "warnText"}`}>{label.label}</p>
+
+            {/* 기본은 '모두에게'다 — 누구에게 마음이 가는지는 앱이 정할 일이 아니다 */}
+            <div className="field">
+              <label>{HOST_UI.fields.pokeTarget}</label>
+              <div className="choice">
+                {[
+                  { on: false, text: HOST_UI.fields.pokeTargetOpposite },
+                  { on: true, text: HOST_UI.fields.pokeTargetAll },
+                ].map((opt) => (
+                  <button
+                    key={opt.text}
+                    type="button"
+                    aria-pressed={allowSameGender === opt.on}
+                    onClick={() => setAllowSameGender(opt.on)}
+                  >
+                    {opt.text}
+                  </button>
+                ))}
+              </div>
+              <span className="tiny dim">{HOST_UI.fields.pokeTargetNote}</span>
+            </div>
+
+            <div className="kicker">{HOST_UI.settings.privacy}</div>
+            <Num
+              label={HOST_UI.fields.retentionDays}
+              value={retentionDays}
+              min={LIMITS.retentionDays.min}
+              max={LIMITS.retentionDays.max}
+              onChange={setRetentionDays}
+            />
+            {/*
+              등록 화면이 참가자에게 하는 약속과 같은 숫자다. 만드는 자리에서 그 문장을 그대로 보여줘야,
+              운영자가 모르는 채로 회차가 사라지는 일이 없다.
+            */}
+            <p className="tiny dim">{HOST_UI.retention(retentionDays)}</p>
           </>
         )}
 
