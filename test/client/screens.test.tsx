@@ -62,7 +62,6 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
       realName: "김나",
       age: 30,
       gender: "M",
-      phone: "01000000000",
       instagram: "na_gram",
       mbti: "ENFP",
       charms: ["하나", "둘", "셋"],
@@ -2002,13 +2001,53 @@ describe("내 정보 고치기", () => {
     expect(screen.getAllByText(BTN.save).length).toBe(1);
   });
 
-  it("★ 전화번호는 편집 모드에서도 칸이 아니다", async () => {
+  /**
+   * **전화번호는 이 탭 어디에도 없다** (ADR-47) — 칸도, 값도, 왜 못 고치는지 설명도.
+   *
+   * 참가자가 낸 값이 아니라 초대 명단에서 온 값이라(ADR-32) *내가 낸 것* 을 답하는
+   * 이 탭의 물음에 애초에 해당하지 않는다. 설명이 남아 있으면 없는 칸을 가리키는 줄이 된다.
+   */
+  it("★ 전화번호는 편집 모드에도, 읽기 화면에도 없다", async () => {
     renderMe(reg);
-    fireEvent.click(await screen.findByText(ME.edit));
+    // ⚠️ **먼저 떠야 없는 걸 잴 수 있다** — 안 기다리면 빈 화면에서 통과한다
+    await screen.findByText(ME.edit);
+    expect(screen.queryByText(ME.labels.phone), "읽기 화면에 번호 줄이 있다").toBeNull();
 
-    // 파티의 문이라 고칠 수 없다 — 값은 보이되 입력 칸은 없다
-    expect(screen.queryByLabelText(ME.labels.phone)).toBeNull();
-    expect(screen.getByText(ME.phoneFixed)).toBeTruthy();
+    fireEvent.click(screen.getByText(ME.edit));
+    expect(screen.queryByLabelText(ME.labels.phone), "번호 칸이 생겼다").toBeNull();
+    expect(screen.queryByText(ME.labels.phone), "편집 모드에 번호 줄이 있다").toBeNull();
+  });
+
+  /**
+   * **인스타는 고치는 칸으로만 남는다** (ADR-47).
+   *
+   * 받는 이유가 운영자 확인 하나라(ADR-42) 되보여줄 자리가 아니다. 다만 칸까지 없애면
+   * 오타를 낸 사람이 영영 못 고친다 — 그래서 읽기 화면에는 없고 폼에는 있다.
+   */
+  it("★ 인스타는 읽기 화면에 없고 고치는 칸에만 있다", async () => {
+    renderMe(reg);
+    await screen.findByText(ME.edit);
+    expect(screen.queryByText(ME.labels.instagram), "읽기 화면에 인스타 줄이 있다").toBeNull();
+    expect(screen.queryByText("na_gram"), "인스타 값이 그대로 떠 있다").toBeNull();
+
+    fireEvent.click(screen.getByText(ME.edit));
+    expect(screen.getByLabelText(ME.labels.instagram), "고치는 칸이 사라졌다").toBeTruthy();
+  });
+
+  /**
+   * **가리기 토글은 없다** (ADR-47). 가릴 값이 사라졌는데 토글만 남으면
+   * 아무 일도 안 하면서 "여기 감춘 게 있다" 고 말한다.
+   *
+   * ⚠️ 참가자 탭의 어깨너머 가리기(`ROSTER.cover`)는 **다른 기능이라 그대로 있다.**
+   */
+  it("★ 가리기 토글이 없고, 이름은 늘 보인다", async () => {
+    renderMe(reg);
+    await screen.findByText("김나");
+
+    expect(screen.queryByText("••••••"), "가려진 값이 남아 있다").toBeNull();
+    for (const gone of ["가린 정보 보기", "다시 가리기"]) {
+      expect(screen.queryByText(gone), `${gone} 버튼이 남아 있다`).toBeNull();
+    }
   });
 
   it("★ 사전 투표가 열린 뒤에는 왜 못 고치는지 말한다", async () => {

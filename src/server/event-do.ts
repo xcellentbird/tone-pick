@@ -28,6 +28,7 @@ import type {
   PollChoice,
   PublicAnnouncement,
   Phase,
+  MyProfile,
   Player,
   Poke,
   PokeRound,
@@ -42,7 +43,7 @@ import type {
 } from "../shared/types.ts";
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
-import { rosterOpen, toPublic } from "../shared/types.ts";
+import { rosterOpen, toMe, toPublic } from "../shared/types.ts";
 import { ENTRY } from "../shared/copy.ts";
 import {
   ENTRY_TRIES,
@@ -580,7 +581,7 @@ export class EventDO extends DurableObject {
    * **전화번호는 바뀌지 않는다.** 입력에 자리가 없고, 저장할 때도 저장된 값을 그대로 쓴다 (ADR-15).
    * 고치는 대상은 쿠키에서 온 `playerId` 뿐이다 — 입력에 담긴 id 는 읽지 않는다.
    */
-  async editProfile(playerId: string, input: RegisterInput, now: number): Promise<Result<Player>> {
+  async editProfile(playerId: string, input: RegisterInput, now: number): Promise<Result<MyProfile>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (meta.phase !== "reg") return fail("closed");
@@ -604,7 +605,8 @@ export class EventDO extends DurableObject {
      * 바뀐 닉네임이 필요한 건 운영자 명단 하나뿐이다.
      */
     this.toHosts({ type: "roster" });
-    return saved;
+    // 저장 응답도 참가자에게 그대로 간다 — 여기서도 번호를 싣지 않는다 (ADR-47)
+    return ok(toMe(saved.value));
   }
 
   /**
@@ -798,7 +800,7 @@ export class EventDO extends DurableObject {
         schedule: meta.schedule,
         config: meta.config,
       },
-      me,
+      me: toMe(me),
       // 명단은 사전 투표부터 열린다. 그 전에는 몇 명이 왔는지만 안다 (ADR-21)
       roster: rosterOpen(meta.phase)
         ? this.players()
