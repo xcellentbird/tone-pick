@@ -1,8 +1,12 @@
 /**
  * 참가자 탭. **위아래 두 목록이 역할을 나눈다.**
  *
- * - 위의 **입장 명단** — 등록 **전/후**를 맡는다. 누구를 부르고, 누구에게 안내문을 보냈고,
- *   아직 등록 안 한 사람이 누구인가. 명단에 더하는 길도 여기 하나뿐이다
+ * - 위의 **입장 명단 카드** — 등록 **전/후**를 맡는다. 카드는 상태 한 줄만 말하고,
+ *   누르면 시트가 열려 그 안에서 다 한다: 더하기 · 안내문 · 아직 등록 안 한 사람 · 빼기.
+ *   명단에 더하는 길도 그 시트 하나뿐이다.
+ *   **시트로 접은 이유** — 명단 일은 파티 **며칠 전에 한 번에** 하는 일이고,
+ *   카드 일(참석 찍기)은 **문 앞에서** 하는 일이다. 늘 펼쳐 두면 당일에 쓰는 목록이
+ *   지난 일 아래로 밀린다. 카드 한 줄이 "지금 할 일이 있나" 를 대신 말해준다
  * - 아래의 **참가자 카드** — 등록 **후**를 맡는다. 온 사람이 누구인가.
  *   참석 상태는 카드 안 맨 오른쪽에 붙는다 (ADR-33)
  *
@@ -50,6 +54,11 @@ export default function Players() {
   const { confirm, toast } = useOverlay();
   const base = `/host/${state.meta.id}/players`;
   const picked = state.players.find((p) => p.id === pid);
+  /*
+   * 명단 시트도 **라우트다** — 뒤로 가기로 닫힌다 (ROUTES.md).
+   * `/players/invites` 는 참가자 아이디와 겹치지 않는다 (아이디는 서버가 만든 난수다).
+   */
+  const atInvites = pid === "invites";
   /*
    * 안내문 문구는 **운영자 기본값**에 하나만 둔다 (ADR-32). 여기서 한 번 읽어
    * 위의 미리보기와 아래 행별 복사가 **같은 값**을 본다 — 둘로 읽으면 언젠가 어긋난다.
@@ -112,6 +121,16 @@ export default function Players() {
   /** 파티가 시작되면 같은 값이 다른 이름으로 읽힌다 — `등록함` 이 `안 옴` 이 된다 */
   const started = state.meta.phase === "party" || state.meta.phase === "done";
 
+  /**
+   * 명단 카드가 말하는 두 숫자. 나머지는 시트 안에서 센다.
+   *
+   * **안내문을 보낼 일이 남은 사람은 아직 등록 안 한 사람뿐이다** — 등록했다는 건
+   * 이미 자기 링크로 들어왔다는 뜻이라, 안 보냄으로 남아 있어도 보낼 것이 없다.
+   * 그 사람들까지 세면 카드가 없는 할 일을 만들어 낸다.
+   */
+  const joinedN = state.invites.filter((i) => i.nickname).length;
+  const unsentN = state.invites.filter((i) => !i.nickname && !i.sentAt).length;
+
   const att = (id: string) => state.attendance[id];
   const shown = state.players.filter((p) => filter === "all" || p.gender === filter);
   const count: Record<Filter, number> = {
@@ -162,26 +181,27 @@ export default function Players() {
   return (
     <div className="stack">
       {/*
-        **명단이 맨 위다** — 파티의 문이고, 운영자가 먼저 하는 일이 여기 있다.
-        더하기·안내문·아직 등록 안 한 사람이 한 덩어리로 모여 있다.
+        **명단 카드가 맨 위다** — 파티의 문이고, 운영자가 먼저 하는 일이 여기 있다.
+        카드는 **열지 않고도 아는 것**만 말한다: 비었나 · 몇 명인가 · 안내문을 못 보낸 사람이 있나.
+        나머지는 전부 시트 안이다.
 
         **링크를 통째로 복사하는 버튼은 없다** (ADR-32). 링크가 사람마다 달라서
         한 번 복사해 단톡방에 뿌릴 수가 없다 — 그게 이 슬라이스의 요점이다.
       */}
-      <Invites
-        invites={state.invites}
-        eventId={state.meta.id}
-        hasPlace={!!state.meta.place}
-        noteFor={noteFor}
-        onCopy={copyNote}
-        onSent={setSent}
-        onRemove={askRemove}
-        onEditTemplate={() => navigate("/host/defaults")}
-        onDone={(added) => {
-          toast(added > 0 ? HOST_UI.invites.saved : added < 0 ? HOST_UI.invites.removed : HOST_UI.invites.already);
-          reload();
-        }}
-      />
+      <button className="card row between" onClick={() => navigate(`${base}/invites`)}>
+        <span className="grow" style={{ textAlign: "left" }}>
+          <span className="name">{HOST_UI.invites.title}</span>
+          {/* 명단이 비면 아무도 못 들어온다. 그 상태를 가장 크게 말한다 (ADR-15) */}
+          <div className={`small ${state.invites.length === 0 ? "warnText" : "dim"}`}>
+            {state.invites.length === 0
+              ? HOST_UI.invites.empty
+              : HOST_UI.invites.count(state.invites.length, joinedN)}
+          </div>
+          {/* 안내문을 아직 못 보낸 사람 — **여는 이유**가 되는 유일한 숫자다 */}
+          {unsentN > 0 && <div className="tiny dim">{HOST_UI.invite.remaining(unsentN)}</div>}
+        </span>
+        <span className="dim">{"›"}</span>
+      </button>
 
       {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
       <div className="choice">
@@ -322,13 +342,31 @@ export default function Players() {
           </>
         )}
       </Sheet>
+
+      {/* 명단 시트. 여는 카드가 위에 있고, 뒤로 가기로 닫힌다 */}
+      <Sheet open={atInvites} onClose={() => navigate(-1)} title={HOST_UI.invites.title}>
+        <Invites
+          invites={state.invites}
+          eventId={state.meta.id}
+          hasPlace={!!state.meta.place}
+          noteFor={noteFor}
+          onCopy={copyNote}
+          onSent={setSent}
+          onRemove={askRemove}
+          onEditTemplate={() => navigate("/host/defaults")}
+          onDone={(added) => {
+            toast(added > 0 ? HOST_UI.invites.saved : added < 0 ? HOST_UI.invites.removed : HOST_UI.invites.already);
+            reload();
+          }}
+        />
+      </Sheet>
     </div>
   );
 }
 
 /**
- * 입장 명단. **등록 전/후를 여기서 본다** — 부를 사람을 넣고, 안내문을 보내고,
- * 아직 등록 안 한 사람이 누구인지 확인한다. 등록한 사람은 아래 카드로 넘어간다.
+ * 입장 명단 **시트의 속**. 등록 전/후를 여기서 본다 — 부를 사람을 넣고, 안내문을 보내고,
+ * 아직 등록 안 한 사람이 누구인지 확인한다. 등록한 사람은 시트에서 빠져 탭의 카드로 올라간다.
  *
  * 더하기는 **한 명씩뿐**이다. 통째로 갈아치우는 길은 두지 않는다 —
  * 한 명 추가하려다 손이 미끄러지면 그 파티의 명단 전체가 날아가고, 되돌릴 방법이 없다.
@@ -381,7 +419,8 @@ function Invites({
    * 문구는 한 번 확인하면 되는 것이고 명단은 계속 보면서 일하는 것이다.
    */
   const [showNote, setShowNote] = useState(false);
-  const left = invites.filter((i) => !i.sentAt).length;
+  /** 보낼 일이 남은 사람 — **아직 등록 안 한 쪽만** 센다 (탭의 카드와 같은 셈이다) */
+  const left = invites.filter((i) => !i.nickname && !i.sentAt).length;
   const joined = invites.filter((i) => i.nickname).length;
   /** 아직 등록 안 한 사람. **이 목록은 파티가 다가올수록 줄고, 그만큼 아래 카드가 는다** */
   const waiting = invites.filter((i) => !i.nickname);
@@ -410,12 +449,15 @@ function Invites({
 
   return (
     <div className="stack">
-      {/* 명단이 비면 아무도 못 들어온다. 그 상태를 가장 크게 말한다 (ADR-15) */}
-      <div className="row between">
-        <span className="kicker">{HOST_UI.invites.title}</span>
-        {invites.length > 0 && <span className="small dim">{HOST_UI.invites.count(invites.length, joined)}</span>}
-      </div>
-      {invites.length === 0 && <p className="small warnText">{HOST_UI.invites.empty}</p>}
+      {/*
+        이름은 시트 제목이 말한다. 여기서는 **숫자만** 한 줄.
+        비어 있으면 그 사실이 숫자를 대신한다 — 아무도 못 들어오는 상태다 (ADR-15).
+      */}
+      {invites.length === 0 ? (
+        <p className="small warnText">{HOST_UI.invites.empty}</p>
+      ) : (
+        <p className="kicker">{HOST_UI.invites.count(invites.length, joined)}</p>
+      )}
 
       <form className="field" onSubmit={addOne}>
         <label htmlFor="oneInvite">{HOST_UI.invites.addLabel}</label>

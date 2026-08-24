@@ -88,6 +88,25 @@ function stubFetch(state: ReturnType<typeof hostState>) {
   );
 }
 
+/** 히스토리를 직접 밀고 당겨야 하는 테스트용 — 라우터를 돌려준다 */
+function renderPlayers(at: string) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/host/:id",
+        element: <HostConsole />,
+        children: [
+          { path: "players", element: <Players /> },
+          { path: "players/:pid", element: <Players /> },
+        ],
+      },
+    ],
+    { initialEntries: [at] },
+  );
+  render(<RouterProvider router={router} />);
+  return router;
+}
+
 function renderConsole(at = "/host/e1") {
   const router = createMemoryRouter(
     [
@@ -211,7 +230,7 @@ describe("운영자 콘솔", () => {
     const label = (text: string) =>
       screen.getAllByRole("button").find((b) => b.textContent?.startsWith(text))?.textContent;
 
-    await screen.findByLabelText(HOST_UI.invites.addLabel);
+    await screen.findByText(HOST_UI.invites.title);
     expect(label(HOST_UI.players.filterAll)).toContain("2");   // 등록한 사람만 센다
     expect(label(GENDER.M)).toContain("1");
     expect(label(GENDER.F)).toContain("1");
@@ -238,13 +257,58 @@ describe("운영자 콘솔", () => {
     stubFetch(st);
     renderConsole("/host/e1/players");
 
+    await screen.findByText(HOST_UI.invites.title);
+
+    // 탭에는 명단 **요약 한 줄**과 등록한 사람의 카드뿐이다
+    expect(screen.getByText(HOST_UI.invites.count(2, 1))).toBeTruthy();
+    expect(screen.getAllByText("010-1111-2222")).toHaveLength(1);
+    // 아직 등록 안 한 사람의 번호는 탭에 없다 — 시트를 열어야 나온다
+    expect(screen.queryByText("010-9999-8888")).toBeNull();
+
+    // 카드를 누르면 명단 시트가 열리고, 거기 그 사람이 있다
+    fireEvent.click(screen.getByText(HOST_UI.invites.title));
+    expect(await screen.findByText("010-9999-8888")).toBeTruthy();
+    expect(screen.getByText(HOST_UI.invites.waitingCount(1))).toBeTruthy();
+    // 시트를 열어도 등록한 사람은 여전히 한 번만 나온다
+    expect(screen.getAllByText("010-1111-2222")).toHaveLength(1);
+  });
+
+  it("★ 명단 시트는 라우트다 — 뒤로 가기로 닫힌다", async () => {
+    /*
+     * 안드로이드의 뒤로 가기가 시트를 닫아야 한다 (ROUTES.md).
+     * 닫히지 않으면 뒤로 가기 한 번이 콘솔 밖으로 나가버린다.
+     */
+    const st = hostState();
+    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    stubFetch(st);
+    const router = renderPlayers("/host/e1/players");
+
+    fireEvent.click(await screen.findByText(HOST_UI.invites.title));
     await screen.findByLabelText(HOST_UI.invites.addLabel);
 
-    // 아직 등록 안 한 사람은 번호로, 명단 안에 나온다
-    expect(screen.getByText("010-9999-8888")).toBeTruthy();
-    expect(screen.getByText(HOST_UI.invites.waitingCount(1))).toBeTruthy();
-    // 등록한 사람의 번호는 카드 한 곳에만 있다
-    expect(screen.getAllByText("010-1111-2222")).toHaveLength(1);
+    await act(async () => void (await router.navigate(-1)));
+    await waitFor(() => expect(screen.queryByLabelText(HOST_UI.invites.addLabel)).toBeNull());
+    // 탭은 그대로다 — 시트만 닫혔다
+    expect(screen.getByText(HOST_UI.invites.title)).toBeTruthy();
+  });
+
+  it("★ 명단 카드는 안내문을 못 보낸 사람이 있을 때 그 수를 말한다", async () => {
+    /*
+     * **여는 이유가 되는 유일한 숫자다.** 없으면 카드를 눌러볼 까닭이 없다.
+     * 이미 등록한 사람은 세지 않는다 — 자기 링크로 들어왔다는 뜻이라 보낼 것이 없다.
+     */
+    const st = hostState();
+    st.invites = [
+      { phone: "01099998888", token: "t2", addedAt: 2 },
+      { phone: "01077776666", token: "t3", addedAt: 3, sentAt: 4 },
+      // 등록했고 보냄 표시는 없는 사람 — 이 수에 들어가면 없는 할 일이 생긴다
+      { phone: "01011112222", token: "t1", addedAt: 1, nickname: st.players[0].nickname },
+    ];
+    stubFetch(st);
+    renderConsole("/host/e1/players");
+
+    await screen.findByText(HOST_UI.invites.title);
+    expect(screen.getByText(HOST_UI.invite.remaining(1))).toBeTruthy();
   });
 
   it("★ 참석 상태는 카드 **안** 맨 오른쪽에 붙고, 파티 뒤에는 눌러 찍는다", async () => {
@@ -255,7 +319,7 @@ describe("운영자 콘솔", () => {
     const st = hostState({ phase: "party" });
     stubFetch(st);
     renderConsole("/host/e1/players");
-    await screen.findByLabelText(HOST_UI.invites.addLabel);
+    await screen.findByText(HOST_UI.invites.title);
 
     const card = document.querySelector(".person") as HTMLElement;
     expect(card.textContent).toContain(st.players[0].realName);
@@ -273,7 +337,7 @@ describe("운영자 콘솔", () => {
     // 전원이 같은 값이라 찍을 것이 없다. `등록함` 이 파티 시작 뒤 `안 옴` 이 되는 같은 값이다
     stubFetch(hostState());
     renderConsole("/host/e1/players");
-    await screen.findByLabelText(HOST_UI.invites.addLabel);
+    await screen.findByText(HOST_UI.invites.title);
 
     const chip = document.querySelector(".person > .att") as HTMLElement;
     expect(chip.tagName).toBe("SPAN");
@@ -285,7 +349,8 @@ describe("운영자 콘솔", () => {
     const st = hostState();
     st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
     stubFetch(st);
-    renderConsole("/host/e1/players");
+    // 시트도 라우트라 주소로 바로 열린다
+    renderConsole("/host/e1/players/invites");
 
     const toggle = await screen.findByText(HOST_UI.invite.preview);
     expect(document.body.textContent).not.toContain("/j/e1/t2");
@@ -301,8 +366,8 @@ describe("운영자 콘솔", () => {
   describe("명단 번호 칸", () => {
     const field = async () => {
       stubFetch(hostState());
-      // 번호 칸은 참가자 탭 안에 있다 — 명단이 목록에 합쳐졌다
-      renderConsole("/host/e1/players");
+      // 번호 칸은 명단 시트 안에 있다. 시트도 라우트라 주소로 바로 열린다
+      renderConsole("/host/e1/players/invites");
       return (await screen.findByLabelText(HOST_UI.invites.addLabel)) as HTMLInputElement;
     };
 
@@ -365,7 +430,7 @@ describe("운영자 콘솔", () => {
     // 알면 그 사람을 다르게 대하게 된다. 이 앱이 없애려던 경험이다 (ADR-22)
     stubFetch(hostState());
     renderConsole("/host/e1/players");
-    await screen.findByLabelText(HOST_UI.invites.addLabel);
+    await screen.findByText(HOST_UI.invites.title);
 
     // 참가자 탭에는 안 보인다. 현황 탭의 순위와는 자리가 다르다 (ADR-30)
     expect(document.body.textContent).not.toContain("받은 콕");
@@ -376,7 +441,7 @@ describe("운영자 콘솔", () => {
     const st = hostState();
     stubFetch(st);
     renderConsole("/host/e1/players");
-    await screen.findByLabelText(HOST_UI.invites.addLabel);
+    await screen.findByText(HOST_UI.invites.title);
 
     const card = screen.getAllByRole("button").find((b) => b.textContent?.includes(st.players[0].realName));
     expect(card, "실명이 카드 앞면에 있어야 한다").toBeTruthy();
