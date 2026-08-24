@@ -40,16 +40,40 @@ export default function Register() {
    * 완료할 때 `replace` 로 갈아끼우는 건 마지막 스텝 한 칸뿐이다. 스텝은 `push` 로 쌓이므로
    * (`이전` 버튼이 그 히스토리를 쓴다) 1·2 스텝이 남고, 홈에서 뒤로 가면 등록 폼이 다시 떴다.
    * 다 채워진 것처럼 보이는 폼을 보면 **두 번 등록하려 든다** — Join 화면이 하는 확인과 같은 것이다.
+   *
+   * ⚠️ **그 확인은 토큰에게 묻는다. 브라우저 세션이 아니다** (ADR-44).
+   *    예전에는 `/me` 로 "이 브라우저에 세션이 있나" 를 물었는데, 쿠키는 탭이 아니라
+   *    브라우저 단위라 **다른 탭에 열린 사람으로 넘어갈 수 있었다.** Join 에서 고친 것과
+   *    같은 자리이고, 두 곳 다 고쳐야 규칙이 규칙이 된다.
    */
   useEffect(() => {
     let alive = true;
-    api<ParticipantState>(`/me?event=${encodeURIComponent(id)}`)
-      .then((state) => alive && navigate(`/e/${state.event.code}`, { replace: true }))
+    api<{ registered?: boolean; code?: string }>(
+      `/events/by-id/${id}?t=${encodeURIComponent(token)}`,
+    )
+      .then((room) => {
+        if (!alive) return;
+        // 이 토큰의 주인이 이미 등록했다. 자기 화면은 세션이 아는 코드로 간다
+        if (room.registered) return void enterHome();
+        setChecking(false);
+      })
       .catch(() => alive && setChecking(false));
+
+    /** 등록을 마친 사람을 자기 화면으로. 회차 조회는 코드를 주지 않으므로 세션에 묻는다 */
+    async function enterHome() {
+      try {
+        const me = await api<ParticipantState>(`/me?event=${encodeURIComponent(id)}`);
+        if (alive) navigate(`/e/${me.event.code}`, { replace: true });
+      } catch {
+        // 이 탭에는 세션이 없다 — 링크부터 다시 지나야 한다
+        if (alive) navigate(`/j/${id}/${token}`, { replace: true });
+      }
+    }
+
     return () => {
       alive = false;
     };
-  }, [id, navigate]);
+  }, [id, token, navigate]);
 
   // 오류를 만든 칸으로 데려간다 — 키보드가 올라온 폰에서는 화면 밖 오류가 "아무 일도 없음"으로 보인다.
   // error.field 가 곧 요소 id 다. 서버 오류로 스텝을 되돌린 경우(nick_taken)도 이 효과가 받는다
