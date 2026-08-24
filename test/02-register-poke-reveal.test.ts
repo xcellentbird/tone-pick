@@ -602,12 +602,16 @@ describe("콕", () => {
     expect(third.body.error).toBe("no_budget");
     expect(third.body.message).toBe(POKE.blocked.anyNoBudget(2));
 
-    // 파티 라운드로 넘어가면 새 예산이 지급되고, 사전 투표에서 찌른 건 그대로 남는다
+    /*
+     * 파티 라운드로 넘어가면 새 예산이 지급된다. 매력 투표에서 쓴 것은 **예산에는 남고**
+     * (`budget.pre.used`), **사람 옆 숫자에는 안 남는다** (`sentTo`) —
+     * 그 숫자는 "이번 라운드에 이 사람에게 몇 번" 이라서다 (ADR-34).
+     */
     await setPhase(ev.id, "party");
     const afterPhase = await api<ParticipantState>("/api/me", { cookie: me.cookie });
     expect(afterPhase.body.poke.budget.pre.used).toBe(2);
     expect(afterPhase.body.poke.budget.party.used).toBe(0);
-    expect(afterPhase.body.poke.sentTo[her.id]).toBe(2);
+    expect(afterPhase.body.poke.sentTo[her.id] ?? 0).toBe(0);
 
     const inParty = await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
     expect(inParty.status).toBe(200);

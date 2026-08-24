@@ -1534,8 +1534,22 @@ export class EventDO extends DurableObject {
       "SELECT to_id, round, COUNT(*) AS n FROM pokes WHERE from_id = ? GROUP BY to_id, round",
       playerId,
     );
+    /*
+     * **`sentTo` 는 이번 라운드만 센다** (ADR-34).
+     *
+     * 예전에는 두 라운드를 합쳤다. 그래서 매력 투표에서 한 번 고른 사람이 파티가 시작되자
+     * **콕을 이미 한 번 찌른 것처럼** 보였다 — 남은 콕은 그대로인데 그 사람 카드에만 `1` 이 붙었다.
+     * 매력 투표와 콕은 다른 일이고(ADR-34), 그 둘을 한 숫자로 더하면 어느 쪽도 아닌 값이 된다.
+     *
+     * 되돌리기도 같은 자리에서 어긋났다. 서버는 **이번 라운드의 콕만** 지우는데
+     * (`unpoke` 의 `round = ?`), 화면은 합계를 보고 되돌리기를 내줬다 —
+     * 누르면 지울 것이 없어 아무 일도 일어나지 않았다.
+     *
+     * 예산(`used`)은 그대로 라운드마다 따로 센다. 그건 처음부터 맞았다.
+     */
+    const round = roundOf(meta.phase);
     for (const r of mine) {
-      sentTo[r.to_id] = (sentTo[r.to_id] ?? 0) + r.n;
+      if (r.round === round) sentTo[r.to_id] = (sentTo[r.to_id] ?? 0) + r.n;
       used[r.round] += r.n;
     }
 
