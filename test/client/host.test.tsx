@@ -58,7 +58,7 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
             createdAt: 2,
       },
     ],
-    sent: { p1: 1, p2: 0 },
+    sent: { pre: { p1: 1, p2: 0 }, party: { p1: 2, p2: 0 } },
     // 라운드마다 따로 센다 (ADR-46) — 합쳐 두면 현황 탭이 어느 쪽을 그리는지 테스트가 못 가른다
     received: { pre: { p1: 0, p2: 1 }, party: { p1: 2, p2: 0 } },
     mutual: [],

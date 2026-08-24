@@ -104,13 +104,17 @@ describe("참가자를 지웠을 때", () => {
     const { ev, a, b } = await pair();
     await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
 
-    const state = await api<{ mutual: Array<[string, string]>; sent: Record<string, number>; pokeUsedMax: Record<string, number> }>(
-      `/api/host/events/${ev.id}/state`,
-      { cookie: master },
-    );
+    const state = await api<{
+      mutual: Array<[string, string]>;
+      // 보낸 수도 라운드마다 따로다 (ADR-46) — 합치면 콕을 안 찌른 사람이 찌른 것으로 적힌다
+      sent: Record<"pre" | "party", Record<string, number>>;
+      pokeUsedMax: Record<string, number>;
+    }>(`/api/host/events/${ev.id}/state`, { cookie: master });
     // 빈 이름의 커플이 뜨거나, 없는 사람 때문에 콕 상한이 묶이면 안 된다
     expect(state.body.mutual).toEqual([]);
-    expect(Object.keys(state.body.sent)).toEqual([a.id]);
+    // **어느 라운드에도** 지워진 사람이 남지 않는다
+    expect(Object.keys(state.body.sent.pre)).toEqual([a.id]);
+    expect(Object.keys(state.body.sent.party)).toEqual([a.id]);
     expect(state.body.pokeUsedMax.pre).toBe(0);
   });
 

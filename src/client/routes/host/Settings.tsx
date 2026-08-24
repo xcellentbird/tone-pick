@@ -150,7 +150,8 @@ export default function Settings() {
         note: DELETE_EVENT.note,
         facts: DELETE_EVENT.facts({
           players: state.players.length,
-          pokes: state.pokeCount.pre + state.pokeCount.party,
+          votes: state.pokeCount.pre,
+          pokes: state.pokeCount.party,
           rounds: state.seatings.filter((s) => s.status === "published").length,
         }),
       },

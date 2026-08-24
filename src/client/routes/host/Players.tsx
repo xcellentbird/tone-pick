@@ -145,7 +145,11 @@ export default function Players() {
         title: DELETE_PLAYER.title,
         danger: true,
         note: DELETE_PLAYER.note,
-        facts: DELETE_PLAYER.facts({ sent: state.sent[playerId] ?? 0, rounds }),
+        facts: DELETE_PLAYER.facts({
+          sentPre: state.sent.pre[playerId] ?? 0,
+          sent: state.sent.party[playerId] ?? 0,
+          rounds,
+        }),
       },
       async () => {
         await del(`/host/events/${state.meta.id}/players/${playerId}`);
@@ -230,7 +234,9 @@ export default function Players() {
               <Row label={ME.labels.mbti} value={picked.mbti} />
               <Row label={ME.labels.phone} value={picked.phone} />
               {picked.instagram && <Row label={ME.labels.instagram} value={picked.instagram} />}
-              <Row label={HOST_UI.players.sent(state.sent[picked.id] ?? 0)} value="" />
+              {/* 두 라운드를 갈라 적는다 — 합치면 콕을 안 찌른 사람이 찌른 것으로 읽힌다 (ADR-34) */}
+              <Row label={HOST_UI.players.sentPre(state.sent.pre[picked.id] ?? 0)} value="" />
+              <Row label={HOST_UI.players.sent(state.sent.party[picked.id] ?? 0)} value="" />
             </div>
 
             {/*

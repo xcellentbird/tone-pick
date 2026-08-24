@@ -579,7 +579,14 @@ export interface HostState {
    * 받은 콕은 **현황 탭의 순위**에서만 쓴다 (ADR-30).
    * 참가자 탭의 개인 행에는 넣지 않는다 — 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
    */
-  sent: Record<string, number>;
+  /**
+   * playerId -> 보낸 횟수. **라운드마다 따로 센다** (ADR-46 과 같은 이유).
+   *
+   * 합치면 `보낸 콕 N회` 가 매력 투표 표까지 세게 되고, 그 사람이 콕을 한 번도 안 찔렀는데
+   * 찌른 것으로 적힌다 — 두 라운드는 쓰임이 다르다 (ADR-34).
+   * 참가자에게 가는 수(`receivedCount`)와 달리 **운영자 화면이라 갈라도 새지 않는다.**
+   */
+  sent: Record<PokeRound, Record<string, number>>;
   /**
    * 받은 수를 **라운드마다 따로** 센다 (ADR-46).
    *
