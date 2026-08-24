@@ -239,17 +239,47 @@ describe("콕 상한", () => {
     await setPhase(ev.id, "prevote");
     await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
 
-    const state = await api<{ received: Record<string, number>; prevoteRank: unknown }>(
+    const state = await api<{ received: Record<"pre" | "party", Record<string, number>> }>(
       `/api/host/events/${ev.id}/state`,
       { cookie: master },
     );
-    expect(state.body.received[her.id]).toBe(1);
-    expect(state.body.received[me.id]).toBe(0);
-    expect(state.body.prevoteRank).toBeTruthy();
+    // 매력 투표에서 보낸 콕이므로 `pre` 에만 선다 (ADR-46)
+    expect(state.body.received.pre[her.id]).toBe(1);
+    expect(state.body.received.pre[me.id]).toBe(0);
+    expect(state.body.received.party[her.id]).toBe(0);
 
     // 참가자에게는 여전히 남의 받은 콕이 가지 않는다
     const mine = await api<ParticipantState>("/api/me", { cookie: me.cookie });
     expect(JSON.stringify(mine.body.roster)).not.toContain("received");
+  });
+
+  /**
+   * **두 라운드를 한 수로 합치지 마라** (ADR-46).
+   *
+   * 매력 투표 표와 파티 콕은 쓰임이 다르다 (ADR-34) — 표는 자리의 재료고, 콕은 매칭의 재료다.
+   * 합쳐 세면 현황 탭의 `콕 TOP` 이 며칠 치 표가 얹힌 수가 되어 *파티에서 몇 번 받았나* 를
+   * 말하지 못하고, 운영자는 그 얹힌 순위를 보고 자리를 붙인다.
+   */
+  it("★ 받은 수는 라운드마다 따로 센다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const her = await join(ev, { gender: "F" });
+
+    await setPhase(ev.id, "prevote");
+    await api("/api/poke", { method: "POST", cookie: me.cookie, body: { toId: her.id } });
+    await setPhase(ev.id, "party");
+    await api("/api/poke", { method: "POST", cookie: her.cookie, body: { toId: me.id } });
+
+    const state = await api<{ received: Record<"pre" | "party", Record<string, number>> }>(
+      `/api/host/events/${ev.id}/state`,
+      { cookie: master },
+    );
+    const { pre, party } = state.body.received;
+    // 서로 한 번씩 — 다만 **다른 라운드**에서다. 합쳐 세면 둘 다 1회라 이 차이가 사라진다
+    expect(pre[her.id], "매력 투표 표가 pre 에 없다").toBe(1);
+    expect(pre[me.id], "파티 콕이 pre 로 샜다").toBe(0);
+    expect(party[me.id], "파티 콕이 party 에 없다").toBe(1);
+    expect(party[her.id], "매력 투표 표가 party 로 샜다").toBe(0);
   });
 });
 
