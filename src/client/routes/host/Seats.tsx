@@ -18,8 +18,8 @@
  */
 import { useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
-import type { Player, SeatingRound } from "../../../shared/types.ts";
+import { GENDER, HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
+import type { Gender, Player, SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
@@ -366,13 +366,42 @@ function ExcludePicker({
   onNext: () => void;
 }) {
   const seated = players.length - out.size;
+  /**
+   * 성별로 걸러 본다. **참가자 탭과 같은 칩·같은 순서다** —
+   * 사람이 서른을 넘으면 한 목록에서 한 사람을 찾는 게 일이 된다.
+   * 두 화면이 다른 모양으로 거르면 운영자가 매번 어느 쪽인지 다시 익혀야 한다.
+   */
+  const [filter, setFilter] = useState<"all" | Gender>("all");
+  const shown = players.filter((p) => filter === "all" || p.gender === filter);
+  const count = {
+    all: players.length,
+    M: players.filter((p) => p.gender === "M").length,
+    F: players.filter((p) => p.gender === "F").length,
+  } as const;
 
   return (
     <div className="stack">
       <p className="small dim">{HOST_UI.seats.excludeNote}</p>
 
+      {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
+      <div className="choice">
+        {(
+          [
+            ["all", HOST_UI.players.filterAll],
+            ["M", GENDER.M],
+            ["F", GENDER.F],
+          ] as const
+        ).map(([key, label]) => (
+          <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>
+            {label} <span className="filterCount">{count[key]}</span>
+          </button>
+        ))}
+      </div>
+
+      {shown.length === 0 && <p className="dim center">{HOST_UI.players.emptyFiltered}</p>}
+
       <div className="stack">
-        {players.map((p) => (
+        {shown.map((p) => (
           <button
             key={p.id}
             type="button"
@@ -390,7 +419,10 @@ function ExcludePicker({
         ))}
       </div>
 
-      {/* 다음 걸음이 이 숫자로 계산한다. 넘어가기 전에 한 번 말해준다 */}
+      {/*
+        다음 걸음이 이 숫자로 계산한다. 넘어가기 전에 한 번 말해준다.
+        **거른 것과 상관없이 언제나 전원 기준이다** — 남성만 보고 있다고 여성이 빠진 게 아니다.
+      */}
       <div className="fact">
         <span className="grow">
           {out.size > 0 ? HOST_UI.seats.leftOut(seated, out.size) : HOST_UI.seats.seatedAll(seated)}
