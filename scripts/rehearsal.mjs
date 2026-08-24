@@ -215,7 +215,6 @@ const made = await host("/host/events", {
   body: {
     name: `리허설 ${new Date(stamp).toISOString().slice(11, 16)}`,
     partyAt: stamp + 86400_000,
-    regOpenAt: "now",
     prevoteAt: stamp + 3600_000,
     config: { maxPre: MAX_PRE, maxParty: MAX_PARTY },
     requestId: `rehearsal-${stamp}`,

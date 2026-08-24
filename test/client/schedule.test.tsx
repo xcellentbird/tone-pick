@@ -7,7 +7,7 @@
  * 실제 전환 시각(`fired`)은 대상이 아니다. 그건 사람이 고른 값이 아니라 일어난 일이라서
  * 초 단위 그대로 남아야 한다.
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { SCHEDULE_STEP_MIN, formatCountdown, snapSchedule, toLocalInput } from "../../src/shared/time.ts";
@@ -45,35 +45,51 @@ describe("30분 단위로 맞추기", () => {
 });
 
 describe("위저드", () => {
-  beforeEach(() => {
+  function stubDefaults(over: Record<string, unknown> = {}) {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        new Response(JSON.stringify({ maxPre: 3, maxParty: 3, regOpenBeforeD: 6, prevoteBeforeH: 24 }), {
+        new Response(JSON.stringify({ maxPre: 3, maxParty: 3, place: "", prevoteBeforeH: 24, ...over }), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
       ),
     );
-  });
+  }
+
+  const step2 = () =>
+    createMemoryRouter([{ path: "/host/new/:step", element: <HostWizard /> }], {
+      initialEntries: ["/host/new/2"],
+    });
+
+  beforeEach(() => stubDefaults());
 
   it("★ 시각 입력이 30분 단위로 열린다", async () => {
     // 라우트 정의가 있어야 :step 이 실제로 넘어온다
-    const router = createMemoryRouter([{ path: "/host/new/:step", element: <HostWizard /> }], {
-      initialEntries: ["/host/new/2"],
-    });
-    render(<RouterProvider router={router} />);
-    // '지금 바로'를 끄면 시각 입력이 나온다
-    const pick = await screen.findByText(HOST_UI.pickTime);
-    pick.click();
+    render(<RouterProvider router={step2()} />);
+    await screen.findByText(HOST_UI.fields.partyAt);
 
+    /*
+     * 등록 시작 칸은 없어졌다 (ADR-38) — 남은 시각 입력은 파티 일시와 매력 투표 시작 둘이다.
+     * 그 자리에는 "등록은 회차를 만들면 바로 열려요" 한 줄이 대신 선다.
+     */
     const inputs = document.querySelectorAll('input[type="datetime-local"]');
-    expect(inputs.length).toBeGreaterThan(0);
+    expect(inputs.length).toBe(2);
+    expect(screen.getByText(HOST_UI.regOpensNow)).toBeTruthy();
     for (const input of inputs) {
       expect(input.getAttribute("step")).toBe(String(SCHEDULE_STEP_MIN * 60));
       // 기본값도 맞아 있어야 한다 — 분 자리가 00 이나 30
       expect((input as HTMLInputElement).value.slice(-2)).toMatch(/^(00|30)$/);
     }
+  });
+
+  it("★ 장소 기본값을 들고 시작한다 (ADR-38)", async () => {
+    // 늘 같은 곳에서 여는 모임이면 한 번 적어두고 쓴다. 회차마다 고칠 수 있다
+    stubDefaults({ place: "테스트 장소" });
+    render(<RouterProvider router={step2()} />);
+
+    const input = (await screen.findByLabelText(HOST_UI.fields.place)) as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe("테스트 장소"));
   });
 });
 

@@ -2,13 +2,15 @@ import type { ContactShare, Defaults } from "./types.ts";
 import { INVITE_TEMPLATE } from "./copy.ts";
 
 /**
- * 등록은 파티 **6일 전**에 연다. 한 주 전 주말에 알리고 평일 내내 모으는 리듬이다.
- * 사전 투표는 파티 **20시간 전**에 열어, 참가자가 전날 밤에 명단을 훑어볼 수 있게 한다.
+ * 등록은 **회차를 만드는 순간** 열린다 (ADR-38). 예약이 남은 건 매력 투표뿐이다 —
+ * 파티 **20시간 전**에 열어, 참가자가 전날 밤에 명단을 훑어볼 수 있게 한다.
+ *
+ * 장소는 **빈 값이 기본**이다. 늘 같은 곳에서 여는 모임이면 한 번 적어두고 쓴다.
  */
 export const DEFAULTS: Defaults = {
   maxPre: 1,
   maxParty: 2,
-  regOpenBeforeD: 6,
+  place: "",
   prevoteBeforeH: 20,
   inviteTemplate: INVITE_TEMPLATE,
 };
@@ -29,7 +31,8 @@ export function withDefaults(saved: Partial<Defaults> | null | undefined): Defau
   return {
     maxPre: num(saved?.maxPre, DEFAULTS.maxPre),
     maxParty: num(saved?.maxParty, DEFAULTS.maxParty),
-    regOpenBeforeD: num(saved?.regOpenBeforeD, DEFAULTS.regOpenBeforeD),
+    // 장소는 **비워두는 것도 뜻이 있다** — 회차마다 다른 곳에서 연다는 뜻이다
+    place: text(saved?.place, DEFAULTS.place),
     prevoteBeforeH: num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH),
     inviteTemplate: text(saved?.inviteTemplate, DEFAULTS.inviteTemplate),
   };
@@ -53,6 +56,8 @@ export const LIMITS = {
    * 파티 규모의 상한이 아니다 — 100명 파티 + 시연·리허설 여유가 들어가는 크기로 둔다.
    */
   inviteMax: 150,
+  /** 장소 상한. 안내문에 한 줄로 들어가는 값이라 한 줄이 견디는 크기까지만 */
+  placeMax: 60,
   /** 안내문 문구 상한. 문자 한 통에 들어가는 크기를 훌쩍 넘기지 않게 (ADR-32) */
   inviteTemplateMax: 500,
   /** 테이블당 인원이 이 범위를 벗어나면 운영자에게 경고 */

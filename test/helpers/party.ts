@@ -63,7 +63,6 @@ export async function freshEvent(): Promise<EventMeta> {
     body: {
       name: `${seq}회차`,
       pin: String(3000 + seq),
-      regOpenAt: "now",
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
       /*

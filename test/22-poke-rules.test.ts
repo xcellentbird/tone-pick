@@ -45,7 +45,6 @@ async function freshEvent(config: Partial<EventConfig> = {}): Promise<EventMeta>
     cookie: master,
     body: {
       name: `${seq}회차`,
-      regOpenAt: "now",
       partyAt: now + 3 * 24 * HOUR,
       prevoteAt: now + 24 * HOUR,
       config: { maxPre: 2, maxParty: 3, ...config },

@@ -2,8 +2,12 @@
  * 회차 기본 설정. 새 회차를 만들 때 위저드가 채워 넣는 값이다.
  *
  * 일정 기본값은 **파티 일시에서 거꾸로** 잰다 — 운영자가 실제로 아는 건 "언제 모이나" 하나뿐이다.
+ * 등록 시작은 여기 없다 (ADR-38). 회차를 만드는 순간 열리므로 미리 정할 것이 없다.
  *
- * 되돌리기는 **콕 횟수와 일정 오프셋만** 되돌린다. 이미 만든 회차는 그대로다 —
+ * **장소가 여기 있는 이유**는 늘 같은 곳에서 여는 모임이기 때문이다 —
+ * 회차마다 다시 적는 값이면 회차 만들기 화면에만 있어야 맞다. 회차에서 고치면 그 회차만 바뀐다.
+ *
+ * 되돌리기는 여기 적힌 것만 되돌린다. 이미 만든 회차는 그대로다 —
  * 확인창에서 그 사실을 숫자와 함께 보여준다.
  *
  * 운영자 PIN 은 여기서 바꾸지 않는다. 배포 시크릿(`MASTER_PIN`) 하나가 유일한 출처다 —
@@ -58,8 +62,9 @@ export default function HostDefaults() {
         facts: [
           [HOST_UI.fields.maxPre, `${UNIT.times(form!.maxPre)} → ${UNIT.times(DEFAULTS.maxPre)}`],
           [HOST_UI.fields.maxParty, `${UNIT.times(form!.maxParty)} → ${UNIT.times(DEFAULTS.maxParty)}`],
-          [HOST_UI.fields.regOpenAt, `${form!.regOpenBeforeD}d → ${DEFAULTS.regOpenBeforeD}d`],
           [HOST_UI.fields.prevoteAt, `${form!.prevoteBeforeH}h → ${DEFAULTS.prevoteBeforeH}h`],
+          // 빈 값도 뜻이 있다 — 회차마다 다른 곳에서 연다는 뜻이라 '—' 로 보여준다
+          [HOST_UI.fields.place, `${form!.place || "—"} → ${DEFAULTS.place || "—"}`],
         ],
       },
       async () => {
@@ -95,19 +100,26 @@ export default function HostDefaults() {
           onChange={(v) => set("maxParty", v)}
         />
         <Num
-          label={HOST_UI.fields.regOpenBeforeD}
-          value={form.regOpenBeforeD}
-          min={0}
-          max={60}
-          onChange={(v) => set("regOpenBeforeD", v)}
-        />
-        <Num
           label={HOST_UI.fields.prevoteBeforeH}
           value={form.prevoteBeforeH}
           min={0}
           max={720}
           onChange={(v) => set("prevoteBeforeH", v)}
         />
+        {/* 등록 시작 오프셋은 없다 (ADR-38) — 회차를 만들면 곧바로 열린다 */}
+        <p className="tiny dim">{HOST_UI.regOpensNow}</p>
+
+        {/* 늘 같은 곳에서 여는 모임이면 여기 한 번 적어둔다. 회차마다 고칠 수 있다 */}
+        <div className="field">
+          <label htmlFor="dplace">{HOST_UI.fields.place}</label>
+          <input
+            id="dplace"
+            value={form.place}
+            maxLength={LIMITS.placeMax}
+            onChange={(e) => set("place", e.target.value)}
+          />
+          <span className="tiny dim">{HOST_UI.fields.placeDefaultHint}</span>
+        </div>
 
         {/*
           안내문 문구 (ADR-32). **여기 하나만 둔다** — 회차마다 다시 쓰지 않는다.
