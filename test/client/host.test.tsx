@@ -200,14 +200,14 @@ describe("운영자 콘솔", () => {
 
     await screen.findByText("테스트 회차");
     // 등록 중 다음은 사전 투표 시작이다
-    expect(screen.getByText(phaseAction("prevote", { code: "ABCDEF", maxPre: 3, maxParty: 3 })!.btn)).toBeTruthy();
+    expect(screen.getByText(phaseAction("prevote", { maxPre: 3, maxParty: 3 })!.btn)).toBeTruthy();
     expect(screen.getByText(HOST_UI.dash.registered(2))).toBeTruthy();
   });
 
   it("★ 단계 전환은 확인을 거치고, 확인창이 바뀌는 것을 항목으로 보여준다", async () => {
     stubFetch(hostState());
     renderConsole();
-    const copy = phaseAction("prevote", { code: "ABCDEF", maxPre: 3, maxParty: 3 })!;
+    const copy = phaseAction("prevote", { maxPre: 3, maxParty: 3 })!;
 
     fireEvent.click(await screen.findByText(copy.btn));
     await screen.findByText(copy.title);
@@ -247,7 +247,7 @@ describe("운영자 콘솔", () => {
 
   it("★ 명단은 등록 전, 카드는 등록 후 — 같은 사람이 두 번 나오지 않는다", async () => {
     /*
-     * 역할이 갈린다. 위의 입장 명단은 **등록 전/후**(부를 사람·안내문·아직 등록 안 한 사람),
+     * 역할이 갈린다. 위의 초대 명단은 **등록 전/후**(부를 사람·안내문·아직 등록 안 한 사람),
      * 아래 카드는 **등록 후**(누가 왔나). 등록하면 명단 행에서 빠지고 카드로 올라온다 —
      * 두 곳에 나오면 "누구에게 보냈나" 와 "누가 왔나" 를 같은 사람으로 두 번 세게 된다.
      */
@@ -651,7 +651,7 @@ describe("운영자 콘솔", () => {
     stubFetch(hostState({ schedule: { partyAt: Date.now() + 24 * HOUR, regOpenAt: Date.now() - HOUR, prevoteAt: soon } }));
     renderConsole();
 
-    const copy = phaseAction("prevote", { code: "ABCDEF", maxPre: 3, maxParty: 3 })!;
+    const copy = phaseAction("prevote", { maxPre: 3, maxParty: 3 })!;
     fireEvent.click(await screen.findByText(copy.btn));
     await screen.findByText(copy.title);
     const line = schedDiff("prevote", {

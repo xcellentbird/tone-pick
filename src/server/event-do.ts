@@ -377,7 +377,7 @@ export class EventDO extends DurableObject {
     await this.ctx.storage.deleteAll();
   }
 
-  // ─────────────────────────── 입장 명단
+  // ─────────────────────────── 초대 명단
   //
   // 파티에 들어오는 문은 **운영자가 미리 넣어둔 전화번호**다 (ADR-15).
   // 코드 여섯 자리는 옮겨 적을 수 있지만 남의 번호로는 들어올 수 없다.
