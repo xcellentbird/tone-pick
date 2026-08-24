@@ -333,15 +333,17 @@ describe("운영자 콘솔", () => {
     expect(words).toEqual([HOST_UI.status.arrived, HOST_UI.status.left]);
   });
 
-  it("★ 파티 전에는 참석을 찍지 않는다 — 상태값은 글자로만 있다", async () => {
-    // 전원이 같은 값이라 찍을 것이 없다. `등록함` 이 파티 시작 뒤 `안 옴` 이 되는 같은 값이다
+  it("★ 파티 전에는 카드에 상태값이 붙지 않는다", async () => {
+    /*
+     * **이 탭에 있다는 것이 곧 등록했다는 뜻이다.** `등록함` 은 전원에게 같은 말을
+     * 한 번씩 더 하는 자리였고, 카드마다 붙으면 정작 파티 중에 뜨는 참석 상태가 덜 도드라진다.
+     */
     stubFetch(hostState());
     renderConsole("/host/e1/players");
     await screen.findByText(HOST_UI.invites.title);
 
-    const chip = document.querySelector(".person > .att") as HTMLElement;
-    expect(chip.tagName).toBe("SPAN");
-    expect(chip.textContent).toBe(HOST_UI.status.registered);
+    expect(document.querySelectorAll(".person").length).toBe(2);
+    expect(document.querySelector(".person > .att")).toBeNull();
   });
 
   /**

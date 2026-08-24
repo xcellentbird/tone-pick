@@ -122,7 +122,7 @@ export default function Players() {
   }
 
   const [filter, setFilter] = useState<Filter>("all");
-  /** 파티가 시작되면 같은 값이 다른 이름으로 읽힌다 — `등록함` 이 `안 옴` 이 된다 */
+  /** 참석 상태는 파티가 시작돼야 뜬다. 그 전에는 전원이 같은 값이라 찍을 것도 볼 것도 없다 */
   const started = state.meta.phase === "party" || state.meta.phase === "done";
 
   /**
@@ -143,17 +143,16 @@ export default function Players() {
   };
 
   /**
-   * 카드 오른쪽에 붙는 **참가 상태**. 파티 전후로 이름이 갈린다.
+   * 카드 오른쪽에 붙는 **참가 상태**. 파티가 시작된 뒤에만 그린다.
    *
    * 톤은 저장된 값(`key`)이 정하고 글자(`label`)가 같은 정보를 다시 말한다 —
-   * 색만으로 말하면 못 읽는 사람이 생긴다. `등록함` 과 `미도착` 은 **같은 값**이라
-   * 같은 톤(조용한 기본)을 쓴다.
+   * 색만으로 말하면 못 읽는 사람이 생긴다.
    */
   const statusOf = (id: string) => {
     const a = att(id);
     if (a === "left") return { key: "left", label: HOST_UI.status.left };
     if (a === "arrived") return { key: "arrived", label: HOST_UI.status.arrived };
-    return { key: "absent", label: started ? HOST_UI.status.absent : HOST_UI.status.registered };
+    return { key: "absent", label: HOST_UI.status.absent };
   };
 
   /** 칩을 눌러 바로 찍는다 (ADR-33). 문 앞에서 한 명씩 하는 일이라 한 번에 끝나야 한다 */
@@ -265,23 +264,28 @@ export default function Players() {
             </span>
           </button>
           {/*
-            파티가 시작되면 **상태 배지가 곧 버튼이다** — 문 앞에서 한 명씩 찍는 자리라
-            한 번에 끝나야 한다. `나감` 은 눌러서 바꾸지 않는다. 되돌릴 자리는 상세다.
+            **파티 전에는 아무것도 붙지 않는다.** 이 탭에 있다는 것이 곧 등록했다는 뜻이라
+            `등록함` 은 전원에게 같은 말을 한 번씩 더 하는 자리였다 — 카드마다 붙으면
+            읽을 것만 늘고, 정작 파티 중에 뜨는 참석 상태가 그만큼 덜 도드라진다.
+
+            시작되면 **상태 배지가 곧 버튼이다** — 문 앞에서 한 명씩 찍는 자리라 한 번에 끝나야 한다.
+            `나감` 은 눌러서 바꾸지 않는다. 되돌릴 자리는 상세다.
           */}
-          {started && att(p.id) !== "left" ? (
-            <button
-              className="att live"
-              data-att={statusOf(p.id).key}
-              aria-pressed={att(p.id) === "arrived"}
-              onClick={() => void toggleArrived(p.id)}
-            >
-              {statusOf(p.id).label}
-            </button>
-          ) : (
-            <span className={`att${started ? " live" : ""}`} data-att={statusOf(p.id).key}>
-              {statusOf(p.id).label}
-            </span>
-          )}
+          {started &&
+            (att(p.id) !== "left" ? (
+              <button
+                className="att live"
+                data-att={statusOf(p.id).key}
+                aria-pressed={att(p.id) === "arrived"}
+                onClick={() => void toggleArrived(p.id)}
+              >
+                {statusOf(p.id).label}
+              </button>
+            ) : (
+              <span className="att live" data-att={statusOf(p.id).key}>
+                {statusOf(p.id).label}
+              </span>
+            ))}
         </div>
       ))}
 

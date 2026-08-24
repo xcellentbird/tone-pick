@@ -143,6 +143,14 @@ button {
   min-height: var(--tap);
   min-width: var(--tap);
   font-family: inherit;
+  /*
+   * **색도 물려받는다.** 안 적으면 브라우저 기본값(`buttontext` — 검정)이 들어와,
+   * 색을 따로 정하지 않은 버튼이 어두운 바탕 위에서 **검은 글씨로 뜬다.**
+   * `<button className="card">` 로 만드는 카드들(초대 명단·회차 목록·홈의 자리 카드)이
+   * 그렇게 읽히지 않았다 — `.person > .open` 에 같은 줄을 따로 적어 막고 있던 것을 여기로 올린다.
+   * 색이 필요한 버튼은 저마다 정한다 (`.btn`·`.choice button`·`.att`).
+   */
+  color: inherit;
   cursor: pointer;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
@@ -435,7 +443,6 @@ button {
   padding: 0;
   border: 0;
   background: transparent;
-  color: inherit;
   text-align: left;
   font-family: inherit;
 }
