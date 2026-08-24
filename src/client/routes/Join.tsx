@@ -12,13 +12,20 @@
  *
  * 그리고 **이미 등록한 사람인지 먼저 본다** — 아니면 등록을 마친 사람이 링크를 다시 열 때마다
  * 문을 다시 두드리게 된다.
+ *
+ * ⚠️ **그 판정은 토큰이 한다. 브라우저 쿠키가 아니다** (ADR-44).
+ *    예전에는 여기서 `/me?event=` 를 먼저 불러 "이 브라우저에 세션이 있나" 로 넘겼는데,
+ *    쿠키는 탭이 아니라 브라우저 단위라 **두 번째 탭에서 다른 사람의 링크를 열면
+ *    첫 번째 탭의 사람으로 넘어갔다.** 링크가 사람마다 달라도 소용이 없었다 —
+ *    토큰을 보기도 전에 답이 정해져 있었기 때문이다.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, PHASE_LABEL, SCREEN_TITLE } from "../../shared/copy.ts";
-import type { EnterResult, ParticipantState, PublicEvent } from "../../shared/types.ts";
+import type { EnterResult, PublicEvent } from "../../shared/types.ts";
 import { formatWhen } from "../../shared/time.ts";
 import { ApiError, api, post } from "../lib/api.ts";
+import { setTabRef } from "../lib/session.ts";
 import { useLoad } from "../lib/useLoad.ts";
 
 export default function Join() {
@@ -29,30 +36,22 @@ export default function Join() {
     () => api<PublicEvent>(`/events/by-id/${id}?t=${encodeURIComponent(token)}`),
     [id, token],
   );
-  // 세션이 이 회차의 것인지 서버가 판정한다. 다른 회차 세션이면 401 이 와서 여기 남는다
-  const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** 자동 입장은 한 번뿐이다. 회차 정보가 다시 그려져도 문을 두 번 두드리지 않는다 */
+  const entered = useRef(false);
 
-  useEffect(() => {
-    let alive = true;
-    api<ParticipantState>(`/me?event=${encodeURIComponent(id)}`)
-      .then((state) => {
-        // 이미 등록한 사람이다. 뒤로 가기로 이 화면에 되돌아가지 않게 replace 로 넘긴다
-        if (alive) navigate(`/e/${state.event.code}`, { replace: true });
-      })
-      .catch(() => alive && setChecking(false));
-    return () => {
-      alive = false;
-    };
-  }, [id, navigate]);
-
-  async function start() {
+  const start = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
       // 통과하면 서버가 쿠키를 준다. 번호는 서버가 토큰에서 꺼낸다 — 폼이 번호를 만지지 않는다
       const res = await post<EnterResult>(`/events/${id}/enter`, { token });
+      /*
+       * **이 탭이 누구인지 기억한다** (ADR-44). 다음 요청부터 이 이름표가 실려,
+       * 다른 탭이 다른 링크로 들어와도 서로를 덮지 않는다.
+       */
+      setTabRef(res.ref);
       navigate(res.registered && res.code ? `/e/${res.code}` : `/j/${id}/${token}/register/1`, {
         replace: res.registered,
       });
@@ -60,9 +59,23 @@ export default function Join() {
       setError(err instanceof ApiError ? (err.userMessage ?? ENTRY.notInvited) : ENTRY.notInvited);
       setBusy(false);
     }
-  }
+  }, [id, token, navigate]);
 
-  if (checking) return <div className="screen" />;
+  /*
+   * 등록을 마친 사람은 링크를 여는 것만으로 자기 화면으로 간다.
+   *
+   * **판정은 `found.data.registered` 다** — 서버가 **이 토큰으로** 답한 값이다.
+   * 브라우저에 어떤 세션이 남아 있든 보지 않는다. 그게 탭이 서로를 덮던 원인이었다.
+   */
+  const registered = found.data?.registered;
+  useEffect(() => {
+    if (entered.current || !registered) return;
+    entered.current = true;
+    void start();
+  }, [registered, start]);
+
+  // 회차를 아직 못 읽었거나, 읽자마자 넘어갈 사람이다. 카드를 한 번 그리면 화면이 튄다
+  if ((!found.data && !found.error) || (registered && !error)) return <div className="screen" />;
 
   return (
     <div className="screen">

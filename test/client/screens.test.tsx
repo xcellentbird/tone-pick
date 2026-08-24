@@ -1397,6 +1397,36 @@ describe("참가 링크", () => {
     expect(await screen.findByText("참가자 화면")).toBeTruthy();
   });
 
+  /**
+   * ★ **등록 폼의 확인도 토큰이 한다** (ADR-44).
+   *
+   * Join 과 같은 자리다 — `/me` 로 브라우저 세션을 물으면 다른 탭에 열린 사람으로 넘어간다.
+   * 두 곳 다 고쳐야 규칙이 규칙이 된다.
+   */
+  it("★ 아직 등록하지 않은 토큰은 남의 세션이 있어도 폼을 연다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const json = (body: unknown) =>
+          new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+        // 세션은 **있는 것처럼** 답한다. 옛 코드라면 이것만 보고 남의 화면으로 넘어갔다
+        if (String(url).includes("/me")) return json(participantState());
+        return json({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true, registered: false });
+      }),
+    );
+    const router = createMemoryRouter(
+      [
+        { path: "/j/:id/:token/register/:step", element: <Register /> },
+        { path: "/e/:code", element: <div>참가자 화면</div> },
+      ],
+      { initialEntries: ["/j/e1/tok123/register/1"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
+    expect(screen.queryByText("참가자 화면")).toBeNull();
+  });
+
   it("★ 등록을 마친 뒤 뒤로 가도 등록 폼이 다시 뜨지 않는다", async () => {
     /*
      * 완료할 때 `replace` 로 갈아끼우는 건 **마지막 스텝 한 칸뿐**이다.
@@ -1411,7 +1441,11 @@ describe("참가 링크", () => {
               status: 200,
               headers: { "content-type": "application/json" },
             })
-          : new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
+          : // 회차 조회가 이 토큰의 등록 여부를 답한다 (ADR-44)
+            new Response(JSON.stringify({ id: "e1", registered: true }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
       ),
     );
     const router = createMemoryRouter(
@@ -1429,22 +1463,62 @@ describe("참가 링크", () => {
     expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
   });
 
-  it("★ 세션이 살아 있으면 등록 화면이 아니라 자기 화면으로 간다", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        const body = url.includes("/me")
-          ? participantState()
-          : { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true };
-        return new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }),
-    );
+  /**
+   * ★ **등록했는지는 토큰이 정한다. 브라우저 세션이 아니다** (ADR-44).
+   *
+   * 예전에는 이 화면이 `/me` 를 먼저 불러 "이 브라우저에 세션이 있나" 로 넘겼다.
+   * 쿠키는 탭이 아니라 브라우저 단위라, **두 번째 탭에서 다른 사람의 링크를 열면
+   * 첫 번째 탭의 사람으로 넘어갔다** — 링크가 사람마다 달라도 소용이 없었다.
+   */
+  it("★ 등록을 마친 링크는 곧바로 자기 화면으로 간다", async () => {
+    const fetched = stubRoom({ registered: true }, { registered: true, code: "ABCDEF", ref: "aabbccdd" });
     renderJoin();
+
     await screen.findByText("참가자 화면");
+    // 등록 여부를 브라우저 세션에 묻지 않는다 — 그게 탭을 서로 덮던 길이었다
+    for (const [url] of fetched.mock.calls as unknown as Array<[string]>) {
+      expect(String(url)).not.toMatch(/\/me\b/);
+    }
   });
+
+  it("★ 아직 등록하지 않은 링크는 남의 세션이 있어도 등록부터 시작한다", async () => {
+    // `/me` 는 200 을 준다 — 옛 코드라면 이것만 보고 남의 화면으로 넘어갔다
+    stubRoom({ registered: false }, { registered: false, ref: "aabbccdd" });
+    renderJoin();
+
+    await screen.findByText("테스트 파티");
+    expect(screen.queryByText("참가자 화면")).toBeNull();
+
+    fireEvent.click(screen.getByText(ENTRY.start));
+    expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
+  });
+
+  /** 이름표를 탭에 든다. 다른 탭이 다른 링크로 들어와도 서로 안 건드린다 */
+  it("★ 들어가면서 이 탭의 이름표를 sessionStorage 에 든다", async () => {
+    stubRoom({ registered: true }, { registered: true, code: "ABCDEF", ref: "12ab34cd" });
+    renderJoin();
+
+    await screen.findByText("참가자 화면");
+    expect(sessionStorage.getItem("tp.ref")).toBe("12ab34cd");
+  });
+
+  /**
+   * 회차 정보는 **토큰으로** 묻고, 그 답의 `registered` 가 이 화면의 판정이다.
+   * `/me` 로 브라우저 세션을 묻던 자리를 대신한다.
+   */
+  function stubRoom(room: { registered: boolean }, enter: unknown) {
+    sessionStorage.clear();
+    const fetched = vi.fn(async (url: string) => {
+      const json = (status: number, body: unknown) =>
+        new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+      // 옛 경로가 살아 있으면 잡히도록, 세션은 **있는 것처럼** 답한다
+      if (String(url).includes("/me")) return json(200, participantState());
+      if (String(url).includes("/enter")) return json(200, enter);
+      return json(200, { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true, ...room });
+    });
+    vi.stubGlobal("fetch", fetched);
+    return fetched;
+  }
 });
 
 // ─────────────────────────────────────────── 연습용 환경 표시

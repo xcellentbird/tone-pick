@@ -3,7 +3,7 @@ import { EventDO } from "./event-do.ts";
 import { RegistryDO } from "./registry-do.ts";
 import { hostRoutes } from "./routes/host.ts";
 import { participantRoutes } from "./routes/participant.ts";
-import { PLAYER_COOKIE, readCookie, readSession } from "./auth.ts";
+import { PLAYER_COOKIE, cookieName, readCookie, readSession } from "./auth.ts";
 import { eventStub, missingSecrets, moveServerClock, registry, serverNow, syncClock, type Env } from "./http.ts";
 
 export { EventDO, RegistryDO };
@@ -49,7 +49,12 @@ app.get("/ws/:code", async (c) => {
   if (!eventId) return c.text("not found", 404);
 
   const scope = await readSession(
-    readCookie(c.req.header("cookie") ?? null, PLAYER_COOKIE),
+    /*
+     * **어느 쿠키인지는 `?ref=` 가 고른다** (ADR-44). 브라우저 WebSocket 은 헤더를 못 실어서
+     * 여기만 쿼리다. 이름표는 비밀이 아니라 주소에 실려도 되고, 증명은 여전히 쿠키다 —
+     * 남의 이름표를 적어봐야 그 쿠키가 없으면 어떤 소켓도 그 사람 것이 되지 않는다.
+     */
+    readCookie(c.req.header("cookie") ?? null, cookieName(PLAYER_COOKIE, c.req.query("ref"))),
     c.env.SESSION_SECRET,
     serverNow(),
   );

@@ -30,6 +30,17 @@ interface Res<T> {
   cookie: string | null;
 }
 
+/**
+ * 세션 쿠키는 **두 벌** 나간다 (ADR-44) — `tp_play_<이름표>` 와 이름표 없는 `tp_play`.
+ * 테스트는 이름표를 보내지 않으므로 **기본 쿠키**를 집는다. 탭이 갈리는 경우는
+ * `x-tp-ref` 를 직접 실어 따로 확인한다 (`test/44-tab-sessions.test.ts`).
+ */
+function baseCookie(res: Response): string | null {
+  const all = res.headers.getSetCookie?.() ?? [];
+  const one = all.map((c) => c.split(";")[0]).find((c) => /^tp_(host|play|inv)=./.test(c));
+  return one ?? res.headers.get("set-cookie")?.split(";")[0] ?? null;
+}
+
 async function api<T = unknown>(
   path: string,
   init: { method?: string; body?: unknown; cookie?: string | null } = {},
@@ -46,8 +57,7 @@ async function api<T = unknown>(
   } catch {
     body = { raw: text };
   }
-  const set = res.headers.get("set-cookie");
-  return { status: res.status, body: body as T, cookie: set ? set.split(";")[0] : null };
+  return { status: res.status, body: body as T, cookie: baseCookie(res) };
 }
 
 let master: string | null = null;
