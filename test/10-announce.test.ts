@@ -96,6 +96,7 @@ async function join(ev: EventMeta): Promise<{ cookie: string | null; id: string 
     instagram: `insta_${phoneSeq}`,
     mbti: "ENFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
+    contactShare: "all",
   };
   const res = await api<RegisterResult>("/api/register", { method: "POST", cookie: gate.cookie, body: input });
   expect(res.status, JSON.stringify(res.body)).toBe(200);

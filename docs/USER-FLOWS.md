@@ -214,7 +214,7 @@ stateDiagram-v2
     party: 파티 진행
     done: 발표 완료
 
-    [*] --> reg: 회차 생성 (ADR-37)
+    [*] --> reg: 회차 생성 (ADR-38)
     prep --> reg: 예약 알람 또는 수동 (옛 회차·되돌린 회차)
     reg --> prevote: 수동
     prevote --> party: 예약 알람 또는 수동
@@ -276,7 +276,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     create["회차 생성"]
-    sReg["등록 중 — 만들면 바로 (ADR-37)"]
+    sReg["등록 중 — 만들면 바로 (ADR-38)"]
     qClosed{"사전 투표 마감이 이미 지났나"}
     warn["확인창에 시작하자마자 마감 경고"]
     sPre["사전 투표"]
@@ -321,6 +321,6 @@ flowchart LR
     style gCount fill:#C2E5FF,stroke:#3DADFF
 ```
 
-- **생성 위저드는 매력 투표 시작 하나만 받는다** (ADR-37). 등록은 만드는 순간 열린다
+- **생성 위저드는 매력 투표 시작 하나만 받는다** (ADR-38). 등록은 만드는 순간 열린다
 - 마지막 자리라는 사실은 **참가자에게 알리지 않는다.** 운영자에게만 배정이 닫힌다
 - 동성 콕을 열어도 **자리 배정의 남녀 정원은 그대로다.** 콕은 가중치로만 들어간다

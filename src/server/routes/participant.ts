@@ -11,7 +11,7 @@
 import { Hono } from "hono";
 import type { EnterResult, RegisterInput } from "../../shared/types.ts";
 import { ENTRY, FORTUNE, ME } from "../../shared/copy.ts";
-import { canOpenFortune } from "../../shared/phase.ts";
+import { canOpenFortune, canOpenMission } from "../../shared/phase.ts";
 import { fortuneInput, missionInput, validBirth } from "../../shared/fortune.ts";
 import { makeFortune, makeMission } from "../fortune.ts";
 import { count } from "../metrics.ts";
@@ -229,7 +229,7 @@ participantRoutes.post("/fortune", async (c) => {
   // 명단·콕까지 빚는 `participantState()` 대신 **좁은 읽기**다. 파티 시작 때 인원 수만큼 열린다
   const ctx = await seat.stub.fortuneContext(seat.playerId, serverNow());
   if (!ctx.ok) return apiError(c, "not_found");
-  // 파티가 시작돼야 열린다. 그 전에는 탭도 없다
+  // 매력 투표와 함께 열린다 (ADR-20 후기). 그 전에는 탭이 꺼져 있다
   if (!canOpenFortune(ctx.value.phase)) return apiError(c, "closed", FORTUNE.closed);
   // 한 번 연 운세는 다시 만들지 않는다 (ADR-20)
   if (ctx.value.fortune) return c.json(ctx.value.fortune);
@@ -253,9 +253,19 @@ participantRoutes.post("/fortune", async (c) => {
    *
    * 오늘 날짜는 **파티가 열리는 지역 기준**이다 (`todayIn`). UTC 로 자르면 자정 넘은 파티가
    * 어제 날짜를 읽는다.
+   *
+   * 그리고 **여는 시각이 아니라 파티 시각의 날짜**를 보낸다 (ADR-20 후기).
+   * 매력 투표가 열린 뒤로 문이 앞당겨져서, 전날 밤에 연 사람은 어제 날짜로 운세를 받는다 —
+   * 한 번 연 운세는 그대로 남으니(ADR-20) 파티 당일에 어제 것을 읽게 된다.
+   * 세 문단이 말하는 `오늘` 은 언제 열었느냐가 아니라 **그 파티의 날**이다.
    */
   const now = serverNow();
-  const made = await makeFortune(c.env, fortuneInput(ctx.value.me, todayIn(now), birth), now);
+  const made = await makeFortune(
+    c.env,
+    // 일정 없이 만든 회차에는 파티 시각이 없다. 그때만 지금을 쓴다
+    fortuneInput(ctx.value.me, todayIn(ctx.value.partyAt ?? now), birth),
+    now,
+  );
   // LLM 이 조용히 죽어도 화면은 멀쩡히 뜬다 (ADR-20). 그래서 세지 않으면 아무도 모른다
   count(c.env, seat.eventId, { kind: "fortune", outcome: made.fallback ? "fallback" : "llm" });
   const { value, response } = unwrap(c, await seat.stub.saveFortune(seat.playerId, made));
@@ -273,6 +283,11 @@ participantRoutes.post("/fortune/mission", async (c) => {
 
   const ctx = await seat.stub.fortuneContext(seat.playerId, serverNow());
   if (!ctx.ok) return apiError(c, "not_found");
+  /*
+   * **미션의 문은 하나 늦다** (ADR-20 후기) — 파티장에서만 할 수 있는 것이라
+   * 매력 투표 중에 뒤집으면 못 할 미션이 그대로 굳는다.
+   */
+  if (!canOpenMission(ctx.value.phase)) return apiError(c, "closed", FORTUNE.missionClosed);
   const saved = ctx.value.fortune;
   // 운세가 없으면 재료가 없다. 화면에서도 이 버튼은 운세가 나온 뒤에야 뜬다
   if (!saved) return apiError(c, "closed", FORTUNE.closed);

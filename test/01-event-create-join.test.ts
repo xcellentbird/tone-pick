@@ -193,7 +193,7 @@ describe("B. 회차 생성", () => {
       "/api/host/defaults",
       { cookie: master },
     );
-    // Then  위저드가 채워 넣을 값을 그대로 돌려준다 — 예약이 남은 건 매력 투표 시작뿐이다 (ADR-37)
+    // Then  위저드가 채워 넣을 값을 그대로 돌려준다 — 예약이 남은 건 매력 투표 시작뿐이다 (ADR-38)
     expect(res.status).toBe(200);
     expect(res.body.maxPre).toBe(1);
     expect(res.body.maxParty).toBe(2);
@@ -238,7 +238,7 @@ describe("B. 회차 생성", () => {
 
   it("S-B4 ★ 회차를 만들면 그 자리에서 등록이 열린다", async () => {
     /*
-     * 등록 시작은 묻지도 예약하지도 않는다 (ADR-37).
+     * 등록 시작은 묻지도 예약하지도 않는다 (ADR-38).
      * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열어 지킬 것이 없었다.
      */
     const res = await createEvent(master, { prevoteAt: Date.now() + 24 * HOUR });
@@ -254,7 +254,7 @@ describe("B. 회차 생성", () => {
   });
 
   it("S-B5 ★ 예약은 한 번만 울린다", async () => {
-    // Given 남은 예약은 매력 투표 시작 하나뿐이다 (ADR-37). 1시간 뒤로 잡는다
+    // Given 남은 예약은 매력 투표 시작 하나뿐이다 (ADR-38). 1시간 뒤로 잡는다
     const at = Date.now() + HOUR;
     const res = await createEvent(master, { prevoteAt: at });
     // Then  phase 는 "reg" 이고 fired.prevote 는 비어 있다
@@ -277,7 +277,7 @@ describe("B. 회차 생성", () => {
 
   it("S-B6 ★ 매력 투표 시각이 이미 지났어도 회차는 만들어진다", async () => {
     /*
-     * 견줄 두 시각이 없어졌으므로 순서 검사도 없앴다 (ADR-37).
+     * 견줄 두 시각이 없어졌으므로 순서 검사도 없앴다 (ADR-38).
      * 지난 시각을 넣으면 등록과 매력 투표가 곧바로 이어 열릴 뿐, 어긋나지 않는다.
      */
     const res = await createEvent(master, { prevoteAt: Date.now() - HOUR });
@@ -395,7 +395,7 @@ describe("C. 입장 코드", () => {
 
   it("S-C4 준비 중인 회차는 등록을 막고 안내한다", async () => {
     /*
-     * 새 회차는 등록이 열린 채로 태어난다 (ADR-37) — 준비 단계는 **운영자가 물렸을 때**와
+     * 새 회차는 등록이 열린 채로 태어난다 (ADR-38) — 준비 단계는 **운영자가 물렸을 때**와
      * 그 전에 만들어진 옛 회차에만 남는다. 그 길이 여전히 안내를 내놓는지 본다.
      */
     const ev = await createEvent(master, { prevoteAt: Date.now() + 24 * HOUR });
@@ -439,7 +439,7 @@ describe("D. 서버 시각", () => {
   });
 
   it("S-D2 ★ 클라이언트가 주장하는 시각으로는 단계가 바뀌지 않는다", async () => {
-    // Given 매력 투표 시작이 5시간 뒤로 예약돼 있다 (ADR-37 이후 남은 예약은 이것뿐이다)
+    // Given 매력 투표 시작이 5시간 뒤로 예약돼 있다 (ADR-38 이후 남은 예약은 이것뿐이다)
     const at = Date.now() + 5 * HOUR;
     const ev = await createEvent(master, { prevoteAt: at });
     expect(ev.body.phase).toBe("reg");

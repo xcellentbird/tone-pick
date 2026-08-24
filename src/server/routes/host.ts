@@ -100,7 +100,7 @@ hostRoutes.post("/events", async (c) => {
   if (!validConfig(body.config)) return apiError(c, "bad_request");
 
   /*
-   * **등록은 만드는 순간 열린다** (ADR-37). 시각을 받지 않으므로 순서를 검증할 두 시각도 없다.
+   * **등록은 만드는 순간 열린다** (ADR-38). 시각을 받지 않으므로 순서를 검증할 두 시각도 없다.
    * 매력 투표 시작이 이미 지났더라도 회차는 만들어진다 — 그때는 둘이 곧바로 이어서 열린다.
    */
   const partyAt = Number(body.partyAt);
@@ -410,7 +410,7 @@ function validConfig(config: EventConfig | undefined): boolean {
 
 function validDefaults(d: Defaults): boolean {
   /*
-   * 등록 시작 오프셋은 사라졌다 (ADR-37) — 회차를 만드는 순간 열린다.
+   * 등록 시작 오프셋은 사라졌다 (ADR-38) — 회차를 만드는 순간 열린다.
    * 그래서 "사전 투표가 등록보다 먼저 열리면 안 된다" 는 순서 검사도 함께 없앴다.
    * 매력 투표가 회차를 만드는 시점보다 앞이면 등록과 곧바로 이어 열릴 뿐, 어긋나지 않는다.
    */

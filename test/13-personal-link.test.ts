@@ -113,6 +113,7 @@ function person(over: Partial<RegisterInput> = {}): RegisterInput {
     instagram: `ig${seq}`,
     mbti: "INFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
+    contactShare: "all",
     ...over,
   };
 }

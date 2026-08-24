@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { BTN, ENTRY, FAIL, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
+import { BTN, ENTRY, FAIL, FORTUNE, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
@@ -61,6 +61,40 @@ interface ViewProps {
    */
   helpOpen?: boolean;
   onHelp: (on: boolean) => void;
+}
+
+/**
+ * 하단 탭.
+ *
+ * **'오늘' 은 없다가 생기지 않는다** (ADR-20 후기). 처음부터 자리를 지키고,
+ * 매력 투표와 함께 켜진다 — 탭이 도중에 생기면 넷이 나눠 쓰던 폭이 통째로 다시 나뉘어
+ * 손가락이 기억한 자리가 어긋난다.
+ *
+ * 꺼진 탭은 **죽은 버튼이 아니다.** 누르면 언제 열리는지 말한다 —
+ * 눌러도 아무 일이 없으면 고장으로 읽힌다. (`Overlays` 안이라 토스트를 쓸 수 있다)
+ */
+function Tabs({ tab, onTab, fortuneOpen }: { tab: Tab; onTab: (t: Tab) => void; fortuneOpen: boolean }) {
+  const { toast } = useOverlay();
+  return (
+    <nav className="tabbar">
+      {TABS_PARTICIPANT.map((t) => {
+        const off = t.key === "fortune" && !fortuneOpen;
+        return (
+          <button
+            key={t.key}
+            className={tab === t.key ? "active" : ""}
+            /* `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 */
+            aria-disabled={off || undefined}
+            onClick={() => (off ? toast(FORTUNE.closed) : onTab(t.key as Tab))}
+            aria-current={tab === t.key}
+          >
+            <span className="icon">{t.icon}</span>
+            <span>{t.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
 }
 
 /** URL 이 상태를 들고 있는 진짜 참가자 화면 */
@@ -219,6 +253,15 @@ function Loaded({
     if (seatOpen && !state.seat) onSeat(false, { replace: true });
   }, [seatOpen, state.seat, onSeat]);
 
+  /*
+   * 아직 안 열린 '오늘' 주소를 직접 연 경우. 탭이 꺼져 있어도 주소는 칠 수 있다 —
+   * 자리 화면과 같이 홈으로 **갈아끼운다** (`onTab` 이 replace 한다).
+   */
+  const fortuneOpen = canOpenFortune(state.event.phase);
+  useEffect(() => {
+    if (tab === "fortune" && !fortuneOpen) onTab("home");
+  }, [tab, fortuneOpen, onTab]);
+
   // 발표가 끝났으면 자리 이동 확인을 띄우지 않는다 (FLOWS.md)
   const needsSeatAck =
     !!state.seat && !state.seat.acked && !acked.includes(state.seat.round) && state.event.phase !== "done";
@@ -267,20 +310,7 @@ function Loaded({
           )}
         </div>
 
-        <nav className="tabbar">
-          {/* '오늘' 은 파티가 시작돼야 생긴다. 그 전에는 빈 탭을 보여줄 이유가 없다 */}
-          {TABS_PARTICIPANT.filter((t) => t.key !== "fortune" || canOpenFortune(state.event.phase)).map((t) => (
-            <button
-              key={t.key}
-              className={tab === t.key ? "active" : ""}
-              onClick={() => onTab(t.key as Tab)}
-              aria-current={tab === t.key}
-            >
-              <span className="icon">{t.icon}</span>
-              <span>{t.label}</span>
-            </button>
-          ))}
-        </nav>
+        <Tabs tab={tab} onTab={onTab} fortuneOpen={fortuneOpen} />
 
         {/*
           아직 안 본 사람에게는 **자동으로** 덮치고 확인을 받는다.

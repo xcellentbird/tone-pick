@@ -14,6 +14,22 @@ export type PokeRound = "pre" | "party";
 
 // ─────────────────────────── 참가자
 
+/**
+ * 매칭됐을 때 상대에게 **무엇까지 열지.** 본인이 등록할 때 고른다 (ADR-37).
+ *
+ * 값에 **순서가 있다** — 조심스러운 쪽이 앞이다. 한 쌍이 서로 다르게 골랐으면
+ * `minShare()` 로 **더 조심스러운 쪽을 따른다.** 아무도 자기가 낸 것보다 더 받지 않는다.
+ *
+ *   none       아무것도. 매칭됐다는 것과 닉네임까지만 — 파티장에서 직접 인사한다
+ *   instagram  실명과 인스타. **전화번호는 열지 않는다**
+ *   all        실명·인스타·전화번호
+ *
+ * ⚠️ **발표 뒤에 고르게 만들지 마라.** 그 순간 이 값은 "이 사람에게 열까" 가 되고,
+ * 안 여는 것이 **이름 붙은 거절**이 된다 — 이 앱이 없애려는 바로 그 경험이다 (ADR-37).
+ * 프로필과 **같은 때 굳는다** (ADR-31) — 누가 나를 골랐는지 알기 전에 정해져 있어야 한다.
+ */
+export type ContactShare = "none" | "instagram" | "all";
+
 export interface Player {
   id: string;
   nickname: string;          // 회차 내 유일. 공백·대소문자 정규화 후 비교
@@ -30,6 +46,11 @@ export interface Player {
   instagram: string;
   mbti: string;              // "ENFP"
   charms: [string, string, string];
+  /**
+   * 매칭 상대에게 연락처를 얼마나 열지 (ADR-37). **등록할 때 반드시 고른다.**
+   * 옛 회차의 행에는 이 칸이 없다 — 그때 한 약속이 "발표 때 열린다" 였으므로 `all` 로 읽는다.
+   */
+  contactShare: ContactShare;
   createdAt: number;
 }
 
@@ -73,16 +94,22 @@ export interface Poke {
 /**
  * 발표 후, **서로 찌른 쌍에게만** 만들어진다.
  *
- * 연락처가 참가자에게 나가는 **유일한 통로**다 (ADR-19). 조건이 셋 다 맞아야 한다.
+ * 연락처가 참가자에게 나가는 **유일한 통로**다 (ADR-19). 조건이 **넷** 다 맞아야 한다.
  *   ① 발표 단계일 것  ② 서로 찔렀을 것  ③ 그 상대의 것일 것
+ *   ④ **두 사람이 고른 `contactShare` 중 조심스러운 쪽이 허락할 것** (ADR-37)
  * 한쪽만 찌른 상대의 연락처는 발표 뒤에도 끝까지 나가지 않는다.
  */
 export interface MatchInfo {
   player: PublicPlayer;
   /** 마지막으로 발행된 자리에서 같은 테이블이면 그 번호 */
   sameTable?: number;
-  /** 서로 찌른 상대에게만. 등록할 때 이 공개를 미리 알린다 */
-  contact: { realName: string; phone: string; instagram?: string };
+  /**
+   * 서로 찌른 상대에게만. **없을 수 있다** — 둘 중 한 명이라도 `none` 을 골랐으면
+   * 아무것도 열리지 않는다 (ADR-37). 화면은 없는 경우를 그려야 한다.
+   *
+   * `phone` 은 **둘 다 `all`** 일 때만 있다. 인스타는 등록 필수라 열리면 언제나 함께 간다.
+   */
+  contact?: { realName: string; instagram: string; phone?: string };
 }
 
 /** 참가자 본인에게만 내려가는 요약. 누가 찔렀는지는 발표 전까지 절대 포함하지 않는다. */
@@ -190,11 +217,11 @@ export interface EventMeta {
 /**
  * 새 회차의 기본값.
  *
- * **등록 시작은 여기 없다** (ADR-37) — 회차를 만드는 순간 열린다.
+ * **등록 시작은 여기 없다** (ADR-38) — 회차를 만드는 순간 열린다.
  * 남은 예약은 매력 투표 시작 하나뿐이고, 그것도 **파티 일시에서 거꾸로** 잰다.
  */
 export interface Defaults extends EventConfig {
-  /** 파티 장소. 늘 같은 곳에서 여는 모임이라 여기 둔다 — 회차마다 고칠 수 있다 (ADR-37) */
+  /** 파티 장소. 늘 같은 곳에서 여는 모임이라 여기 둔다 — 회차마다 고칠 수 있다 (ADR-38) */
   place: string;
   prevoteBeforeH: number;   // 파티 N시간 전에 매력 투표 시작
   /**
@@ -272,7 +299,7 @@ export interface CreateEventInput {
   /** 파티 일시. 매력 투표 시작이 여기서 거꾸로 계산된다 */
   partyAt: number;
   /**
-   * **등록 시작은 받지 않는다** (ADR-37). 회차를 만드는 순간 열린다 —
+   * **등록 시작은 받지 않는다** (ADR-38). 회차를 만드는 순간 열린다 —
    * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열 이유가 없었다.
    */
   prevoteAt: number;
@@ -369,6 +396,14 @@ export interface RegisterInput {
   instagram: string;
   mbti: string;
   charms: [string, string, string];
+  /**
+   * **기본값을 두지 않는다** (ADR-37). 안 고르면 등록이 막힌다 —
+   * 연락처를 여는 동의라서, 안 고른 것을 허락으로 읽으면 그건 동의가 아니다.
+   *
+   * ⚠️ 여기에 `phone` 키를 두지 마라 (ADR-31). 이 칸은 번호를 **받는 게** 아니라
+   * 서버가 토큰에서 꺼내 둔 번호를 **얼마나 열지** 정하는 값이다.
+   */
+  contactShare: ContactShare;
 }
 
 /** 초대 명단 한 줄. 운영자만 본다 */

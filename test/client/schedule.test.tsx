@@ -70,7 +70,7 @@ describe("위저드", () => {
     await screen.findByText(HOST_UI.fields.partyAt);
 
     /*
-     * 등록 시작 칸은 없어졌다 (ADR-37) — 남은 시각 입력은 파티 일시와 매력 투표 시작 둘이다.
+     * 등록 시작 칸은 없어졌다 (ADR-38) — 남은 시각 입력은 파티 일시와 매력 투표 시작 둘이다.
      * 그 자리에는 "등록은 회차를 만들면 바로 열려요" 한 줄이 대신 선다.
      */
     const inputs = document.querySelectorAll('input[type="datetime-local"]');
@@ -83,7 +83,7 @@ describe("위저드", () => {
     }
   });
 
-  it("★ 장소 기본값을 들고 시작한다 (ADR-37)", async () => {
+  it("★ 장소 기본값을 들고 시작한다 (ADR-38)", async () => {
     // 늘 같은 곳에서 여는 모임이면 한 번 적어두고 쓴다. 회차마다 고칠 수 있다
     stubDefaults({ place: "테스트 장소" });
     render(<RouterProvider router={step2()} />);
