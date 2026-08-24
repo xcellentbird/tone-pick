@@ -28,7 +28,7 @@ export default function Home({
   onTab: (tab: Tab) => void;
   /** 자리 카드를 누르면 확인 화면을 다시 연다 (슬라이스 12) */
   onSeat: () => void;
-  /** 진행 방식을 다시 여는 길 (슬라이스 20). 등록 중에만 카드에 붙는다 */
+  /** 진행 방식을 다시 여는 길 (슬라이스 21). 등록 중에만 카드에 붙는다 */
   onHelp: () => void;
 }) {
   const { phase } = state.event;

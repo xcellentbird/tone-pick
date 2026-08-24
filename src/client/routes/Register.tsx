@@ -90,7 +90,7 @@ export default function Register() {
         state: done.resumed ? { welcome: REGISTER.welcomeBack(done.state.me.nickname) } : undefined,
       });
       /*
-       * **등록을 마친 사람에게 진행 방식을 한 번 밀어준다** (슬라이스 20).
+       * **등록을 마친 사람에게 진행 방식을 한 번 밀어준다** (슬라이스 21).
        *
        * 도움말은 상단 물음표로 늘 열리지만, 그건 **이미 질문이 생긴 사람**의 장치라 늦다.
        * 목표가 "운영자에게 묻는 일을 줄이는 것" 이면 질문이 생기기 전에 한 번 읽혀야 하고,
