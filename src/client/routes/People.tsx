@@ -117,16 +117,22 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
     if (!sameGenderOk && target.gender === state.me.gender) return toast(POKE.blocked.sameGender);
     if (budget.used >= budget.max) return toast(POKE.blocked.noBudget(round, budget.max));
 
-    // 확인창은 무엇이 어떻게 바뀌는지 숫자로 보여준다
+    /*
+     * 확인창은 무엇이 **어떻게 바뀌는지** 숫자로 보여준다 (규칙 4).
+     *
+     * **누른 뒤의 값만 적으면 지금 값으로 읽힌다.** 예전에는 `남은 콕` 자리에 `max - used - 1`
+     * 하나만 적었는데, 바로 위 카드는 `남은 콕 3회` 인데 창이 `2회` 라고 해서 같은 화면의
+     * 두 숫자가 어긋나 보였다 — 그걸 본 사람은 매력 투표가 콕에 합산된 줄로 읽었다.
+     * 왼쪽에 지금 값을 함께 두면 카드와 같아져서 그 오해가 생길 자리가 없다.
+     */
+    const left = budget.max - budget.used;
     confirm(
       {
         btn: POKE.confirm.submit(round),
         title: POKE.confirm.title(round, already),
         note: POKE.confirm.note(round, canUndo),
-        facts: [
-          [POKE.confirm.rowTarget(round), UNIT.times(already + 1)],
-          [POKE.confirm.rowBudget(round), UNIT.times(budget.max - budget.used - 1)],
-        ],
+        // 한 줄뿐이다. 몇 번째인지는 제목과 그 사람 카드의 숫자가 이미 말한다
+        facts: [[POKE.confirm.rowBudget(round), POKE.confirm.change(left, left - 1)]],
         // 이미 보낸 적이 있고 되돌릴 수 있을 때만. 창이 숫자를 이미 보여주고 있다
         ...(already > 0 && canUndo ? { second: { label: POKE.undo.btn, run: () => undo(target) } } : {}),
       },
