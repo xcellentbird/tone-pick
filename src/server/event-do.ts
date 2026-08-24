@@ -55,7 +55,7 @@ import {
   normalizePhone,
   realNameProblem,
 } from "../shared/constants.ts";
-import { PHASE_ORDER, canPoke, dueTransition, rulesLocked, schedLocked } from "../shared/phase.ts";
+import { PHASE_ORDER, canPoke, dueAt, dueTransition, rulesLocked, schedLocked } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
@@ -1370,7 +1370,7 @@ export class EventDO extends DurableObject {
 
   /** 다음에 울릴 예약 하나만 걸어둔다. 폴링이 아니라서 유휴 중 비용이 0이다 */
   private async rearm(meta: EventMeta, now: number) {
-    const at = nextDue(meta);
+    const at = dueAt(meta);
     if (at === null) {
       await this.ctx.storage.deleteAlarm();
       return;
@@ -1849,27 +1849,11 @@ function inRange(n: number, r: { min: number; max: number }): boolean {
 }
 
 /**
- * 다음에 울릴 예약 시각. fired 가 찬 항목은 이미 울린 것이므로 건너뛴다.
- * 사전 투표 마감부터는 예약이 없어서 알람도 걸지 않는다.
- */
-/**
  * 이 라운드의 알림이 켜져 있나 (ADR-43). **되돌리기와 같은 꼴이다** —
  * 매력 투표는 `preNotify`, 파티 콕은 `pokeNotify`. 둘 다 없으면 알리지 않는다.
  */
 function notifyOn(config: EventConfig, round: PokeRound): boolean {
   return round === "pre" ? config.preNotify === true : config.pokeNotify === true;
-}
-
-function nextDue(meta: EventMeta): number | null {
-  const { phase, fired, schedule } = meta;
-  if (phase === "prep" && schedule.regOpenAt && !fired.reg) return schedule.regOpenAt;
-  if (phase === "reg" && schedule.prevoteAt && !fired.prevote) return schedule.prevoteAt;
-  /*
-   * 커플 발표 (ADR-43). **`dueTransition` 과 조건이 같아야 한다** — 여기가 알람을 걸고
-   * 거기가 판정한다. 한쪽만 고치면 알람이 안 울리거나(여기를 빼면), 울려도 아무 일이 없다.
-   */
-  if (phase === "party" && schedule.revealAt && !fired.done) return schedule.revealAt;
-  return null;
 }
 
 /**

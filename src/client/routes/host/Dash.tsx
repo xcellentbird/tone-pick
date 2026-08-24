@@ -18,11 +18,12 @@ import {
   type ActionCopy,
 } from "../../../shared/copy.ts";
 import type { Phase } from "../../../shared/types.ts";
-import { PHASE_ORDER } from "../../../shared/phase.ts";
-import { formatGap, formatWhen } from "../../../shared/time.ts";
+import { PHASE_ORDER, dueAt } from "../../../shared/phase.ts";
+import { TICK_WINDOW, formatCountdown, formatDayHour, formatGap, formatWhen } from "../../../shared/time.ts";
 import { post } from "../../lib/api.ts";
 import Avatar from "../../ui/Avatar.tsx";
 import { now } from "../../lib/serverTime.ts";
+import { useTicker } from "../../lib/useLoad.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import { useConsole, type ConsoleState } from "./HostConsole.tsx";
 
@@ -43,6 +44,31 @@ export default function Dash() {
     voteEndText: meta.schedule.voteEndAt ? formatWhen(meta.schedule.voteEndAt) : undefined,
     voteClosed: !!meta.schedule.voteEndAt && meta.schedule.voteEndAt <= now(),
   };
+
+  /*
+   * 단계 버튼이 하는 일은 **예약을 앞당기는 것**이다. 그래서 옆에 남은 시간이 함께 선다 —
+   * 가만히 두면 언제 저절로 넘어가는지 모르면 "지금 눌러도 되나" 를 판단할 수 없다.
+   *
+   * 시각은 `dueAt` 한 곳에서 온다 (서버 알람과 같은 표다). **파티 시작에는 셀 것이 없다** —
+   * 예약이 없는 전환이라(ADR-14) 그 자리는 비워 둔다. 없는 시각을 지어내면
+   * 현장이 그 숫자를 따라가게 되고, 그게 ADR-14 가 막으려던 바로 그 일이다.
+   */
+  const until = (dueAt(meta) ?? 0) - now();
+  const counting = until > 0;
+
+  /**
+   * 매력 투표 마감까지. **버튼이 아니라 줄이다** — 마감은 단계 전환이 아니라
+   * 시각이 내리는 판정이라(ADR-39) 앞당길 손잡이가 없다. 그래도 `prevote` 동안
+   * 다음에 일어날 일은 이것이라, 버튼 아래에서 그 사실을 말한다.
+   */
+  const untilVoteEnd = meta.phase === "prevote" && meta.schedule.voteEndAt ? meta.schedule.voteEndAt - now() : 0;
+
+  // 하루 넘게 남았으면 1초마다 다시 그릴 이유가 없다 — `144:00:00` 은 읽는 사람이 다시 나눈다
+  const ticking = Math.max(counting ? until : 0, untilVoteEnd);
+  useTicker(ticking > 0 && ticking <= TICK_WINDOW);
+
+  /** 남은 시간 한 조각. 하루 안쪽이면 초를 세고, 그보다 멀면 접는다 (홈 카운트다운과 같은 규칙) */
+  const remain = (ms: number) => (ms <= TICK_WINDOW ? formatCountdown(ms) : formatDayHour(ms));
 
   async function go(to: Phase) {
     await post(`/host/events/${meta.id}/phase`, { to });
@@ -86,9 +112,24 @@ export default function Dash() {
   return (
     <div className="stack">
       {nextPhase && (
-        <button className="btn primary block" onClick={() => ask(nextPhase)}>
-          {phaseAction(nextPhase, { maxPre: meta.config.maxPre, maxParty: meta.config.maxParty })?.btn}
+        <button className="btn primary block phaseBtn" onClick={() => ask(nextPhase)}>
+          <span>{phaseAction(nextPhase, { maxPre: meta.config.maxPre, maxParty: meta.config.maxParty })?.btn}</span>
+          {/* 예약이 있는 전환에만 붙는다. 없으면 자리도 만들지 않는다 — 빈 칸은 무엇을 세다 멈춘 것처럼 보인다 */}
+          {counting && <span className="due">{remain(until)}</span>}
         </button>
+      )}
+      {/*
+        매력 투표 마감. **버튼 아래 한 줄이다** — 앞당길 수 있는 전환이 아니다 (ADR-39).
+        마감돼야 첫 자리를 짤 수 있어서, 그 시각과 파티 일시 사이가 곧 짜는 시간이다.
+      */}
+      {meta.phase === "prevote" && (
+        <p className="tiny dim">
+          {untilVoteEnd > 0
+            ? HOST_UI.dash.untilVoteEnd(remain(untilVoteEnd))
+            : meta.schedule.voteEndAt
+              ? HOST_UI.dash.voteClosed
+              : HOST_UI.dash.noVoteEnd}
+        </p>
       )}
       {meta.phase === "done" && (
         <button className="btn danger block" onClick={() => run(UNREVEAL, "party")}>
