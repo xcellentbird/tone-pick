@@ -296,25 +296,6 @@ describe("운영자 콘솔", () => {
     expect(screen.getByText(HOST_UI.invites.title)).toBeTruthy();
   });
 
-  it("★ 명단 카드는 안내문을 못 보낸 사람이 있을 때 그 수를 말한다", async () => {
-    /*
-     * **여는 이유가 되는 유일한 숫자다.** 없으면 카드를 눌러볼 까닭이 없다.
-     * 이미 등록한 사람은 세지 않는다 — 자기 링크로 들어왔다는 뜻이라 보낼 것이 없다.
-     */
-    const st = hostState();
-    st.invites = [
-      { phone: "01099998888", token: "t2", addedAt: 2 },
-      { phone: "01077776666", token: "t3", addedAt: 3, sentAt: 4 },
-      // 등록했고 보냄 표시는 없는 사람 — 이 수에 들어가면 없는 할 일이 생긴다
-      { phone: "01011112222", token: "t1", addedAt: 1, nickname: st.players[0].nickname },
-    ];
-    stubFetch(st);
-    renderConsole("/host/e1/players");
-
-    await screen.findByText(HOST_UI.invites.title);
-    expect(screen.getByText(HOST_UI.invite.remaining(1))).toBeTruthy();
-  });
-
   it("★ 참가 상태는 카드 **안** 맨 오른쪽에 붙고, 파티 뒤에는 눌러 찍는다", async () => {
     /*
      * 문 앞에서 한 명씩 하는 일이라 한 번에 끝나야 한다 (ADR-33).
@@ -406,8 +387,8 @@ describe("운영자 콘솔", () => {
     await waitFor(() => expect(document.body.textContent).toContain(INVITE_TEMPLATE.split("{")[0]));
     expect(document.body.textContent).not.toContain("/j/e1/t2");
 
-    // 문구 버튼 — 링크가 섞이지 않는다
-    fireEvent.click(screen.getByText(HOST_UI.invite.note));
+    // 문구는 명단 머리에서 한 번 복사한다 — 링크가 섞이지 않는다
+    fireEvent.click(screen.getByText(HOST_UI.invite.copy));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     expect(String(writeText.mock.calls[0][0])).not.toContain("/j/e1/t2");
 
@@ -417,24 +398,31 @@ describe("운영자 콘솔", () => {
     expect(writeText.mock.calls[1][0]).toBe(`${location.origin}/j/e1/t2`);
   });
 
-  it("★ 링크는 보냄으로 찍지 않는다 — 보낸 뒤에도 다시 보낼 수 있어야 한다", async () => {
-    /*
-     * 보통 문구를 먼저 보내고 링크를 잇는다. 링크가 보냄을 찍어버리면 그 행의 문구 버튼이
-     * `보냄` 으로 바뀌어 정작 문구를 못 보낸다. 그리고 "링크가 안 열려요" 연락이 오는 자리라
-     * 이미 보낸 사람에게도 링크 버튼은 남아 있어야 한다.
-     */
+  /**
+   * 행에 붙는 건 **사람마다 다른 것**뿐이다.
+   *
+   * 문구는 전원이 같아서 행마다 둘 이유가 없고, 어디까지 보냈는지도 표시하지 않는다
+   * (ADR-32 후기) — 복사가 곧 발송이 아니고, 되돌릴 수 있는 표시는 틀렸을 때 아무도 모른다.
+   */
+  it("★ 명단 행에는 링크뿐이다 — 문구도, 보냄 표시도 없다", async () => {
     const st = hostState();
-    st.invites = [{ phone: "01077776666", token: "t3", addedAt: 3, sentAt: 4 }];
+    st.invites = [
+      { phone: "01099998888", token: "t2", addedAt: 2 },
+      { phone: "01077776666", token: "t3", addedAt: 3 },
+    ];
     stubFetch(st);
     const writeText = stubClipboard();
     renderConsole("/host/e1/players/invites");
 
-    // 보낸 사람이라 문구 자리는 `보냄` 이지만, 링크는 그대로 있다
-    await screen.findByText(HOST_UI.status.invited);
-    fireEvent.click(screen.getByText(HOST_UI.invite.link));
+    // 안내문 복사는 명단 머리에 하나뿐이다 — 사람이 둘이어도 하나다
+    expect((await screen.findAllByText(HOST_UI.invite.link)).length).toBe(2);
+    expect(screen.getAllByText(HOST_UI.invite.copy).length).toBe(1);
+
+    // 두 번째 사람의 링크를 눌러도 그 사람 것이 나온다
+    fireEvent.click(screen.getAllByText(HOST_UI.invite.link)[1]);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${location.origin}/j/e1/t3`));
 
-    // 보냄 표시를 건드리지 않았다
+    // 보냄으로 찍는 길이 아예 없다
     expect(calls.some((c) => c.url.includes("/sent"))).toBe(false);
   });
 

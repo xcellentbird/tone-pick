@@ -66,55 +66,38 @@ export default function Players() {
   const tpl = useLoad(() => api<Defaults>("/host/defaults"));
   const template = tpl.data?.inviteTemplate ?? INVITE_TEMPLATE;
 
-  /** 그 사람의 링크. **사람마다 다르다** — 한 곳에서만 만들어 두 버튼이 같은 값을 본다 */
+  /** 그 사람의 링크. **사람마다 다른 건 이것뿐이다** */
   const linkFor = (i: Invite) => `${location.origin}/j/${state.meta.id}/${i.token}`;
 
   /**
-   * 그 사람의 안내문.
-   *
-   * 기본 문구에는 링크가 없다 — 문구와 링크를 **따로 복사해 두 번에 나눠 보낸다**.
-   * 그래도 `{링크}` 자리는 채워 준다: 예전에 저장해 둔 문구가 깨지면 안 된다.
+   * 이 회차의 안내문. **전원이 같은 글을 받는다** — 사람 인자가 없는 게 그 사실이다.
+   * 링크는 여기 없고 행마다 따로 복사한다 (ADR-32 후기).
    */
-  const noteFor = (i: Invite) =>
-    renderInvite(template, {
-      place: state.meta.place ?? "",
-      when: formatWhen(state.meta.schedule.partyAt),
-      link: linkFor(i),
-    });
+  const note = renderInvite(template, {
+    place: state.meta.place ?? "",
+    when: formatWhen(state.meta.schedule.partyAt),
+  });
 
   /**
-   * **복사하면 보낸 것으로 본다.** 운영자가 복사했다는 건 보낼 참이라는 뜻이고,
-   * 버튼을 둘 두면 한 명당 두 번 누르게 된다 — 스무 명이면 마흔 번이다.
-   * 잘못 찍혔으면 그 행의 표시를 눌러 되돌린다.
+   * 안내문을 복사한다. **행마다 두지 않는다** — 전원이 같은 글이라 명단 머리에서 한 번이면 된다.
+   *
+   * 어디까지 보냈는지는 **표시하지 않는다** (ADR-32 후기). 복사가 곧 발송이 아니고
+   * (붙여넣기 전에 마음이 바뀐다), 되돌릴 수 있는 표시는 틀렸을 때 아무도 모른다.
    */
-  function copyNote(i: Invite) {
+  function copyNote() {
     // 복사가 막히는 브라우저가 있다 (권한·구버전). 실패를 성공이라고 말하지 않는다
     navigator.clipboard
-      ?.writeText(noteFor(i))
-      .then(() => {
-        toast(HOST_UI.copied);
-        if (!i.sentAt) void setSent(i, true);
-      })
+      ?.writeText(note)
+      .then(() => toast(HOST_UI.copied))
       .catch(() => toast(HOST_UI.copyFailed));
   }
 
-  /**
-   * 링크만 복사한다. **보냄으로 찍지 않는다** —
-   * 보통 문구를 먼저 보내고 링크를 잇는데, 링크가 먼저 찍어버리면 그 행의 문구 버튼이
-   * `보냄` 으로 바뀌어 정작 문구를 못 보낸다. 보냈다고 말하는 건 문구 쪽 하나다.
-   * 링크는 "안 열려요" 연락이 왔을 때 다시 보내는 길이기도 해서, 보낸 뒤에도 남아 있어야 한다.
-   */
+  /** 그 사람의 링크만 복사한다. 사람마다 다른 건 이것뿐이라 행에 붙는다 */
   function copyLink(i: Invite) {
     navigator.clipboard
       ?.writeText(linkFor(i))
       .then(() => toast(HOST_UI.copiedLink))
       .catch(() => toast(HOST_UI.copyFailedLink));
-  }
-
-  /** 보냄 표시. 되돌릴 수 있어서 확인창이 없다 */
-  async function setSent(i: Invite, sent: boolean) {
-    await post(`/host/events/${state.meta.id}/invites/${i.phone}/sent`, { sent });
-    reload();
   }
 
   /**
@@ -150,7 +133,6 @@ export default function Players() {
    * 그 사람들까지 세면 카드가 없는 할 일을 만들어 낸다.
    */
   const joinedN = state.invites.filter((i) => i.nickname).length;
-  const unsentN = state.invites.filter((i) => !i.nickname && !i.sentAt).length;
 
   const att = (id: string) => state.attendance[id];
   const shown = state.players.filter((p) => filter === "all" || p.gender === filter);
@@ -225,7 +207,6 @@ export default function Players() {
               : HOST_UI.invites.count(state.invites.length, joinedN)}
           </div>
           {/* 안내문을 아직 못 보낸 사람 — **여는 이유**가 되는 유일한 숫자다 */}
-          {unsentN > 0 && <div className="tiny dim">{HOST_UI.invite.remaining(unsentN)}</div>}
         </span>
         <span className="dim">{"›"}</span>
       </button>
@@ -359,14 +340,9 @@ export default function Players() {
             {(() => {
               const mine = state.invites.find((i) => i.phone === picked.phone);
               return mine ? (
-                <div className="row" style={{ marginTop: 16 }}>
-                  <button className="btn wide ghost" onClick={() => copyNote(mine)}>
-                    {HOST_UI.invite.copy}
-                  </button>
-                  <button className="btn wide ghost" onClick={() => copyLink(mine)}>
-                    {HOST_UI.invite.copyLink}
-                  </button>
-                </div>
+                <button className="btn ghost block" style={{ marginTop: 16 }} onClick={() => copyLink(mine)}>
+                  {HOST_UI.invite.copyLink}
+                </button>
               ) : null;
             })()}
 
@@ -388,10 +364,9 @@ export default function Players() {
           invites={state.invites}
           eventId={state.meta.id}
           hasPlace={!!state.meta.place}
-          noteFor={noteFor}
-          onCopy={copyNote}
+          note={note}
+          onCopyNote={copyNote}
           onCopyLink={copyLink}
-          onSent={setSent}
           onRemove={askRemove}
           onEditTemplate={() => navigate("/host/defaults")}
           onDone={(added) => {
@@ -419,10 +394,9 @@ function Invites({
   invites,
   eventId,
   hasPlace,
-  noteFor,
-  onCopy,
+  note,
+  onCopyNote,
   onCopyLink,
-  onSent,
   onRemove,
   onEditTemplate,
   onDone,
@@ -433,14 +407,12 @@ function Invites({
   hasPlace: boolean;
   /** 안내문 문구를 고치러 간다. 운영자 기본값에 하나만 둔다 (ADR-32) */
   onEditTemplate: () => void;
-  /** 한 사람분 안내문. 템플릿은 위에서 한 번만 읽는다 */
-  noteFor: (i: Invite) => string;
-  /** 그 사람의 안내문을 복사한다 — 복사하면 보낸 것으로 본다 */
-  onCopy: (i: Invite) => void;
-  /** 그 사람의 링크만 복사한다. 보냄으로 찍지 않는다 */
+  /** 이 회차의 안내문. **전원이 같다** — 템플릿은 위에서 한 번만 읽는다 */
+  note: string;
+  /** 안내문을 복사한다. 전원이 같은 글이라 명단 머리에서 한 번이다 */
+  onCopyNote: () => void;
+  /** 그 사람의 링크만 복사한다. 사람마다 다른 건 이것뿐이다 */
   onCopyLink: (i: Invite) => void;
-  /** 보냄 표시를 되돌린다 */
-  onSent: (i: Invite, sent: boolean) => void;
   /** 명단에서 뺀다. 확인창을 거친다 */
   onRemove: (i: Invite) => void;
   /** 더한 수. 이미 있어서 아무 일도 없었으면 0 */
@@ -462,8 +434,6 @@ function Invites({
    * 문구는 한 번 확인하면 되는 것이고 명단은 계속 보면서 일하는 것이다.
    */
   const [showNote, setShowNote] = useState(false);
-  /** 보낼 일이 남은 사람 — **아직 등록 안 한 쪽만** 센다 (탭의 카드와 같은 셈이다) */
-  const left = invites.filter((i) => !i.nickname && !i.sentAt).length;
   const joined = invites.filter((i) => i.nickname).length;
   /** 아직 등록 안 한 사람. **이 목록은 파티가 다가올수록 줄고, 그만큼 아래 카드가 는다** */
   const waiting = invites.filter((i) => !i.nickname);
@@ -530,26 +500,27 @@ function Invites({
 
       {invites.length > 0 && (
         <div className="card stack">
-          <div className="row between">
-            <span className="tiny dim">{left > 0 ? HOST_UI.invite.remaining(left) : HOST_UI.invite.allSent}</span>
-            <span className="row">
-              <button className="btn ghost compact" type="button" aria-pressed={showNote} onClick={() => setShowNote((v) => !v)}>
-                {HOST_UI.invite.preview}
-              </button>
-              <button className="btn ghost compact" type="button" onClick={onEditTemplate}>
-                {HOST_UI.invite.editTemplate}
-              </button>
-            </span>
+          {/*
+            **안내문 복사는 여기 하나뿐이다.** 전원이 같은 글이라 행마다 둘 이유가 없고,
+            행에 버튼이 늘면 정작 사람마다 다른 링크가 그만큼 눈에 덜 띈다.
+          */}
+          <button className="btn ghost block" type="button" onClick={onCopyNote}>
+            {HOST_UI.invite.copy}
+          </button>
+          <div className="row">
+            <button className="btn ghost compact" type="button" aria-pressed={showNote} onClick={() => setShowNote((v) => !v)}>
+              {HOST_UI.invite.preview}
+            </button>
+            <button className="btn ghost compact" type="button" onClick={onEditTemplate}>
+              {HOST_UI.invite.editTemplate}
+            </button>
           </div>
 
           {/* 장소가 비었다는 건 **접어두지 않는다** — 그대로 보내면 안내문에 자리만 빈다 */}
           {!hasPlace && <p className="tiny warnText">{HOST_UI.invite.noPlace}</p>}
 
-          {/*
-            전원이 같은 글을 받는다 — 기본 문구에는 링크가 없어서 사람마다 다를 것이 없다.
-            **링크는 여기 그리지 않는다.** 첫 사람 것을 보여주면 그걸 보고 남의 링크를 보내게 된다.
-          */}
-          {showNote && <p className="small pre" style={{ margin: 0 }}>{noteFor(invites[0])}</p>}
+          {/* 위 버튼이 복사하는 글 그대로다. 사람마다 다른 것이 없어 그릴 것도 하나다 */}
+          {showNote && <p className="small pre" style={{ margin: 0 }}>{note}</p>}
           <p className="tiny dim">{HOST_UI.invite.twoStepHint}</p>
         </div>
       )}
@@ -570,20 +541,7 @@ function Invites({
               <div className="row between" key={i.phone}>
                 {/* 목록도 입력칸과 같은 모양으로 끊는다 — 다르면 같은 번호가 다르게 읽힌다 */}
                 <span className="grow ellipsis">{formatPhone(i.phone)}</span>
-                {/* 보냈으면 **글자로** 말한다. 눌러서 되돌린다 */}
-                {i.sentAt ? (
-                  <button className="btn ghost compact" aria-pressed onClick={() => onSent(i, false)}>
-                    {HOST_UI.status.invited}
-                  </button>
-                ) : (
-                  <button className="btn ghost compact" onClick={() => onCopy(i)}>
-                    {HOST_UI.invite.note}
-                  </button>
-                )}
-                {/*
-                  **보낸 뒤에도 남는다.** 문구는 한 번 보내면 끝이지만 링크는 다시 보낼 일이 있다 —
-                  "안 열려요" 연락이 오는 자리다. 보냄 표시를 되돌렸다 다시 찍게 만들지 않는다.
-                */}
+                {/* 행에 붙는 건 **사람마다 다른 것**뿐이다. 문구는 위에서 한 번 복사한다 */}
                 <button className="btn ghost compact" onClick={() => onCopyLink(i)}>
                   {HOST_UI.invite.link}
                 </button>
