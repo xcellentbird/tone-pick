@@ -9,24 +9,15 @@ import { NOTICE, POKE } from "../../shared/copy.ts";
 import type { ParticipantState, PokeRound } from "../../shared/types.ts";
 
 /**
- * 받은 줄들이 **어느 라운드에서 왔을 수 있나.** 가를 수 없으면 `null` 이다.
+ * 받은 줄은 **라운드마다 따로 쌓인다** (ADR-46 후기).
  *
- * ⚠️ 줄마다 따로 답하지 않는다 (ADR-46) — `receivedCount` 는 알림이 켜진 라운드를 합친
- * **한 수**이고, 거기서 라운드를 가르면 *어느 단계에서 받았나* 가 드러나 발신자가 좁혀진다.
- * 여기서 답하는 건 목록 **전체**를 무엇이라 부를지 하나이고, 그 답은
- * 참가자가 이미 아는 것(지금 단계·이 회차의 알림 설정)만으로 나온다.
+ * 매력 투표에서 받은 것은 표고, 파티에서 받은 것은 콕이다 — 참가자가 겪은 일이 다르므로
+ * 화면도 다르게 부른다. 한 수로 합쳐 두던 시절에는 매력 투표 중에도 `콕! 찔렀어요` 가 떴다.
  *
- * 세는 규칙은 서버의 `visibleReceived` 와 **짝이다** — 알림이 켜진 라운드만 센다.
- * 발표 뒤에는 전부 세므로(ADR-43) 가를 수 없다.
+ * **어느 줄이 어느 라운드인지가 드러나는 것이 이 결정의 대가다** — 그 판단과 대가는
+ * ADR-46 후기에 적혀 있다. 여기서 새로 정하지 마라.
  */
-function receivedRound(state: ParticipantState): PokeRound | null {
-  const { phase, config } = state.event;
-  if (phase === "done") return null;
-  // 파티 콕은 파티가 시작돼야 생긴다 — 그전에 쌓인 것은 전부 매력 투표다
-  if (phase !== "party") return "pre";
-  const on = ([["pre", config.preNotify], ["party", config.pokeNotify]] as const).filter(([, v]) => v);
-  return on.length === 1 ? on[0][0] : null;
-}
+const ROUNDS: PokeRound[] = ["pre", "party"];
 
 /**
  * 배너를 눌렀을 때 갈 곳. **알림마다 다르다** —
@@ -75,21 +66,18 @@ export function noticesOf(state: ParticipantState): Notice[] {
    * 맞춰 발신자를 좁힐 수 있다 — 익명은 이름을 가리는 것만으로는 지켜지지 않는다.
    * 그래서 배너로도 띄우지 않는다. 배너는 최근 3분을 재는 물건이다.
    */
-  /*
-   * 이름은 **목록 전체가 같다.** 한 줄만 다르게 부르면 그 줄이 어느 라운드였는지 말하는 셈이다.
-   * 단계가 바뀌어 이름이 바뀔 때도 전부 함께 바뀌므로 여전히 아무것도 가리키지 않는다.
-   */
-  const round = receivedRound(state);
-  for (let i = 0; i < state.poke.receivedCount; i++) {
-    list.push({
-      key: `poked:${i}`,
-      icon: "💘",
-      title: POKE.received(round),
-      body: POKE.receivedNote,
-      at: 0,
-      bannerable: false,
-      tab: "home",
-    });
+  for (const round of ROUNDS) {
+    for (let i = 0; i < state.poke.received[round]; i++) {
+      list.push({
+        key: `poked:${round}:${i}`,
+        icon: "💘",
+        title: POKE.received(round),
+        body: POKE.receivedNote,
+        at: 0,
+        bannerable: false,
+        tab: "home",
+      });
+    }
   }
 
   return list.sort((a, b) => b.at - a.at);

@@ -445,7 +445,7 @@ describe("공개 범위", () => {
     await api("/api/poke", { method: "POST", cookie: her.cookie, body: { toId: me.id } });
 
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
-    expect(state.body.poke.receivedCount).toBe(1);
+    expect(state.body.poke.received.pre + state.body.poke.received.party).toBe(1);
     // 받은 콕은 횟수만 있다. 명단에는 그녀가 있지만(찌를 수 있어야 하니까),
     // 콕 쪽에는 발신자로 이어질 값이 하나도 없어야 한다
     const raw = JSON.stringify(state.body.poke);
@@ -467,7 +467,7 @@ describe("공개 범위", () => {
     await setPhase(ev.id, "done");
 
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
-    expect(state.body.poke.receivedCount).toBe(1);
+    expect(state.body.poke.received.pre + state.body.poke.received.party).toBe(1);
     expect(state.body.poke.matches).toEqual([]);
     const raw = JSON.stringify(state.body.poke);
     expect(raw).not.toContain(her.id);

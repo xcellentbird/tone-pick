@@ -145,7 +145,7 @@ export default function Home({
            * 이 앱이 없애려는 게 거절당하는 경험이라, 결과가 비었을 때의 문장이 가장 중요하다.
            */
           (state.poke.matches.length === 0 ? (
-            <p className="small pre">{REVEAL.noMutual(state.poke.receivedCount)}</p>
+            <p className="small pre">{REVEAL.noMutual(state.poke.received.pre + state.poke.received.party)}</p>
           ) : (
             <>
               <div className="kicker">{HOME.matched(state.poke.matches.length)}</div>

@@ -744,7 +744,7 @@ export class EventDO extends DurableObject {
      * 싣는 숫자도 `visibleReceived` 여야 한다. 총합을 실으면 꺼둔 라운드가 그대로 새어나간다.
      */
     if (notifyOn(meta.config, round)) {
-      this.toPlayer(toId, { type: "poke", receivedCount: this.visibleReceived(toId, meta) });
+      this.toPlayer(toId, { type: "poke", received: this.visibleReceived(toId, meta) });
     }
     return ok(await this.pokeState(fromId, meta));
   }
@@ -776,7 +776,7 @@ export class EventDO extends DurableObject {
     this.ctx.storage.sql.exec("DELETE FROM pokes WHERE id = ?", one.id);
 
     if (notifyOn(meta.config, round)) {
-      this.toPlayer(toId, { type: "poke", receivedCount: this.visibleReceived(toId, meta) });
+      this.toPlayer(toId, { type: "poke", received: this.visibleReceived(toId, meta) });
     }
     return ok(await this.pokeState(fromId, meta));
   }
@@ -1508,19 +1508,23 @@ export class EventDO extends DurableObject {
   /**
    * 참가자에게 **보여도 되는** 받은 수 (ADR-43).
    *
-   * 알림이 라운드마다 따로라, 총합을 그대로 내려보내면 **꺼둔 라운드의 수가 딸려 나간다** —
-   * 매력 투표 알림을 끈 회차에서 파티가 시작되는 순간 그때까지 쌓인 표가 숫자에 얹힌다.
+   * 알림이 라운드마다 따로라, 꺼둔 라운드는 **0으로 내려보낸다** — 실어 보내면
+   * 매력 투표 알림을 끈 회차에서 파티가 시작되는 순간 그때까지 쌓인 표가 드러난다.
    * 화면에서 감추는 걸로는 부족하다. 개발자 도구를 여는 참가자가 있고,
-   * **이 숫자 하나가 곧 "지금까지 몇 명이 나를 골랐나" 다** (ADR-34).
+   * **이 숫자가 곧 "지금까지 몇 명이 나를 골랐나" 다** (ADR-34).
    *
-   * 발표 뒤에는 전부 센다 — 그때는 매칭까지 열리므로 감출 것이 없다.
+   * **라운드를 가른다** (ADR-46 후기). 합쳐 두면 소식 줄이 매력 투표에서도 `콕` 이라고
+   * 부르게 되는데, 참가자는 그 단계에서 콕을 찌른 적이 없다. 가른 대가는 그 후기에 적었다.
    */
-  private visibleReceived(toId: string, meta: EventMeta): number {
-    if (meta.phase === "done") return this.receivedCount(toId);
-    let n = 0;
-    if (meta.config.preNotify) n += this.receivedCount(toId, "pre");
-    if (meta.config.pokeNotify) n += this.receivedCount(toId, "party");
-    return n;
+  private visibleReceived(toId: string, meta: EventMeta): Record<PokeRound, number> {
+    // 발표 뒤에는 전부 센다 — 그때는 매칭까지 열리므로 감출 것이 없다
+    if (meta.phase === "done") {
+      return { pre: this.receivedCount(toId, "pre"), party: this.receivedCount(toId, "party") };
+    }
+    return {
+      pre: meta.config.preNotify ? this.receivedCount(toId, "pre") : 0,
+      party: meta.config.pokeNotify ? this.receivedCount(toId, "party") : 0,
+    };
   }
 
   /**
@@ -1593,7 +1597,7 @@ export class EventDO extends DurableObject {
       },
       sentTo,
       // 알림을 끈 라운드는 발표 전까지 세지 않는다 (ADR-34·43) — `visibleReceived` 가 판단한다
-      receivedCount: this.visibleReceived(playerId, meta),
+      received: this.visibleReceived(playerId, meta),
       matches,
     };
   }

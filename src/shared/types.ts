@@ -124,7 +124,14 @@ export interface MyPokeState {
    * 콕을 이미 찌른 것처럼 보이고, 되돌리기는 지울 것이 없는 채로 뜬다.
    */
   sentTo: Record<string, number>;
-  receivedCount: number;            // 받은 횟수만. 발신자는 익명
+  /**
+   * **라운드마다 따로** 받은 횟수 (ADR-46 후기). 발신자는 어느 쪽도 익명이다.
+   *
+   * 한동안 한 수로 합쳤다 — 가르면 *어느 단계에서 받았나* 가 드러나기 때문이었다.
+   * 대신 소식 줄이 매력 투표에서도 `콕` 이라고 불렀고, 참가자가 찌른 적 없는 콕을 받은 것이 됐다.
+   * **겪는 일과 화면이 갈리는 쪽을 더 나쁘게 봤다** — 대가는 ADR-46 후기에 적었다.
+   */
+  received: Record<PokeRound, number>;
   matches: MatchInfo[];             // 발표 후에만 채워진다
 }
 
@@ -315,7 +322,7 @@ export type ServerEvent =
    * 등록 중에는 몇 명인지가 그대로 새어 나간다. 받는 쪽은 어차피 다시 읽는다 (ADR-26).
    */
   | { type: "roster" }
-  | { type: "poke"; receivedCount: number }          // 익명. 발신자 정보 없음
+  | { type: "poke"; received: Record<PokeRound, number> }   // 익명. 발신자 정보 없음
   /**
    * 자리가 확정됐다. **테이블 번호는 싣지 않는다** — 전원에게 나가는 신호라
    * 남의 자리가 개발자 도구에 보이게 된다. 받은 쪽은 다시 읽어 자기 자리를 가져간다.
