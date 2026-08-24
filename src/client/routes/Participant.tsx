@@ -247,7 +247,9 @@ function Loaded({
               </span>
             </button>
           )}
-          {tab === "home" && <Home state={state} onTab={onTab} onSeat={() => onSeat(true)} />}
+          {tab === "home" && (
+            <Home state={state} onTab={onTab} onSeat={() => onSeat(true)} onHelp={() => onHelp(true)} />
+          )}
           {tab === "people" && (
             <People
               state={state}
