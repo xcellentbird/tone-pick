@@ -84,6 +84,10 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
       calls.poke.push(toId);
       return POKE_STATE;
     },
+    unpoke: async (toId) => {
+      calls.poke.push(`-${toId}`);
+      return POKE_STATE;
+    },
     ackSeat: async (round) => {
       calls.ack.push(round);
     },
@@ -607,6 +611,21 @@ describe("참가자 화면 · 어깨너머 가리기", () => {
   function pokeButtons() {
     return screen.getAllByRole("button").filter((b) => b.className.includes("pokeBtn"));
   }
+
+  it("★ 되돌리기 버튼은 찌른 사람에게만 나오고, 가리면 함께 사라진다 (ADR-34)", async () => {
+    /*
+     * 되돌리기가 가린 동안에도 보이면 **"이 사람을 찔렀다" 가 그대로 샌다** —
+     * 이 슬라이스의 불변식이 되돌리기 버튼 하나로 깨진다.
+     */
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+
+    // POKE_STATE 는 한 명만 찔렀다 — 되돌리기도 하나뿐이다
+    expect(screen.getAllByLabelText(POKE.undo.btn)).toHaveLength(1);
+
+    fireEvent.click(screen.getByText(PEOPLE.cover));
+    expect(screen.queryAllByLabelText(POKE.undo.btn)).toHaveLength(0);
+  });
 
   it("★ 가리면 찌른 버튼과 안 찌른 버튼이 구별되지 않는다", async () => {
     /*

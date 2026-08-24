@@ -185,6 +185,23 @@ participantRoutes.post("/poke", async (c) => {
 });
 
 /**
+ * 콕 되돌리기 (ADR-34). 매력 투표는 언제나, 파티 콕은 **회차 설정을 따른다**.
+ * 알림은 파생값이라 무르면 그 줄이 저절로 사라진다 (`noticesOf`).
+ */
+participantRoutes.post("/unpoke", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const body = (await c.req.json().catch(() => ({}))) as { toId?: string };
+  if (!body.toId) return apiError(c, "bad_request");
+  const { value, response } = unwrap(
+    c,
+    await seat.stub.unpoke(seat.playerId, body.toId, serverNow()),
+    pokeMessage,
+  );
+  return response ?? c.json(value);
+});
+
+/**
  * A/B 투표에 한 표 (슬라이스 14).
  *
  * **갱신된 알림 하나를 돌려준다.** 화면은 이 값을 그대로 쓰고 다시 읽지 않는다 —

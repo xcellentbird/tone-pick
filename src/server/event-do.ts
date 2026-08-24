@@ -309,6 +309,9 @@ export class EventDO extends DurableObject {
     }
     if (patch.config) {
       const { maxPre, maxParty, allowSameGender } = patch.config;
+      // 안 보내면 지금 값을 지킨다 — 콕 횟수만 고치다 알림 설정이 딸려 초기화되면 안 된다
+      const allowUndo = patch.config.allowUndo ?? meta.config.allowUndo;
+      const pokeNotify = patch.config.pokeNotify ?? meta.config.pokeNotify;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
 
       // 안 보내면 지금 값을 지킨다 — 파기 약속이 다른 설정 저장에 딸려 초기화되면 안 된다
@@ -338,6 +341,9 @@ export class EventDO extends DurableObject {
         maxPre,
         maxParty,
         ...(allowSameGender === false ? { allowSameGender: false } : {}),
+        // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
+        ...(allowUndo === false ? { allowUndo: false } : {}),
+        ...(pokeNotify === true ? { pokeNotify: true } : {}),
         ...(retentionDays !== undefined && retentionDays !== RETENTION_DAYS ? { retentionDays } : {}),
       };
     }
@@ -721,8 +727,44 @@ export class EventDO extends DurableObject {
       round,
       now,
     );
-    // 익명이다. 누가 찔렀는지는 이 메시지에도, 어디에도 싣지 않는다
-    this.toPlayer(toId, { type: "poke", receivedCount: this.receivedCount(toId) });
+    /*
+     * 익명이다. 누가 찔렀는지는 이 메시지에도, 어디에도 싣지 않는다.
+     * **알림은 회차 설정을 따른다** (ADR-34) — 없으면 보내지 않는다.
+     */
+    if (meta.config.pokeNotify) {
+      this.toPlayer(toId, { type: "poke", receivedCount: this.receivedCount(toId) });
+    }
+    return ok(await this.pokeState(fromId, meta));
+  }
+
+  /**
+   * 콕 되돌리기 (ADR-34). **하나씩 무른다** — 그 사람에게 여러 번 찔렀으면 한 번만 준다.
+   *
+   * 매력 투표는 언제나 무를 수 있다. 파티 콕은 **회차 설정을 따른다** (`allowUndo`).
+   *
+   * 알림은 저장하지 않고 `receivedCount` 에서 파생되므로(`noticesOf`),
+   * 무르면 그 줄이 저절로 사라져 **받지 않았던 상태로 돌아간다.**
+   */
+  async unpoke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (!canPoke(meta.phase)) return fail("closed");
+
+    const round = roundOf(meta.phase);
+    if (round === "party" && meta.config.allowUndo === false) return fail("closed");
+
+    const one = this.rows<{ id: string }>(
+      "SELECT id FROM pokes WHERE from_id = ? AND to_id = ? AND round = ? ORDER BY at DESC LIMIT 1",
+      fromId,
+      toId,
+      round,
+    )[0];
+    if (!one) return fail("not_found");
+    this.ctx.storage.sql.exec("DELETE FROM pokes WHERE id = ?", one.id);
+
+    if (meta.config.pokeNotify) {
+      this.toPlayer(toId, { type: "poke", receivedCount: this.receivedCount(toId) });
+    }
     return ok(await this.pokeState(fromId, meta));
   }
 
@@ -849,11 +891,16 @@ export class EventDO extends DurableObject {
       pre: Math.max(0, ...Object.values(usedBy.pre)),
       party: Math.max(0, ...Object.values(usedBy.party)),
     };
+    /*
+     * 매칭은 **파티 콕만** 센다 (ADR-34). 매력 투표는 프로필만 보고 고른 것이라
+     * 첫 자리 배정의 재료일 뿐이고, 만나보고 찌른 것과 같은 무게로 세면 안 된다.
+     */
+    const partyPairs = new Set(pokes.filter((k) => k.round === "party").map((k) => `${k.fromId}>${k.toId}`));
     const mutual: Array<[string, string]> = [];
     const matchRounds: Record<string, MatchKind> = {};
-    for (const key of pairs) {
+    for (const key of partyPairs) {
       const [a, b] = key.split(">");
-      if (a < b && pairs.has(`${b}>${a}`)) {
+      if (a < b && partyPairs.has(`${b}>${a}`)) {
         mutual.push([a, b]);
         matchRounds[`${a}|${b}`] = kindOf(when.get(key)!, when.get(`${b}>${a}`)!);
       }
@@ -1259,7 +1306,7 @@ export class EventDO extends DurableObject {
   private pairedSeatIds(round: SeatingRound): Set<string> {
     const table = new Map(round.seats.map((s) => [s.playerId, s.table]));
     const held = new Set<string>();
-    for (const [a, b] of this.pairs().mutual) {
+    for (const [a, b] of this.pairs("party").mutual) {
       if (table.has(a) && table.get(a) === table.get(b)) {
         held.add(a);
         held.add(b);
@@ -1463,7 +1510,8 @@ export class EventDO extends DurableObject {
 
     const matches: MatchInfo[] = [];
     if (meta.phase === "done") {
-      const { mutual } = this.pairs();
+      // 매칭은 **만나보고 찌른 것**만 센다 (ADR-34). 매력 투표는 자리의 재료일 뿐이다
+      const { mutual } = this.pairs("party");
       const mySeat = this.mySeat(playerId, meta.phase);
       const last = this.lastPublished();
       for (const [a, b] of mutual) {
@@ -1492,7 +1540,13 @@ export class EventDO extends DurableObject {
         party: { max: meta.config.maxParty, used: used.party },
       },
       sentTo,
-      receivedCount: this.receivedCount(playerId),
+      /*
+       * **알림을 끈 회차에서는 발표 전까지 세지 않는다** (ADR-34).
+       * 화면에서 감추는 것으로는 부족하다 — 개발자 도구를 여는 참가자가 있고,
+       * 이 숫자 하나가 곧 "지금까지 몇 명이 나를 골랐나" 다.
+       */
+      receivedCount:
+        meta.config.pokeNotify || meta.phase === "done" ? this.receivedCount(playerId) : 0,
       matches,
     };
   }
@@ -1503,11 +1557,19 @@ export class EventDO extends DurableObject {
    * 상호 매칭은 **주고받은 콕이 많은 순**으로 준다 (ADR-25). 한 사람이 여러 명과 이어졌는데
    * 정원이 모자라면 앞의 쌍이 자리를 가져가고, 화면의 커플 목록도 같은 순서로 읽힌다.
    */
-  private pairs() {
+  /**
+   * 쌍을 센다. `only` 를 주면 그 라운드만 본다.
+   *
+   * **매칭은 `party` 만 본다** (ADR-34). 매력 투표는 프로필만 보고 고른 것이라
+   * 첫 자리 배정의 재료일 뿐이고, 만나보고 찌른 것과 같은 무게로 세면 안 된다.
+   * 자리 배정은 반대로 **둘 다** 본다 — 첫 라운드를 정하는 게 매력 투표다.
+   */
+  private pairs(only?: PokeRound) {
     const sent = new Map<string, number>();
     // 어느 라운드에 찔렀는지. 매칭이 **어떻게 이루어졌는가**를 가르는 데만 쓴다
     const when = new Map<string, Set<PokeRound>>();
     for (const k of this.pokes()) {
+      if (only && k.round !== only) continue;
       const key = `${k.fromId}>${k.toId}`;
       sent.set(key, (sent.get(key) ?? 0) + 1);
       if (!when.has(key)) when.set(key, new Set());
