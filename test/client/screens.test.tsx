@@ -634,6 +634,58 @@ describe("파티 룰 도움말", () => {
     expect(now.closest("li")?.textContent).toContain(HELP.steps[0].title);
   });
 
+  it("★ 매력 투표 문구에 '콕' 을 쓰지 않는다", async () => {
+    /*
+     * ADR-34 — 둘은 쓰임이 아예 다르다. 매력 투표는 만나기 전에 프로필만 보고 고르는 것이고,
+     * 콕은 만나본 뒤에 고르는 것이며 **발표에 이어지는 건 콕뿐이다.**
+     * 같은 말로 부르면 참가자가 "아까 찔렀는데 왜 또?" 가 된다.
+     *
+     * 실제로 이름만 `매력 투표` 로 바꾸고 이 문구들을 안 고쳐서 한동안 어긋나 있었다 —
+     * 도움말은 `콕 찔러요` 라고 했고 홈 카드는 `서로 찔렀을 때만 공개돼요` 라고 했는데
+     * **뒤엣것은 사실도 아니었다.** 그래서 사람 눈이 아니라 여기가 지킨다.
+     */
+    const prevoteStep = HELP.steps.find((v) => v.key === "prevote")!;
+
+    // 지금 하는 일을 이름 붙이는 자리 — 여기엔 `콕` 이 한 글자도 없어야 한다
+    for (const [where, text] of [
+      ["도움말 단계", prevoteStep.body],
+      ["도움말 문답", HELP.qa.prevote.a],
+      ["홈 제목", HOME.todo.prevote.title],
+      ["다 썼을 때 제목", HOME.spent.prevote.title],
+    ] as const) {
+      expect(text, `${where}: ${text}`).not.toContain("콕");
+    }
+
+    /*
+     * 본문은 다르다. **다음 단계를 가리키는 `콕` 은 오히려 있어야 한다** —
+     * `파티에서 만나본 뒤에 콕 찌를 기회가 따로 있어요` 가 둘이 다른 일임을 알려준다.
+     * 그래서 금지하는 건 낱말이 아니라 **주어**다: `콕` 이 나오는 줄은 `파티` 를 함께 말해야 한다.
+     * 그 조건이 없으면 지금 하는 일을 콕이라 부른 것이다.
+     */
+    for (const [where, text] of [
+      ["홈 본문", HOME.todo.prevote.body],
+      ["다 썼을 때 본문", HOME.spent.prevote.body],
+    ] as const) {
+      for (const line of text.split("\n").filter((l) => l.includes("콕"))) {
+        expect(line, `${where}: ${line}`).toContain("파티");
+      }
+    }
+  });
+
+  it("★ 매력 투표와 콕 찌르기를 가르는 문답이 있다", async () => {
+    // 단계 그림만으로는 "둘이 뭐가 다른가" 가 안 풀린다. 바로 아래에서 풀어준다
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.prevote.q);
+    await screen.findByText(HELP.qa.poke.q);
+    /*
+     * **핵심은 "발표에 이어지는 게 어느 쪽이냐" 다.** 두 줄이 이름과 시점만 말하고
+     * 이걸 안 말하면, 바로 위 단계 그림을 되풀이한 것에 지나지 않는다.
+     */
+    expect(HELP.qa.poke.a).toContain("발표");
+    // 그리고 투표도 해야 한다는 걸 알려준다 — 안 그러면 "그럼 투표는 왜?" 로 끝난다
+    expect(HELP.qa.prevote.a).toContain("파티");
+  });
+
   it("★ 동성에게 못 찌르는 회차에서만 그 줄이 보인다", async () => {
     /*
      * 지금까지는 **눌러봐야** 알았다 (`POKE.blocked.sameGender` 토스트).
@@ -1339,48 +1391,32 @@ describe("연습용 환경", () => {
 
 describe("상단 바", () => {
   /**
-   * 참가자가 반복해서 보는 건 셋뿐이다 — 지금 단계, 남은 콕, 남은 시간.
-   * 헤더는 스크롤되지 않으므로 여기 있는 것만 항상 보인다.
+   * 답하는 질문은 하나다 — **"내가 지금 어느 파티의 어느 단계에 있나."**
+   * 헤더는 스크롤되지 않아 어느 탭에서든 계속 보이므로 자리값이 비싸다.
    */
-  it("★ 단계와 '무엇까지' 가 붙은 카운트다운이 한 줄에 있다", async () => {
-    renderParticipant(fakeSource());
+  it("★ 회차 이름과 단계는 어느 탭에서든 보인다", async () => {
+    for (const tab of ["home", "people", "me"] as const) {
+      cleanup();
+      renderParticipant(fakeSource(), undefined, () => {}, tab);
+      await screen.findByText(PHASE_LABEL.prevote);
+      expect(screen.getByText("테스트 파티")).toBeTruthy();
+    }
+  });
+
+  it("★ 카운트다운은 상단 바에 없다 — 홈의 할 일 카드가 맡는다", async () => {
+    /*
+     * 카운트다운이 세는 건 늘 **다음에 일어날 일**이지 지금 하는 일의 마감이 아니다
+     * (사전 투표 마감은 운영자가 눌러서 셀 수 있는 시각이 없다 — ADR-14).
+     * 그건 "지금 무슨 일이고 내가 뭘 하면 되나" 에 답하는 홈의 질문이다.
+     *
+     * 여기 있던 시절의 대가는 **회차 이름**이 치렀다 — 오른쪽 열이 제 폭을 붙들고 있어
+     * 390px 폰에서 이름 칸이 219px 뿐이었다.
+     */
+    renderParticipant(fakeSource(), undefined, () => {}, "people");
     await screen.findByText(PHASE_LABEL.prevote);
-    // 숫자만 있으면 무엇을 세는지 알 수 없다
-    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
-    expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/)).toBeTruthy();
-  });
-
-  const withSchedule = (phase: "reg" | "prevote", schedule: Record<string, number>) =>
-    fakeSource({
-      load: async () =>
-        participantState({
-          event: { ...participantState().event, phase, schedule },
-          ...(phase === "reg" ? { roster: [] } : {}),
-        }),
-    });
-
-  it("★ 등록 중에는 사전 투표까지를 센다 — 다음에 일어날 일이다", async () => {
-    /*
-     * 한동안 내내 파티만 셌다. 등록 기간이 며칠이라 `1일 2시간` 만 계속 보였고,
-     * 정작 참가자가 알고 싶은 건 **언제 콕을 찌를 수 있나** 였다.
-     */
-    renderParticipant(withSchedule("reg", { prevoteAt: Date.now() + 1_800_000, partyAt: Date.now() + 90_000_000 }));
-    await screen.findByText(PHASE_LABEL.reg);
-    expect(screen.getByText(STATUS.untilPrevote)).toBeTruthy();
     expect(screen.queryByText(STATUS.untilParty)).toBeNull();
+    expect(screen.queryByText(/^\d{2}:\d{2}:\d{2}$/)).toBeNull();
   });
-
-  it("★ 사전 투표 시각이 지났는데 아직 등록 중이면 파티를 센다", async () => {
-    /*
-     * 예약이 걸려 있어도 운영자가 아직 안 넘겼을 수 있다. 지나간 시각을 세면 음수가 뜨고,
-     * 사람은 그 숫자를 **자기 시계가 틀린 걸로** 읽는다.
-     */
-    renderParticipant(withSchedule("reg", { prevoteAt: Date.now() - 60_000, partyAt: Date.now() + 3_600_000 }));
-    await screen.findByText(PHASE_LABEL.reg);
-    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
-    expect(screen.queryByText(STATUS.untilPrevote)).toBeNull();
-  });
-
   it("★ 남은 콕은 한 곳에만 — 콕을 찌르는 화면", async () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
@@ -1389,10 +1425,13 @@ describe("상단 바", () => {
     expect(screen.getAllByText(UNIT.times(2))).toHaveLength(1);
   });
 
-  it("★ 회차 이름이 길어도 카운트다운을 밀어내지 않는다", async () => {
+  it("★ 회차 이름이 길어도 옆의 것을 밀어내지 않는다", async () => {
     /*
      * 실기기에서 났던 것 — `108th TONE PARTY🔥 …` 처럼 이름이 길면 옆의 것들이 다 같이
      * 쪼그라들어 `1명` 도 `파티까지` 도 두 줄로 접혔다. **줄어드는 건 이름 하나뿐이어야 한다.**
+     *
+     * 카운트다운이 홈으로 간 뒤로 옆에 서는 건 도움말 버튼이다. 규칙은 그대로다 —
+     * 그 버튼은 손가락이 닿는 크기(`--tap`)를 지켜야 하므로 이름에 양보하면 안 된다.
      */
     renderParticipant(
       fakeSource({
@@ -1403,10 +1442,11 @@ describe("상단 바", () => {
       }),
     );
     const name = await screen.findByText(/108th TONE PARTY/);
-    // 이름과 카운트다운이 **다른 칸**에 있다. 한 칸에 있으면 같이 줄어든다
+    // 이름과 도움말이 **다른 칸**에 있다. 한 칸에 있으면 같이 줄어든다
     expect(name.closest(".where")).toBeTruthy();
-    expect(name.closest(".until")).toBeNull();
-    expect(document.querySelector(".statusbar .until")).toBeTruthy();
+    const help = screen.getByLabelText(HELP.open);
+    expect(help.closest(".where")).toBeNull();
+    expect(name.closest(".statusbar")).toBe(help.closest(".statusbar"));
   });
 
   it("★ 인원 수는 홈 탭에만 있다", async () => {
@@ -1968,5 +2008,50 @@ describe("시트와 확인창", () => {
     fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain(POKE.confirm.title("pre", 1));
+  });
+});
+
+// ─────────────────────────────────────────── 홈 · 남은 시간
+
+describe("홈 · 남은 시간", () => {
+  const home = (source: ParticipantSource) => renderParticipant(source, undefined, () => {}, "home");
+
+  it("★ '무엇까지' 가 붙은 카운트다운이 할 일 카드에 있다", async () => {
+    home(fakeSource());
+    await screen.findByText(HOME.todo.prevote.title);
+    // 숫자만 있으면 무엇을 세는지 알 수 없다
+    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
+    expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/)).toBeTruthy();
+  });
+
+  const withSchedule = (phase: "reg" | "prevote", schedule: Record<string, number>) =>
+    fakeSource({
+      load: async () =>
+        participantState({
+          event: { ...participantState().event, phase, schedule },
+          ...(phase === "reg" ? { roster: [] } : {}),
+        }),
+    });
+
+  it("★ 등록 중에는 사전 투표까지를 센다 — 다음에 일어날 일이다", async () => {
+    /*
+     * 한동안 내내 파티만 셌다. 등록 기간이 며칠이라 `1일 2시간` 만 계속 보였고,
+     * 정작 참가자가 알고 싶은 건 **언제 콕을 찌를 수 있나** 였다.
+     */
+    home(withSchedule("reg", { prevoteAt: Date.now() + 1_800_000, partyAt: Date.now() + 90_000_000 }));
+    await screen.findByText(HOME.todo.reg.title);
+    expect(screen.getByText(STATUS.untilPrevote)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilParty)).toBeNull();
+  });
+
+  it("★ 사전 투표 시각이 지났는데 아직 등록 중이면 파티를 센다", async () => {
+    /*
+     * 예약이 걸려 있어도 운영자가 아직 안 넘겼을 수 있다. 지나간 시각을 세면 음수가 뜨고,
+     * 사람은 그 숫자를 **자기 시계가 틀린 걸로** 읽는다.
+     */
+    home(withSchedule("reg", { prevoteAt: Date.now() - 60_000, partyAt: Date.now() + 3_600_000 }));
+    await screen.findByText(HOME.todo.reg.title);
+    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilPrevote)).toBeNull();
   });
 });

@@ -1,18 +1,22 @@
 /**
  * 설정 탭.
  *
- * **지나온 일정 항목만 잠근다** — 등록이 시작됐어도 발표 시각은 여전히 수정 가능하다 (ADR-2).
+ * **콕이 오가기 시작하면 규칙 넷과 일정이 굳는다** (ADR-35) — 대상·되돌리기 둘·알림·일정 셋.
+ * 잠긴 줄도 지우지 않고 그대로 둔다. 지금 어느 규칙으로 돌아가는 중인지는
+ * 파티 도중에 가장 자주 확인하는 값이라, 감추면 확인할 자리가 사라진다.
+ * 그 전에는 **지나온 일정 항목만** 잠근다.
+ *
  * 예약 값 자체는 지우지 않는다. "예약은 21:00 이었는데 20:45 에 진행했다"를 보여줄 수 있어야 한다.
  */
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { BTN, DELETE_EVENT, HOST_UI, UNIT } from "../../../shared/copy.ts";
 import type { EventMeta, EventSchedule } from "../../../shared/types.ts";
-import { LIMITS, RETENTION_DAYS } from "../../../shared/constants.ts";
-import { schedLocked } from "../../../shared/phase.ts";
+import { LIMITS } from "../../../shared/constants.ts";
+import { rulesLocked, schedLocked } from "../../../shared/phase.ts";
 import { SCHEDULE_STEP_MIN, formatWhen, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, del, put } from "../../lib/api.ts";
-import { NOTIFY_OPTIONS, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
+import { NOTIFY_OPTIONS, TARGET_OPTIONS, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import { Num } from "./HostDefaults.tsx";
 import { useConsole } from "./HostConsole.tsx";
@@ -32,9 +36,11 @@ export default function Settings() {
   const [allowUndo, setAllowUndo] = useState(meta.config.allowUndo !== false);
   const [allowUndoPre, setAllowUndoPre] = useState(meta.config.allowUndoPre !== false);
   const [pokeNotify, setPokeNotify] = useState(meta.config.pokeNotify === true);
-  const [retentionDays, setRetentionDays] = useState(meta.config.retentionDays ?? RETENTION_DAYS);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
+
+  /** 굳었나 (ADR-35). 서버도 같은 판단을 하니, 여기서는 **못 고르게** 하는 것까지만 한다 */
+  const frozen = rulesLocked(meta.fired);
 
   useEffect(() => {
     setName(meta.name);
@@ -44,7 +50,6 @@ export default function Settings() {
     setAllowUndo(meta.config.allowUndo !== false);
     setAllowUndoPre(meta.config.allowUndoPre !== false);
     setPokeNotify(meta.config.pokeNotify === true);
-    setRetentionDays(meta.config.retentionDays ?? RETENTION_DAYS);
     setPlace(meta.place ?? "");
     setSchedule(meta.schedule);
   }, [meta]);
@@ -72,11 +77,6 @@ export default function Settings() {
     changed(HOST_UI.fields.undoPre, undoWord(meta.config.allowUndoPre !== false), undoWord(allowUndoPre));
     changed(HOST_UI.fields.undoParty, undoWord(meta.config.allowUndo !== false), undoWord(allowUndo));
     changed(HOST_UI.fields.pokeNotify, notifyWord(meta.config.pokeNotify === true), notifyWord(pokeNotify));
-    changed(
-      HOST_UI.settings.privacy,
-      UNIT.days(meta.config.retentionDays ?? RETENTION_DAYS),
-      UNIT.days(retentionDays),
-    );
     for (const key of ["partyAt", "regOpenAt", "prevoteAt"] as const) {
       changed(HOST_UI.fields[key], formatWhen(meta.schedule[key]) || "—", formatWhen(schedule[key]) || "—");
     }
@@ -92,7 +92,7 @@ export default function Settings() {
       await put<EventMeta>(`/host/events/${meta.id}`, {
         name,
         place,
-        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, pokeNotify, retentionDays },
+        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, pokeNotify },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
       toast(BTN.saved);
@@ -164,37 +164,30 @@ export default function Settings() {
         onChange={setMaxParty}
       />
 
-      <div className="field">
-        <label>{HOST_UI.fields.pokeTarget}</label>
-        <div className="choice">
-          {[
-            { on: false, label: HOST_UI.fields.pokeTargetOpposite },
-            { on: true, label: HOST_UI.fields.pokeTargetAll },
-          ].map((opt) => (
-            <button
-              key={opt.label}
-              type="button"
-              aria-pressed={allowSameGender === opt.on}
-              onClick={() => setAllowSameGender(opt.on)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <span className="tiny dim">{HOST_UI.fields.pokeTargetNote}</span>
-      </div>
-
-      {/* 되돌리기·알림 (ADR-34). 라운드마다 따로 정한다. 셋은 한 덩어리라 나란히 둔다 */}
+      {/*
+        대상·되돌리기 둘·알림. **넷은 콕이 오가기 시작하면 함께 굳는다** (ADR-35) —
+        도중에 바뀌면 참가자가 겪는 규칙이 갈린다. 콕 횟수만 위에서 계속 열려 있다.
+      */}
+      <Toggle
+        label={HOST_UI.fields.pokeTarget}
+        value={allowSameGender}
+        options={TARGET_OPTIONS}
+        note={HOST_UI.fields.pokeTargetNote}
+        locked={frozen}
+        onChange={setAllowSameGender}
+      />
       <Toggle
         label={HOST_UI.fields.undoPre}
         value={allowUndoPre}
         options={UNDO_OPTIONS}
+        locked={frozen}
         onChange={setAllowUndoPre}
       />
       <Toggle
         label={HOST_UI.fields.undoParty}
         value={allowUndo}
         options={UNDO_OPTIONS}
+        locked={frozen}
         onChange={setAllowUndo}
       />
       <Toggle
@@ -202,15 +195,19 @@ export default function Settings() {
         value={pokeNotify}
         options={NOTIFY_OPTIONS}
         note={HOST_UI.fields.pokeNotifyNote}
+        locked={frozen}
         onChange={setPokeNotify}
       />
 
       <div className="kicker">{HOST_UI.settings.schedule}</div>
-      {/* 파티 일시는 잠그지 않는다 — 장소가 바뀌면 시각도 바뀐다 */}
+      {/*
+        파티 일시는 그 전까지 열려 있다 — 장소가 바뀌면 시각도 바뀐다.
+        굳은 뒤에는 셋 다 잠긴다 (ADR-35). 그때는 남은 예약 자체가 없다.
+      */}
       <When
         label={HOST_UI.fields.partyAt}
         value={schedule.partyAt}
-        locked={false}
+        locked={schedLocked(meta.fired, "partyAt")}
         onChange={(v) => setSchedule({ ...schedule, partyAt: v })}
       />
       <When
@@ -227,18 +224,6 @@ export default function Settings() {
       />
       {/* 예약이 없는 전환을 여기서 찾지 않도록, 없는 이유를 그 자리에 적어둔다 */}
       <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
-
-      <div className="kicker">{HOST_UI.settings.privacy}</div>
-      <Num
-        label={HOST_UI.fields.retentionDays}
-        value={retentionDays}
-        min={LIMITS.retentionDays.min}
-        max={LIMITS.retentionDays.max}
-        onChange={setRetentionDays}
-      />
-      <p className="tiny dim">{HOST_UI.retention(retentionDays)}</p>
-      {/* 등록 화면의 "N일 뒤에 지워져요"가 이 값을 읽는다 — 참가자가 이미 있으면 줄이는 건 약속 위반이다 */}
-      {state.players.length > 0 && <p className="tiny dim">{HOST_UI.fields.retentionNote}</p>}
 
       {error && <p className="err danger">{error}</p>}
       {/* 누르면 바로 저장되지 않는다. 무엇이 바뀌는지 보고 한 번 더 확인한다 */}

@@ -12,11 +12,33 @@
  *     받은편지함이 아니라 타임라인이고, 그건 "지금 무슨 일인가"의 과거형이다 (ADR-4)
  */
 import { HOME, REVEAL, SEAT, STATUS } from "../../shared/copy.ts";
-import type { ParticipantState } from "../../shared/types.ts";
+import type { EventSchedule, ParticipantState } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
-import { formatWhen } from "../../shared/time.ts";
+import { TICK_WINDOW, formatCountdown, formatDayHour, formatWhen } from "../../shared/time.ts";
 import { noticesOf } from "../lib/notices.ts";
+import { now } from "../lib/serverTime.ts";
+import { useTicker } from "../lib/useLoad.ts";
 import type { Tab } from "./Participant.tsx";
+
+/**
+ * 이 단계에서 셀 수 있고 **아직 안 지난** 것 중 가장 가까운 것.
+ *
+ * 세는 것은 **다음에 일어날 일**이다 — 등록 중에는 매력 투표 시작, 매력 투표 중에는 파티 시작.
+ * 한동안 내내 파티만 셌는데, 등록 기간이 며칠이라 `1일 2시간` 만 계속 보였다.
+ * 정작 참가자가 알고 싶은 건 **언제 콕을 찌를 수 있나** 였다.
+ *
+ * **사전 투표 마감과 발표는 세지 않는다.** 운영자가 손으로 누르는 것이라 셀 수 있는 시각이 없다 —
+ * 없는 마감을 세어 보여주면 참가자가 그 숫자를 믿는다 (ADR-14).
+ *
+ * 예약 시각이 지났는데 운영자가 아직 안 넘겼을 수도 있다 — 그때는 그 다음 것을 센다.
+ * 지나간 시각을 세면 음수가 뜨고, 사람은 그 숫자를 자기 시계가 틀린 걸로 읽는다.
+ */
+function nextMark(phase: ParticipantState["event"]["phase"], schedule: EventSchedule, at: number) {
+  return [
+    { on: ["prep", "reg"], at: schedule.prevoteAt, label: STATUS.untilPrevote },
+    { on: ["prep", "reg", "prevote"], at: schedule.partyAt, label: STATUS.untilParty },
+  ].find((m) => m.on.includes(phase) && m.at && m.at > at);
+}
 
 export default function Home({
   state,
@@ -31,8 +53,15 @@ export default function Home({
   /** 진행 방식을 다시 여는 길 (슬라이스 21). 등록 중에만 카드에 붙는다 */
   onHelp: () => void;
 }) {
-  const { phase } = state.event;
+  const { phase, schedule } = state.event;
   const seat = state.seat;
+  /*
+   * 남은 시간은 **서버 시각**에서 뺀다. 폰 시계를 바꿔 결과를 먼저 보는 걸 막기 위해.
+   * 하루 넘게 남았으면 1초마다 다시 그릴 이유가 없다 — `144:00:00` 은 읽는 사람이 다시 나눈다.
+   */
+  const mark = nextMark(phase, schedule, now());
+  const untilNext = mark?.at ? mark.at - now() : 0;
+  useTicker(untilNext > 0 && untilNext <= TICK_WINDOW);
   const revealed = phase === "done";
   const budget = state.poke.budget[phase === "prevote" ? "pre" : "party"];
   const left = budget.max - budget.used;
@@ -45,6 +74,27 @@ export default function Home({
 
   return (
     <div className="stack">
+      {/*
+        **제 카드다. 할 일 카드 안에 두지 마라.**
+
+        한동안 할 일 본문 바로 아래 `.kicker` 로 뒀었다 — `때가 되면 콕 찌르기가 열려요` 가
+        말하고 이 줄이 *언제* 를 답하니 붙어 있어야 한다고 봤다. **등록 단계만 보고 정한 것이었다.**
+        매력 투표부터는 같은 카드에 `콕 N회 남음` 이 서는데, 둘 다 `.kicker` 라 **같은 무게로
+        연달아** 붙었다 — 하나는 시계고 하나는 예산인데 눈이 둘을 같은 종류로 읽었다.
+        게다가 그 단계 카드는 제목·본문 두 줄·kicker 둘·버튼으로 다섯이 쌓였다.
+
+        **세는 것이 없으면 카드째 사라진다** (파티·발표). 빈 상자를 남기지 마라.
+      */}
+      {mark && untilNext > 0 && (
+        <div className="card countdownCard">
+          {/* **라벨을 떼지 마라.** 숫자만 있는 타이머는 무엇을 세는지 알 수 없다 */}
+          <span className="kicker">{mark.label}</span>
+          <b className="countdown">
+            {untilNext <= TICK_WINDOW ? formatCountdown(untilNext) : formatDayHour(untilNext)}
+          </b>
+        </div>
+      )}
+
       <div className="card stack">
         <h2 style={{ margin: 0, fontSize: 18 }}>{todo.title}</h2>
         <p className="dim small pre" style={{ margin: 0 }}>

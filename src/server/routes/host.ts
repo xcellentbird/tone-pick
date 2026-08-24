@@ -31,7 +31,7 @@ import {
   type Ctx,
   type Env,
 } from "../http.ts";
-import { pokeLimitMessage, seatingMessage } from "../messages.ts";
+import { seatingMessage, settingsMessage } from "../messages.ts";
 
 export const hostRoutes = new Hono<{ Bindings: Env }>();
 
@@ -158,8 +158,10 @@ hostRoutes.get("/events/:id/state", async (c) => {
 });
 
 /**
- * 이름·콕 횟수. **입장 코드는 바꾸지 않는다** (ADR-22) —
+ * 이름·장소·콕 횟수·파기 일수. **입장 코드는 바꾸지 않는다** (ADR-22) —
  * 이미 나간 링크와 안내가 어긋나고 되돌릴 방법이 없다. 코드를 보내와도 무시한다.
+ *
+ * 콕 대상·되돌리기·알림은 콕이 오가기 시작하면 굳는다 (ADR-35). DO 가 거절한다.
  */
 hostRoutes.put("/events/:id", async (c) => {
   const gate = await openEvent(c);
@@ -169,8 +171,8 @@ hostRoutes.put("/events/:id", async (c) => {
 
   const { value, response } = unwrap(
     c,
-    await gate.stub.patchMeta({ name: body.name, config: body.config }, serverNow()),
-    pokeLimitMessage,
+    await gate.stub.patchMeta({ name: body.name, place: body.place, config: body.config }, serverNow()),
+    settingsMessage,
   );
   return response ?? c.json(value);
 });
@@ -179,7 +181,7 @@ hostRoutes.put("/events/:id/schedule", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const body = await json<EventSchedule>(c);
-  const { value, response } = unwrap(c, await gate.stub.setSchedule(body, serverNow()));
+  const { value, response } = unwrap(c, await gate.stub.setSchedule(body, serverNow()), settingsMessage);
   return response ?? c.json(value);
 });
 
@@ -393,19 +395,10 @@ async function json<T>(c: Ctx): Promise<T> {
 
 function validConfig(config: EventConfig | undefined): boolean {
   if (!config) return false;
-  const { maxPre, maxParty, retentionDays, allowUndo, allowUndoPre, pokeNotify } = config;
+  const { maxPre, maxParty, allowUndo, allowUndoPre, pokeNotify } = config;
   // 없으면 기본값이다. 있으면 불리언이어야 한다 — `"true"` 라는 글자가 들어오면 안 된다
   for (const flag of [allowUndo, allowUndoPre, pokeNotify]) {
     if (flag !== undefined && typeof flag !== "boolean") return false;
-  }
-  if (retentionDays !== undefined) {
-    if (
-      !Number.isInteger(retentionDays) ||
-      retentionDays < LIMITS.retentionDays.min ||
-      retentionDays > LIMITS.retentionDays.max
-    ) {
-      return false;
-    }
   }
   return (
     Number.isInteger(maxPre) &&

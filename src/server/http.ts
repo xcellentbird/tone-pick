@@ -95,6 +95,7 @@ const STATUS: Record<ErrorCode, number> = {
   closed: 409,
   no_budget: 409,
   same_gender: 409,
+  locked: 409,
   conflict: 409,
   schedule_order: 400,
   bad_request: 400,
