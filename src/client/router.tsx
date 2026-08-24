@@ -45,7 +45,7 @@ const plain = (element: React.ReactElement) => <Overlays>{element}</Overlays>;
  */
 export const PARTICIPANT_ROUTES = [
   { path: "/e/:code", element: <Participant /> },
-  { path: "/e/:code/fortune", element: <Participant /> },
+  { path: "/e/:code/fun", element: <Participant /> },
   { path: "/e/:code/people", element: <Participant /> },
   { path: "/e/:code/me", element: <Participant /> },
   // 내 정보 편집도 라우트다 — 뒤로 가기가 곧 취소다 (ADR-31)
