@@ -52,6 +52,12 @@ export default function Help({ state }: { state: ParticipantState }) {
 
       <div className="stack">
         {[
+          /*
+           * **매력 투표와 콕 찌르기를 가르는 두 줄이 맨 앞이다** (ADR-34).
+           * 바로 위 단계 그림에서 방금 읽은 두 칸을 풀어주는 자리라 여기가 제자리다.
+           */
+          { q: qa.prevote.q, a: qa.prevote.a },
+          { q: qa.poke.q, a: qa.poke.a },
           { q: qa.secret.q, a: qa.secret.a },
           { q: qa.count.q, a: qa.count.a(config.maxPre, config.maxParty) },
           ...(sameGenderOk ? [] : [{ q: qa.sameGender.q, a: qa.sameGender.a }]),
