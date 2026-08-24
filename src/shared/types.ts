@@ -96,7 +96,13 @@ export interface MatchInfo {
 /** 참가자 본인에게만 내려가는 요약. 누가 찔렀는지는 발표 전까지 절대 포함하지 않는다. */
 export interface MyPokeState {
   budget: Record<PokeRound, { max: number; used: number }>;
-  sentTo: Record<string, number>;   // playerId -> 내가 보낸 횟수 (라운드 합계)
+  /**
+   * playerId -> **이번 라운드에** 내가 보낸 횟수 (ADR-34).
+   *
+   * 라운드를 합치지 마라. 매력 투표에서 고른 사람이 파티가 시작되자마자
+   * 콕을 이미 찌른 것처럼 보이고, 되돌리기는 지울 것이 없는 채로 뜬다.
+   */
+  sentTo: Record<string, number>;
   receivedCount: number;            // 받은 횟수만. 발신자는 익명
   matches: MatchInfo[];             // 발표 후에만 채워진다
 }

@@ -169,6 +169,50 @@ describe("콕 되돌리기", () => {
     expect(back.body.sentTo[me.id]).toBe(1);
   });
 
+  /**
+   * ★ **매력 투표는 파티 콕으로 새지 않는다** (ADR-34).
+   *
+   * 실제로 겪은 것: 매력 투표에서 한 사람을 고르고 파티가 시작되자,
+   * 그 사람 카드에 `1` 이 붙어 **콕을 이미 찌른 것처럼** 보였다.
+   * 남은 콕은 그대로였으니 화면이 스스로와 어긋나 있었던 셈이다.
+   */
+  it("★ 매력 투표에서 고른 것이 파티 콕 횟수로 세지 않는다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const her = await join(ev, "F");
+    await setPhase(ev.id, "prevote");
+    await poke(me.cookie, her.id);
+
+    await setPhase(ev.id, "party");
+    const seen = await api<ParticipantState>(`/api/me?event=${ev.id}`, { cookie: me.cookie });
+    // 그 사람 옆 숫자는 0 이다 — 파티에서는 아직 아무도 안 찔렀다
+    expect(seen.body.poke.sentTo[her.id] ?? 0).toBe(0);
+    // 예산은 라운드마다 따로 남는다. 매력 투표에서 쓴 건 거기 그대로 있다
+    expect(seen.body.poke.budget.pre.used).toBe(1);
+    expect(seen.body.poke.budget.party.used).toBe(0);
+  });
+
+  /**
+   * ★ **되돌리기가 지울 것이 없는 채로 뜨면 안 된다.**
+   *
+   * 서버는 이번 라운드의 콕만 지운다. 화면이 합계를 보고 되돌리기를 내주면
+   * 눌러도 아무 일이 없다 — 위 버그의 다른 얼굴이다.
+   */
+  it("★ 매력 투표에서 고른 것은 파티에서 되돌릴 수 없다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const her = await join(ev, "F");
+    await setPhase(ev.id, "prevote");
+    await poke(me.cookie, her.id);
+    await setPhase(ev.id, "party");
+
+    const back = await unpoke(me.cookie, her.id);
+    expect(back.status).toBe(404);
+    // 매력 투표에서 고른 것은 그대로 남는다 — 자리의 재료다
+    const seen = await api<ParticipantState>(`/api/me?event=${ev.id}`, { cookie: me.cookie });
+    expect(seen.body.poke.budget.pre.used).toBe(1);
+  });
+
   it("★ 못 무르게 한 회차에서는 파티 콕이 되돌려지지 않는다", async () => {
     const ev = await freshEvent({ allowUndo: false });
     const me = await join(ev);
