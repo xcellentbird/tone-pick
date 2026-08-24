@@ -464,19 +464,34 @@ describe("참가자 화면 · 콕", () => {
     expect(screen.queryByText(PEOPLE.pokeLeftLabel("pre"))).toBeNull();
   });
 
-  it("★ 콕 찌르기는 확인을 거치고, 확인창이 숫자를 보여준다", async () => {
+  /**
+   * ★ 확인창은 **바뀌는 것**을 보여준다 (규칙 4).
+   *
+   * 한동안 누른 **뒤의 값**만 적었다. 카드는 `남은 투표 2회` 인데 창은 `1회` 라고 해서
+   * 같은 화면의 두 숫자가 어긋나 보였고, 그걸 본 사람은 매력 투표가 파티 콕에
+   * **합산된 줄로 읽었다** — 서버는 멀쩡했다. 그래서 여기서 재는 것이 둘이다:
+   * 창의 왼쪽 숫자가 카드와 같은가, 그리고 둘이 같은 이름으로 불리는가.
+   */
+  it("★ 확인창이 남은 콕이 어떻게 바뀌는지 보여주고, 카드와 어긋나지 않는다", async () => {
     const source = fakeSource();
     renderParticipant(source);
     await screen.findByText(/그녀/);
+
+    // 카드가 말하는 남은 수 (max 3 − used 1)
+    expect(screen.getByText(UNIT.times(2))).toBeTruthy();
 
     fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
 
     // 이미 1회 보냈으므로 "한 번 더" 쪽 문장이다
     await screen.findByText(POKE.confirm.title("pre", 1));
-    expect(screen.getByText(POKE.confirm.rowTarget("pre"))).toBeTruthy();
-    // 보낸 콕 2회 · 남은 횟수 1회 — 무엇이 어떻게 바뀌는지 숫자로
-    expect(screen.getAllByText(UNIT.times(2)).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(UNIT.times(1)).length).toBeGreaterThan(0);
+    const dialog = await screen.findByRole("dialog");
+
+    // **줄은 하나뿐이다** — 남은 수. 몇 번째인지는 제목과 그 사람 카드가 이미 말한다
+    expect(dialog.querySelectorAll(".fact")).toHaveLength(1);
+    // 왼쪽이 지금(카드와 같은 2회), 오른쪽이 누르면 될 값(1회)
+    expect(screen.getByText(POKE.confirm.change(2, 1))).toBeTruthy();
+    // 카드와 창이 **같은 이름**으로 부른다. 이름이 갈리면 다른 숫자로 읽힌다
+    expect(screen.getAllByText(PEOPLE.pokeLeftLabel("pre"))).toHaveLength(2);
     expect(source.calls.poke).toEqual([]);   // 아직 보내지 않았다
 
     fireEvent.click(dialogBtn(POKE.confirm.submit("pre")));
