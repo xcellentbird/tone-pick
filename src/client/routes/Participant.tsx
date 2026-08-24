@@ -335,6 +335,18 @@ function Loaded({
         {/* 파티 룰 도움말. 어느 탭에서 열든 같은 것이 뜬다 */}
         <Sheet open={!!helpOpen} onClose={() => onHelp(false)} title={HELP.title}>
           <Help state={state} />
+          {/*
+            **읽기를 마친 손가락이 그 자리에서 닫는다.** 도움말은 화면을 거의 덮고
+            등록을 마치면 저절로 열리는데, 그때까지 닫는 길은 뒤로 가기와 바깥 누르기뿐이라
+            **처음 들어온 사람이 나갈 곳을 찾아 헤맸다** — 하필 그 사람이 이 글의 독자다.
+            프로필 시트가 이미 같은 자리에 같은 버튼을 둔다 (`People.tsx`).
+
+            닫기는 여전히 **뒤로 가기**다 (ROUTES.md) — 이 버튼도 `navigate(-1)` 로 간다.
+            여기서 주소를 직접 갈아끼우면 히스토리에 도움말이 남아 뒤로 가기가 다시 연다.
+          */}
+          <button className="btn block ghost" onClick={() => onHelp(false)}>
+            {BTN.close}
+          </button>
         </Sheet>
       </div>
     </Overlays>

@@ -120,10 +120,11 @@ function renderParticipant(
   onTab: (t: string) => void = () => {},
   tab: "home" | "people" | "me" | "fun" = "people",
   helpOpen = false,
+  onHelp: (on: boolean) => void = () => {},
 ) {
   return render(
     <MemoryRouter>
-      <ParticipantView source={source} tab={tab} profileId={profileId} onTab={onTab} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={helpOpen} onHelp={() => {}} />
+      <ParticipantView source={source} tab={tab} profileId={profileId} onTab={onTab} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={helpOpen} onHelp={onHelp} />
     </MemoryRouter>,
   );
 }
@@ -727,6 +728,35 @@ describe("파티 룰 도움말", () => {
     renderParticipant(fakeSource(), undefined, () => {}, "home", true);
     await screen.findByText(HELP.title);
     expect(screen.queryByText(HELP.qa.sameGender.a)).toBeNull();
+  });
+
+  it("★ 운영자에게도 안 보인다는 것이 적혀 있다", async () => {
+    /*
+     * 익명 걱정은 **상대 다음이 운영자**다. 이 줄이 없으면 *누군가는 다 보고 있다* 고
+     * 여긴 채로 고르게 되고, 그 채로 고르는 것은 이 앱이 없애려던 경험 쪽에 가깝다.
+     *
+     * ⚠️ 이 줄은 **거짓이면 안 된다.** 서로 콕 찌른 쌍은 운영자가 본다 — 발표를 누르는 게
+     * 사람이다. 그래서 "아무도 못 봐요" 가 아니라 **무엇까지 보이는지**를 같은 줄에 적는다.
+     * 지켜지는 쪽(한쪽만 찌른 것은 숫자로만 남는다)은 `04-match-budget.test.ts` 가 지킨다.
+     */
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.host.a);
+    expect(HELP.qa.host.a).toContain("서로 콕 찌른");
+  });
+
+  it("★ 맨 아래에 닫기가 있다 — 끝까지 읽은 자리에서 닫힌다", async () => {
+    /*
+     * 도움말은 화면을 거의 덮고, 등록을 마치면 저절로 열린다. 닫는 길이 뒤로 가기와
+     * 바깥 누르기뿐이면 **처음 들어온 사람이 나갈 곳을 찾는다** — 하필 그 사람이 이 글의 독자다.
+     *
+     * 닫기는 여전히 뒤로 가기다 (ROUTES.md). 버튼은 `onHelp(false)` 라고만 말하고,
+     * 그걸 `navigate(-1)` 로 옮기는 건 라우트 쪽이다 — 거기는 `back.test.tsx` 가 지킨다.
+     */
+    const onHelp = vi.fn();
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true, onHelp);
+    await screen.findByText(HELP.title);
+    fireEvent.click(screen.getByText(BTN.close));
+    expect(onHelp).toHaveBeenCalledWith(false);
   });
 
   it("★ 반사적으로 닫은 사람이 다시 여는 길은 등록 중에만 카드에 있다", async () => {

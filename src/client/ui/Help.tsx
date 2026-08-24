@@ -59,6 +59,11 @@ export default function Help({ state }: { state: ParticipantState }) {
           { q: qa.prevote.q, a: qa.prevote.a },
           { q: qa.poke.q, a: qa.poke.a },
           { q: qa.secret.q, a: qa.secret.a },
+          /*
+           * 익명 걱정은 **상대 다음이 운영자**다. 둘을 떨어뜨리면 앞 줄을 읽고 생긴 질문이
+           * 몇 줄 뒤에 답을 만나거나, 못 만난 채로 화면을 닫는다.
+           */
+          { q: qa.host.q, a: qa.host.a },
           { q: qa.count.q, a: qa.count.a(config.maxPre, config.maxParty) },
           ...(sameGenderOk ? [] : [{ q: qa.sameGender.q, a: qa.sameGender.a }]),
           { q: qa.where.q, a: qa.where.a },
