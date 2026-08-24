@@ -15,7 +15,7 @@
 import { SELF } from "cloudflare:test";
 import { expect } from "vitest";
 import { hangulSeq } from "../../src/shared/copy.ts";
-import type { EventMeta, Invite, RegisterInput, RegisterResult } from "../../src/shared/types.ts";
+import type { EventConfig, EventMeta, Invite, RegisterInput, RegisterResult } from "../../src/shared/types.ts";
 
 const MASTER_PIN = "1234";
 const HOUR = 3600_000;
@@ -55,7 +55,7 @@ export async function signInMaster() {
 }
 
 /** 등록이 열린 회차를 하나 만든다. 테스트끼리 상태를 나눠 쓰지 않기 위해 매번 새로 만든다 */
-export async function freshEvent(): Promise<EventMeta> {
+export async function freshEvent(config: Partial<EventConfig> = {}): Promise<EventMeta> {
   seq++;
   const res = await api<EventMeta>("/api/host/events", {
     method: "POST",
@@ -66,12 +66,15 @@ export async function freshEvent(): Promise<EventMeta> {
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
       voteEndAt: Date.now() + 3 * 24 * HOUR - HOUR,
+      // 발표는 파티 **뒤**다 (ADR-43). 여기 테스트들은 발표를 직접 눌러 넘기므로 넉넉히 둔다
+      revealAt: Date.now() + 3 * 24 * HOUR + 3 * HOUR,
       /*
        * **알림을 켠 회차다.** 기본은 꺼짐이라(ADR-34) 받은 콕 수가 발표 전까지 0 으로 나온다 —
        * 이 헬퍼를 쓰는 테스트들은 그 숫자로 익명성을 재므로 여기서는 켜 둔다.
        * 꺼진 쪽의 규칙은 `test/22-poke-rules.test.ts` 가 본다.
        */
-      config: { maxPre: 2, maxParty: 3, pokeNotify: true },
+      // 알림은 라운드마다 따로다 (ADR-43). 이 헬퍼의 뜻은 "둘 다 켠 회차" 다
+      config: { maxPre: 2, maxParty: 3, preNotify: true, pokeNotify: true, ...config },
       requestId: `p-${seq}-${Date.now()}`,
     },
   });

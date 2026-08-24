@@ -327,6 +327,7 @@ export class EventDO extends DurableObject {
       const allowSameGender = patch.config.allowSameGender ?? meta.config.allowSameGender;
       const allowUndo = patch.config.allowUndo ?? meta.config.allowUndo;
       const allowUndoPre = patch.config.allowUndoPre ?? meta.config.allowUndoPre;
+      const preNotify = patch.config.preNotify ?? meta.config.preNotify;
       const pokeNotify = patch.config.pokeNotify ?? meta.config.pokeNotify;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
 
@@ -336,7 +337,7 @@ export class EventDO extends DurableObject {
        * (`allowUndo` 없음 = 할 수 있음), 키 유무로 재면 저장할 때마다 달라 보인다.
        */
       if (rulesLocked(meta.fired)) {
-        const next = { ...meta.config, allowSameGender, allowUndo, allowUndoPre, pokeNotify };
+        const next = { ...meta.config, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify };
         if (frozenRules(next).some((v, i) => v !== frozenRules(meta.config)[i])) return fail("locked");
       }
 
@@ -362,6 +363,7 @@ export class EventDO extends DurableObject {
         // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
         ...(allowUndo === false ? { allowUndo: false } : {}),
         ...(allowUndoPre === false ? { allowUndoPre: false } : {}),
+        ...(preNotify === true ? { preNotify: true } : {}),
         ...(pokeNotify === true ? { pokeNotify: true } : {}),
       };
     }
@@ -732,10 +734,11 @@ export class EventDO extends DurableObject {
     );
     /*
      * 익명이다. 누가 찔렀는지는 이 메시지에도, 어디에도 싣지 않는다.
-     * **알림은 회차 설정을 따른다** (ADR-34) — 없으면 보내지 않는다.
+     * **알림은 회차 설정을 따르고, 라운드마다 따로다** (ADR-34·43) — 없으면 보내지 않는다.
+     * 싣는 숫자도 `visibleReceived` 여야 한다. 총합을 실으면 꺼둔 라운드가 그대로 새어나간다.
      */
-    if (meta.config.pokeNotify) {
-      this.toPlayer(toId, { type: "poke", receivedCount: this.receivedCount(toId) });
+    if (notifyOn(meta.config, round)) {
+      this.toPlayer(toId, { type: "poke", receivedCount: this.visibleReceived(toId, meta) });
     }
     return ok(await this.pokeState(fromId, meta));
   }
@@ -766,8 +769,8 @@ export class EventDO extends DurableObject {
     if (!one) return fail("not_found");
     this.ctx.storage.sql.exec("DELETE FROM pokes WHERE id = ?", one.id);
 
-    if (meta.config.pokeNotify) {
-      this.toPlayer(toId, { type: "poke", receivedCount: this.receivedCount(toId) });
+    if (notifyOn(meta.config, round)) {
+      this.toPlayer(toId, { type: "poke", receivedCount: this.visibleReceived(toId, meta) });
     }
     return ok(await this.pokeState(fromId, meta));
   }
@@ -1501,8 +1504,32 @@ export class EventDO extends DurableObject {
     );
   }
 
-  private receivedCount(toId: string): number {
-    return this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM pokes WHERE to_id = ?", toId)[0]?.n ?? 0;
+  private receivedCount(toId: string, only?: PokeRound): number {
+    return only
+      ? this.rows<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM pokes WHERE to_id = ? AND round = ?",
+          toId,
+          only,
+        )[0]?.n ?? 0
+      : this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM pokes WHERE to_id = ?", toId)[0]?.n ?? 0;
+  }
+
+  /**
+   * 참가자에게 **보여도 되는** 받은 수 (ADR-43).
+   *
+   * 알림이 라운드마다 따로라, 총합을 그대로 내려보내면 **꺼둔 라운드의 수가 딸려 나간다** —
+   * 매력 투표 알림을 끈 회차에서 파티가 시작되는 순간 그때까지 쌓인 표가 숫자에 얹힌다.
+   * 화면에서 감추는 걸로는 부족하다. 개발자 도구를 여는 참가자가 있고,
+   * **이 숫자 하나가 곧 "지금까지 몇 명이 나를 골랐나" 다** (ADR-34).
+   *
+   * 발표 뒤에는 전부 센다 — 그때는 매칭까지 열리므로 감출 것이 없다.
+   */
+  private visibleReceived(toId: string, meta: EventMeta): number {
+    if (meta.phase === "done") return this.receivedCount(toId);
+    let n = 0;
+    if (meta.config.preNotify) n += this.receivedCount(toId, "pre");
+    if (meta.config.pokeNotify) n += this.receivedCount(toId, "party");
+    return n;
   }
 
   /**
@@ -1560,13 +1587,8 @@ export class EventDO extends DurableObject {
         party: { max: meta.config.maxParty, used: used.party },
       },
       sentTo,
-      /*
-       * **알림을 끈 회차에서는 발표 전까지 세지 않는다** (ADR-34).
-       * 화면에서 감추는 것으로는 부족하다 — 개발자 도구를 여는 참가자가 있고,
-       * 이 숫자 하나가 곧 "지금까지 몇 명이 나를 골랐나" 다.
-       */
-      receivedCount:
-        meta.config.pokeNotify || meta.phase === "done" ? this.receivedCount(playerId) : 0,
+      // 알림을 끈 라운드는 발표 전까지 세지 않는다 (ADR-34·43) — `visibleReceived` 가 판단한다
+      receivedCount: this.visibleReceived(playerId, meta),
       matches,
     };
   }
@@ -1840,10 +1862,23 @@ function inRange(n: number, r: { min: number; max: number }): boolean {
  * 다음에 울릴 예약 시각. fired 가 찬 항목은 이미 울린 것이므로 건너뛴다.
  * 사전 투표 마감부터는 예약이 없어서 알람도 걸지 않는다.
  */
+/**
+ * 이 라운드의 알림이 켜져 있나 (ADR-43). **되돌리기와 같은 꼴이다** —
+ * 매력 투표는 `preNotify`, 파티 콕은 `pokeNotify`. 둘 다 없으면 알리지 않는다.
+ */
+function notifyOn(config: EventConfig, round: PokeRound): boolean {
+  return round === "pre" ? config.preNotify === true : config.pokeNotify === true;
+}
+
 function nextDue(meta: EventMeta): number | null {
   const { phase, fired, schedule } = meta;
   if (phase === "prep" && schedule.regOpenAt && !fired.reg) return schedule.regOpenAt;
   if (phase === "reg" && schedule.prevoteAt && !fired.prevote) return schedule.prevoteAt;
+  /*
+   * 커플 발표 (ADR-43). **`dueTransition` 과 조건이 같아야 한다** — 여기가 알람을 걸고
+   * 거기가 판정한다. 한쪽만 고치면 알람이 안 울리거나(여기를 빼면), 울려도 아무 일이 없다.
+   */
+  if (phase === "party" && schedule.revealAt && !fired.done) return schedule.revealAt;
   return null;
 }
 
@@ -1851,10 +1886,10 @@ function nextDue(meta: EventMeta): number | null {
  * 순서 검증. 등록보다 먼저 사전 투표가 열리는 것만 막는다.
  * 파티 일시는 언제든 옮길 수 있다 — 장소가 바뀌면 시각이 바뀌고, 그건 일정이 아니라 사실이다.
  */
-const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt"] as const;
+const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt", "revealAt"] as const;
 
 /**
- * 굳는 규칙 넷을 **뜻으로** 편다 (ADR-35).
+ * 굳는 규칙 다섯을 **뜻으로** 편다 (ADR-35·43).
  *
  * 기본값이 항목마다 다르다 — 대상·되돌리기는 없으면 '열림', 알림은 없으면 '끔'.
  * 그래서 `undefined` 를 그대로 견주면 안 되고, 저마다의 기본으로 접어서 본다.
@@ -1865,6 +1900,7 @@ function frozenRules(c: EventConfig): boolean[] {
     c.allowSameGender !== false,
     c.allowUndo !== false,
     c.allowUndoPre !== false,
+    c.preNotify === true,
     c.pokeNotify === true,
   ];
 }

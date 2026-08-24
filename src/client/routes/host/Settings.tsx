@@ -35,6 +35,7 @@ export default function Settings() {
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
   const [allowUndo, setAllowUndo] = useState(meta.config.allowUndo !== false);
   const [allowUndoPre, setAllowUndoPre] = useState(meta.config.allowUndoPre !== false);
+  const [preNotify, setPreNotify] = useState(meta.config.preNotify === true);
   const [pokeNotify, setPokeNotify] = useState(meta.config.pokeNotify === true);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +50,7 @@ export default function Settings() {
     setAllowSameGender(meta.config.allowSameGender !== false);
     setAllowUndo(meta.config.allowUndo !== false);
     setAllowUndoPre(meta.config.allowUndoPre !== false);
+    setPreNotify(meta.config.preNotify === true);
     setPokeNotify(meta.config.pokeNotify === true);
     setPlace(meta.place ?? "");
     setSchedule(meta.schedule);
@@ -76,8 +78,9 @@ export default function Settings() {
     const notifyWord = (on: boolean) => (on ? HOST_UI.fields.pokeNotifyOn : HOST_UI.fields.pokeNotifyOff);
     changed(HOST_UI.fields.undoPre, undoWord(meta.config.allowUndoPre !== false), undoWord(allowUndoPre));
     changed(HOST_UI.fields.undoParty, undoWord(meta.config.allowUndo !== false), undoWord(allowUndo));
+    changed(HOST_UI.fields.preNotify, notifyWord(meta.config.preNotify === true), notifyWord(preNotify));
     changed(HOST_UI.fields.pokeNotify, notifyWord(meta.config.pokeNotify === true), notifyWord(pokeNotify));
-    for (const key of ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt"] as const) {
+    for (const key of ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt", "revealAt"] as const) {
       changed(HOST_UI.fields[key], formatWhen(meta.schedule[key]) || "—", formatWhen(schedule[key]) || "—");
     }
 
@@ -92,7 +95,7 @@ export default function Settings() {
       await put<EventMeta>(`/host/events/${meta.id}`, {
         name,
         place,
-        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, pokeNotify },
+        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
       toast(BTN.saved);
@@ -190,6 +193,14 @@ export default function Settings() {
         locked={frozen}
         onChange={setAllowUndo}
       />
+      {/* 알림도 라운드마다 따로다 (ADR-43). 되돌리기와 같은 순서 — 매력 투표가 먼저 */}
+      <Toggle
+        label={HOST_UI.fields.preNotify}
+        value={preNotify}
+        options={NOTIFY_OPTIONS}
+        note={HOST_UI.fields.preNotifyNote}
+        onChange={setPreNotify}
+      />
       <Toggle
         label={HOST_UI.fields.pokeNotify}
         value={pokeNotify}
@@ -232,6 +243,18 @@ export default function Settings() {
         locked={schedLocked(meta.fired, "voteEndAt")}
         onChange={(v) => setSchedule({ ...schedule, voteEndAt: v })}
       />
+      {/*
+        커플 발표 (ADR-43). **파티가 시작된 뒤에도 열려 있는 유일한 일정이다** —
+        파티가 길어지면 미뤄야 하는데 파티 시작에 잠그면 손쓸 방법이 없다.
+        발표가 끝나면(`fired.done`) 그때 잠긴다.
+      */}
+      <When
+        label={HOST_UI.fields.revealAt}
+        value={schedule.revealAt}
+        locked={schedLocked(meta.fired, "revealAt")}
+        hint={HOST_UI.fields.revealHint}
+        onChange={(v) => setSchedule({ ...schedule, revealAt: v })}
+      />
       {/* 예약이 없는 전환을 여기서 찾지 않도록, 없는 이유를 그 자리에 적어둔다 */}
       <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
 
@@ -253,11 +276,14 @@ function When({
   label,
   value,
   locked,
+  hint,
   onChange,
 }: {
   label: string;
   value?: number;
   locked: boolean;
+  /** 그 시각이 **무엇을 하는 시각인지** 한 줄. 없으면 안 그린다 */
+  hint?: string;
   onChange: (v: number | undefined) => void;
 }) {
   return (
@@ -274,6 +300,7 @@ function When({
           onChange(ts ? snapSchedule(ts) : undefined);
         }}
       />
+      {hint && !locked && <span className="tiny dim">{hint}</span>}
       {/* 지나간 예약은 지우지 않는다 — 기록으로 남긴다 */}
       {locked && <span className="tiny dim">{HOST_UI.locked}</span>}
     </div>

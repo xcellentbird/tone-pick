@@ -17,6 +17,14 @@ export const DEFAULTS: Defaults = {
    * 그 한 시간이 운영자가 첫 자리를 짜고 손보고 내보내는 시간이다.
    */
   voteEndBeforeH: 1,
+  /**
+   * 커플 발표는 파티 **3시간 뒤** (ADR-43). 두세 시간이면 라운드가 다 돌고
+   * 이야기도 한 바퀴 돈다 — 그보다 이르면 아직 안 만나본 사람이 남는다.
+   *
+   * **예약이 있어도 운영자가 먼저 누를 수 있다.** 이 값은 "안 누르면 이때" 이지
+   * "이때 끝난다" 가 아니다.
+   */
+  revealAfterH: 3,
   inviteTemplate: INVITE_TEMPLATE,
 };
 
@@ -40,6 +48,7 @@ export function withDefaults(saved: Partial<Defaults> | null | undefined): Defau
     place: text(saved?.place, DEFAULTS.place),
     prevoteBeforeH: num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH),
     voteEndBeforeH: num(saved?.voteEndBeforeH, DEFAULTS.voteEndBeforeH),
+    revealAfterH: num(saved?.revealAfterH, DEFAULTS.revealAfterH),
     inviteTemplate: text(saved?.inviteTemplate, DEFAULTS.inviteTemplate),
   };
 }

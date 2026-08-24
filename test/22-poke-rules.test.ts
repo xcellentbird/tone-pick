@@ -52,6 +52,7 @@ async function freshEvent(
       partyAt: now + 3 * 24 * HOUR,
       prevoteAt: now + 24 * HOUR,
       voteEndAt: now + 3 * 24 * HOUR - HOUR,
+      revealAt: now + 3 * 24 * HOUR + 3 * HOUR,
       ...schedule,
       config: { maxPre: 2, maxParty: 3, ...config },
       requestId: `pr-${seq}-${now}`,

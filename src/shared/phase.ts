@@ -13,6 +13,16 @@ export function dueTransition(ev: EventMeta, now: number): Phase | null {
   const { phase, fired, schedule } = ev;
   if (phase === "prep" && schedule.regOpenAt && !fired.reg && now >= schedule.regOpenAt) return "reg";
   if (phase === "reg" && schedule.prevoteAt && !fired.prevote && now >= schedule.prevoteAt) return "prevote";
+  /*
+   * 커플 발표 (ADR-43). **`phase === "party"` 인 것이 이 줄의 전부다.**
+   *
+   * ADR-14 가 막은 건 현장이 시계를 따라가는 것이고, 그중 가장 나쁜 건 아무도 안 온 자리에서
+   * 발표가 뜨는 것이다. 파티가 시작된 뒤에만 울리게 하면 그 일이 일어나지 않는다 —
+   * 운영자가 `파티 시작` 을 안 눌렀으면 이 시각이 지나도 아무 일이 없다.
+   *
+   * ⚠️ **`phase === "prevote"` 를 여기 더하지 마라.** 시계가 혼자 파티를 끝내게 된다.
+   */
+  if (phase === "party" && schedule.revealAt && !fired.done && now >= schedule.revealAt) return "done";
   return null;
 }
 
@@ -20,7 +30,7 @@ export function dueTransition(ev: EventMeta, now: number): Phase | null {
  * **규칙과 일정은 콕이 오갈 수 있게 된 뒤로는 굳는다** (ADR-35).
  *
  * 굳는 것: 콕 대상(`allowSameGender`) · 되돌리기 둘(`allowUndoPre`·`allowUndo`) ·
- * 알림(`pokeNotify`) · 일정 셋. 파티 도중에 이것들이 바뀌면 참가자가 겪는 규칙이
+ * 알림 둘(`preNotify`·`pokeNotify`) · 일정. 파티 도중에 이것들이 바뀌면 참가자가 겪는 규칙이
  * 도중에 갈린다 — 특히 알림을 켜면 그때까지 쌓인 콕이 한꺼번에 나타나서,
  * "한 번에 하나씩" 이 통째로 깨진다.
  *
@@ -43,6 +53,12 @@ export function rulesLocked(fired: FiredMap): boolean {
  * 일정 전체를 잠그면 손쓸 방법이 없다. 규칙 넷(`rulesLocked`)은 그대로 묶여 있다.
  */
 export function schedLocked(fired: FiredMap, key: string): boolean {
+  /*
+   * **발표 시각만 파티가 시작된 뒤에도 열려 있다** (ADR-43).
+   * 파티가 길어지면 미뤄야 하는데, 파티 시작에 잠그면 손쓸 방법이 없다 —
+   * ADR-39 가 `voteEndAt` 에서 겪은 것과 같은 자리다. 이 줄이 `fired.party` 보다 **먼저** 온다.
+   */
+  if (key === "revealAt") return !!fired.done;
   if (fired.party || fired.done) return true;
   if (key === "regOpenAt") return !!fired.reg;
   if (key === "prevoteAt") return !!fired.prevote;

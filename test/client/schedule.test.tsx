@@ -49,7 +49,7 @@ describe("위저드", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        new Response(JSON.stringify({ maxPre: 3, maxParty: 3, place: "", prevoteBeforeH: 24, voteEndBeforeH: 1, ...over }), {
+        new Response(JSON.stringify({ maxPre: 3, maxParty: 3, place: "", prevoteBeforeH: 24, voteEndBeforeH: 1, revealAfterH: 3, ...over }), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
@@ -70,17 +70,49 @@ describe("위저드", () => {
     await screen.findByText(HOST_UI.fields.partyAt);
 
     /*
-     * 등록 시작 칸은 없어졌다 (ADR-38) — 남은 시각 입력은 셋이다:
-     * 파티 일시 · 매력 투표 시작 · 매력 투표 마감 (ADR-39).
+     * 등록 시작 칸은 없어졌다 (ADR-38) — 남은 시각 입력은 넷이다:
+     * 파티 일시 · 매력 투표 시작 · 매력 투표 마감 (ADR-39) · 커플 발표 (ADR-43).
      * 등록 시작 자리에는 "등록은 회차를 만들면 바로 열려요" 한 줄이 대신 선다.
      */
     const inputs = document.querySelectorAll('input[type="datetime-local"]');
-    expect(inputs.length).toBe(3);
+    expect(inputs.length).toBe(4);
     expect(screen.getByText(HOST_UI.regOpensNow)).toBeTruthy();
     for (const input of inputs) {
       expect(input.getAttribute("step")).toBe(String(SCHEDULE_STEP_MIN * 60));
       // 기본값도 맞아 있어야 한다 — 분 자리가 00 이나 30
       expect((input as HTMLInputElement).value.slice(-2)).toMatch(/^(00|30)$/);
+    }
+  });
+
+  /**
+   * 서버가 `withDefaults` 로 채워 보내지만, **새 칸이 붙은 직후에는 그렇지 않은 응답이 올 수 있다.**
+   * 그때 `undefined * HOUR` 가 `NaN` 이 되고 시각 칸이 빈 채로 뜬다 — 그 빈 칸은
+   * 만들기 버튼을 누를 때에야 막힌다. 위저드가 코드의 기본값으로 메워야 한다.
+   */
+  it("★ 기본 설정에 빠진 칸이 있어도 시각이 빈 채로 뜨지 않는다", async () => {
+    /*
+     * 새 칸(`revealAfterH`)이 없는 옛 응답. `prevoteBeforeH` 는 코드 기본값(20)과 **다르게** 준다 —
+     * 그 칸이 바뀌는 것이 곧 "응답이 반영됐다" 는 신호다.
+     *
+     * ⚠️ 그냥 `waitFor` 로 값만 재면 **반영되기 전에** 통과한다 (그때는 코드 기본값이라 멀쩡하다).
+     * 반영을 먼저 기다린 뒤에 재야 이 테스트가 무언가를 지킨다.
+     */
+    stubDefaults({ prevoteBeforeH: 48, revealAfterH: undefined });
+    render(<RouterProvider router={step2()} />);
+    await screen.findByText(HOST_UI.fields.partyAt);
+
+    const at = (i: number) =>
+      (document.querySelectorAll('input[type="datetime-local"]')[i] as HTMLInputElement).value;
+    const party = at(0);
+    // 매력 투표 시작이 파티 48시간 전으로 바뀌면 응답이 반영된 것이다
+    await waitFor(() =>
+      expect(new Date(party).getTime() - new Date(at(1)).getTime()).toBe(48 * 60 * 60 * 1000),
+    );
+
+    const inputs = document.querySelectorAll('input[type="datetime-local"]');
+    expect(inputs.length).toBe(4);
+    for (const [i, input] of [...inputs].entries()) {
+      expect((input as HTMLInputElement).value, `${i}번 칸이 비었다`).not.toBe("");
     }
   });
 
