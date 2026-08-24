@@ -71,7 +71,8 @@ describe("한 사람이 여러 명과 이어질 때", () => {
 
     const mine = await api<ParticipantState>("/api/me", { cookie: a.cookie });
     expect(mine.body.poke.matches.map((m) => m.player.id).sort()).toEqual([b.id, c.id].sort());
-    for (const m of mine.body.poke.matches) expect(m.contact.phone.length).toBeGreaterThan(0);
+    // 셋 다 `전체 공개` 로 등록했으니 번호까지 온다 (ADR-37) — 좁히는 쪽은 29 가 따로 본다
+    for (const m of mine.body.poke.matches) expect(m.contact?.phone?.length).toBeGreaterThan(0);
   });
 
   it("★ 커플 자리에서 셋이 같은 테이블이면 두 쌍 다 성공이다", async () => {
@@ -388,7 +389,7 @@ describe("되돌리기", () => {
     const sched = await api(`/api/host/events/${ev.id}/schedule`, {
       method: "PUT",
       cookie: master,
-      body: { regOpenAt: past - 60_000, prevoteAt: past },
+      body: { prevoteAt: past },
     });
     expect(sched.status).toBe(200);
     await setPhase(ev.id, "prevote");

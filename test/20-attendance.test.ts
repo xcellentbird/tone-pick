@@ -63,8 +63,8 @@ async function freshEvent(): Promise<EventMeta> {
     body: {
       name: `${seq}회차`,
       partyAt: now + 7 * DAY,
-      regOpenAt: "now",
       prevoteAt: now + 25 * HOUR,
+      voteEndAt: now + 7 * 24 * HOUR - HOUR,
       config: { maxPre: 3, maxParty: 3 },
       requestId: `att-${seq}-${now}`,
     } satisfies CreateEventInput,
@@ -94,6 +94,7 @@ async function join(ev: EventMeta) {
     instagram: `att_${seq}`,
     mbti: "ENFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
+    contactShare: "all",
   };
   const res = await api<RegisterResult>("/api/register", { method: "POST", cookie: gate.cookie, body: input });
   expect(res.status, JSON.stringify(res.body)).toBe(200);

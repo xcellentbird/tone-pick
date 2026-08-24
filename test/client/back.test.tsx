@@ -11,7 +11,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { BTN, GENDER, HELP, HOME, MBTI_AXES, ME, SCREEN_TITLE, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
+import { BTN, GENDER, HELP, HOME, MBTI_AXES, ME, REGISTER, SCREEN_TITLE, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
 import type { ParticipantState } from "../../src/shared/types.ts";
 import { PARTICIPANT_ROUTES } from "../../src/client/router.tsx";
 import Register from "../../src/client/routes/Register.tsx";
@@ -38,6 +38,7 @@ const STATE: ParticipantState = {
     instagram: "gram_a",
     mbti: "ENFP",
     charms: ["하나", "둘", "셋"],
+    contactShare: "all" as const,
     createdAt: 1,
   },
   roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["가", "나", "다"] }],
@@ -188,6 +189,8 @@ describe("등록 직후 첫 안내", () => {
 
     await screen.findByLabelText(ME.labels.instagram);
     set("instagram", "na_gram");
+    // 기본값이 없어서 안 고르면 여기서 막힌다 (ADR-37). 뒤로 가기 시험이라 값 자체는 아무거나
+    fireEvent.click(screen.getByText(REGISTER.share.all.title));
     fireEvent.click(screen.getByText(BTN.next));
 
     await screen.findByText(MBTI_AXES[0].q);
@@ -196,6 +199,36 @@ describe("등록 직후 첫 안내", () => {
     // 머리글 h1 도 같은 말이라 버튼만 골라낸다
     fireEvent.click(screen.getAllByRole("button").find((b) => b.textContent === SCREEN_TITLE.register)!);
   }
+
+  /**
+   * **미리 눌린 것이 없어야 한다** (ADR-37). 하나가 눌린 채로 시작하면 그냥 지나친 사람도
+   * 고른 것이 되고, 그러면 이건 동의가 아니라 동의를 지어낸 것이다.
+   */
+  it("★ 연락처 공개 범위는 아무것도 골라져 있지 않다", async () => {
+    render(<RouterProvider router={registerRouter()} />);
+    const set = (id: string, value: string) =>
+      fireEvent.change(document.getElementById(id)!, { target: { value } });
+
+    await screen.findByLabelText(ME.labels.nickname);
+    set("nickname", "달빛");
+    set("realName", "김나");
+    set("age", "30");
+    fireEvent.click(screen.getByText(GENDER.M));
+    fireEvent.click(screen.getByText(BTN.next));
+
+    await screen.findByLabelText(ME.labels.instagram);
+    const opts = screen.getAllByRole("radio");
+    expect(opts.length, "세 갈래가 다 보인다").toBe(3);
+    for (const o of opts) {
+      expect(o.getAttribute("aria-checked"), `'${o.textContent}' 가 미리 눌려 있다`).toBe("false");
+    }
+
+    // 안 고르고 넘어가려 하면 막히고, 3스텝으로 가지 않는다
+    set("instagram", "na_gram");
+    fireEvent.click(screen.getByText(BTN.next));
+    await screen.findByText(REGISTER.err.share);
+    expect(screen.queryByText(MBTI_AXES[0].q), "안 골랐는데 넘어갔다").toBeNull();
+  });
 
   it("★ 등록을 마치면 진행 방식이 열려 있다", async () => {
     const router = registerRouter();

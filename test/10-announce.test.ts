@@ -66,9 +66,9 @@ async function freshEvent(): Promise<EventMeta> {
     body: {
       name: `알림${seq}회차`,
       pin: String(4000 + seq),
-      regOpenAt: "now",
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
+      voteEndAt: Date.now() + 3 * 24 * HOUR - HOUR,
       config: { maxPre: 2, maxParty: 3 },
       requestId: `a-${seq}-${Date.now()}`,
     },
@@ -97,6 +97,7 @@ async function join(ev: EventMeta): Promise<{ cookie: string | null; id: string 
     instagram: `insta_${phoneSeq}`,
     mbti: "ENFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
+    contactShare: "all",
   };
   const res = await api<RegisterResult>("/api/register", { method: "POST", cookie: gate.cookie, body: input });
   expect(res.status, JSON.stringify(res.body)).toBe(200);

@@ -63,9 +63,9 @@ export async function freshEvent(): Promise<EventMeta> {
     body: {
       name: `${seq}회차`,
       pin: String(3000 + seq),
-      regOpenAt: "now",
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
+      voteEndAt: Date.now() + 3 * 24 * HOUR - HOUR,
       /*
        * **알림을 켠 회차다.** 기본은 꺼짐이라(ADR-34) 받은 콕 수가 발표 전까지 0 으로 나온다 —
        * 이 헬퍼를 쓰는 테스트들은 그 숫자로 익명성을 재므로 여기서는 켜 둔다.
@@ -91,6 +91,8 @@ export function person(over: Partial<RegisterInput> = {}): RegisterInput {
     instagram: `insta_${phoneSeq}`,
     mbti: "ENFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
+    // 옛 회차가 하던 대로가 기본이다 — 이걸 좁히면 이 값과 무관한 테스트가 같이 흔들린다 (ADR-37)
+    contactShare: "all",
     ...over,
   };
 }

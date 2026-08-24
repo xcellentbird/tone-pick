@@ -43,6 +43,7 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
         instagram: "gram_a",
         mbti: "ENFP",
         charms: ["a", "b", "c"],
+        contactShare: "all" as const,
         createdAt: 1,
       },
       {
@@ -55,6 +56,7 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
         instagram: "gram_b",
         mbti: "ISFJ",
         charms: ["a", "b", "c"],
+        contactShare: "all" as const,
         createdAt: 2,
       },
     ],
@@ -577,6 +579,7 @@ describe("운영자 콘솔", () => {
     const mk = (n: number, g: "M" | "F" = "M") => ({
       id: `x${n}`, nickname: `사람${n}`, realName: `김${n}`, age: 30, gender: g,
       phone: `0100000000${n}`, instagram: `gram_${n}`, mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string],
+      contactShare: "all" as const,
       createdAt: n,
     });
     const players = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => mk(n));
@@ -593,7 +596,7 @@ describe("운영자 콘솔", () => {
 
   it("받은 콕이 아무도 없으면 순위도 없다", () => {
     const players = [{ id: "a", nickname: "가", realName: "김가", age: 30, gender: "M" as const,
-      phone: "01011112222", instagram: "gram_a", mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string], createdAt: 1 }];
+      phone: "01011112222", instagram: "gram_a", mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string], contactShare: "all" as const, createdAt: 1 }];
     expect(topRanks(players, { a: 0 })).toEqual([]);
   });
 

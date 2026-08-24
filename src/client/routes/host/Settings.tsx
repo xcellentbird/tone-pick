@@ -77,7 +77,7 @@ export default function Settings() {
     changed(HOST_UI.fields.undoPre, undoWord(meta.config.allowUndoPre !== false), undoWord(allowUndoPre));
     changed(HOST_UI.fields.undoParty, undoWord(meta.config.allowUndo !== false), undoWord(allowUndo));
     changed(HOST_UI.fields.pokeNotify, notifyWord(meta.config.pokeNotify === true), notifyWord(pokeNotify));
-    for (const key of ["partyAt", "regOpenAt", "prevoteAt"] as const) {
+    for (const key of ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt"] as const) {
       changed(HOST_UI.fields[key], formatWhen(meta.schedule[key]) || "—", formatWhen(schedule[key]) || "—");
     }
 
@@ -221,6 +221,16 @@ export default function Settings() {
         value={schedule.prevoteAt}
         locked={schedLocked(meta.fired, "prevoteAt")}
         onChange={(v) => setSchedule({ ...schedule, prevoteAt: v })}
+      />
+      {/*
+        매력 투표 마감 (ADR-39). **파티가 시작될 때까지 열려 있다** — 파티가 늦어지면
+        마감도 미뤄야 하기 때문이다. 그래서 일정 잠금을 규칙 잠금에서 갈랐다.
+      */}
+      <When
+        label={HOST_UI.fields.voteEndAt}
+        value={schedule.voteEndAt}
+        locked={schedLocked(meta.fired, "voteEndAt")}
+        onChange={(v) => setSchedule({ ...schedule, voteEndAt: v })}
       />
       {/* 예약이 없는 전환을 여기서 찾지 않도록, 없는 이유를 그 자리에 적어둔다 */}
       <p className="tiny dim">{HOST_UI.fields.manualNote}</p>

@@ -65,8 +65,9 @@ hostRoutes.put("/defaults", async (c) => {
     await registry(c.env).putDefaults({
       maxPre: body.maxPre,
       maxParty: body.maxParty,
-      regOpenBeforeD: body.regOpenBeforeD,
+      place: String(body.place ?? "").trim().slice(0, LIMITS.placeMax),
       prevoteBeforeH: body.prevoteBeforeH,
+      voteEndBeforeH: body.voteEndBeforeH,
       inviteTemplate: String(body.inviteTemplate ?? "").slice(0, LIMITS.inviteTemplateMax),
     }),
   );
@@ -99,16 +100,14 @@ hostRoutes.post("/events", async (c) => {
   if (!body.name?.trim() || !body.requestId) return apiError(c, "bad_request");
   if (!validConfig(body.config)) return apiError(c, "bad_request");
 
-  // 'now' 는 시각이 아니라 리터럴로 받는다 — datetime-local 이 초를 버리기 때문 (UI.md)
-  const openNow = body.regOpenAt === "now";
-  const regOpenAt = openNow ? now : Number(body.regOpenAt);
+  /*
+   * **등록은 만드는 순간 열린다** (ADR-38). 시각을 받지 않으므로 순서를 검증할 두 시각도 없다.
+   * 매력 투표 시작이 이미 지났더라도 회차는 만들어진다 — 그때는 둘이 곧바로 이어서 열린다.
+   */
   const partyAt = Number(body.partyAt);
   const prevoteAt = Number(body.prevoteAt);
-  if (![regOpenAt, partyAt, prevoteAt].every(Number.isFinite)) return apiError(c, "bad_request");
-  // 순서 검증은 **운영자가 고른 두 시각** 사이에서만 한다.
-  // '지금 바로'는 고른 시각이 아니라 버튼이라서, 사전 투표 시작이 이미 지났더라도 회차는 만들어진다 —
-  // 그때는 등록과 사전 투표가 곧바로 이어서 열린다.
-  if (!openNow && prevoteAt <= regOpenAt) return apiError(c, "schedule_order");
+  const voteEndAt = Number(body.voteEndAt);
+  if (![partyAt, prevoteAt, voteEndAt].every(Number.isFinite)) return apiError(c, "bad_request");
 
   const reserved = await registry(c.env).reserve({
     code: body.code,
@@ -117,15 +116,16 @@ hostRoutes.post("/events", async (c) => {
   });
   if (!reserved.ok) return apiError(c, "code_taken", HOST.pin.codeTaken);
 
-  const place = String(body.place ?? "").trim();
+  const place = String(body.place ?? "").trim().slice(0, LIMITS.placeMax);
   const meta = await eventStub(c.env, reserved.id).init({
     id: reserved.id,
     name: body.name.trim(),
     ...(place ? { place } : {}),
     code: reserved.code,
-    phase: openNow ? "reg" : "prep",
-    fired: openNow ? { reg: now } : {},
-    schedule: { partyAt, regOpenAt, prevoteAt },
+    // 만드는 순간 등록이 열린다. 시각은 **기록으로** 남긴다 — 지나간 예약을 지우지 않는 것과 같다
+    phase: "reg",
+    fired: { reg: now },
+    schedule: { partyAt, regOpenAt: now, prevoteAt, voteEndAt },
     // 좁혔을 때만 적는다. 기본값을 굳이 써 넣으면 설정의 모양이 회차마다 달라진다
     config: {
       maxPre: body.config.maxPre,
@@ -411,13 +411,17 @@ function validConfig(config: EventConfig | undefined): boolean {
 }
 
 function validDefaults(d: Defaults): boolean {
+  /*
+   * 등록 시작 오프셋은 사라졌다 (ADR-38) — 회차를 만드는 순간 열린다.
+   * 그래서 "사전 투표가 등록보다 먼저 열리면 안 된다" 는 순서 검사도 함께 없앴다.
+   * 매력 투표가 회차를 만드는 시점보다 앞이면 등록과 곧바로 이어 열릴 뿐, 어긋나지 않는다.
+   */
   return (
     validConfig(d) &&
-    Number.isFinite(d.regOpenBeforeD) &&
-    d.regOpenBeforeD >= 0 &&
+    (d.place === undefined || typeof d.place === "string") &&
     Number.isFinite(d.prevoteBeforeH) &&
     d.prevoteBeforeH >= 0 &&
-    // 사전 투표가 등록보다 먼저 열리는 기본값을 저장하면, 위저더가 채우는 일정이 매번 순서 위반으로 실패한다
-    d.prevoteBeforeH < d.regOpenBeforeD * 24
+    Number.isFinite(d.voteEndBeforeH) &&
+    d.voteEndBeforeH >= 0
   );
 }

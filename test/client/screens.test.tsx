@@ -66,6 +66,7 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
       instagram: "na_gram",
       mbti: "ENFP",
       charms: ["하나", "둘", "셋"],
+      contactShare: "all" as const,
       createdAt: 1,
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
@@ -442,6 +443,27 @@ describe("뿌리 화면", () => {
 // ─────────────────────────────────────────── 콕
 
 describe("참가자 화면 · 콕", () => {
+  it("★ 매력 투표가 마감되면 목록이 이유를 말한다 (ADR-39)", async () => {
+    /*
+     * 마감되면 `남은 횟수` 칸이 사라지고 버튼이 잠긴다. 잠긴 버튼은 눌러도 아무 말이 없어서,
+     * 아무 설명 없이 자리만 비면 참가자는 앱이 고장 난 줄 안다.
+     */
+    renderParticipant(
+      fakeSource({
+        load: async () =>
+          participantState({
+            event: {
+              ...participantState().event,
+              schedule: { ...participantState().event.schedule, voteEndAt: Date.now() - 60_000 },
+            },
+          }),
+      }),
+    );
+    await screen.findByText(POKE.blocked.voteEndedLine);
+    // 남은 횟수는 사라진다 — 쓸 수 없는 숫자를 남겨두면 그게 더 헷갈린다
+    expect(screen.queryByText(PEOPLE.pokeLeftLabel("pre"))).toBeNull();
+  });
+
   it("★ 콕 찌르기는 확인을 거치고, 확인창이 숫자를 보여준다", async () => {
     const source = fakeSource();
     renderParticipant(source);
@@ -839,10 +861,31 @@ describe("참가자 화면 · 자리", () => {
   it("자리가 발행되면 전체 화면으로 확인을 받는다", async () => {
     const source = fakeSource({ load: async () => participantState({ seat }) });
     renderParticipant(source);
-    await screen.findByText(SEAT.ack.headline(2));
+    await screen.findByText(SEAT.ack.headline(2, false));
 
-    fireEvent.click(screen.getByText(SEAT.ack.submit));
+    fireEvent.click(screen.getByText(SEAT.ack.submit(false)));
     await waitFor(() => expect(source.calls.ack).toEqual([1]));
+  });
+
+  it("★ 파티 전과 파티 중이 다르게 말한다 (ADR-39)", async () => {
+    /*
+     * 첫 자리는 파티가 시작되기 전에 나간다. 그때 이 화면을 받는 사람은 **아직 오는 중**일 수 있어서
+     * "이동해주세요" 도 "지켜보고 있어요" 도 그 사람에게는 재촉이다.
+     */
+    const party = fakeSource({
+      load: async () => participantState({ seat, event: { ...participantState().event, phase: "party" } }),
+    });
+    renderParticipant(party);
+    await screen.findByText(SEAT.ack.headline(2, true));
+    expect(screen.getByText(SEAT.ack.watching)).toBeTruthy();
+
+    cleanup();
+
+    // 픽스처의 기본 단계는 매력 투표다 — 파티 전이다
+    renderParticipant(fakeSource({ load: async () => participantState({ seat }) }));
+    await screen.findByText(SEAT.ack.headline(2, false));
+    expect(screen.getByText(SEAT.ack.beforeParty)).toBeTruthy();
+    expect(screen.queryByText(SEAT.ack.watching)).toBeNull();
   });
 
   it("★ 확인 저장이 실패하면 안내가 그대로 남는다 — 조용히 삼키지 않는다", async () => {
@@ -857,10 +900,10 @@ describe("참가자 화면 · 자리", () => {
       },
     });
     renderParticipant(source);
-    await screen.findByText(SEAT.ack.headline(2));
-    fireEvent.click(screen.getByText(SEAT.ack.submit));
+    await screen.findByText(SEAT.ack.headline(2, false));
+    fireEvent.click(screen.getByText(SEAT.ack.submit(false)));
     // 되돌아와서 한 번 더 누를 수 있다
-    await waitFor(() => expect(screen.getByText(SEAT.ack.submit)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(SEAT.ack.submit(false))).toBeTruthy());
   });
 
   it("★ 이미 확인한 사람은 홈에서 다시 열 수 있다", async () => {
@@ -886,7 +929,7 @@ describe("참가자 화면 · 자리", () => {
     );
     // 확인했으므로 전체 화면은 안 뜬다
     await screen.findByText(SEAT.banner(2));
-    expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+    expect(screen.queryByText(SEAT.ack.submit(false))).toBeNull();
 
     // 홈의 자리 카드를 누르면 다시 열린다
     fireEvent.click(screen.getByText(SEAT.banner(2)).closest("button")!);
@@ -935,8 +978,8 @@ describe("참가자 화면 · 자리", () => {
         />
       </MemoryRouter>,
     );
-    await screen.findByText(SEAT.ack.headline(2));
-    expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+    await screen.findByText(SEAT.ack.headline(2, false));
+    expect(screen.queryByText(SEAT.ack.submit(false))).toBeNull();
     expect(screen.getByText(BTN.close)).toBeTruthy();
   });
 
@@ -947,7 +990,7 @@ describe("참가자 화면 · 자리", () => {
     });
     renderParticipant(source);
     await screen.findByText(/그녀/);
-    expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+    expect(screen.queryByText(SEAT.ack.submit(false))).toBeNull();
   });
 });
 
@@ -1119,6 +1162,64 @@ describe("발표 후 참가자 탭", () => {
           ...over,
         }),
     });
+
+  /** 매칭 한 건을 통째로 갈아끼운다 — 연락처가 얼마나 열렸는지에 따라 화면이 달라진다 (ADR-37) */
+  const revealedWith = (match: MyPokeState["matches"][number]) =>
+    fakeSource({
+      load: async () =>
+        participantState({
+          event: { ...participantState().event, phase: "done" },
+          poke: { ...matched, matches: [match] },
+        }),
+    });
+
+  /**
+   * 둘 중 한 명이라도 `안 열기` 를 골랐을 때 (ADR-37). 서버가 `contact` 를 아예 안 보낸다 —
+   * 화면은 그걸 그대로 그린다.
+   */
+  it("★ 연락처가 안 열린 매칭에서는 번호도 인스타도 없다", async () => {
+    const closed = revealedWith({ ...matched.matches[0], contact: undefined });
+    renderParticipant(closed, "her");
+
+    // 먼저 기다린다 — 동기 조회를 앞에 두면 아직 안 그려진 화면을 재게 된다
+    await screen.findByText(REVEAL.contactClosed);
+    // 매칭 자체는 그대로 보인다 — 좁아진 건 연락처뿐이다
+    expect(screen.getAllByText(new RegExp(REVEAL.matchBadge)).length).toBeGreaterThan(0);
+    expect(screen.queryByText("01055556666"), "번호가 남아 있다").toBeNull();
+    expect(screen.queryByText("@her_gram"), "인스타가 남아 있다").toBeNull();
+    // 연락처 라벨 자체가 없다 — 빈 '연락처' 칸은 고장 난 화면으로 읽힌다
+    expect(screen.queryByText(REVEAL.contactTitle)).toBeNull();
+    // "상대에게도 같은 만큼 보여요" 는 열린 게 있을 때만 참이다
+    expect(screen.queryByText(REVEAL.contactNote)).toBeNull();
+  });
+
+  it("★ 연락처가 안 열린 이유를 상대 탓으로 말하지 않는다", async () => {
+    /*
+     * `상대가 열지 않았어요` 는 **이름 붙은 거절**이다. 서로 콕 찌른 사이라 상대가 누구인지
+     * 이미 아는 화면이라, 그 한 줄이 이 앱이 없애려는 경험을 그대로 만든다 (ADR-37).
+     * 그래서 문구는 **등록할 때 미리 고른 값**이라는 것만 말한다.
+     */
+    for (const word of ["상대가", "거절", "수락"]) {
+      expect(REVEAL.contactClosed, `'${word}' 가 들어 있다`).not.toContain(word);
+    }
+    expect(REVEAL.contactClosed, "미리 고른 값이라는 걸 말해야 한다").toContain("등록");
+  });
+
+  it("★ 인스타까지만 열린 매칭에는 번호 줄이 없다", async () => {
+    const igOnly = revealedWith({
+      ...matched.matches[0],
+      contact: { realName: "이실명", instagram: "her_gram" },
+    });
+    renderParticipant(igOnly, "her");
+
+    // 인스타는 멀쩡히 열린다 — 좁아진 건 번호뿐이다
+    await screen.findByText("@her_gram");
+    expect(screen.getByText("이실명")).toBeTruthy();
+    expect(screen.queryByText("01055556666"), "번호가 남아 있다").toBeNull();
+    expect(screen.queryByText(ME.labels.phone), "번호 줄이 빈 채로 남아 있다").toBeNull();
+    // 없는 줄은 그냥 없다 — 왜 없는지 적으면 멀쩡한 인스타가 실패처럼 보인다
+    expect(screen.queryByText(REVEAL.contactClosed)).toBeNull();
+  });
 
   it("★ 발표 후에는 콕 버튼이 아예 없다 — 잠긴 버튼도 남기지 않는다", async () => {
     /*
@@ -2084,5 +2185,27 @@ describe("홈 · 남은 시간", () => {
     await screen.findByText(HOME.todo.reg.title);
     expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
     expect(screen.queryByText(STATUS.untilPrevote)).toBeNull();
+  });
+
+  it("★ 매력 투표 중에는 마감까지를 센다 (ADR-39)", async () => {
+    /*
+     * 예전에는 이 자리에서 파티를 셌다 — 마감이 운영자 손에 있어 셀 시각이 없었다.
+     * 시각이 생기면서 **다음에 일어날 일**이 마감으로 바뀌었다.
+     */
+    home(withSchedule("prevote", { voteEndAt: Date.now() + 1_800_000, partyAt: Date.now() + 5_400_000 }));
+    await screen.findByText(HOME.todo.prevote.title);
+    expect(screen.getByText(STATUS.untilVoteEnd)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilParty)).toBeNull();
+  });
+
+  it("★ 마감이 지나면 할 일 카드가 바뀌고 파티를 센다", async () => {
+    /*
+     * 단계는 아직 `prevote` 지만 할 일이 다르다 — 투표는 끝났고 자리를 기다린다.
+     * 단계 이름만으로는 이 카드를 고를 수 없다는 게 이 화면의 새로운 사정이다.
+     */
+    home(withSchedule("prevote", { voteEndAt: Date.now() - 60_000, partyAt: Date.now() + 3_600_000 }));
+    await screen.findByText(HOME.todo.voteClosed.title);
+    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilVoteEnd)).toBeNull();
   });
 });

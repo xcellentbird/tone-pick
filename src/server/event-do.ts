@@ -13,6 +13,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type {
   Attendance,
+  ContactShare,
   EventConfig,
   EventMeta,
   EventSchedule,
@@ -46,16 +47,18 @@ import { readFortune } from "../shared/fortune.ts";
 import { rosterOpen, toPublic } from "../shared/types.ts";
 import { ENTRY } from "../shared/copy.ts";
 import {
+  CONTACT_SHARE,
   ENTRY_TRIES,
   LIMITS,
   cleanName,
+  minShare,
   nicknameProblem,
   normalizeInstagram,
   normalizeNickname,
   normalizePhone,
   realNameProblem,
 } from "../shared/constants.ts";
-import { PHASE_ORDER, canPoke, dueTransition, rulesLocked } from "../shared/phase.ts";
+import { PHASE_ORDER, canPoke, dueTransition, rulesLocked, schedLocked } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
@@ -75,6 +78,8 @@ CREATE TABLE IF NOT EXISTS players (
   charms     TEXT NOT NULL,          -- JSON string[3]
   created_at INTEGER NOT NULL,
   attendance TEXT,                   -- 'arrived' | 'left'. 없으면 안 옴 (ADR-33)
+  contact_share TEXT,                -- 'none' | 'instagram' | 'all'. 매칭 상대에게 열 것 (ADR-37).
+                                     -- 옛 회차의 행에는 없다 — 그땐 '발표 때 열린다' 가 약속이라 all 로 읽는다
   token      TEXT                    -- 등록할 때 초대 명단에서 복사해 온다 (ADR-32).
                                      -- 명단에서 지워져도 자기 링크로 계속 들어오게 하는 값이다
 );
@@ -136,7 +141,6 @@ type Fail =
   | "conflict"
   | "forbidden"
   | "bad_request"
-  | "schedule_order"
   | "nick_taken"
   | "closed"
   | "same_gender"
@@ -176,6 +180,7 @@ export class EventDO extends DurableObject {
         "ALTER TABLE invites ADD COLUMN sent_at INTEGER",
         "ALTER TABLE players ADD COLUMN token TEXT",
         "ALTER TABLE players ADD COLUMN attendance TEXT",
+        "ALTER TABLE players ADD COLUMN contact_share TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token)",
         "CREATE INDEX IF NOT EXISTS players_token ON players(token)",
       ]) {
@@ -281,14 +286,20 @@ export class EventDO extends DurableObject {
     if (!meta) return fail("not_found");
     const next: EventSchedule = { ...meta.schedule, ...patch };
     /*
-     * 굳은 뒤에는 일정을 못 고친다 (ADR-35). **같은 값이 오는 건 통과시킨다** —
-     * 설정 탭은 저장할 때마다 일정을 통째로 다시 보내기 때문에, 있고 없고로 막으면
-     * 이름만 고쳐도 거절당한다. 막는 것은 '보냈나'가 아니라 '달라졌나'다.
+     * **순서는 검사하지 않는다** (ADR-36). 등록이 늘 열려 있는 지금, "사전 투표가 등록보다
+     * 먼저 열렸다" 는 위반이 성립하지 않는다. 검사를 남겨두면 오히려 **매력 투표를
+     * 지금 당장 열려는 정당한 조작**이 회차 만든 시각에 걸려 거절당했다.
      */
-    if (rulesLocked(meta.fired) && SCHEDULE_KEYS.some((k) => next[k] !== meta.schedule[k])) {
+    /*
+     * 잠긴 항목은 못 고친다. **키마다 따로 본다** (ADR-39) — 매력 투표 마감과 파티 일시는
+     * 파티가 시작될 때까지 열려 있어야 한다. 파티가 늦어지면 마감도 미뤄야 하기 때문이다.
+     *
+     * **같은 값이 오는 건 통과시킨다** — 설정 탭은 저장할 때마다 일정을 통째로 다시 보내므로,
+     * 있고 없고로 막으면 이름만 고쳐도 거절당한다. 막는 것은 '보냈나'가 아니라 '달라졌나'다.
+     */
+    if (SCHEDULE_KEYS.some((k) => next[k] !== meta.schedule[k] && schedLocked(meta.fired, k))) {
       return fail("locked");
     }
-    if (!validSchedule(next)) return fail("schedule_order");
     meta.schedule = next;
     await this.ctx.storage.put("meta", meta);
     await this.rearm(meta, now);
@@ -605,16 +616,17 @@ export class EventDO extends DurableObject {
       instagram: clean.instagram,
       mbti: clean.mbti,
       charms: clean.charms,
+      contactShare: clean.contactShare,
       createdAt: who.createdAt,
     };
 
     this.ctx.storage.sql.exec(
-      `INSERT INTO players (id, nickname, nick_norm, real_name, age, gender, phone, instagram, mbti, charms, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO players (id, nickname, nick_norm, real_name, age, gender, phone, instagram, mbti, charms, contact_share, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET
          nickname=excluded.nickname, nick_norm=excluded.nick_norm, real_name=excluded.real_name,
          age=excluded.age, gender=excluded.gender, instagram=excluded.instagram,
-         mbti=excluded.mbti, charms=excluded.charms`,
+         mbti=excluded.mbti, charms=excluded.charms, contact_share=excluded.contact_share`,
       player.id,
       player.nickname,
       clean.nickNorm,
@@ -625,6 +637,7 @@ export class EventDO extends DurableObject {
       player.instagram ?? null,
       player.mbti,
       JSON.stringify(player.charms),
+      player.contactShare,
       player.createdAt,
     );
     return ok(player);
@@ -699,7 +712,7 @@ export class EventDO extends DurableObject {
   async poke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    if (!canPoke(meta.phase)) return fail("closed");
+    if (!canPoke(meta.phase, now, meta.schedule)) return fail("closed");
 
     const me = this.player(fromId);
     const target = this.player(toId);
@@ -742,7 +755,7 @@ export class EventDO extends DurableObject {
   async unpoke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    if (!canPoke(meta.phase)) return fail("closed");
+    if (!canPoke(meta.phase, now, meta.schedule)) return fail("closed");
 
     const round = roundOf(meta.phase);
     const allowed = round === "pre" ? meta.config.allowUndoPre !== false : meta.config.allowUndo !== false;
@@ -790,7 +803,7 @@ export class EventDO extends DurableObject {
             .map((p) => toPublic(p, meta.phase))
         : [],
       poke: await this.pokeState(playerId, meta),
-      seat: this.mySeat(playerId, meta.phase),
+      seat: this.mySeat(playerId),
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
       ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),
       announcements: this.publicAnnouncements(playerId),
@@ -1507,24 +1520,39 @@ export class EventDO extends DurableObject {
     if (meta.phase === "done") {
       // 매칭은 **만나보고 찌른 것**만 센다 (ADR-34). 매력 투표는 자리의 재료일 뿐이다
       const { mutual } = this.pairs("party");
-      const mySeat = this.mySeat(playerId, meta.phase);
+      const mySeat = this.mySeat(playerId);
       const last = this.lastPublished();
+      // 내가 등록할 때 고른 값. 매칭마다 상대 것과 견줘 **조심스러운 쪽**을 쓴다 (ADR-37)
+      const myShare = this.player(playerId)?.contactShare;
       for (const [a, b] of mutual) {
         const otherId = a === playerId ? b : b === playerId ? a : null;
         if (!otherId) continue;
         const other = this.player(otherId);
         if (!other) continue;
         const theirTable = last?.seats.find((s) => s.playerId === otherId)?.table;
+
+        /*
+         * 연락처가 참가자에게 나가는 유일한 자리다 (ADR-19). 조건 넷이 여기 겹쳐 있다 —
+         * 이 블록은 `meta.phase === "done"` 안이고(①), `mutual` 에 든 쌍만 지나며(②),
+         * 꺼내는 건 `other` 의 것이고(③), 그 양을 `share` 가 정한다(④, ADR-37).
+         *
+         * **`none` 이면 `contact` 키 자체를 만들지 않는다.** 빈 객체를 내려보내면
+         * 개발자 도구에서 "열려 있는데 비었다" 로 읽히고, 그 구분이 곧 상대의 선택이 된다.
+         */
+        const share = minShare(myShare, other.contactShare);
         matches.push({
           player: toPublic(other, meta.phase),
           sameTable: mySeat && theirTable === mySeat.table ? mySeat.table : undefined,
-          // 연락처가 참가자에게 나가는 유일한 자리다 (ADR-19).
-          // 이 블록은 `meta.phase === "done"` 안이고, `mutual` 에 든 쌍만 지난다
-          contact: {
-            realName: other.realName,
-            phone: other.phone,
-            ...(other.instagram ? { instagram: other.instagram } : {}),
-          },
+          ...(share === "none"
+            ? {}
+            : {
+                contact: {
+                  realName: other.realName,
+                  instagram: other.instagram,
+                  // 전화번호는 **둘 다** `all` 일 때만 (`minShare` 가 이미 판단했다)
+                  ...(share === "all" ? { phone: other.phone } : {}),
+                },
+              }),
         });
       }
     }
@@ -1619,8 +1647,17 @@ export class EventDO extends DurableObject {
    * 발표 후에도 남긴다. 매칭 상대와 같은 테이블이었는지를 발표 화면이 쓴다 (`MatchInfo.sameTable`).
    * **화면에서 감추는 것으로는 부족하다** — 개발자 도구를 여는 참가자가 있다.
    */
-  private mySeat(playerId: string, phase: Phase): MySeat | undefined {
-    if (phase !== "party" && phase !== "done") return undefined;
+  /**
+   * **발행하면 그 순간부터 보인다** (ADR-39). 단계를 보지 않는다.
+   *
+   * 슬라이스 12 에서는 파티가 시작돼야 보이게 막았다 — 운영자가 자리를 미리 짜두려면
+   * 짜는 동안 참가자에게 새지 않아야 했기 때문이다. 그 방어는 지금 **초안**이 맡는다.
+   * 초안은 발행하기 전까지 `lastPublished()` 에 잡히지 않는다.
+   *
+   * 게이트를 풀어야 했던 이유는 **일찍 온 사람을 앉히기** 위해서다.
+   * 파티 시작 전에 자리를 보내고, 온 사람이 자기 테이블을 보고 앉아 기다린다.
+   */
+  private mySeat(playerId: string): MySeat | undefined {
     const last = this.lastPublished();
     if (!last) return undefined;
     const mine = last.seats.find((s) => s.playerId === playerId);
@@ -1695,6 +1732,8 @@ interface PlayerRow {
   instagram: string;
   mbti: string;
   charms: string;
+  /** 옛 회차의 행에는 이 칸 자체가 없다 (ADR-37) — `toPlayer` 가 `all` 로 읽는다 */
+  contact_share: ContactShare | null;
   created_at: number;
 }
 
@@ -1711,6 +1750,7 @@ interface SeatingRow {
 
 /** 검증을 지난 정규화본. 여기까지 온 값만 저장한다 */
 interface CleanProfile {
+  contactShare: ContactShare;
   nickname: string;
   nickNorm: string;
   realName: string;
@@ -1749,7 +1789,15 @@ function cleanProfile(input: RegisterInput): CleanProfile | null {
   const instagram = normalizeInstagram(String(input.instagram ?? ""));
   if (instagram.length > LIMITS.instagramMax || !/^[A-Za-z0-9._]+$/.test(instagram)) return null;
 
+  /*
+   * **기본값으로 메우지 않는다** (ADR-37). 연락처를 여는 동의라서,
+   * 안 보낸 것을 `all` 로 읽으면 그건 동의가 아니라 동의를 지어낸 것이다.
+   * 화면이 세 버튼 중 하나를 반드시 고르게 하고, 서버는 그걸 다시 본다.
+   */
+  if (!CONTACT_SHARE.includes(input.contactShare)) return null;
+
   return {
+    contactShare: input.contactShare,
     nickname,
     nickNorm: normalizeNickname(nickname),
     realName,
@@ -1772,6 +1820,8 @@ function toPlayer(r: PlayerRow): Player {
     instagram: r.instagram,
     mbti: r.mbti,
     charms: JSON.parse(r.charms) as [string, string, string],
+    // 옛 회차의 행에는 이 칸이 없다. 그때 한 약속이 "발표 때 열린다" 였으므로 `all` 이다 (ADR-37)
+    contactShare: r.contact_share ?? "all",
     createdAt: r.created_at,
   };
 }
@@ -1811,11 +1861,7 @@ function nextDue(meta: EventMeta): number | null {
  * 순서 검증. 등록보다 먼저 사전 투표가 열리는 것만 막는다.
  * 파티 일시는 언제든 옮길 수 있다 — 장소가 바뀌면 시각이 바뀌고, 그건 일정이 아니라 사실이다.
  */
-export function validSchedule(s: EventSchedule): boolean {
-  return !(s.regOpenAt && s.prevoteAt && s.prevoteAt <= s.regOpenAt);
-}
-
-const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt"] as const;
+const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt"] as const;
 
 /**
  * 굳는 규칙 넷을 **뜻으로** 편다 (ADR-35).

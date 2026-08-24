@@ -31,12 +31,15 @@ describe("시크릿", () => {
  */
 describe("옛 모양으로 저장된 기본값", () => {
   it("★ 없는 항목은 기본값으로 채운다 — 화면에 NaN 이 뜨지 않는다", () => {
-    // 옛 모양: regOpenAfterH · voteWindowH 를 쓰던 시절
-    const old = { maxPre: 5, maxParty: 9, regOpenAfterH: 3, voteWindowH: 48 } as never;
+    // 옛 모양: regOpenAfterH · voteWindowH · regOpenBeforeD 를 쓰던 시절
+    const old = { maxPre: 5, maxParty: 9, regOpenAfterH: 3, voteWindowH: 48, regOpenBeforeD: 6 } as never;
     const now = withDefaults(old);
 
-    expect(now.regOpenBeforeD).toBe(DEFAULTS.regOpenBeforeD);
     expect(now.prevoteBeforeH).toBe(DEFAULTS.prevoteBeforeH);
+    // 등록 시작 오프셋은 사라졌다 (ADR-38). 옛 키를 들고 다니지 않는다
+    expect(Object.keys(now)).not.toContain("regOpenBeforeD");
+    // 장소는 없으면 빈 값 — "회차마다 다른 곳에서 연다" 는 뜻이다
+    expect(now.place).toBe("");
     // 운영자가 정해둔 값은 살린다 — 모양이 바뀌었다고 설정을 지우면 그것도 사고다
     expect(now.maxPre).toBe(5);
     expect(now.maxParty).toBe(9);

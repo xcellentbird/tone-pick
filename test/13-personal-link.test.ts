@@ -66,8 +66,8 @@ async function freshEvent(over: Partial<CreateEventInput> = {}): Promise<EventMe
     body: {
       name: `${seq}회차`,
       partyAt: now + 7 * DAY,
-      regOpenAt: "now",
       prevoteAt: now + 25 * HOUR,
+      voteEndAt: now + 7 * 24 * HOUR - HOUR,
       config: { maxPre: 3, maxParty: 3 },
       requestId: `r13-${seq}-${now}`,
       ...over,
@@ -114,6 +114,7 @@ function person(over: Partial<RegisterInput> = {}): RegisterInput {
     instagram: `ig${seq}`,
     mbti: "INFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
+    contactShare: "all",
     ...over,
   };
 }
