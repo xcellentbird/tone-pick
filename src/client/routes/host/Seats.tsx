@@ -42,6 +42,13 @@ export default function Seats() {
    * 초안에서 고른 사람이 발행된 라운드의 다음 클릭과 짝지어지면 엉뚱한 맞교환이 된다.
    */
   const [picked, setPicked] = useState<{ round: number; playerId: string } | null>(null);
+  /**
+   * 지금 고치고 있는 발행 라운드 (ADR-49). `null` 이면 전부 잠겨 있다.
+   *
+   * **기본이 잠김이다** — 이 카드는 대부분 *누가 어디 앉았나* 를 읽으러 여는 자리고,
+   * 그때 손가락이 스치면 두 사람이 말없이 바뀐다. 초안은 여기 해당하지 않는다.
+   */
+  const [openEdit, setOpenEdit] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   /**
    * 이번 라운드에서 뺄 사람 (ADR-45).
@@ -319,26 +326,54 @@ export default function Seats() {
 
       {published.length === 0 && (!draft || revealed) && <p className="dim center">{HOST_UI.seats.noRounds}</p>}
 
-      {[...published].reverse().map((round) => (
-        <div className="card stack" key={round.round}>
-          <div className="row between">
-            <span className="kicker">{HOST_UI.seats.roundTitle(round.round, round.final)}</span>
-            <span className="small dim">{HOST.ack.progress(round.acks.length, round.seats.length)}</span>
+      {[...published].reverse().map((round, i) => {
+        /*
+         * **가장 최신 라운드만 고칠 수 있다** (ADR-49).
+         *
+         * 목록은 최신이 위라 `i === 0` 이 그것이다. 지난 라운드를 고쳐도 사람들은 이미
+         * 다음 자리에 앉아 있어서 아무 데도 반영되지 않는다 — 고쳤다는 사실만 남는다.
+         * 발표 뒤에는 최신 라운드도 잠긴다 (ADR-28). 서버도 같은 문을 닫아둔다.
+         */
+        const editable = i === 0 && !revealed;
+        const editing = editable && openEdit === round.round;
+        return (
+          <div className="card stack" key={round.round}>
+            {/*
+              자리 이동 확인 수는 **고치는 문이 열려도 남는다** — 지금 사람들이 답하고 있는
+              라운드가 바로 이것이라, 여기서 사라지면 볼 자리가 없어진다.
+            */}
+            <div className="row">
+              <span className="kicker grow ellipsis">{HOST_UI.seats.roundTitle(round.round, round.final)}</span>
+              <span className="small dim">{HOST.ack.progress(round.acks.length, round.seats.length)}</span>
+              {editable && (
+                <button
+                  className={`btn ghost tiny ${editing ? "primary" : ""}`}
+                  onClick={() => {
+                    setPicked(null);
+                    setOpenEdit(editing ? null : round.round);
+                  }}
+                >
+                  {editing ? HOST_UI.seats.editDone : HOST_UI.seats.edit}
+                </button>
+              )}
+            </div>
+            {/*
+              **설명은 고치는 동안에만, 한 줄만 선다** (ADR-49). 읽으러 연 사람에게는
+              테이블이 먼저다 — 늘 떠 있던 설명 넷이 화면 위쪽을 통째로 먹고 있었다.
+            */}
+            {editing && editBar(round)}
+            <Tables
+              round={round}
+              picked={picked?.round === round.round ? picked.playerId : null}
+              onPick={(id) => swap(round, id)}
+              state={state}
+              partners={round.final ? partners : undefined}
+              locked={!editing}
+            />
+            <Unassigned round={round} state={state} onSeat={editing ? (id) => seat(round, id) : undefined} />
           </div>
-          {/* 알림이 가지 않는다는 걸 고치기 전에 말한다 — 앱이 말해주는 줄 알면 그 사람은 옛 자리에 앉아 있다 */}
-          {!revealed && <p className="tiny dim">{HOST_UI.seats.editQuiet}</p>}
-          {!revealed && editBar(round)}
-          <Tables
-            round={round}
-            picked={picked?.round === round.round ? picked.playerId : null}
-            onPick={(id) => swap(round, id)}
-            state={state}
-            partners={round.final ? partners : undefined}
-            locked={revealed}
-          />
-          <Unassigned round={round} state={state} onSeat={revealed ? undefined : (id) => seat(round, id)} />
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
