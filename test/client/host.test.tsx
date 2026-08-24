@@ -68,7 +68,6 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
     attendance: {},
     invites: [],
     announcements: [],
-    matchRounds: {},
     ...more,
   };
 }
@@ -150,26 +149,24 @@ describe("운영자 콘솔이 비어버리지 않는다", () => {
   });
 });
 
-describe("매칭이 어떻게 이루어졌나", () => {
-  it("★ 네 갈래의 합이 통합 매칭 수와 같다 — 운영자가 덧셈으로 의심하지 않게", async () => {
+describe("매칭 목록", () => {
+  it("★ 갈래를 나누지 않는다 — 매칭은 파티 콕만 센다 (ADR-34)", async () => {
     /*
-     * 사전·파티·통합 세 숫자를 나란히 두면 3+5≠9 를 운영자가 먼저 눈치챈다.
-     * 엇갈린 쌍은 어느 라운드도 아니고, 둘 다인 쌍은 두 번 세어지기 때문이다.
+     * 사전·파티·엇갈림으로 쪼개던 카드를 걷어냈다. 매칭이 파티 콕만 세므로
+     * 그 갈래가 나올 수 없고, **매력 투표를 서로 했다는 건 붙일 의미가 없는 사실**이다.
+     * 죽은 값을 그리느니 지운다.
      */
     stubFetch(
       hostState({}, {
         mutual: [["a", "b"], ["a", "c"], ["b", "c"], ["c", "d"]],
-        matchRounds: { "a|b": "pre", "a|c": "party", "b|c": "party", "c|d": "crossed" },
       }),
     );
     renderConsole();
     await screen.findByText(HOST_UI.dash.mutualTitle(4));
 
-    expect(screen.getByText(HOST_UI.dash.mix.pre)).toBeTruthy();
-    // 사전 1 · 파티 2 · 둘 다 0 · 엇갈림 1 = 4
-    expect(screen.getAllByText("1쌍").length).toBe(2);
-    expect(screen.getByText("2쌍")).toBeTruthy();
-    expect(screen.getByText("0쌍")).toBeTruthy();
+    // 갈래 카드가 없다 — 쌍 수를 세는 칸이 어디에도 뜨지 않는다
+    expect(screen.queryByText("1쌍")).toBeNull();
+    expect(screen.queryByText("0쌍")).toBeNull();
   });
 });
 

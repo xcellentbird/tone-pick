@@ -25,7 +25,6 @@ import type {
   AnnounceInput,
   Announcement,
   HostAnnouncement,
-  MatchKind,
   ParticipantState,
   PollChoice,
   PublicAnnouncement,
@@ -897,13 +896,9 @@ export class EventDO extends DurableObject {
      */
     const partyPairs = new Set(pokes.filter((k) => k.round === "party").map((k) => `${k.fromId}>${k.toId}`));
     const mutual: Array<[string, string]> = [];
-    const matchRounds: Record<string, MatchKind> = {};
     for (const key of partyPairs) {
       const [a, b] = key.split(">");
-      if (a < b && partyPairs.has(`${b}>${a}`)) {
-        mutual.push([a, b]);
-        matchRounds[`${a}|${b}`] = kindOf(when.get(key)!, when.get(`${b}>${a}`)!);
-      }
+      if (a < b && partyPairs.has(`${b}>${a}`)) mutual.push([a, b]);
     }
 
     return ok({
@@ -915,7 +910,6 @@ export class EventDO extends DurableObject {
         .map(([id, count]) => ({ id, count }))
         .sort((a, b) => b.count - a.count),
       mutual,
-      matchRounds,
       pokeCount,
       pokeUsedMax,
       seatings: this.seatings(),
@@ -1579,21 +1573,19 @@ export class EventDO extends DurableObject {
     const mutual: Array<[string, string]> = [];
     const oneWay: Array<[string, string]> = [];
     const strength: Record<string, number> = {};
-    const matchRounds: Record<string, MatchKind> = {};
     for (const key of sent.keys()) {
       const [a, b] = key.split(">");
       if (sent.has(`${b}>${a}`)) {
         if (a < b) {
           mutual.push([a, b]);
           strength[`${a}|${b}`] = (sent.get(key) ?? 0) + (sent.get(`${b}>${a}`) ?? 0);
-          matchRounds[`${a}|${b}`] = kindOf(when.get(key)!, when.get(`${b}>${a}`)!);
         }
       } else {
         oneWay.push([a, b]);
       }
     }
     mutual.sort((x, y) => strength[`${y[0]}|${y[1]}`] - strength[`${x[0]}|${x[1]}`]);
-    return { mutual, oneWay, strength, matchRounds };
+    return { mutual, oneWay, strength };
   }
 
   private seatings(): SeatingRound[] {
@@ -1670,18 +1662,6 @@ export class EventDO extends DurableObject {
 
 // ─────────────────────────── 순수 헬퍼
 
-/**
- * 매칭이 **어떻게 이루어졌는가**. 두 방향이 각각 어느 라운드에 있었는지로 가른다.
- *
- * 네 갈래가 빠짐없이 나뉜다 — 매칭이라는 건 두 방향이 다 있다는 뜻이라,
- * 사전에도 아니고 파티에도 아니면 남는 건 **엇갈린 것**뿐이다.
- * 그래서 합이 늘 통합 매칭 수와 같다.
- */
-function kindOf(ab: Set<PokeRound>, ba: Set<PokeRound>): MatchKind {
-  const pre = ab.has("pre") && ba.has("pre");
-  const party = ab.has("party") && ba.has("party");
-  return pre && party ? "both" : pre ? "pre" : party ? "party" : "crossed";
-}
 
 interface AnnRow {
   id: string;
