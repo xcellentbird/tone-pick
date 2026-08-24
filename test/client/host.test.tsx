@@ -191,6 +191,58 @@ describe("운영자 콘솔", () => {
     expect(screen.getByText(HOST_UI.dash.registered(2))).toBeTruthy();
   });
 
+  /**
+   * 단계 버튼이 하는 일은 **예약을 앞당기는 것**이다. 그래서 옆에 남은 시간이 함께 선다 —
+   * 가만히 두면 언제 저절로 넘어가는지 모르면 "지금 눌러도 되나" 를 판단할 수 없다.
+   *
+   * **파티 시작에는 붙지 않는다.** 예약이 없는 전환이라(ADR-14) 셀 시각이 없다.
+   * 없는 시각을 지어내면 현장이 그 숫자를 따라가게 되고, 그게 ADR-14 가 막으려던 일이다.
+   */
+  it("★ 버튼 옆 카운트다운은 예약이 있는 전환에만 붙는다", async () => {
+    // 등록 중 — 다음은 매력 투표 시작이고, 예약이 걸려 있다
+    stubFetch(hostState());
+    renderConsole();
+    await screen.findByText("테스트 회차");
+    expect(document.querySelector(".phaseBtn > .due")).toBeTruthy();
+    cleanup();
+
+    // 매력 투표 중 — 다음은 파티 시작이고, 그건 운영자가 누를 때만 일어난다
+    stubFetch(
+      hostState({
+        phase: "prevote",
+        fired: { reg: Date.now() - 2 * HOUR, prevote: Date.now() - HOUR },
+      }),
+    );
+    renderConsole();
+    await screen.findByText("테스트 회차");
+    expect(document.querySelector(".phaseBtn > .due")).toBeNull();
+  });
+
+  /**
+   * 매력 투표 마감은 **버튼이 아니라 줄이다** (ADR-39).
+   *
+   * 앞당길 수 있는 전환이 아니라 시각이 내리는 판정이라 누를 손잡이가 없다.
+   * 그래도 매력 투표 동안 다음에 일어날 일은 이것이라, 버튼 아래에서 그 사실을 말한다.
+   */
+  it("★ 매력 투표 마감은 버튼이 되지 않고 남은 시간만 말한다", async () => {
+    const voteEndAt = Date.now() + 30 * 60_000;
+    stubFetch(
+      hostState({
+        phase: "prevote",
+        fired: { reg: Date.now() - 2 * HOUR, prevote: Date.now() - HOUR },
+        schedule: { partyAt: Date.now() + 2 * HOUR, regOpenAt: Date.now() - 2 * HOUR, voteEndAt },
+      }),
+    );
+    renderConsole();
+    await screen.findByText("테스트 회차");
+
+    // 남은 시간을 말하는 줄이 있다
+    expect(screen.getByText(new RegExp(HOST_UI.dash.untilVoteEnd("").trim()))).toBeTruthy();
+    // 그리고 그 자리는 버튼이 아니다 — 다음 단계 버튼은 여전히 파티 시작 하나뿐이다
+    expect(document.querySelectorAll(".btn.primary.block").length).toBe(1);
+    expect(screen.getByText(phaseAction("party", { maxPre: 3, maxParty: 3 })!.btn)).toBeTruthy();
+  });
+
   it("★ 단계 전환은 확인을 거치고, 확인창이 바뀌는 것을 항목으로 보여준다", async () => {
     stubFetch(hostState());
     renderConsole();

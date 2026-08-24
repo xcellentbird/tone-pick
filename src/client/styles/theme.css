@@ -287,6 +287,25 @@ button {
 /* 글자는 **안 쪼갠다** — 좁은 칸에서 `안내문 문구 고 / 치기` 처럼 낱말 가운데서 끊긴다 */
 .btn.compact { font-size: 14px; padding: 0 10px; min-width: 0; white-space: nowrap; }
 
+/*
+ * 단계 전환 버튼 — 글자 왼쪽, 남은 시간 오른쪽 (현황 탭).
+ *
+ * 이 버튼이 하는 일은 **예약을 앞당기는 것**이라 옆에 그 예약까지 남은 시간이 함께 선다.
+ * 시간은 **한 톤 죽인다** — 누르는 것은 글자 쪽이고, 숫자는 곁들이는 정보다.
+ * 같은 크기·같은 굵기로 두면 둘 중 무엇이 이 버튼의 이름인지 흐려진다.
+ *
+ * 초가 움직여도 글자가 밀리지 않게 **폭이 고정된 숫자**를 쓴다 (`tabular-nums`) —
+ * `01:09:59 → 01:10:00` 에서 글자가 흔들리면 멈춰 있어야 할 버튼이 떨린다.
+ */
+.btn.phaseBtn { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.btn.phaseBtn > .due {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* ─────────────────────────── 입력 */
 
 .field { display: flex; flex-direction: column; gap: 6px; }
