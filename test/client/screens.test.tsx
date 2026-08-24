@@ -1903,6 +1903,12 @@ describe("탭 역할 분담", () => {
    */
   const withSeat = { round: 1, table: 2, final: false, mates: 6, men: 3, acked: true };
 
+  /** 그 단계의 상태 한 벌. `event` 는 통째로 갈아끼우는 자리라 기본값에서 떠온다 */
+  const inPhase = (phase: ParticipantState["event"]["phase"]): Partial<ParticipantState> => ({
+    event: { ...participantState().event, phase, fired: { reg: 1 } },
+  });
+  const fortuneTab = () => screen.getByText(FORTUNE.tab).closest("button")!;
+
   const renderTab = (t: "home" | "me" | "people", over: Partial<ParticipantState> = {}) =>
     render(
       <MemoryRouter>
@@ -1974,10 +1980,32 @@ describe("탭 역할 분담", () => {
     // 세 번 받았으면 세 줄이다. "지금까지 3회" 한 줄이 아니다
     expect(screen.getAllByText(POKE.received)).toHaveLength(3);
 
-    // '오늘' 은 파티가 시작돼야 생긴다. 사전 투표 중에는 세 개다
-    // '오늘' 은 맨 오른쪽에 붙는다 — 도중에 끼어들면 옆 탭들이 밀린다
+    /* '오늘' 은 맨 오른쪽에 붙는다 — 도중에 끼어들면 옆 탭들이 밀린다 */
     expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me", "fortune"]);
-    expect(screen.queryByText(FORTUNE.tab)).toBeNull();
+    // 매력 투표 중이라 이미 켜져 있다 (ADR-20 후기)
+    expect(fortuneTab().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  /**
+   * '오늘' 탭은 **없다가 생기지 않는다** (ADR-20 후기).
+   *
+   * 처음부터 자리를 지키고 매력 투표와 함께 켜진다 — 도중에 생기면 넷이 나눠 쓰던 폭이
+   * 통째로 다시 나뉘어, 손가락이 기억한 자리가 어긋난다.
+   */
+  it("★ 매력 투표 전에도 '오늘' 탭은 자리를 지킨다 — 꺼져 있을 뿐이다", async () => {
+    renderTab("home", inPhase("reg"));
+    await screen.findByText(FORTUNE.tab);
+
+    expect(document.querySelectorAll(".tabbar button")).toHaveLength(TABS_PARTICIPANT.length);
+    expect(fortuneTab().getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("★ 꺼진 '오늘' 탭은 언제 열리는지 말한다 — 눌러도 조용하면 고장으로 읽힌다", async () => {
+    renderTab("home", inPhase("reg"));
+    await screen.findByText(FORTUNE.tab);
+
+    fireEvent.click(fortuneTab());
+    expect(await screen.findByText(FORTUNE.closed)).toBeTruthy();
   });
 });
 

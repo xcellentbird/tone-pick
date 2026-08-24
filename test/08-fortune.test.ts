@@ -25,7 +25,7 @@ import {
   zodiacIndex,
 } from "../src/shared/fortune.ts";
 import { FORTUNE, MISSION } from "../src/shared/copy.ts";
-import { canOpenFortune } from "../src/shared/phase.ts";
+import { canOpenFortune, canOpenMission } from "../src/shared/phase.ts";
 import type { Player } from "../src/shared/types.ts";
 
 const TODAY = "2026-08-20";
@@ -295,12 +295,23 @@ describe("문단 나누기", () => {
 });
 
 describe("언제 열리나", () => {
-  it("★ 파티가 시작돼야 열린다", () => {
+  it("★ 운세는 매력 투표부터 열린다", () => {
     expect(canOpenFortune("prep")).toBe(false);
     expect(canOpenFortune("reg")).toBe(false);
-    expect(canOpenFortune("prevote")).toBe(false);
+    expect(canOpenFortune("prevote")).toBe(true);
     expect(canOpenFortune("party")).toBe(true);
     // 발표가 끝났다고 오늘 하루의 것이 사라질 이유는 없다
     expect(canOpenFortune("done")).toBe(true);
+  });
+
+  it("★ 미션의 문은 하나 늦다 — 파티부터", () => {
+    /*
+     * 미션 문장에는 **언제 할지**가 들어간다 ("자리를 옮기고 막 앉았을 때").
+     * 매력 투표는 파티 스무 시간 전에 열리므로, 그때 뒤집으면 할 수 없는 미션이
+     * 한 번 열면 그대로 굳는다 (ADR-20).
+     */
+    expect(canOpenMission("prevote")).toBe(false);
+    expect(canOpenMission("party")).toBe(true);
+    expect(canOpenMission("done")).toBe(true);
   });
 });

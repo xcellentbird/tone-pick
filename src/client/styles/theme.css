@@ -366,6 +366,18 @@ button {
 }
 
 .tabbar a.active, .tabbar button.active { color: var(--accent); }
+
+/*
+ * 아직 안 열린 탭 — **자리는 지키고 꺼져 있다** (ADR-20 후기의 '오늘').
+ *
+ * 없애면 열리는 순간 넷이 나눠 쓰던 폭이 다시 나뉘어 손가락이 기억한 자리가 어긋난다.
+ * 흐리게 두면 "여기 뭔가 생길 자리" 라는 것까지 미리 말해준다.
+ * 누르는 것 자체는 막지 않는다 — 언제 열리는지 알려줘야 고장으로 안 읽힌다.
+ */
+.tabbar button[aria-disabled="true"] { opacity: 0.38; }
+
+/* 아직 안 열린 미션 카드도 같은 말을 쓴다 — 자리는 지키고 톤이 물러난다 */
+.fortuneMission[aria-disabled="true"] { opacity: 0.5; }
 .tabbar .icon { font-size: 18px; }
 
 .tabs {

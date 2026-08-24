@@ -245,7 +245,7 @@ export class EventDO extends DurableObject {
       id: meta.id,
       name: meta.name,
       phase: meta.phase,
-      partyAt: meta.schedule.partyAt,
+      ...(meta.schedule.partyAt ? { partyAt: meta.schedule.partyAt } : {}),
     };
     if (meta.phase === "prep") {
       return ok({
@@ -811,7 +811,11 @@ export class EventDO extends DurableObject {
   async fortuneContext(
     playerId: string,
     now: number,
-  ): Promise<Result<{ phase: Phase; me: Player; fortune?: Fortune }>> {
+    /**
+     * 파티 시각도 함께 준다 — 운세의 `오늘` 이 그 날이다 (ADR-20 후기).
+     * **비어 있을 수 있다** (일정 없이 만든 회차). 그때는 부르는 쪽이 지금을 쓴다.
+     */
+  ): Promise<Result<{ phase: Phase; partyAt?: number; me: Player; fortune?: Fortune }>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     const me = this.player(playerId);
@@ -819,6 +823,7 @@ export class EventDO extends DurableObject {
     const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
     return ok({
       phase: meta.phase,
+      ...(meta.schedule.partyAt ? { partyAt: meta.schedule.partyAt } : {}),
       me,
       ...(row ? { fortune: readFortune(JSON.parse(row.json)) } : {}),
     });
