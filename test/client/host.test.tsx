@@ -545,7 +545,8 @@ describe("운영자 콘솔", () => {
      */
     stubFetch(hostState());
     renderConsole("/host/e1/settings");
-    await screen.findByLabelText(HOST_UI.fields.name);
+    // 설정은 묶음으로 접혀 있다 — 규칙은 `콕 설정` 안이다
+    fireEvent.click(await screen.findByText(HOST_UI.settings.rules));
 
     /** 그 설정 줄 안의 버튼만 집는다 — 세 줄이 같은 글자를 쓴다 */
     const rowBtn = (label: string, option: string) => {
@@ -581,6 +582,103 @@ describe("운영자 콘솔", () => {
     );
   });
 
+  /**
+   * 설정은 **네 묶음으로 접혀 있다** — 기본 정보 · 예약 · 콕 설정 · 삭제.
+   *
+   * 앞의 셋은 회차 만들기의 스텝과 **같은 이름·같은 순서**다. 만들 때 고른 것을 고치러
+   * 오는 자리라, 이름이 다르면 어디를 눌러야 할지 다시 찾는다.
+   */
+  it("★ 설정 묶음 이름이 회차 만들기의 스텝과 같다", () => {
+    const { identity, schedule, rules } = HOST_UI.settings;
+    expect([identity, schedule, rules]).toEqual([...HOST_UI.steps]);
+  });
+
+  it("★ 고른 묶음만 그려진다", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/settings");
+    await screen.findByLabelText(HOST_UI.fields.name);
+
+    // 처음은 기본 정보 — 규칙도 일정도 여기 없다
+    expect(screen.queryByText(HOST_UI.fields.pokeTarget)).toBeNull();
+    expect(screen.queryByLabelText(HOST_UI.fields.maxPre)).toBeNull();
+
+    fireEvent.click(screen.getByText(HOST_UI.settings.rules));
+    expect(screen.getByText(HOST_UI.fields.pokeTarget)).toBeTruthy();
+    // 옮겨가면 앞 묶음은 접힌다 — 두 벌이 동시에 떠 있으면 무엇이 저장될지 헷갈린다
+    expect(screen.queryByLabelText(HOST_UI.fields.name)).toBeNull();
+
+    /*
+     * **`적용` 은 어느 묶음에서든 있다.** 세 묶음을 한꺼번에 저장하므로,
+     * 없는 묶음이 생기면 거기서 고친 것을 저장할 길이 사라진다.
+     */
+    fireEvent.click(screen.getByText(HOST_UI.settings.schedule));
+    expect(screen.getByText(HOST_UI.applySettings)).toBeTruthy();
+
+    // 삭제만 예외다 — 저장할 값이 없고, 되돌릴 수 없는 버튼은 혼자 서 있어야 한다
+    fireEvent.click(screen.getByText(HOST_UI.settings.danger));
+    expect(screen.getByText(HOST_UI.deleteEvent)).toBeTruthy();
+    expect(screen.queryByText(HOST_UI.applySettings), "삭제 묶음에 적용 버튼이 있다").toBeNull();
+  });
+
+  /**
+   * **접힌 자리의 변경은 눈에 안 보인다.** 그게 묶는 것의 유일한 위험이라,
+   * 그 사실을 두 곳에서 말한다 — 묶음의 점, 그리고 확인창.
+   */
+  it("★ 다른 묶음에서 고친 것도 확인창에 다 나온다", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/settings");
+
+    // 기본 정보에서 이름을 고친다
+    const nameInput = (await screen.findByLabelText(HOST_UI.fields.name)) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "고친 이름" } });
+
+    // 콕 설정으로 옮겨 하나 더 고친다
+    fireEvent.click(screen.getByText(HOST_UI.settings.rules));
+    fireEvent.click(
+      [...screen.getAllByText(HOST_UI.fields.pokeTarget)
+        .find((el) => el.tagName === "LABEL")!
+        .parentElement!.querySelectorAll("button")].find((b) => b.textContent === HOST_UI.fields.pokeTargetOpposite)!,
+    );
+
+    // 접힌 `기본 정보` 에 점이 붙어 있다
+    const tab = screen.getByRole("tab", { name: new RegExp(HOST_UI.settings.identity) });
+    expect(tab.textContent, "접힌 묶음에 점이 없다").toContain(HOST_UI.settings.dirty);
+    // 지금 안 보이는 곳에 안 저장된 것이 있다는 한 줄
+    expect(screen.getByText(HOST_UI.settings.dirtyNote)).toBeTruthy();
+
+    // 확인창에는 **묶음과 상관없이** 둘 다 나온다
+    fireEvent.click(screen.getByText(HOST_UI.applySettings));
+    await screen.findByText(HOST_UI.applyTitle);
+    /*
+     * 확인창은 폼 **위에** 겹쳐 뜨므로 같은 글자가 화면에 둘이다 (라벨과 항목).
+     * 확인창의 항목만 집는다 — 폼의 라벨이 있다고 확인창에 나온 게 아니다.
+     */
+    const inDialog = (label: string) =>
+      screen.getAllByText(label).some((el) => el.tagName === "B");
+    expect(inDialog(HOST_UI.fields.name), "이름 변경이 확인창에 없다").toBe(true);
+    expect(inDialog(HOST_UI.fields.pokeTarget), "접힌 묶음의 변경이 확인창에 없다").toBe(true);
+  });
+
+  /** 예약 칸은 **시간 순**이다 — 위저드 2스텝과 같아야 고치러 온 사람이 다시 찾지 않는다 */
+  it("★ 예약 묶음은 시간 순으로 선다", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/settings");
+    fireEvent.click(await screen.findByText(HOST_UI.settings.schedule));
+
+    const labels = [...document.querySelectorAll(".field")]
+      .filter((f) => f.querySelector('input[type="datetime-local"]'))
+      .map((f) => f.querySelector("label")!.textContent);
+    expect(labels).toEqual([
+      HOST_UI.fields.regOpenAt,
+      HOST_UI.fields.prevoteAt,
+      HOST_UI.fields.voteEndAt,
+      HOST_UI.fields.partyAt,
+      HOST_UI.fields.revealAt,
+    ]);
+    // 파티 시작만 예약이 아니라는 걸 그 칸에서 말한다 (ADR-14)
+    expect(screen.getByText(HOST_UI.fields.partyHint)).toBeTruthy();
+  });
+
   it("★ 콕이 오가기 시작하면 규칙 넷과 일정이 잠긴다 (ADR-35)", async () => {
     /*
      * 잠긴 줄을 **지우지 않는다** — 지금 어느 규칙으로 돌아가는 중인지는
@@ -588,29 +686,34 @@ describe("운영자 콘솔", () => {
      */
     stubFetch(hostState({ phase: "party", fired: { reg: Date.now() - 2 * HOUR, party: Date.now() - HOUR } }));
     renderConsole("/host/e1/settings");
-    await screen.findByLabelText(HOST_UI.fields.name);
+    await screen.findByText(HOST_UI.settings.rules);
 
     const row = (label: string) =>
       screen.getAllByText(label).find((el) => el.tagName === "LABEL")!.parentElement!;
     const disabled = (label: string) =>
       [...row(label).querySelectorAll("button")].every((b) => (b as HTMLButtonElement).disabled);
 
+    // 규칙은 `콕 설정` 묶음 안이다
+    fireEvent.click(screen.getByText(HOST_UI.settings.rules));
     for (const label of [
       HOST_UI.fields.pokeTarget,
       HOST_UI.fields.undoPre,
       HOST_UI.fields.undoParty,
+      HOST_UI.fields.preNotify,
       HOST_UI.fields.pokeNotify,
     ]) {
       expect(disabled(label), label).toBe(true);
-    }
-    // 일정 셋도 함께 굳는다
-    for (const label of [HOST_UI.fields.partyAt, HOST_UI.fields.regOpenAt, HOST_UI.fields.prevoteAt]) {
-      expect((row(label).querySelector("input") as HTMLInputElement).disabled, label).toBe(true);
     }
     // 콕 횟수는 일부러 열려 있다 — 파티 중에 **올리는** 것이 매칭이 모자랄 때의 손잡이다
     const plus = [...row(HOST_UI.fields.maxParty).querySelectorAll("button")].at(-1) as HTMLButtonElement;
     expect(plus.disabled).toBe(false);
     expect(screen.getAllByText(HOST_UI.frozen).length).toBeGreaterThan(0);
+
+    // 일정도 함께 굳는다 — 다른 묶음이라 옮겨가서 본다
+    fireEvent.click(screen.getByText(HOST_UI.settings.schedule));
+    for (const label of [HOST_UI.fields.partyAt, HOST_UI.fields.regOpenAt, HOST_UI.fields.prevoteAt]) {
+      expect((row(label).querySelector("input") as HTMLInputElement).disabled, label).toBe(true);
+    }
   });
 
   it("★ 입장 코드는 바꿀 수 없다", async () => {
