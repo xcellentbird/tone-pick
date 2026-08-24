@@ -515,17 +515,6 @@ export interface HostState {
   /** 사전 투표에서 받은 콕 순위 (내림차순) */
   prevoteRank: Array<{ id: string; count: number }>;
   mutual: Array<[string, string]>;
-  /**
-   * 각 매칭이 **어떻게 이루어졌는가**. 키는 `mutual` 의 쌍을 `a|b`(a < b)로 쓴 것이다.
-   *
-   * `mutual` 자체는 건드리지 않는다 — 커플 자리 배정이 거기 매달려 있고(`buildSeating`),
-   * 참가자에게 나가는 발표 결과도 그대로여야 한다. **운영자만 더 보는 값이다.**
-   *
-   * 넷의 합이 `mutual.length` 와 같다. 라운드로 그냥 나누면 합이 안 맞는데,
-   * 그 이유가 `crossed` 다 — 한쪽은 사전에, 다른 쪽은 파티에서 찌른 쌍은
-   * 어느 라운드의 매칭도 아니면서 통합에는 들어간다.
-   */
-  matchRounds: Record<string, MatchKind>;
   pokeCount: Record<PokeRound, number>;
   /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다 */
   pokeUsedMax: Record<PokeRound, number>;
@@ -541,15 +530,6 @@ export interface HostState {
   announcements: HostAnnouncement[];
 }
 
-/**
- * 매칭이 이루어진 방식 (운영자 화면 전용).
- *
- *   pre      둘 다 사전에 찔렀다
- *   party    둘 다 파티에서 찔렀다 — **이 파티가 만든 것**이라 성적표에 가깝다
- *   both     사전에도 파티에도. 미리 찍어두고 만나서도 좋았다
- *   crossed  한쪽은 사전, 다른 쪽은 파티. 어느 라운드의 매칭도 아니지만 서로 찌른 건 맞다
- */
-export type MatchKind = "pre" | "party" | "both" | "crossed";
 
 /** 자리 초안 생성 입력. 테이블 수는 설정이 아니라 이 요청의 값이다 (ADR-5) */
 export interface SeatingInput {

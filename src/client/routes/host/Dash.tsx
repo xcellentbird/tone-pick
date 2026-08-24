@@ -12,7 +12,6 @@
  */
 import {
   HOST_UI,
-  UNIT,
   UNREVEAL,
   phaseAction,
   schedDiff,
@@ -30,7 +29,7 @@ import { useConsole, type ConsoleState } from "./HostConsole.tsx";
 export default function Dash() {
   const { state, reload } = useConsole();
   const { confirm, toast } = useOverlay();
-  const { meta, players, prevoteRank, mutual, received, matchRounds } = state;
+  const { meta, players, prevoteRank, mutual, received } = state;
 
   const nextPhase = PHASE_ORDER[PHASE_ORDER.indexOf(meta.phase) + 1] as Phase | undefined;
   const who = (id: string) => players.find((p) => p.id === id);
@@ -130,26 +129,10 @@ export default function Dash() {
         <span className="tiny dim">{HOST_UI.dash.live}</span>
       </div>
       {/*
-        통합을 **네 갈래로 쪼갠다.** 사전·파티·통합 세 숫자를 나란히 두면
-        3+5≠9 를 운영자가 먼저 눈치채고 화면을 못 믿게 된다 —
-        엇갈린 쌍은 어느 라운드도 아니고, 둘 다인 쌍은 두 번 세어지기 때문이다.
-        넷은 빠짐없이 나뉘어 합이 늘 통합과 같다.
+        **갈래를 나누지 않는다** (ADR-34). 매칭은 이제 파티 콕만 세므로
+        사전·엇갈림 같은 갈래가 나올 수 없다 — 매력 투표를 서로 했다는 건
+        붙일 의미가 없는 사실이라, 죽은 값을 그리는 대신 걷어냈다.
       */}
-      {mutual.length > 0 && (
-        <div className="card stack">
-          <div className="facts" style={{ margin: 0 }}>
-            {(["pre", "party", "both", "crossed"] as const).map((k) => (
-              <div className="fact" key={k}>
-                <b>{HOST_UI.dash.mix[k]}</b>
-                <span className="grow" style={{ textAlign: "right" }}>
-                  {UNIT.pairs(mutual.filter(([a, b]) => (matchRounds[`${a}|${b}`] ?? "crossed") === k).length)}
-                </span>
-              </div>
-            ))}
-          </div>
-          <span className="tiny dim">{HOST_UI.dash.mixNote}</span>
-        </div>
-      )}
       <div className="card stack mutualCard">
         {mutual.length === 0 ? (
           <span className="small dim">{HOST_UI.dash.mutualNone}</span>
@@ -167,8 +150,6 @@ export default function Dash() {
                   {pb.nickname}
                 </span>
                 <Avatar nickname={pb.nickname} gender={pb.gender} size="sm" />
-                {/* 이 쌍이 어떻게 이루어졌는지. 목록은 하나로 두고 줄마다 붙인다 */}
-                <span className="badge">{HOST_UI.dash.mix[matchRounds[`${a}|${b}`] ?? "crossed"]}</span>
               </div>
             );
           })
