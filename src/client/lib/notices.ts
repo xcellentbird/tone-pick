@@ -32,8 +32,18 @@ export interface Notice {
   title: string;
   body: string;
   warn?: boolean;
+  /** **보여줄 시각.** `0` 이면 안 보여준다 — 받은 콕이 그렇다 (ADR-48) */
   at: number;
-  /** 배너로 띄울 수 있는가. 익명 콕 카운터는 시각이 없어 배너로 쓰지 않는다 */
+  /**
+   * **세울 차례** (ADR-48). 큰 것이 위로 온다.
+   *
+   * 시각 있는 알림은 `at` 과 같다. 받은 콕은 `at` 이 0 이지만 차례는 있어야 해서 —
+   * 그 라운드가 시작된 순간을 쓴다. **시각을 보여주지 않으면서 제자리에 서는 방법**이다.
+   *
+   * ⚠️ 이 값을 화면에 그리지 마라. 그리는 건 `at` 이고, 콕의 `at` 은 0 이다.
+   */
+  order: number;
+  /** 배너로 띄울 수 있는가. 익명 콕은 시각이 없어 배너로 쓰지 않는다 */
   bannerable: boolean;
   tab: NoticeTab;
 }
@@ -46,27 +56,36 @@ export function noticesOf(state: ParticipantState): Notice[] {
   const list: Notice[] = [];
 
   if (fired.prevote) {
-    list.push({ key: "prevote", ...NOTICE.prevote(config.maxPre), at: fired.prevote, bannerable: true, tab: "home" });
+    list.push({ key: "prevote", ...NOTICE.prevote(config.maxPre), at: fired.prevote, order: fired.prevote, bannerable: true, tab: "home" });
   }
   if (fired.party) {
-    list.push({ key: "party", ...NOTICE.party(config.maxParty), at: fired.party, bannerable: true, tab: "home" });
+    list.push({ key: "party", ...NOTICE.party(config.maxParty), at: fired.party, order: fired.party, bannerable: true, tab: "home" });
   }
   if (fired.done) {
     // 되돌렸으면 같은 자리에 다른 문장이 온다. 상태가 하나뿐이라 모순이 없다
     const copy = phase === "done" ? NOTICE.done : NOTICE.unrevealed;
     // 발표됐으면 결과가 있는 참가자 탭으로, 되돌렸으면 볼 게 없으니 홈으로
     const tab = phase === "done" ? "people" : "home";
-    list.push({ key: `done:${phase}`, ...copy, at: fired.done, bannerable: true, tab });
+    list.push({ key: `done:${phase}`, ...copy, at: fired.done, order: fired.done, bannerable: true, tab });
   }
   /**
    * 받은 콕은 **한 번에 하나씩** 쌓인다. 합쳐서 "지금까지 N회" 로 세어 주면
    * 숫자만 늘어날 뿐, 한 사람이 마음을 낸 일이 한 줄로 남지 않는다.
    *
-   * 시각은 넣지 않는다 (`at: 0`). "21:03에 왔다"를 알면 그때 누가 화면을 보고 있었는지와
-   * 맞춰 발신자를 좁힐 수 있다 — 익명은 이름을 가리는 것만으로는 지켜지지 않는다.
+   * **시각은 여전히 안 보여준다** (`at: 0`). "21:03에 왔다"를 알면 그때 누가 화면을
+   * 보고 있었는지와 맞춰 발신자를 좁힐 수 있다 — 익명은 이름을 가리는 것만으로는 안 지켜진다.
    * 그래서 배너로도 띄우지 않는다. 배너는 최근 3분을 재는 물건이다.
+   *
+   * **다만 제자리에는 선다** (ADR-48). 차례를 그 라운드가 시작된 순간으로 잡아
+   * 매력 투표 콕은 `매력 투표가 시작됐어요` 바로 위에, 파티 콕은 `파티가 시작됐어요`
+   * 바로 위에 온다. 그래서 소식 칸은 **위가 늘 최신**이다.
+   *
+   * ⚠️ 여기에 **진짜 도착 시각을 쓰지 마라.** 그러면 단계 알림 사이의 자리가
+   * 곧 분 단위 시각이 되어, 보여주지 않아도 읽어낼 수 있다. 라운드까지가 전부다.
    */
   for (const round of ROUNDS) {
+    // 그 라운드가 열린 순간. `+1` 이라 같은 라운드의 시작 알림보다 **위**에 선다
+    const base = (round === "pre" ? fired.prevote : fired.party) ?? 0;
     for (let i = 0; i < state.poke.received[round]; i++) {
       list.push({
         key: `poked:${round}:${i}`,
@@ -74,13 +93,14 @@ export function noticesOf(state: ParticipantState): Notice[] {
         title: POKE.received(round),
         body: POKE.receivedNote,
         at: 0,
+        order: base + 1,
         bannerable: false,
         tab: "home",
       });
     }
   }
 
-  return list.sort((a, b) => b.at - a.at);
+  return list.sort((a, b) => b.order - a.order);
 }
 
 export function bannerOf(list: Notice[], now: number): Notice | null {
