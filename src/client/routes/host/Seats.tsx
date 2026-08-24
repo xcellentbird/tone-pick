@@ -62,10 +62,10 @@ export default function Seats() {
   const published = state.seatings.filter((s) => s.status === "published");
   const revealed = state.meta.phase === "done";
 
-  async function make(final: boolean, tableCount: number, exclude: string[]) {
+  async function make(final: boolean, tableCount: number) {
     setBusy(true);
     try {
-      await post(base, { tableCount, final, exclude });
+      await post(base, { tableCount, final });
       navigate(here, { replace: true });
       reload();
     } catch (e) {
@@ -233,7 +233,7 @@ export default function Seats() {
           final={mode === "final"}
           start={lastTableCount}
           busy={busy}
-          onGo={(count, exclude) => make(mode === "final", count, exclude)}
+          onGo={(count) => make(mode === "final", count)}
         />
       </Sheet>
 
@@ -318,29 +318,27 @@ function TablePicker({
   onGo,
 }: {
   players: Player[];
-  /** 참석 상태 (ADR-33). 뺄 사람을 **제안**하는 데만 쓴다 — 고르는 건 사람이다 */
+  /** 참석 상태 (ADR-33). **`나감` 이 곧 제외다** (ADR-41) — 고르는 자리는 없다 */
   attendance: Record<string, Attendance>;
   pairs: number;
   final: boolean;
   start: number;
   busy: boolean;
-  onGo: (tableCount: number, exclude: string[]) => void;
+  onGo: (tableCount: number) => void;
 }) {
   const [count, setCount] = useState(start);
   /*
-   * **이번 라운드에서만** 뺀다. 참가자에게 붙는 상태를 만들지 않는다 —
-   * 노쇼는 다음 라운드에 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다.
-   * 그래서 시트를 닫으면 함께 사라진다.
+   * **빠지는 사람은 `나감` 하나로 정해진다** (ADR-41). 손으로 고르는 목록을 걷어냈다 —
+   * 가는 사람은 문 앞에서 이미 찍히고, 같은 것을 여기서 또 고르면 두 번째가 틀린다.
    *
-   * **아직 안 온 사람으로 시작한다** (ADR-39). 첫 자리를 짜는 때는 대개 사람들이
-   * 오는 중이라, 전원 배정으로 시작하면 운영자가 매번 같은 목록을 손으로 골라야 한다.
-   * 제안일 뿐이라 그대로 눌러서 되돌릴 수 있다 — 참석 상태가 없는 회차에서는 전원이 남는다.
+   * 서버도 같은 것을 본다(`makeSeating`). 여기 숫자는 **그 결과를 미리 말해주는 것**이지
+   * 서버에 보내는 값이 아니다 — 보내는 건 테이블 수뿐이다.
+   *
+   * **`미도착` 은 앉는다.** 늦게 오는 사람이 기본이고, 안 찍은 사람과 안 온 사람이
+   * 같은 값이라 여기서 빼면 온 사람이 조용히 빠진다.
    */
-  const [out, setOut] = useState<Set<string>>(
-    () => new Set(players.filter((p) => attendance[p.id] !== "arrived").map((p) => p.id)),
-  );
-  const [open, setOpen] = useState(false);
-  const seated = players.filter((p) => !out.has(p.id));
+  const seated = players.filter((p) => attendance[p.id] !== "left");
+  const out = players.length - seated.length;
   const people = seated.length;
   const men = seated.filter((p) => p.gender === "M").length;
   const per = count > 0 ? people / count : 0;
@@ -349,41 +347,16 @@ function TablePicker({
   return (
     <div className="stack">
       {/*
-        뺄 사람을 **테이블 수보다 먼저** 고른다. 아래 `테이블당 N명` 이 이 선택으로
-        곧바로 다시 계산되므로, 순서가 뒤집히면 방금 읽은 숫자가 틀린 것이 된다.
-        평소에는 접어둔다 — 대부분의 라운드는 전원 배정이다.
+        **테이블 수보다 먼저** 인원을 말한다. 아래 `테이블당 N명` 이 이 인원으로 계산되므로,
+        빠진 사람이 있는 줄 모르면 방금 읽은 숫자가 왜 그런지 알 수 없다.
+        나간 사람이 없으면 `N명 배정` 한 줄이다 — 없는 일을 알리지 않는다.
       */}
-      <button type="button" className="fact" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <span className="grow">{HOST_UI.seats.exclude}</span>
-        <span className={out.size > 0 ? "" : "dim"}>
-          {out.size > 0
-            ? HOST_UI.seats.excludeSome(people, out.size)
-            : HOST_UI.seats.excludeNone(players.length)}
+      <div className="fact">
+        <span className="grow">
+          {out > 0 ? HOST_UI.seats.leftOut(people, out) : HOST_UI.seats.seatedAll(people)}
         </span>
-      </button>
-      {open && (
-        <div className="stack">
-          {players.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className={`fact ${out.has(p.id) ? "" : "on"}`}
-              aria-pressed={!out.has(p.id)}
-              onClick={() =>
-                setOut((s) => {
-                  const next = new Set(s);
-                  next.has(p.id) ? next.delete(p.id) : next.add(p.id);
-                  return next;
-                })
-              }
-            >
-              <Avatar nickname={p.nickname} gender={p.gender} size="sm" />
-              <span className="grow">{p.nickname}</span>
-              <span className="dim">{out.has(p.id) ? HOST_UI.seats.excludeOut : HOST_UI.seats.excludeIn}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      </div>
+      {out > 0 && <p className="small dim">{HOST_UI.seats.leftOutNote}</p>}
 
       <Num
         label={HOST_UI.seats.tableCount}
@@ -405,7 +378,7 @@ function TablePicker({
       <button
         className={`btn block ${final ? "gold" : "primary"}`}
         disabled={busy}
-        onClick={() => onGo(count, [...out])}
+        onClick={() => onGo(count)}
       >
         {final ? HOST.seating.makeFinal : HOST_UI.seats.make}
       </button>

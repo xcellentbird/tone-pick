@@ -17,6 +17,12 @@ import { signInMaster, api, freshEvent, join, master, setPhase } from "./helpers
 
 beforeAll(signInMaster);
 
+/** 참석 상태를 찍는다 (ADR-33). 자리 배정에서 빠지는 유일한 조건이 `left` 다 (ADR-41) */
+const setAttendance = (eventId: string, pid: string, to: "arrived" | "left" | null) =>
+  api(`/api/host/events/${eventId}/players/${pid}/attendance`, {
+    method: "POST", cookie: master, body: { to },
+  });
+
 // ─────────────────────────────────────────── 자리가 보이는 때 (슬라이스 12)
 
 /**
@@ -182,11 +188,12 @@ describe("앉힌 자리 고치기", () => {
     return { ev, ids, round: pub.body };
   }
 
-  it("★ 이번 라운드에서 뺀 사람은 자리가 없다", async () => {
+  it("★ `나감` 으로 찍힌 사람은 자리를 받지 않는다", async () => {
     /*
-     * 노쇼가 나오면 배정하고 나서 한 명씩 빼는 길(`unseat`)도 있지만,
-     * 그때 자리 배치는 **안 온 사람 기준으로 이미 짜여 있다.**
-     * 처음부터 온 사람만으로 짜라고 있는 값이다.
+     * 배정하고 나서 한 명씩 빼는 길(`unseat`)도 있지만, 그때 자리 배치는
+     * **간 사람 기준으로 이미 짜여 있다.** 처음부터 남은 사람만으로 짜여야 한다 (ADR-41).
+     *
+     * 빠지는 조건은 **하나뿐**이다 — 운영자가 손으로 고르는 목록은 없다.
      */
     const ev = await freshEvent();
     const ids: string[] = [];
@@ -194,25 +201,48 @@ describe("앉힌 자리 고치기", () => {
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
 
-    // 남녀 한 명씩 뺀다 — 성비가 어긋나면 배정 자체가 이상해진다
+    // 남녀 한 명씩 나갔다 — 성비가 어긋나면 배정 자체가 이상해진다
     const out = [ids[0], ids[1]];
+    for (const id of out) await setAttendance(ev.id, id, "left");
+
     const made = await api<Round>(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: false, exclude: out },
+      method: "POST", cookie: master, body: { tableCount: 2, final: false },
     });
     expect(made.status, JSON.stringify(made.body)).toBe(200);
     expect(made.body.seats).toHaveLength(4);
     expect(made.body.seats.some((x) => out.includes(x.playerId))).toBe(false);
   });
 
-  it("★ 뺀 사람은 참가자 상태로 남는다 — 지우는 것과 다른 일이다", async () => {
+  it("★ `미도착` 은 자리를 받는다 — 늦게 오는 사람이 조용히 빠지면 안 된다", async () => {
+    /*
+     * 안 찍은 사람과 안 온 사람이 **같은 값**이다 (ADR-33). 미도착까지 빼면
+     * 운영자가 아직 안 누른 사람이 자리 없이 도착한다 — 빈 자리는 보이지만 없는 자리는 안 보인다.
+     */
+    const ev = await freshEvent();
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+    // 한 명만 도착으로 찍는다. 나머지 셋은 미도착이다
+    await setAttendance(ev.id, ids[0], "arrived");
+
+    const made = await api<Round>(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, final: false },
+    });
+    expect(made.status, JSON.stringify(made.body)).toBe(200);
+    expect(made.body.seats).toHaveLength(4);
+  });
+
+  it("★ 나간 사람은 참가자 상태로 남는다 — 지우는 것과 다른 일이다", async () => {
     // 지우면 받은 콕과 매칭이 함께 날아간다 (ADR-29). 자리만 없는 것이어야 한다
     const ev = await freshEvent();
     const people: Array<{ id: string; cookie: string | null }> = [];
     for (let i = 0; i < 6; i++) people.push(await join(ev, { gender: i % 2 === 0 ? "M" : "F" }));
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
+    await setAttendance(ev.id, people[0].id, "left");
     await api(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: false, exclude: [people[0].id] },
+      method: "POST", cookie: master, body: { tableCount: 2, final: false },
     });
     await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
 
@@ -222,15 +252,37 @@ describe("앉힌 자리 고치기", () => {
     expect(seen.body.me.id).toBe(people[0].id);
   });
 
-  it("빼고 나서 사람이 모자라면 배정하지 않는다", async () => {
-    // 테이블 하나에 최소 두 명이다. 빼는 바람에 모자라면 그 자리에서 막는다
+  it("★ 되돌리면 다음 배정에 다시 들어온다", async () => {
+    // 나감이 사람에게 붙는 낙인이 되면 안 된다 — 잠깐 나갔다 온 사람이 있다 (ADR-41)
     const ev = await freshEvent();
     const ids: string[] = [];
     for (let i = 0; i < 4; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
     await setPhase(ev.id, "prevote");
     await setPhase(ev.id, "party");
+
+    await setAttendance(ev.id, ids[0], "left");
+    const without = await api<Round>(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 1, final: false },
+    });
+    expect(without.body.seats.some((x) => x.playerId === ids[0])).toBe(false);
+
+    await setAttendance(ev.id, ids[0], "arrived");
+    const again = await api<Round>(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 1, final: false },
+    });
+    expect(again.body.seats.some((x) => x.playerId === ids[0])).toBe(true);
+  });
+
+  it("나가고 나서 사람이 모자라면 배정하지 않는다", async () => {
+    // 테이블 하나에 최소 두 명이다. 빠지는 바람에 모자라면 그 자리에서 막는다
+    const ev = await freshEvent();
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    await setPhase(ev.id, "prevote");
+    await setPhase(ev.id, "party");
+    for (const id of [ids[0], ids[1]]) await setAttendance(ev.id, id, "left");
     const res = await api(`/api/host/events/${ev.id}/seating`, {
-      method: "POST", cookie: master, body: { tableCount: 2, final: false, exclude: [ids[0], ids[1]] },
+      method: "POST", cookie: master, body: { tableCount: 2, final: false },
     });
     expect(res.status).toBe(400);
   });

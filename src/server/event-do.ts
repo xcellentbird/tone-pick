@@ -1116,12 +1116,7 @@ export class EventDO extends DurableObject {
   // ─────────────────────────── 자리
 
   /** 초안 생성. 참가자에게는 보이지 않으므로 확인 없이 몇 번이든 다시 만든다 (ADR-6) */
-  async makeSeating(
-    tableCount: number,
-    final: boolean,
-    now: number,
-    exclude: string[] = [],
-  ): Promise<Result<SeatingRound>> {
+  async makeSeating(tableCount: number, final: boolean, now: number): Promise<Result<SeatingRound>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (meta.phase === "done") return fail("closed");
@@ -1130,13 +1125,18 @@ export class EventDO extends DurableObject {
     }
 
     /*
-     * **이번 라운드에서만** 뺀다. 참가자에게 붙는 상태를 만들지 않는다 —
-     * 노쇼는 다음 라운드에 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다.
+     * **`나감` 만 빠진다** (ADR-41). 운영자가 손으로 고르던 목록을 걷어내고 상태 하나가 그 일을 한다 —
+     * 가는 사람은 문 앞에서 이미 찍히고, 같은 것을 배정할 때 또 고르면 두 번째가 틀린다.
      *
-     * `buildSeating` 은 그대로다. 명단이 짧아질 뿐이라 순수 함수를 건드릴 일이 없다.
+     * **`미도착` 은 앉힌다.** 늦게 오는 사람이 기본이고, 안 온 사람과 아직 안 찍은 사람이
+     * 같은 값이라(ADR-33) 여기서 빼면 **온 사람이 조용히 빠진다.** 빈 자리는 눈에 보이지만
+     * 없는 자리는 안 보인다 — 늦게 온 사람은 `앉히기` 로 붙이는 게 아니라 이미 자리가 있다.
+     *
+     * 서버가 거른다. 화면이 목록을 보내면 그 목록이 낡을 수 있고, 낡은 목록은 사람을 조용히 빠뜨린다.
+     * `buildSeating` 은 그대로다 — 명단이 짧아질 뿐이라 순수 함수를 건드릴 일이 없다.
      */
-    const out = new Set(exclude);
-    const players = this.players().filter((p) => !out.has(p.id));
+    const left = this.leftIds();
+    const players = this.players().filter((p) => !left.has(p.id));
     if (players.length < tableCount * 2) return fail("bad_request");
 
     const published = this.seatings().filter((s) => s.status === "published");
@@ -1472,6 +1472,18 @@ export class EventDO extends DurableObject {
   private player(id: string): Player | null {
     const row = this.rows<PlayerRow>("SELECT * FROM players WHERE id = ?", id)[0];
     return row ? toPlayer(row) : null;
+  }
+
+  /**
+   * **`나감` 으로 찍힌 사람**(ADR-33). 자리 배정에서 빠지는 유일한 조건이다 (ADR-41).
+   *
+   * `Player` 에 참석 상태를 싣지 않으므로(그러면 `me` 로 참가자에게 따라 나간다)
+   * 여기서 따로 읽는다. `attendance` 칸이 없던 옛 회차도 마이그레이션이 이미 채웠다.
+   */
+  private leftIds(): Set<string> {
+    return new Set(
+      this.rows<{ id: string }>("SELECT id FROM players WHERE attendance = 'left'").map((r) => r.id),
+    );
   }
 
   private playerCount(): number {

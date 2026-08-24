@@ -305,12 +305,7 @@ hostRoutes.post("/events/:id/seating", async (c) => {
   const body = await json<Partial<SeatingInput>>(c);
   const { value, response } = unwrap(
     c,
-    await gate.stub.makeSeating(
-      Number(body.tableCount),
-      !!body.final,
-      serverNow(),
-      Array.isArray(body.exclude) ? body.exclude.map(String) : [],
-    ),
+    await gate.stub.makeSeating(Number(body.tableCount), !!body.final, serverNow()),
     seatingMessage,
   );
   return response ?? c.json(value);
