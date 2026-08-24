@@ -318,7 +318,7 @@ function TablePicker({
   onGo,
 }: {
   players: Player[];
-  /** 참석 상태 (ADR-33). **`나감` 이 곧 제외다** (ADR-40) — 고르는 자리는 없다 */
+  /** 참석 상태 (ADR-33). **`나감` 이 곧 제외다** (ADR-41) — 고르는 자리는 없다 */
   attendance: Record<string, Attendance>;
   pairs: number;
   final: boolean;
@@ -328,7 +328,7 @@ function TablePicker({
 }) {
   const [count, setCount] = useState(start);
   /*
-   * **빠지는 사람은 `나감` 하나로 정해진다** (ADR-40). 손으로 고르는 목록을 걷어냈다 —
+   * **빠지는 사람은 `나감` 하나로 정해진다** (ADR-41). 손으로 고르는 목록을 걷어냈다 —
    * 가는 사람은 문 앞에서 이미 찍히고, 같은 것을 여기서 또 고르면 두 번째가 틀린다.
    *
    * 서버도 같은 것을 본다(`makeSeating`). 여기 숫자는 **그 결과를 미리 말해주는 것**이지

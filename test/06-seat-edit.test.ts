@@ -17,7 +17,7 @@ import { signInMaster, api, freshEvent, join, master, setPhase } from "./helpers
 
 beforeAll(signInMaster);
 
-/** 참석 상태를 찍는다 (ADR-33). 자리 배정에서 빠지는 유일한 조건이 `left` 다 (ADR-40) */
+/** 참석 상태를 찍는다 (ADR-33). 자리 배정에서 빠지는 유일한 조건이 `left` 다 (ADR-41) */
 const setAttendance = (eventId: string, pid: string, to: "arrived" | "left" | null) =>
   api(`/api/host/events/${eventId}/players/${pid}/attendance`, {
     method: "POST", cookie: master, body: { to },
@@ -191,7 +191,7 @@ describe("앉힌 자리 고치기", () => {
   it("★ `나감` 으로 찍힌 사람은 자리를 받지 않는다", async () => {
     /*
      * 배정하고 나서 한 명씩 빼는 길(`unseat`)도 있지만, 그때 자리 배치는
-     * **간 사람 기준으로 이미 짜여 있다.** 처음부터 남은 사람만으로 짜여야 한다 (ADR-40).
+     * **간 사람 기준으로 이미 짜여 있다.** 처음부터 남은 사람만으로 짜여야 한다 (ADR-41).
      *
      * 빠지는 조건은 **하나뿐**이다 — 운영자가 손으로 고르는 목록은 없다.
      */
@@ -253,7 +253,7 @@ describe("앉힌 자리 고치기", () => {
   });
 
   it("★ 되돌리면 다음 배정에 다시 들어온다", async () => {
-    // 나감이 사람에게 붙는 낙인이 되면 안 된다 — 잠깐 나갔다 온 사람이 있다 (ADR-40)
+    // 나감이 사람에게 붙는 낙인이 되면 안 된다 — 잠깐 나갔다 온 사람이 있다 (ADR-41)
     const ev = await freshEvent();
     const ids: string[] = [];
     for (let i = 0; i < 4; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);

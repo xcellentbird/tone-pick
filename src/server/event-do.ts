@@ -1124,7 +1124,7 @@ export class EventDO extends DurableObject {
     }
 
     /*
-     * **`나감` 만 빠진다** (ADR-40). 운영자가 손으로 고르던 목록을 걷어내고 상태 하나가 그 일을 한다 —
+     * **`나감` 만 빠진다** (ADR-41). 운영자가 손으로 고르던 목록을 걷어내고 상태 하나가 그 일을 한다 —
      * 가는 사람은 문 앞에서 이미 찍히고, 같은 것을 배정할 때 또 고르면 두 번째가 틀린다.
      *
      * **`미도착` 은 앉힌다.** 늦게 오는 사람이 기본이고, 안 온 사람과 아직 안 찍은 사람이
@@ -1140,7 +1140,7 @@ export class EventDO extends DurableObject {
 
     const published = this.seatings().filter((s) => s.status === "published");
     const round = (published.at(-1)?.round ?? 0) + 1;
-    const { mutual, oneWay, strength } = this.pairs();
+    const { mutual, oneWay, votes } = this.pairs();
 
     const seats = buildSeating({
       players,
@@ -1149,7 +1149,7 @@ export class EventDO extends DurableObject {
       final,
       history: published.map((s) => s.seats),
       mutual,
-      strength,
+      votes,
       oneWay,
     });
 
@@ -1474,7 +1474,7 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * **`나감` 으로 찍힌 사람**(ADR-33). 자리 배정에서 빠지는 유일한 조건이다 (ADR-40).
+   * **`나감` 으로 찍힌 사람**(ADR-33). 자리 배정에서 빠지는 유일한 조건이다 (ADR-41).
    *
    * `Player` 에 참석 상태를 싣지 않으므로(그러면 `me` 로 참가자에게 따라 나간다)
    * 여기서 따로 읽는다. `attendance` 칸이 없던 옛 회차도 마이그레이션이 이미 채웠다.
@@ -1599,34 +1599,40 @@ export class EventDO extends DurableObject {
    * 첫 자리 배정의 재료일 뿐이고, 만나보고 찌른 것과 같은 무게로 세면 안 된다.
    * 자리 배정은 반대로 **둘 다** 본다 — 첫 라운드를 정하는 게 매력 투표다.
    */
+  /**
+   * 서로 찌른 쌍과 한쪽만 찌른 쌍, 그리고 **쌍마다 오간 표의 총합**.
+   *
+   * `votes` 는 **단방향 쌍에도 채운다** (ADR-40) — 자리 배정의 끌림이 표 하나하나에서
+   * 나오기 때문이다. 예전에는 상호 쌍에만 있었고, 그래서 한 사람에게 세 번 투표한 것과
+   * 한 번 투표한 것이 자리에서는 똑같았다.
+   */
   private pairs(only?: PokeRound) {
     const sent = new Map<string, number>();
-    // 어느 라운드에 찔렀는지. 매칭이 **어떻게 이루어졌는가**를 가르는 데만 쓴다
-    const when = new Map<string, Set<PokeRound>>();
     for (const k of this.pokes()) {
       if (only && k.round !== only) continue;
       const key = `${k.fromId}>${k.toId}`;
       sent.set(key, (sent.get(key) ?? 0) + 1);
-      if (!when.has(key)) when.set(key, new Set());
-      when.get(key)!.add(k.round);
     }
 
     const mutual: Array<[string, string]> = [];
     const oneWay: Array<[string, string]> = [];
-    const strength: Record<string, number> = {};
-    for (const key of sent.keys()) {
+    const votes: Record<string, number> = {};
+    const add = (a: string, b: string, n: number) => {
+      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+      votes[key] = (votes[key] ?? 0) + n;
+    };
+    for (const [key, n] of sent) {
       const [a, b] = key.split(">");
+      add(a, b, n);
       if (sent.has(`${b}>${a}`)) {
-        if (a < b) {
-          mutual.push([a, b]);
-          strength[`${a}|${b}`] = (sent.get(key) ?? 0) + (sent.get(`${b}>${a}`) ?? 0);
-        }
+        // 상호는 한 번만 담는다. 뒤집힌 같은 쌍이 또 오기 때문
+        if (a < b) mutual.push([a, b]);
       } else {
         oneWay.push([a, b]);
       }
     }
-    mutual.sort((x, y) => strength[`${y[0]}|${y[1]}`] - strength[`${x[0]}|${x[1]}`]);
-    return { mutual, oneWay, strength };
+    mutual.sort((x, y) => votes[`${y[0]}|${y[1]}`] - votes[`${x[0]}|${x[1]}`]);
+    return { mutual, oneWay, votes };
   }
 
   private seatings(): SeatingRound[] {

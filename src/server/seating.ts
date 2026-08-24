@@ -13,7 +13,7 @@
  * 초기 배치와 훑는 순서가 정해져 있어 같은 입력이면 같은 자리가 나온다.
  */
 import type { Player, Seat } from "../shared/types.ts";
-import { AGE_GAP, FINAL_MUTUAL_BOOST, REP_CAP_RATIO, SEAT_W } from "../shared/constants.ts";
+import { AGE_GAP, FINAL_MUTUAL_BOOST, PULL_CAP, REP_CAP_RATIO, SEAT_W } from "../shared/constants.ts";
 
 export function spread(n: number, t: number): number[] {
   const base = Math.floor(n / t);
@@ -59,8 +59,11 @@ export interface BuildInput {
    * 한 사람이 여러 명과 이어졌는데 정원이 모자라면, 앞의 쌍이 자리를 가져간다.
    */
   mutual: Array<[string, string]>;
-  /** 쌍이 주고받은 콕 횟수. `"a|b"`(정렬된 두 아이디) → 횟수. 없으면 최소치(2)로 본다 */
-  strength?: Record<string, number>;
+  /**
+   * 쌍이 **주고받은 표의 총합.** `"a|b"`(정렬된 두 아이디) → 횟수.
+   * 상호든 단방향이든 다 들어온다 — 끌림은 표 하나하나가 만든다 (ADR-40).
+   */
+  votes?: Record<string, number>;
   oneWay: Array<[string, string]>;
 }
 
@@ -68,14 +71,21 @@ export interface BuildInput {
 const MIN_EXCHANGE = 2;
 
 /**
- * 주고받은 콕이 많을수록 붙여 앉히는 힘이 세진다.
+ * 두 사람을 붙여 앉히는 힘. **표 하나하나가 값을 만들고, 상호면 부가 점수가 얹힌다** (ADR-40).
  *
- * **상한을 둔다.** 없으면 30번 주고받은 한 쌍이 나이차 벌점을 통째로 밀어내고
- * 그 테이블만 이상해진다 — 가중치가 다른 가중치의 합을 넘으면 안 된다는 건
- * 마지막 라운드에서 이미 겪었다 (ADR-11).
+ * ```
+ * 한쪽만 1표  →  4        상호 1:1 (2표)  →  16
+ * 한쪽만 2표  →  8        상호 2:1 (3표)  →  20
+ * 한쪽만 3표  →  12       상호 2:2 (4표)  →  24 (상한)
+ * ```
+ *
+ * **상한이 나이차 벌점(30)보다 낮다.** 넘게 두면 한 쌍이 나이차를 통째로 밀어내고
+ * 그 테이블만 이상해진다 (ADR-11). 나이차 큰 상호 쌍은 마지막 라운드가 붙여준다 —
+ * 거기서는 가중치가 아니라 구조가 한다.
  */
-export function pairWeight(exchanged: number): number {
-  return Math.min(2, 1 + Math.max(0, exchanged - MIN_EXCHANGE) * 0.2);
+export function pullScore(votes: number, mutual: boolean): number {
+  if (votes <= 0) return 0;
+  return Math.min(PULL_CAP, SEAT_W.VOTE * votes + (mutual ? SEAT_W.MUTUAL : 0));
 }
 
 const MUTUAL = 1;
@@ -108,7 +118,7 @@ export function buildSeating(input: BuildInput): Seat[] {
   //    **순서가 곧 우선순위다** (ADR-25). 정원이 모자라 한 쌍만 앉힐 수 있을 때
   //    앞에 온 쌍이 자리를 가져가므로, 주고받은 콕이 많은 쌍부터 본다.
   const byStrength = [...w.mutualPairs].sort(
-    (x, y) => w.exchanged[y[0] * w.n + y[1]] - w.exchanged[x[0] * w.n + x[1]],
+    (x, y) => w.votes[y[0] * w.n + y[1]] - w.votes[x[0] * w.n + x[1]],
   );
   for (const [a, b] of byStrength) {
     if (w.male[a] === w.male[b]) continue;
@@ -164,8 +174,8 @@ class World {
   readonly met: Uint8Array;
   readonly partners: number[][];
   readonly mutualPairs: Array<[number, number]> = [];
-  /** i*n+j → 주고받은 콕 횟수. 붙여 앉히는 힘을 여기서 잰다 */
-  readonly exchanged: Uint8Array;
+  /** i*n+j → 그 쌍이 주고받은 **표의 총합.** 상호든 단방향이든 다 들어간다 (ADR-40) */
+  readonly votes: Uint8Array;
   readonly n: number;
 
   constructor(input: BuildInput) {
@@ -176,7 +186,7 @@ class World {
     this.intro = new Uint8Array(n);
     this.rel = new Uint8Array(n * n);
     this.met = new Uint8Array(n * n);
-    this.exchanged = new Uint8Array(n * n);
+    this.votes = new Uint8Array(n * n);
     this.partners = players.map(() => []);
 
     const index = new Map<string, number>();
@@ -193,12 +203,15 @@ class World {
       return i === undefined || j === undefined ? null : [i, j];
     };
 
+    /** 표 수는 부르는 쪽이 준다. 없으면 최소치로 본다 — 상호는 2표, 단방향은 1표 */
+    const votesOf = (a: string, b: string, least: number) =>
+      Math.min(255, input.votes?.[[a, b].sort().join("|")] ?? least);
+
     for (const [a, b] of input.mutual) {
       const ij = pair(a, b);
       if (!ij) continue;
       this.set(this.rel, ij[0], ij[1], MUTUAL);
-      const times = input.strength?.[[a, b].sort().join("|")] ?? MIN_EXCHANGE;
-      this.set(this.exchanged, ij[0], ij[1], Math.min(255, times));
+      this.set(this.votes, ij[0], ij[1], votesOf(a, b, MIN_EXCHANGE));
       this.partners[ij[0]].push(ij[1]);
       this.partners[ij[1]].push(ij[0]);
       this.mutualPairs.push(ij);
@@ -207,6 +220,8 @@ class World {
       const ij = pair(a, b);
       if (!ij || this.get(this.rel, ij[0], ij[1]) === MUTUAL) continue;
       this.set(this.rel, ij[0], ij[1], ONE_WAY);
+      // **단방향도 표를 센다** (ADR-40). 세 번 투표한 것과 한 번 투표한 것이 같으면 안 된다
+      this.set(this.votes, ij[0], ij[1], votesOf(a, b, 1));
     }
 
     for (const seats of input.history) {
@@ -252,9 +267,8 @@ function pairCost(w: World, i: number, j: number, rep: { opp: number; same: numb
   // 마지막 라운드의 상호 매칭 쌍은 나이차를 묻지 않는다. 이 라운드의 목적이 그들을 모으는 것이다
   if (!(final && mutual) && Math.abs(w.age[i] - w.age[j]) >= AGE_GAP) cost += SEAT_W.AGE;
 
-  // 주고받은 콕이 많은 쌍일수록 붙여 앉히는 힘이 세다 (ADR-25)
-  if (mutual) cost -= SEAT_W.POKE_MUTUAL * (final ? FINAL_MUTUAL_BOOST : 1) * pairWeight(w.exchanged[k]);
-  else if (rel === ONE_WAY) cost -= SEAT_W.POKE_ONE;
+  // 표 하나하나가 끌림을 만들고, 상호면 부가 점수가 얹힌다 (ADR-40)
+  if (rel) cost -= pullScore(w.votes[k], mutual) * (final && mutual ? FINAL_MUTUAL_BOOST : 1);
 
   // 마지막 라운드는 재회를 막지 않는다. 서로 찌른 쌍도 언제나 면제 — 억지로 떼어놓지 않는다
   if (!final && !mutual) {
