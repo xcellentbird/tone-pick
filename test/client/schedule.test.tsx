@@ -57,10 +57,11 @@ describe("위저드", () => {
     );
   }
 
-  const step2 = () =>
+  const stepAt = (n: number) =>
     createMemoryRouter([{ path: "/host/new/:step", element: <HostWizard /> }], {
-      initialEntries: ["/host/new/2"],
+      initialEntries: [`/host/new/${n}`],
     });
+  const step2 = () => stepAt(2);
 
   beforeEach(() => stubDefaults());
 
@@ -101,12 +102,13 @@ describe("위저드", () => {
     render(<RouterProvider router={step2()} />);
     await screen.findByText(HOST_UI.fields.partyAt);
 
-    const at = (i: number) =>
-      (document.querySelectorAll('input[type="datetime-local"]')[i] as HTMLInputElement).value;
-    const party = at(0);
+    // **인덱스가 아니라 id 로 잡는다** — 칸 순서는 바뀔 수 있고, 이 테스트가 재는 건 순서가 아니다
+    const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value;
     // 매력 투표 시작이 파티 48시간 전으로 바뀌면 응답이 반영된 것이다
     await waitFor(() =>
-      expect(new Date(party).getTime() - new Date(at(1)).getTime()).toBe(48 * 60 * 60 * 1000),
+      expect(new Date(val("party")).getTime() - new Date(val("prevote")).getTime()).toBe(
+        48 * 60 * 60 * 1000,
+      ),
     );
 
     const inputs = document.querySelectorAll('input[type="datetime-local"]');
@@ -123,6 +125,31 @@ describe("위저드", () => {
    * 그런데 굳는 규칙 다섯은 **콕이 오가면 못 고친다** (ADR-35) — 만들 때가 사실상 유일한
    * 기회라, 화면에서 고른 것이 그대로 나가는지가 곧 규칙이다.
    */
+  /**
+   * **2스텝의 네 시각은 시간 순으로 선다** — 매력 투표 시작 → 마감 → 파티 시작 → 커플 발표.
+   * 그래야 읽는 사람이 어느 것이 먼저인지 다시 계산하지 않는다.
+   *
+   * ⚠️ 넷 중 **파티 시작만 예약이 아니다** (ADR-14). 그 한 줄이 **그 칸에** 붙어 있어야 한다 —
+   * 목록 아래에 떠 있으면 어느 칸 이야기인지 알 수 없고, 넷 다 저절로 넘어가는 줄로 읽으면
+   * 운영자가 아무것도 안 눌러서 파티가 영영 안 열린다.
+   */
+  it("★ 2스텝은 시각만, 시간 순으로 세운다", async () => {
+    render(<RouterProvider router={step2()} />);
+    await screen.findByText(HOST_UI.fields.partyAt);
+
+    const ids = [...document.querySelectorAll('input[type="datetime-local"]')].map((i) => i.id);
+    expect(ids).toEqual(["prevote", "voteEnd", "party", "reveal"]);
+
+    // 값도 그 순서대로 흘러야 한다 — 라벨만 시간 순이고 기본값이 뒤엉키면 소용없다
+    const ms = ids.map((id) => new Date((document.getElementById(id) as HTMLInputElement).value).getTime());
+    expect(ms, `${ms.join(" < ")} 가 시간 순이 아니다`).toEqual([...ms].sort((a, b) => a - b));
+
+    // 시각이 아닌 칸은 여기 없다 — 장소는 1스텝으로 갔다
+    expect(screen.queryByLabelText(HOST_UI.fields.place), "장소가 2스텝에 남아 있다").toBeNull();
+    // 파티 시작만 예약이 아니라는 걸 그 칸에서 말한다
+    expect(screen.getByText(HOST_UI.fields.partyHint)).toBeTruthy();
+  });
+
   it("★ 3스텝에서 고른 규칙이 만들기 요청에 그대로 실린다", async () => {
     let sent: { config: Record<string, unknown> } | null = null;
     vi.stubGlobal(
@@ -166,9 +193,10 @@ describe("위저드", () => {
   });
 
   it("★ 장소 기본값을 들고 시작한다 (ADR-38)", async () => {
-    // 늘 같은 곳에서 여는 모임이면 한 번 적어두고 쓴다. 회차마다 고칠 수 있다
+    // 늘 같은 곳에서 여는 모임이면 한 번 적어두고 쓴다. 회차마다 고칠 수 있다.
+    // **장소는 1스텝(기본 정보)이다** — 2스텝은 시각만 다룬다
     stubDefaults({ place: "테스트 장소" });
-    render(<RouterProvider router={step2()} />);
+    render(<RouterProvider router={stepAt(1)} />);
 
     const input = (await screen.findByLabelText(HOST_UI.fields.place)) as HTMLInputElement;
     await waitFor(() => expect(input.value).toBe("테스트 장소"));
