@@ -27,6 +27,28 @@ export function dueTransition(ev: EventMeta, now: number): Phase | null {
 }
 
 /**
+ * 그 전환이 **언제** 걸려 있나. 예약이 없으면 `null`.
+ *
+ * `dueTransition` 과 **같은 표를 본다** — 저기가 "넘길 때가 됐나" 를 판정하고,
+ * 여기가 "언제 넘어가나" 를 답한다. 조건이 갈라지면 알람이 안 울리거나 울려도 아무 일이 없다.
+ * 한동안 서버(`nextDue`)와 여기가 같은 세 줄을 따로 적고 있었고, 그게 그 사고의 자리였다.
+ * **조건을 고칠 일이 생기면 두 함수를 나란히 놓고 함께 고쳐라.**
+ *
+ * 서버는 알람을 걸 때, 운영자 화면은 단계 버튼 옆 카운트다운에 쓴다 —
+ * 그 버튼이 하는 일이 **이 시각을 앞당기는 것**이라 옆에 남은 시간이 함께 서야 말이 된다.
+ *
+ * 파티 시작(`prevote` → `party`)에는 예약이 없다 (ADR-14). 셀 것이 없는 게 맞다 —
+ * 없는 시각을 지어내면 현장이 그 숫자를 따라가게 된다.
+ */
+export function dueAt(ev: EventMeta): number | null {
+  const { phase, fired, schedule } = ev;
+  if (phase === "prep" && schedule.regOpenAt && !fired.reg) return schedule.regOpenAt;
+  if (phase === "reg" && schedule.prevoteAt && !fired.prevote) return schedule.prevoteAt;
+  if (phase === "party" && schedule.revealAt && !fired.done) return schedule.revealAt;
+  return null;
+}
+
+/**
  * **규칙과 일정은 콕이 오갈 수 있게 된 뒤로는 굳는다** (ADR-35).
  *
  * 굳는 것: 콕 대상(`allowSameGender`) · 되돌리기 둘(`allowUndoPre`·`allowUndo`) ·
