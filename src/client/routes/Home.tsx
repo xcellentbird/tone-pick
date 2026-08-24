@@ -22,11 +22,14 @@ export default function Home({
   state,
   onTab,
   onSeat,
+  onHelp,
 }: {
   state: ParticipantState;
   onTab: (tab: Tab) => void;
   /** 자리 카드를 누르면 확인 화면을 다시 연다 (슬라이스 12) */
   onSeat: () => void;
+  /** 진행 방식을 다시 여는 길 (슬라이스 20). 등록 중에만 카드에 붙는다 */
+  onHelp: () => void;
 }) {
   const { phase } = state.event;
   const seat = state.seat;
@@ -47,6 +50,20 @@ export default function Home({
         <p className="dim small pre" style={{ margin: 0 }}>
           {todo.body}
         </p>
+
+        {/*
+          등록 직후 도움말이 저절로 뜨는데, **덮치는 화면은 반사적으로 닫힌다** —
+          자리 확인창에서 이미 겪었고 그때도 홈 카드가 다시 여는 길이 됐다 (슬라이스 12).
+
+          **등록 중에만이다.** 사전 콕 찌르기부터는 이 카드에 `참가자 보러 가기` 가 서고,
+          한 카드에 버튼이 둘이면 어느 것이 지금 할 일인지 갈린다. 그 뒤로는 상단 물음표가 맡는다.
+          `ghost` 인 이유도 같다 — 이 단계에서 참가자가 할 일은 기다리는 것이지 누르는 게 아니다.
+        */}
+        {phase === "reg" && (
+          <button className="btn ghost block" onClick={onHelp}>
+            {HOME.guide}
+          </button>
+        )}
 
         {canPoke(phase) && (
           <>

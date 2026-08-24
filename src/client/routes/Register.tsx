@@ -83,11 +83,27 @@ export default function Register() {
     try {
       // 번호는 입장할 때 확인한 값이다. 서버가 초대 쿠키에서 꺼내 쓴다 (ADR-15)
       const done = await post<RegisterResult>("/register", toInput(draft));
+      const home = `/e/${done.state.event.code}`;
       // 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
-      navigate(`/e/${done.state.event.code}`, {
+      navigate(home, {
         replace: true,
         state: done.resumed ? { welcome: REGISTER.welcomeBack(done.state.me.nickname) } : undefined,
       });
+      /*
+       * **등록을 마친 사람에게 진행 방식을 한 번 밀어준다** (슬라이스 20).
+       *
+       * 도움말은 상단 물음표로 늘 열리지만, 그건 **이미 질문이 생긴 사람**의 장치라 늦다.
+       * 목표가 "운영자에게 묻는 일을 줄이는 것" 이면 질문이 생기기 전에 한 번 읽혀야 하고,
+       * 그 순간은 등록 직후다 — 주의가 가장 높고, 화면은 가장 비어 있다.
+       *
+       * **갈아끼운 뒤에 밀어 넣는다.** 순서가 뒤집히면 도움말이 3스텝 위에 얹혀서
+       * 뒤로 가기가 등록 폼을 밟는다. 이렇게 두면 뒤로 가기 한 번이 곧 홈이다.
+       *
+       * 본 적이 있다는 기록은 남기지 않는다 (ADR-4). **`등록 완료` 라는 사건에 붙는다** —
+       * 새로고침하면 안 뜨고, 다시 보고 싶으면 물음표이거나 홈 카드의 `진행 방식 보기` 다.
+       * `resumed` 는 새로 등록한 게 아니라 돌아온 것이라 밀지 않는다.
+       */
+      if (!done.resumed) navigate(`${home}/help`);
     } catch (e) {
       setBusy(false);
       if (e instanceof ApiError && e.code === "nick_taken") {
