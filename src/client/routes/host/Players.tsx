@@ -141,7 +141,7 @@ export default function Players() {
     const rounds = state.seatings.filter((s) => s.seats.some((x) => x.playerId === playerId)).length;
     confirm(
       {
-        btn: BTN.delete,
+        btn: DELETE_PLAYER.btn,
         title: DELETE_PLAYER.title,
         danger: true,
         note: DELETE_PLAYER.note,
@@ -271,7 +271,7 @@ export default function Players() {
                 {BTN.close}
               </button>
               <button className="btn wide danger" onClick={() => askDelete(picked.id)}>
-                {BTN.delete}
+                {DELETE_PLAYER.btn}
               </button>
             </div>
           </>
