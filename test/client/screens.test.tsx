@@ -602,6 +602,61 @@ describe("파티 룰 도움말", () => {
     renderParticipant(fakeSource(), undefined, () => {}, "home", true);
     await screen.findByText(HELP.nowHere);
   });
+
+  /** 등록 단계의 상태. 등록을 막 마친 사람이 보는 것이다 */
+  function justRegistered() {
+    const state = participantState();
+    state.event.phase = "reg";
+    state.event.fired = { reg: 1 };
+    return state;
+  }
+
+  it("★ 등록 중이면 `등록` 칸에 `지금` 이 붙는다", async () => {
+    /*
+     * 예전에는 단계가 셋(사전·파티·발표)뿐이라 **등록 중에는 어디에도 `지금` 이 없었다.**
+     * 도움말이 등록 직후 저절로 열리게 된 뒤로는 하필 **처음 읽는 사람이 그때 읽는다** —
+     * 자기 위치를 못 찾는 그림은 그림이 아니다.
+     */
+    renderParticipant(fakeSource({ load: async () => justRegistered() }), undefined, () => {}, "home", true);
+    const now = await screen.findByText(HELP.nowHere);
+    expect(now.closest("li")?.textContent).toContain(HELP.steps[0].title);
+  });
+
+  it("★ 동성에게 못 찌르는 회차에서만 그 줄이 보인다", async () => {
+    /*
+     * 지금까지는 **눌러봐야** 알았다 (`POKE.blocked.sameGender` 토스트).
+     * 그래서 "왜 안 찔러져요?" 가 운영자에게 갔다.
+     *
+     * 기본값(모두에게)에서는 줄을 만들지 않는다 — "누구에게나 찌를 수 있어요" 는
+     * 아무도 안 묻는 답이고, 안 묻는 답을 적는 만큼 묻는 답이 뒤로 밀린다.
+     */
+    const state = participantState();
+    state.event.config = { maxPre: 3, maxParty: 3, allowSameGender: false };
+    renderParticipant(fakeSource({ load: async () => state }), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.sameGender.a);
+
+    cleanup();
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.title);
+    expect(screen.queryByText(HELP.qa.sameGender.a)).toBeNull();
+  });
+
+  it("★ 반사적으로 닫은 사람이 다시 여는 길은 등록 중에만 카드에 있다", async () => {
+    /*
+     * 덮치는 화면은 반사적으로 닫힌다 — 자리 확인창에서 이미 겪었고 그때도
+     * 홈 카드가 다시 여는 길이 됐다 (슬라이스 12).
+     *
+     * **사전 콕 찌르기부터는 없다.** 그 자리에 `참가자 보러 가기` 가 서고,
+     * 한 카드에 버튼이 둘이면 어느 것이 지금 할 일인지 갈린다. 그 뒤로는 물음표가 맡는다.
+     */
+    renderParticipant(fakeSource({ load: async () => justRegistered() }), undefined, () => {}, "home");
+    await screen.findByText(HOME.guide);
+
+    cleanup();
+    renderParticipant(fakeSource(), undefined, () => {}, "home");
+    await screen.findByText(HOME.todo.prevote.title);
+    expect(screen.queryByText(HOME.guide)).toBeNull();
+  });
 });
 
 describe("참가자 화면 · 어깨너머 가리기", () => {
