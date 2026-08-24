@@ -393,19 +393,10 @@ async function json<T>(c: Ctx): Promise<T> {
 
 function validConfig(config: EventConfig | undefined): boolean {
   if (!config) return false;
-  const { maxPre, maxParty, retentionDays, allowUndo, allowUndoPre, pokeNotify } = config;
+  const { maxPre, maxParty, allowUndo, allowUndoPre, pokeNotify } = config;
   // 없으면 기본값이다. 있으면 불리언이어야 한다 — `"true"` 라는 글자가 들어오면 안 된다
   for (const flag of [allowUndo, allowUndoPre, pokeNotify]) {
     if (flag !== undefined && typeof flag !== "boolean") return false;
-  }
-  if (retentionDays !== undefined) {
-    if (
-      !Number.isInteger(retentionDays) ||
-      retentionDays < LIMITS.retentionDays.min ||
-      retentionDays > LIMITS.retentionDays.max
-    ) {
-      return false;
-    }
   }
   return (
     Number.isInteger(maxPre) &&

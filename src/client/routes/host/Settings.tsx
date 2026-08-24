@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { BTN, DELETE_EVENT, HOST_UI, UNIT } from "../../../shared/copy.ts";
 import type { EventMeta, EventSchedule } from "../../../shared/types.ts";
-import { LIMITS, RETENTION_DAYS } from "../../../shared/constants.ts";
+import { LIMITS } from "../../../shared/constants.ts";
 import { schedLocked } from "../../../shared/phase.ts";
 import { SCHEDULE_STEP_MIN, formatWhen, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, del, put } from "../../lib/api.ts";
@@ -32,7 +32,6 @@ export default function Settings() {
   const [allowUndo, setAllowUndo] = useState(meta.config.allowUndo !== false);
   const [allowUndoPre, setAllowUndoPre] = useState(meta.config.allowUndoPre !== false);
   const [pokeNotify, setPokeNotify] = useState(meta.config.pokeNotify === true);
-  const [retentionDays, setRetentionDays] = useState(meta.config.retentionDays ?? RETENTION_DAYS);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +43,6 @@ export default function Settings() {
     setAllowUndo(meta.config.allowUndo !== false);
     setAllowUndoPre(meta.config.allowUndoPre !== false);
     setPokeNotify(meta.config.pokeNotify === true);
-    setRetentionDays(meta.config.retentionDays ?? RETENTION_DAYS);
     setPlace(meta.place ?? "");
     setSchedule(meta.schedule);
   }, [meta]);
@@ -72,11 +70,6 @@ export default function Settings() {
     changed(HOST_UI.fields.undoPre, undoWord(meta.config.allowUndoPre !== false), undoWord(allowUndoPre));
     changed(HOST_UI.fields.undoParty, undoWord(meta.config.allowUndo !== false), undoWord(allowUndo));
     changed(HOST_UI.fields.pokeNotify, notifyWord(meta.config.pokeNotify === true), notifyWord(pokeNotify));
-    changed(
-      HOST_UI.settings.privacy,
-      UNIT.days(meta.config.retentionDays ?? RETENTION_DAYS),
-      UNIT.days(retentionDays),
-    );
     for (const key of ["partyAt", "regOpenAt", "prevoteAt"] as const) {
       changed(HOST_UI.fields[key], formatWhen(meta.schedule[key]) || "—", formatWhen(schedule[key]) || "—");
     }
@@ -92,7 +85,7 @@ export default function Settings() {
       await put<EventMeta>(`/host/events/${meta.id}`, {
         name,
         place,
-        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, pokeNotify, retentionDays },
+        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, pokeNotify },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
       toast(BTN.saved);
@@ -227,18 +220,6 @@ export default function Settings() {
       />
       {/* 예약이 없는 전환을 여기서 찾지 않도록, 없는 이유를 그 자리에 적어둔다 */}
       <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
-
-      <div className="kicker">{HOST_UI.settings.privacy}</div>
-      <Num
-        label={HOST_UI.fields.retentionDays}
-        value={retentionDays}
-        min={LIMITS.retentionDays.min}
-        max={LIMITS.retentionDays.max}
-        onChange={setRetentionDays}
-      />
-      <p className="tiny dim">{HOST_UI.retention(retentionDays)}</p>
-      {/* 등록 화면의 "N일 뒤에 지워져요"가 이 값을 읽는다 — 참가자가 이미 있으면 줄이는 건 약속 위반이다 */}
-      {state.players.length > 0 && <p className="tiny dim">{HOST_UI.fields.retentionNote}</p>}
 
       {error && <p className="err danger">{error}</p>}
       {/* 누르면 바로 저장되지 않는다. 무엇이 바뀌는지 보고 한 번 더 확인한다 */}

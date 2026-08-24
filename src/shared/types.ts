@@ -161,14 +161,6 @@ export interface EventConfig {
    * 받지 않았던 상태로 돌아간다 — 지울 메시지가 애초에 저장돼 있지 않다.
    */
   pokeNotify?: boolean;
-  /**
-   * 파티가 끝나고 며칠 뒤에 이 회차를 파기할 것인가 (1~14).
-   *
-   * **없으면 `RETENTION_DAYS`** — 기본값과 같으면 적지 않는다 (allowSameGender 와 같은 규칙).
-   * 파기 Cron 이 이 값을 읽는다. 등록 화면에는 이 숫자가 나가지 않는다 —
-   * 그 자리에서 답할 것은 "이 번호가 누구에게 보이나" 하나다.
-   */
-  retentionDays?: number;
 }
 
 /**
@@ -304,8 +296,6 @@ export interface PublicEvent {
   /** 파티 일시. 링크를 받은 사람이 "그 파티가 맞나"를 확인하는 값이다 */
   partyAt?: number;
   canRegister: boolean;
-  /** 등록 화면의 "N일 뒤에 지워져요" 약속이 읽는 값. 회차 설정을 따른다 */
-  retentionDays: number;
   /** 등록할 수 없을 때의 안내. copy.ts 의 ENTRY.* 를 쓴다 */
   message?: string;
   /**

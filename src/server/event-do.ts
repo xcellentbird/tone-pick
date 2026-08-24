@@ -4,7 +4,7 @@
  * 이 매핑이 주는 것:
  *  - 요청이 순차 처리되므로 닉네임 유일성·콕 예산 차감에 경쟁 조건이 없다
  *  - 브로드캐스트 대상이 정확히 그 회차 참가자다
- *  - 회차가 끝나면 이 DO 만 지우면 개인정보 파기가 끝난다
+ *  - 운영자가 회차를 지우면 이 DO 하나로 개인정보가 다 사라진다 (자동 파기는 없다 — ADR-35)
  *
  * 무료 플랜에서 쓰려면 wrangler.jsonc 의 migrations 가 `new_sqlite_classes` 여야 한다.
  *
@@ -48,7 +48,6 @@ import { ENTRY } from "../shared/copy.ts";
 import {
   ENTRY_TRIES,
   LIMITS,
-  RETENTION_DAYS,
   cleanName,
   nicknameProblem,
   normalizeInstagram,
@@ -56,7 +55,7 @@ import {
   normalizePhone,
   realNameProblem,
 } from "../shared/constants.ts";
-import { PHASE_ORDER, canPoke, dueTransition, purgeDueAt } from "../shared/phase.ts";
+import { PHASE_ORDER, canPoke, dueTransition } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
@@ -246,8 +245,6 @@ export class EventDO extends DurableObject {
       name: meta.name,
       phase: meta.phase,
       partyAt: meta.schedule.partyAt,
-      // 등록 화면의 "N일 뒤에 지워져요" 약속이 읽는다 — 회차 설정과 어긋나면 안 된다
-      retentionDays: meta.config.retentionDays ?? RETENTION_DAYS,
     };
     if (meta.phase === "prep") {
       return ok({
@@ -314,14 +311,6 @@ export class EventDO extends DurableObject {
       const pokeNotify = patch.config.pokeNotify ?? meta.config.pokeNotify;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
 
-      // 안 보내면 지금 값을 지킨다 — 파기 약속이 다른 설정 저장에 딸려 초기화되면 안 된다
-      const retentionDays = patch.config.retentionDays ?? meta.config.retentionDays;
-      if (retentionDays !== undefined) {
-        if (!Number.isInteger(retentionDays) || !inRange(retentionDays, LIMITS.retentionDays)) {
-          return fail("bad_request");
-        }
-      }
-
       /**
        * 이미 쓴 횟수보다 낮게 내릴 수 없다.
        *
@@ -345,7 +334,6 @@ export class EventDO extends DurableObject {
         ...(allowUndo === false ? { allowUndo: false } : {}),
         ...(allowUndoPre === false ? { allowUndoPre: false } : {}),
         ...(pokeNotify === true ? { pokeNotify: true } : {}),
-        ...(retentionDays !== undefined && retentionDays !== RETENTION_DAYS ? { retentionDays } : {}),
       };
     }
     await this.ctx.storage.put("meta", meta);
@@ -356,21 +344,6 @@ export class EventDO extends DurableObject {
 
   async destroy(): Promise<void> {
     await this.ctx.storage.deleteAll();
-  }
-
-  /**
-   * 보관 기간이 지났으면 통째로 버린다.
-   *
-   * 개인정보만 골라 지우는 대신 회차째 지운다 — 반쯤 지워진 상태를 만들지 않기 위해서다.
-   * "회차 1개 = DO 1개"로 잡은 것이 여기서 값을 한다. 지울 게 한 곳에 다 있다.
-   */
-  async purgeIfExpired(now: number): Promise<boolean> {
-    const meta = await this.ctx.storage.get<EventMeta>("meta");
-    if (!meta) return false;
-    // 대기 일수는 회차 설정을 따른다. 등록 화면이 한 약속과 같은 값이다
-    if (now < purgeDueAt(meta, meta.config.retentionDays ?? RETENTION_DAYS)) return false;
-    await this.ctx.storage.deleteAll();
-    return true;
   }
 
   // ─────────────────────────── 입장 명단

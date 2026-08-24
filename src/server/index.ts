@@ -102,33 +102,7 @@ app.all("/assets/*", async (c) => {
 });
 
 /**
- * 개인정보 파기.  하루 한 번, 보관 기간이 지난 회차를 지운다.
- *
- * 참가자에게 실명과 전화번호를 받아놓고 언제까지 들고 있을지 정해두지 않는 건 그 자체가 사고다.
- * 회차 1개 = DO 1개라서 지울 것이 한 곳에 다 있다 — 그 매핑이 여기서 값을 한다.
- *
- * 실패해도 다음 날 다시 온다. 한 회차가 막혔다고 나머지를 건너뛰지 않는다.
+ * 자동 파기는 없다 (ADR-35). 회차는 운영자가 지울 때까지 남는다 —
+ * 지우는 길은 설정 탭의 `이 회차 삭제하기` 하나이고, 그것도 DO 하나를 버리는 일이다.
  */
-async function scheduled(_event: ScheduledController, env: Env) {
-  // 단계 판정과 같은 시계를 쓴다. 테스트에서 시간을 앞으로 돌려 이 경로를 확인할 수 있게
-  await syncClock(env);
-  const reg = registry(env);
-  const now = serverNow();
-  let purged = 0;
-
-  for (const entry of await reg.listEvents()) {
-    try {
-      // 대기 일수는 회차 설정을 따르므로 DO 가 스스로 판단한다
-      if (await eventStub(env, entry.id).purgeIfExpired(now)) {
-        await reg.removeEvent(entry.id);
-        purged++;
-      }
-    } catch (e) {
-      // 한 건이 막혀도 나머지는 돈다. 다음 날 다시 시도한다
-      console.error("purge failed", entry.id, e);
-    }
-  }
-  console.log(`purge: ${purged} events removed`);
-}
-
-export default { fetch: app.fetch, scheduled };
+export default { fetch: app.fetch };
