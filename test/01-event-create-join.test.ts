@@ -324,9 +324,33 @@ describe("B. 회차 생성", () => {
     expect(got.body.config.retentionDays).toBe(7);
   });
 
+  /**
+   * 알림을 꺼둔 채로 만든 회차는 **꺼진 채로 남는다.**
+   *
+   * 사전 콕 찌르기가 열리는 건 회차를 만들고 며칠 뒤다. 그 사이에 값이 조용히 기본값으로
+   * 돌아가면, 조용히 열려던 회차가 참가자 전원에게 말을 건다 — 되돌릴 수 없는 종류의 어긋남이다.
+   */
+  it("★ 만들 때 꺼둔 사전 콕 찌르기 알림이 그대로 남는다", async () => {
+    const off = await createEvent(master, {
+      config: { maxPre: 3, maxParty: 3, prevoteNotice: false },
+    });
+    expect(off.status).toBe(200);
+    const got = await api<EventMeta>(`/api/host/events/${off.body.id}`, { cookie: master });
+    expect(got.body.config.prevoteNotice).toBe(false);
+
+    // 다른 설정을 저장해도 꺼진 채로 남는다 — 알림이 딸려 다시 켜지면 안 된다
+    const patched = await api<EventMeta>(`/api/host/events/${off.body.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { config: { maxPre: 4, maxParty: 4 } },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.config.prevoteNotice).toBe(false);
+  });
+
   it("기본값과 같으면 적지 않는다 — 설정 모양이 회차마다 달라지지 않게", async () => {
     const ev = await createEvent(master, {
-      config: { maxPre: 3, maxParty: 3, allowSameGender: true, retentionDays: RETENTION_DAYS },
+      config: { maxPre: 3, maxParty: 3, allowSameGender: true, prevoteNotice: true, retentionDays: RETENTION_DAYS },
     });
     const got = await api<EventMeta>(`/api/host/events/${ev.body.id}`, { cookie: master });
     expect(got.body.config).toEqual({ maxPre: 3, maxParty: 3 });

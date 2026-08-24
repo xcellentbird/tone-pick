@@ -26,6 +26,7 @@ export default function Settings() {
   const [maxPre, setMaxPre] = useState(meta.config.maxPre);
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
   const [allowSameGender, setAllowSameGender] = useState(meta.config.allowSameGender !== false);
+  const [prevoteNotice, setPrevoteNotice] = useState(meta.config.prevoteNotice !== false);
   const [retentionDays, setRetentionDays] = useState(meta.config.retentionDays ?? RETENTION_DAYS);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +36,7 @@ export default function Settings() {
     setMaxPre(meta.config.maxPre);
     setMaxParty(meta.config.maxParty);
     setAllowSameGender(meta.config.allowSameGender !== false);
+    setPrevoteNotice(meta.config.prevoteNotice !== false);
     setRetentionDays(meta.config.retentionDays ?? RETENTION_DAYS);
     setSchedule(meta.schedule);
   }, [meta]);
@@ -57,6 +59,11 @@ export default function Settings() {
       allowSameGender ? HOST_UI.fields.pokeTargetAll : HOST_UI.fields.pokeTargetOpposite,
     );
     changed(
+      HOST_UI.fields.prevoteNotice,
+      meta.config.prevoteNotice === false ? HOST_UI.fields.prevoteNoticeOff : HOST_UI.fields.prevoteNoticeOn,
+      prevoteNotice ? HOST_UI.fields.prevoteNoticeOn : HOST_UI.fields.prevoteNoticeOff,
+    );
+    changed(
       HOST_UI.settings.privacy,
       UNIT.days(meta.config.retentionDays ?? RETENTION_DAYS),
       UNIT.days(retentionDays),
@@ -75,7 +82,7 @@ export default function Settings() {
     try {
       await put<EventMeta>(`/host/events/${meta.id}`, {
         name,
-        config: { maxPre, maxParty, allowSameGender, retentionDays },
+        config: { maxPre, maxParty, allowSameGender, prevoteNotice, retentionDays },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
       toast(BTN.saved);
@@ -181,6 +188,30 @@ export default function Settings() {
         locked={schedLocked(meta.fired, "prevoteAt")}
         onChange={(v) => setSchedule({ ...schedule, prevoteAt: v })}
       />
+      {/*
+        위저드와 같은 자리 — 언제 여는가 바로 아래다. **이미 열린 뒤에도 잠그지 않는다**:
+        소식은 파생이라 (ADR-4) 끄면 그 자리에서 사라지고 켜면 돌아온다.
+        일정 칸과 달리 지나간 일을 고치는 게 아니라 지금 보이는 것을 고치는 일이다.
+      */}
+      <div className="field">
+        <label>{HOST_UI.fields.prevoteNotice}</label>
+        <div className="choice">
+          {[
+            { on: false, text: HOST_UI.fields.prevoteNoticeOff },
+            { on: true, text: HOST_UI.fields.prevoteNoticeOn },
+          ].map((opt) => (
+            <button
+              key={opt.text}
+              type="button"
+              aria-pressed={prevoteNotice === opt.on}
+              onClick={() => setPrevoteNotice(opt.on)}
+            >
+              {opt.text}
+            </button>
+          ))}
+        </div>
+        <span className="tiny dim">{HOST_UI.fields.prevoteNoticeNote}</span>
+      </div>
       {/* 예약이 없는 전환을 여기서 찾지 않도록, 없는 이유를 그 자리에 적어둔다 */}
       <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
 

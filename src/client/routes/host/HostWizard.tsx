@@ -57,6 +57,7 @@ export default function HostWizard() {
    * 그래서 상수에서 시작한다 — 없으면 '모두에게'이고, 없으면 `RETENTION_DAYS` 다.
    */
   const [allowSameGender, setAllowSameGender] = useState(true);
+  const [prevoteNotice, setPrevoteNotice] = useState(true);
   const [retentionDays, setRetentionDays] = useState(RETENTION_DAYS);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -100,7 +101,7 @@ export default function HostWizard() {
         partyAt,
         regOpenAt: openNow ? "now" : regOpenAt,
         prevoteAt,
-        config: { maxPre, maxParty, allowSameGender, retentionDays },
+        config: { maxPre, maxParty, allowSameGender, prevoteNotice, retentionDays },
         requestId,
       };
       const made = await post<EventMeta>("/host/events", body);
@@ -182,8 +183,35 @@ export default function HostWizard() {
                 value={toLocalInput(prevoteAt)}
                 onChange={(e) => changeWhen("prevote", e.target.value)}
               />
-              <span className="tiny dim">{HOST_UI.fields.manualNote}</span>
             </div>
+
+            {/*
+              **언제 여는가 바로 아래에서 묻는다.** 알릴지 말지는 여는 시각에 딸린 질문이라,
+              규칙 스텝으로 떼어놓으면 시각을 고른 사람이 그 칸을 다시 찾아가야 한다.
+              끄는 것은 알림 하나뿐이다 — 단계는 예약대로 열린다.
+            */}
+            <div className="field">
+              <label>{HOST_UI.fields.prevoteNotice}</label>
+              <div className="choice">
+                {[
+                  { on: false, text: HOST_UI.fields.prevoteNoticeOff },
+                  { on: true, text: HOST_UI.fields.prevoteNoticeOn },
+                ].map((opt) => (
+                  <button
+                    key={opt.text}
+                    type="button"
+                    aria-pressed={prevoteNotice === opt.on}
+                    onClick={() => setPrevoteNotice(opt.on)}
+                  >
+                    {opt.text}
+                  </button>
+                ))}
+              </div>
+              <span className="tiny dim">{HOST_UI.fields.prevoteNoticeNote}</span>
+            </div>
+
+            {/* 예약이 없는 전환을 설정 화면에서 찾지 않도록 일정 묶음 끝에 이유를 적어둔다 */}
+            <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
           </>
         )}
 
