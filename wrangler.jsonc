@@ -51,9 +51,6 @@
    */
   "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "tone_pick_ops" }],
 
-  // 개인정보 파기. 04:00 KST — 파티가 도는 시간대를 피한다
-  "triggers": { "crons": ["0 19 * * *"] },
-
   "observability": { "enabled": true },
 
   /*

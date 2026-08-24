@@ -36,7 +36,7 @@ export function rulesLocked(fired: FiredMap): boolean {
 }
 
 /**
- * 일정은 **지나온 것씩** 잠근다 (ADR-37). 파티가 시작되면 남은 일정이 없으니 전부 잠근다.
+ * 일정은 **지나온 것씩** 잠근다 (ADR-39). 파티가 시작되면 남은 일정이 없으니 전부 잠근다.
  *
  * ADR-35 는 규칙과 일정을 한 잠금으로 묶었는데, 매력 투표 마감에 시각이 생기면서
  * 그 묶음이 깨졌다 — **파티가 늦어지면 마감도 미뤄야 하는데** `fired.prevote` 하나로
@@ -53,7 +53,7 @@ export function schedLocked(fired: FiredMap, key: string): boolean {
 /**
  * 지금 콕(또는 매력 투표)을 찌를 수 있나.
  *
- * **매력 투표는 시각으로 닫힌다** (ADR-37) — `voteEndAt` 이 지나면 `prevote` 단계인 채로
+ * **매력 투표는 시각으로 닫힌다** (ADR-39) — `voteEndAt` 이 지나면 `prevote` 단계인 채로
  * 투표만 닫힌다. 단계는 그대로라 명단도 프로필도 그대로 보인다. 파티 콕은 시각을 보지 않는다 —
  * 파티 시작과 발표는 운영자가 누르는 것이고, 그 사이에 마감할 시각이 없다 (ADR-14).
  *
@@ -66,24 +66,24 @@ export function canPoke(phase: Phase, now: number, schedule: EventSchedule): boo
 }
 
 /**
- * 오늘의 연애운은 **파티가 시작돼야** 열린다 (ADR-20).
+ * 오늘의 연애운은 **매력 투표가 시작되면** 열린다 (ADR-20 후기).
  * 발표 뒤에도 그대로 남는다 — 오늘 하루의 것이라 파티가 끝났다고 사라질 이유가 없다.
+ *
+ * 그 전에도 **탭은 자리를 지킨다** — 없다가 생기는 게 아니라 비활성으로 서 있다가 켜진다.
+ * 탭이 도중에 생기면 손가락이 기억한 자리가 어긋난다.
  */
 export function canOpenFortune(phase: Phase): boolean {
-  return phase === "party" || phase === "done";
+  return phase === "prevote" || phase === "party" || phase === "done";
 }
 
 /**
- * 이 회차를 지워도 되는 시각. 넘으면 회차 DO 를 통째로 버린다.
+ * **미션만은 파티가 시작돼야 열린다** (ADR-20 후기).
  *
- * 기준을 **가장 나중 시각**으로 잡는 게 핵심이다. 만든 날만 보면
- * 3주 뒤로 예약한 파티가 파티 전에 지워진다. 실제로 그럴 뻔한 계산이었다.
+ * 미션은 "30분 안에 되고 실패해도 티가 나지 않는 것" 이고, 그 문장에는 **언제 할지**가
+ * 들어간다 — "자리를 옮기고 막 앉았을 때" 처럼 파티장에서만 성립하는 상황이다.
+ * 매력 투표는 파티 스무 시간 전에 열리므로, 그때 뒤집으면 할 수 없는 미션이
+ * **한 번 열면 그대로** 남는다 (ADR-20). 운세는 읽는 것이라 미리 열려도 잃을 게 없다.
  */
-export function purgeDueAt(meta: Pick<EventMeta, "createdAt" | "fired" | "schedule">, retentionDays: number): number {
-  const marks = [
-    meta.createdAt,
-    ...Object.values(meta.fired),
-    ...Object.values(meta.schedule),
-  ].filter((t): t is number => typeof t === "number");
-  return Math.max(...marks) + retentionDays * 86400_000;
+export function canOpenMission(phase: Phase): boolean {
+  return phase === "party" || phase === "done";
 }

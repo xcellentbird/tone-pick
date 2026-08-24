@@ -63,6 +63,7 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
       instagram: "na_gram",
       mbti: "ENFP",
       charms: ["하나", "둘", "셋"],
+      contactShare: "all" as const,
       createdAt: 1,
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
@@ -439,7 +440,7 @@ describe("뿌리 화면", () => {
 // ─────────────────────────────────────────── 콕
 
 describe("참가자 화면 · 콕", () => {
-  it("★ 매력 투표가 마감되면 목록이 이유를 말한다 (ADR-37)", async () => {
+  it("★ 매력 투표가 마감되면 목록이 이유를 말한다 (ADR-39)", async () => {
     /*
      * 마감되면 `남은 횟수` 칸이 사라지고 버튼이 잠긴다. 잠긴 버튼은 눌러도 아무 말이 없어서,
      * 아무 설명 없이 자리만 비면 참가자는 앱이 고장 난 줄 안다.
@@ -655,6 +656,58 @@ describe("파티 룰 도움말", () => {
     expect(now.closest("li")?.textContent).toContain(HELP.steps[0].title);
   });
 
+  it("★ 매력 투표 문구에 '콕' 을 쓰지 않는다", async () => {
+    /*
+     * ADR-34 — 둘은 쓰임이 아예 다르다. 매력 투표는 만나기 전에 프로필만 보고 고르는 것이고,
+     * 콕은 만나본 뒤에 고르는 것이며 **발표에 이어지는 건 콕뿐이다.**
+     * 같은 말로 부르면 참가자가 "아까 찔렀는데 왜 또?" 가 된다.
+     *
+     * 실제로 이름만 `매력 투표` 로 바꾸고 이 문구들을 안 고쳐서 한동안 어긋나 있었다 —
+     * 도움말은 `콕 찔러요` 라고 했고 홈 카드는 `서로 찔렀을 때만 공개돼요` 라고 했는데
+     * **뒤엣것은 사실도 아니었다.** 그래서 사람 눈이 아니라 여기가 지킨다.
+     */
+    const prevoteStep = HELP.steps.find((v) => v.key === "prevote")!;
+
+    // 지금 하는 일을 이름 붙이는 자리 — 여기엔 `콕` 이 한 글자도 없어야 한다
+    for (const [where, text] of [
+      ["도움말 단계", prevoteStep.body],
+      ["도움말 문답", HELP.qa.prevote.a],
+      ["홈 제목", HOME.todo.prevote.title],
+      ["다 썼을 때 제목", HOME.spent.prevote.title],
+    ] as const) {
+      expect(text, `${where}: ${text}`).not.toContain("콕");
+    }
+
+    /*
+     * 본문은 다르다. **다음 단계를 가리키는 `콕` 은 오히려 있어야 한다** —
+     * `파티에서 만나본 뒤에 콕 찌를 기회가 따로 있어요` 가 둘이 다른 일임을 알려준다.
+     * 그래서 금지하는 건 낱말이 아니라 **주어**다: `콕` 이 나오는 줄은 `파티` 를 함께 말해야 한다.
+     * 그 조건이 없으면 지금 하는 일을 콕이라 부른 것이다.
+     */
+    for (const [where, text] of [
+      ["홈 본문", HOME.todo.prevote.body],
+      ["다 썼을 때 본문", HOME.spent.prevote.body],
+    ] as const) {
+      for (const line of text.split("\n").filter((l) => l.includes("콕"))) {
+        expect(line, `${where}: ${line}`).toContain("파티");
+      }
+    }
+  });
+
+  it("★ 매력 투표와 콕 찌르기를 가르는 문답이 있다", async () => {
+    // 단계 그림만으로는 "둘이 뭐가 다른가" 가 안 풀린다. 바로 아래에서 풀어준다
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.prevote.q);
+    await screen.findByText(HELP.qa.poke.q);
+    /*
+     * **핵심은 "발표에 이어지는 게 어느 쪽이냐" 다.** 두 줄이 이름과 시점만 말하고
+     * 이걸 안 말하면, 바로 위 단계 그림을 되풀이한 것에 지나지 않는다.
+     */
+    expect(HELP.qa.poke.a).toContain("발표");
+    // 그리고 투표도 해야 한다는 걸 알려준다 — 안 그러면 "그럼 투표는 왜?" 로 끝난다
+    expect(HELP.qa.prevote.a).toContain("파티");
+  });
+
   it("★ 동성에게 못 찌르는 회차에서만 그 줄이 보인다", async () => {
     /*
      * 지금까지는 **눌러봐야** 알았다 (`POKE.blocked.sameGender` 토스트).
@@ -811,7 +864,7 @@ describe("참가자 화면 · 자리", () => {
     await waitFor(() => expect(source.calls.ack).toEqual([1]));
   });
 
-  it("★ 파티 전과 파티 중이 다르게 말한다 (ADR-37)", async () => {
+  it("★ 파티 전과 파티 중이 다르게 말한다 (ADR-39)", async () => {
     /*
      * 첫 자리는 파티가 시작되기 전에 나간다. 그때 이 화면을 받는 사람은 **아직 오는 중**일 수 있어서
      * "이동해주세요" 도 "지켜보고 있어요" 도 그 사람에게는 재촉이다.
@@ -1106,6 +1159,64 @@ describe("발표 후 참가자 탭", () => {
           ...over,
         }),
     });
+
+  /** 매칭 한 건을 통째로 갈아끼운다 — 연락처가 얼마나 열렸는지에 따라 화면이 달라진다 (ADR-37) */
+  const revealedWith = (match: MyPokeState["matches"][number]) =>
+    fakeSource({
+      load: async () =>
+        participantState({
+          event: { ...participantState().event, phase: "done" },
+          poke: { ...matched, matches: [match] },
+        }),
+    });
+
+  /**
+   * 둘 중 한 명이라도 `안 열기` 를 골랐을 때 (ADR-37). 서버가 `contact` 를 아예 안 보낸다 —
+   * 화면은 그걸 그대로 그린다.
+   */
+  it("★ 연락처가 안 열린 매칭에서는 번호도 인스타도 없다", async () => {
+    const closed = revealedWith({ ...matched.matches[0], contact: undefined });
+    renderParticipant(closed, "her");
+
+    // 먼저 기다린다 — 동기 조회를 앞에 두면 아직 안 그려진 화면을 재게 된다
+    await screen.findByText(REVEAL.contactClosed);
+    // 매칭 자체는 그대로 보인다 — 좁아진 건 연락처뿐이다
+    expect(screen.getAllByText(new RegExp(REVEAL.matchBadge)).length).toBeGreaterThan(0);
+    expect(screen.queryByText("01055556666"), "번호가 남아 있다").toBeNull();
+    expect(screen.queryByText("@her_gram"), "인스타가 남아 있다").toBeNull();
+    // 연락처 라벨 자체가 없다 — 빈 '연락처' 칸은 고장 난 화면으로 읽힌다
+    expect(screen.queryByText(REVEAL.contactTitle)).toBeNull();
+    // "상대에게도 같은 만큼 보여요" 는 열린 게 있을 때만 참이다
+    expect(screen.queryByText(REVEAL.contactNote)).toBeNull();
+  });
+
+  it("★ 연락처가 안 열린 이유를 상대 탓으로 말하지 않는다", async () => {
+    /*
+     * `상대가 열지 않았어요` 는 **이름 붙은 거절**이다. 서로 콕 찌른 사이라 상대가 누구인지
+     * 이미 아는 화면이라, 그 한 줄이 이 앱이 없애려는 경험을 그대로 만든다 (ADR-37).
+     * 그래서 문구는 **등록할 때 미리 고른 값**이라는 것만 말한다.
+     */
+    for (const word of ["상대가", "거절", "수락"]) {
+      expect(REVEAL.contactClosed, `'${word}' 가 들어 있다`).not.toContain(word);
+    }
+    expect(REVEAL.contactClosed, "미리 고른 값이라는 걸 말해야 한다").toContain("등록");
+  });
+
+  it("★ 인스타까지만 열린 매칭에는 번호 줄이 없다", async () => {
+    const igOnly = revealedWith({
+      ...matched.matches[0],
+      contact: { realName: "이실명", instagram: "her_gram" },
+    });
+    renderParticipant(igOnly, "her");
+
+    // 인스타는 멀쩡히 열린다 — 좁아진 건 번호뿐이다
+    await screen.findByText("@her_gram");
+    expect(screen.getByText("이실명")).toBeTruthy();
+    expect(screen.queryByText("01055556666"), "번호가 남아 있다").toBeNull();
+    expect(screen.queryByText(ME.labels.phone), "번호 줄이 빈 채로 남아 있다").toBeNull();
+    // 없는 줄은 그냥 없다 — 왜 없는지 적으면 멀쩡한 인스타가 실패처럼 보인다
+    expect(screen.queryByText(REVEAL.contactClosed)).toBeNull();
+  });
 
   it("★ 발표 후에는 콕 버튼이 아예 없다 — 잠긴 버튼도 남기지 않는다", async () => {
     /*
@@ -1893,6 +2004,12 @@ describe("탭 역할 분담", () => {
    */
   const withSeat = { round: 1, table: 2, final: false, mates: 6, men: 3, acked: true };
 
+  /** 그 단계의 상태 한 벌. `event` 는 통째로 갈아끼우는 자리라 기본값에서 떠온다 */
+  const inPhase = (phase: ParticipantState["event"]["phase"]): Partial<ParticipantState> => ({
+    event: { ...participantState().event, phase, fired: { reg: 1 } },
+  });
+  const fortuneTab = () => screen.getByText(FORTUNE.tab).closest("button")!;
+
   const renderTab = (t: "home" | "me" | "people", over: Partial<ParticipantState> = {}) =>
     render(
       <MemoryRouter>
@@ -1964,10 +2081,32 @@ describe("탭 역할 분담", () => {
     // 세 번 받았으면 세 줄이다. "지금까지 3회" 한 줄이 아니다
     expect(screen.getAllByText(POKE.received)).toHaveLength(3);
 
-    // '오늘' 은 파티가 시작돼야 생긴다. 사전 투표 중에는 세 개다
-    // '오늘' 은 맨 오른쪽에 붙는다 — 도중에 끼어들면 옆 탭들이 밀린다
+    /* '오늘' 은 맨 오른쪽에 붙는다 — 도중에 끼어들면 옆 탭들이 밀린다 */
     expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me", "fortune"]);
-    expect(screen.queryByText(FORTUNE.tab)).toBeNull();
+    // 매력 투표 중이라 이미 켜져 있다 (ADR-20 후기)
+    expect(fortuneTab().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  /**
+   * '오늘' 탭은 **없다가 생기지 않는다** (ADR-20 후기).
+   *
+   * 처음부터 자리를 지키고 매력 투표와 함께 켜진다 — 도중에 생기면 넷이 나눠 쓰던 폭이
+   * 통째로 다시 나뉘어, 손가락이 기억한 자리가 어긋난다.
+   */
+  it("★ 매력 투표 전에도 '오늘' 탭은 자리를 지킨다 — 꺼져 있을 뿐이다", async () => {
+    renderTab("home", inPhase("reg"));
+    await screen.findByText(FORTUNE.tab);
+
+    expect(document.querySelectorAll(".tabbar button")).toHaveLength(TABS_PARTICIPANT.length);
+    expect(fortuneTab().getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("★ 꺼진 '오늘' 탭은 언제 열리는지 말한다 — 눌러도 조용하면 고장으로 읽힌다", async () => {
+    renderTab("home", inPhase("reg"));
+    await screen.findByText(FORTUNE.tab);
+
+    fireEvent.click(fortuneTab());
+    expect(await screen.findByText(FORTUNE.closed)).toBeTruthy();
   });
 });
 
@@ -2045,7 +2184,7 @@ describe("홈 · 남은 시간", () => {
     expect(screen.queryByText(STATUS.untilPrevote)).toBeNull();
   });
 
-  it("★ 매력 투표 중에는 마감까지를 센다 (ADR-37)", async () => {
+  it("★ 매력 투표 중에는 마감까지를 센다 (ADR-39)", async () => {
     /*
      * 예전에는 이 자리에서 파티를 셌다 — 마감이 운영자 손에 있어 셀 시각이 없었다.
      * 시각이 생기면서 **다음에 일어날 일**이 마감으로 바뀌었다.

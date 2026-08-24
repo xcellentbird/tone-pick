@@ -43,7 +43,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
   const round = state.event.phase === "prevote" ? "pre" : "party";
   const budget = state.poke.budget[round];
   /*
-   * 매력 투표는 **시각으로** 닫힌다 (ADR-37). 서버 시각으로 재고, 폰 시계는 쓰지 않는다.
+   * 매력 투표는 **시각으로** 닫힌다 (ADR-39). 서버 시각으로 재고, 폰 시계는 쓰지 않는다.
    * 닫히는 순간 화면이 저절로 바뀌지는 않는다 — 그때 누르면 서버가 같은 이유로 거절하고
    * `POKE.blocked` 가 뜬다. 1초마다 다시 그리는 것보다 그 편이 조용하다.
    */
@@ -105,7 +105,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
   }
 
   /**
-   * 왜 못 찌르나. **마감돼서 닫힌 것과 아직 안 열린 것은 다르다** (ADR-37) —
+   * 왜 못 찌르나. **마감돼서 닫힌 것과 아직 안 열린 것은 다르다** (ADR-39) —
    * "시간이 아니에요" 는 *곧 열린다* 로 읽히는데, 매력 투표 마감 뒤에는 그게 거짓말이다.
    */
   const voteEnded = !open && state.event.phase === "prevote" && !!state.event.schedule.voteEndAt;
@@ -186,7 +186,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       </div>
       {/*
         **마감되면 남은 횟수 칸이 사라진다** — 그 자리가 그냥 비면 앱이 고장 난 것으로 읽힌다.
-        버튼도 잠기는데 잠긴 버튼은 눌러도 아무 말이 없어서, 이유를 말할 자리가 여기뿐이다 (ADR-37).
+        버튼도 잠기는데 잠긴 버튼은 눌러도 아무 말이 없어서, 이유를 말할 자리가 여기뿐이다 (ADR-39).
       */}
       {voteEnded && <p className="tiny dim center">{POKE.blocked.voteEndedLine}</p>}
 
@@ -321,7 +321,10 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
 
                 {/* 연락처는 **서로 찌른 사이에게만** 열린다 (ADR-19) */}
                 <Contact match={matched.get(profile.id)!} />
-                <span className="tiny dim">{REVEAL.contactNote}</span>
+                {/* 열린 게 있을 때만. 아무것도 안 열렸는데 "상대에게도 같은 만큼" 은 빈 말이다 */}
+                {matched.get(profile.id)!.contact && (
+                  <span className="tiny dim">{REVEAL.contactNote}</span>
+                )}
               </div>
             )}
             <div className="row">
@@ -426,8 +429,22 @@ function MyCard({ me, phase, onOpen }: { me: Player; phase: Phase; onOpen: () =>
  *
  * 전화와 인스타는 **누를 수 있게** 둔다 — 파티장에서 번호를 손으로 옮겨 적게 하지 않는다.
  * 이 컴포넌트는 `MatchInfo` 없이는 그려지지 않는다. 그 타입이 곧 "발표 후 서로 찌른 쌍"이다.
+ *
+ * **세 모양이 있다** (ADR-37). 무엇이 오는지는 서버가 정한다 — 두 사람이 등록할 때 고른 것 중
+ * 조심스러운 쪽이다. 화면은 **온 것만 그린다**: 여기서 다시 판단하지 마라.
+ *
+ *   연락처 없음   둘 중 하나가 `안 열기` 를 골랐다 → 대신 한 줄
+ *   번호 없음     둘 중 하나가 `인스타까지` 를 골랐다 → 인스타까지만 그린다
+ *   다 있음       둘 다 `전화번호까지` 를 골랐다
+ *
+ * ⚠️ **번호가 없는 이유를 화면에 적지 마라.** `상대가 번호를 안 열었어요` 는 사실상
+ * 상대를 지목하는 말이고, 인스타라는 멀쩡한 연락 수단을 실패처럼 보이게 만든다.
+ * 없는 줄은 그냥 없다.
  */
 function Contact({ match }: { match: MatchInfo }) {
+  // 아무것도 열리지 않았을 때. **누가 안 열었는지는 말하지 않는다** — 그건 이름 붙은 거절이다
+  if (!match.contact) return <span className="tiny dim">{REVEAL.contactClosed}</span>;
+
   const { realName, phone, instagram } = match.contact;
   return (
     <div className="stack">
@@ -437,18 +454,18 @@ function Contact({ match }: { match: MatchInfo }) {
         <span>{realName}</span>
       </div>
       <div className="kicker">{REVEAL.contactTitle}</div>
-      <div className="row between">
-        <span className="small dim">{ME.labels.phone}</span>
-        <a href={`tel:${phone}`}>{phone}</a>
-      </div>
-      {instagram && (
+      {phone && (
         <div className="row between">
-          <span className="small dim">{ME.labels.instagram}</span>
-          <a href={`https://instagram.com/${instagram}`} target="_blank" rel="noreferrer">
-            @{instagram}
-          </a>
+          <span className="small dim">{ME.labels.phone}</span>
+          <a href={`tel:${phone}`}>{phone}</a>
         </div>
       )}
+      <div className="row between">
+        <span className="small dim">{ME.labels.instagram}</span>
+        <a href={`https://instagram.com/${instagram}`} target="_blank" rel="noreferrer">
+          @{instagram}
+        </a>
+      </div>
     </div>
   );
 }

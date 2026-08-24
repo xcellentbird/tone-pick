@@ -76,6 +76,7 @@ async function join(ev: EventMeta, gender: "M" | "F" = "M") {
     realName: "김실명", age: 28, gender,
     instagram: `pk_${seq}`, mbti: "ENFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
+    contactShare: "all",
   };
   const res = await api<RegisterResult>("/api/register", { method: "POST", cookie: gate.cookie, body: input });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
@@ -242,7 +243,7 @@ describe("굳는 설정", () => {
     }
   });
 
-  it("★ 일정은 지나온 것씩 굳는다 (ADR-37)", async () => {
+  it("★ 일정은 지나온 것씩 굳는다 (ADR-39)", async () => {
     /*
      * ADR-35 는 일정을 통째로 묶었는데, 매력 투표 마감에 시각이 생기면서 갈라야 했다 —
      * **파티가 늦어지면 마감도 미뤄야 한다.** 지나온 것만 잠근다.
@@ -299,7 +300,7 @@ describe("굳는 설정", () => {
 });
 
 /**
- * 매력 투표는 **시각으로 닫힌다** (ADR-37).
+ * 매력 투표는 **시각으로 닫힌다** (ADR-39).
  *
  * 전환이 아니라 판정이다 — 단계는 `prevote` 그대로고 알람도 울리지 않는다.
  * 이 시각과 파티 시작 사이가 운영자가 첫 자리를 짜는 시간이다.

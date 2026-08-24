@@ -2,7 +2,7 @@
  * 회차 기본 설정. 새 회차를 만들 때 위저드가 채워 넣는 값이다.
  *
  * 일정 기본값은 **파티 일시에서 거꾸로** 잰다 — 운영자가 실제로 아는 건 "언제 모이나" 하나뿐이다.
- * 등록 시작은 여기 없다 (ADR-36). 회차를 만드는 순간 열리므로 미리 정할 것이 없다.
+ * 등록 시작은 여기 없다 (ADR-38). 회차를 만드는 순간 열리므로 미리 정할 것이 없다.
  *
  * **장소가 여기 있는 이유**는 늘 같은 곳에서 여는 모임이기 때문이다 —
  * 회차마다 다시 적는 값이면 회차 만들기 화면에만 있어야 맞다. 회차에서 고치면 그 회차만 바뀐다.
@@ -107,7 +107,7 @@ export default function HostDefaults() {
           max={720}
           onChange={(v) => set("prevoteBeforeH", v)}
         />
-        {/* 이 값과 0 사이가 자리를 짜는 시간이다 (ADR-37). 짧게 잡으면 운영자가 쫓긴다 */}
+        {/* 이 값과 0 사이가 자리를 짜는 시간이다 (ADR-39). 짧게 잡으면 운영자가 쫓긴다 */}
         <Num
           label={HOST_UI.fields.voteEndBeforeH}
           value={form.voteEndBeforeH}
@@ -115,7 +115,7 @@ export default function HostDefaults() {
           max={720}
           onChange={(v) => set("voteEndBeforeH", v)}
         />
-        {/* 등록 시작 오프셋은 없다 (ADR-36) — 회차를 만들면 곧바로 열린다 */}
+        {/* 등록 시작 오프셋은 없다 (ADR-38) — 회차를 만들면 곧바로 열린다 */}
         <p className="tiny dim">{HOST_UI.regOpensNow}</p>
 
         {/* 늘 같은 곳에서 여는 모임이면 여기 한 번 적어둔다. 회차마다 고칠 수 있다 */}

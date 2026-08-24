@@ -96,7 +96,7 @@ export class RegistryDO extends DurableObject {
     snap.defaults = {
       maxPre: next.maxPre,
       maxParty: next.maxParty,
-      // 빈 장소는 그대로 둔다 — "회차마다 다른 곳에서 연다" 는 뜻이다 (ADR-36)
+      // 빈 장소는 그대로 둔다 — "회차마다 다른 곳에서 연다" 는 뜻이다 (ADR-38)
       place: next.place ?? "",
       prevoteBeforeH: next.prevoteBeforeH,
       voteEndBeforeH: next.voteEndBeforeH,

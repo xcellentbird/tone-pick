@@ -91,6 +91,8 @@ export function person(over: Partial<RegisterInput> = {}): RegisterInput {
     instagram: `insta_${phoneSeq}`,
     mbti: "ENFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
+    // 옛 회차가 하던 대로가 기본이다 — 이걸 좁히면 이 값과 무관한 테스트가 같이 흔들린다 (ADR-37)
+    contactShare: "all",
     ...over,
   };
 }
