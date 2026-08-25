@@ -176,6 +176,32 @@ describe("위저드", () => {
     expect(party!.value, "파티 시작이 빈 채로 뜬다").not.toBe("");
   });
 
+  /**
+   * ★ **위저드에 설명 줄은 하나뿐이다** (ADR-54, 후기).
+   *
+   * 이 화면은 대부분 **기본값 그대로 `다음` 을 누르는** 자리인데 칸마다 설명이 붙어
+   * 화면의 절반이 글이었다. 고른 것이 무엇을 뜻하는지는 **설정 탭에 그대로 남아 있다** —
+   * 고치러 갈 때 읽으면 된다.
+   *
+   * 남긴 하나는 장소다. 참가자에게 보인다고 믿으면 안내문에 장소를 안 적고,
+   * 그러면 아무도 어디로 갈지 모른다 — 그건 라벨이 말해주지 않는다.
+   */
+  it("★ 위저드에는 설명 줄이 장소 하나뿐이다", async () => {
+    const hints = () => [...document.querySelectorAll(".tiny.dim")].map((e) => e.textContent);
+
+    render(<RouterProvider router={stepAt(1)} />);
+    await screen.findByLabelText(HOST_UI.fields.name);
+    expect(hints(), "1스텝 설명이 장소 하나가 아니다").toEqual([HOST_UI.fields.placeHint]);
+    cleanup();
+
+    for (const step of [2, 3]) {
+      render(<RouterProvider router={stepAt(step)} />);
+      await screen.findByText(step === 2 ? HOST_UI.fields.prevoteAt : HOST_UI.fields.pokeTarget);
+      expect(hints(), `${step}스텝에 설명 줄이 남아 있다`).toEqual([]);
+      cleanup();
+    }
+  });
+
   it("★ 3스텝에서 고른 규칙이 만들기 요청에 그대로 실린다", async () => {
     let sent: { config: Record<string, unknown> } | null = null;
     vi.stubGlobal(

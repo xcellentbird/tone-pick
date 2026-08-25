@@ -263,12 +263,15 @@ export default function HostWizard() {
               여기서 고르지 않으면 나중에 못 고친다. 그래서 설정 탭과 **같은 순서**로 둔다:
               대상 → 되돌리기(매력 투표·콕) → 알림(매력 투표·콕).
               두 화면의 순서가 다르면 운영자가 매번 다시 찾는다.
+
+              **설명 줄은 여기도 없다** (ADR-54 후기). 위저드는 대부분 기본값 그대로 지나가는
+              자리고, 고르는 것이 무엇을 뜻하는지는 **설정 탭에 그대로 남아 있다** —
+              고치러 갈 때 읽으면 된다. 되붙이지 마라.
             */}
             <Toggle
               label={HOST_UI.fields.pokeTarget}
               value={allowSameGender}
               options={TARGET_OPTIONS}
-              note={HOST_UI.fields.pokeTargetNote}
               onChange={setAllowSameGender}
             />
             <Toggle
@@ -287,14 +290,12 @@ export default function HostWizard() {
               label={HOST_UI.fields.preNotify}
               value={preNotify}
               options={NOTIFY_OPTIONS}
-              note={HOST_UI.fields.preNotifyNote}
               onChange={setPreNotify}
             />
             <Toggle
               label={HOST_UI.fields.pokeNotify}
               value={pokeNotify}
               options={NOTIFY_OPTIONS}
-              note={HOST_UI.fields.pokeNotifyNote}
               onChange={setPokeNotify}
             />
           </>
