@@ -303,12 +303,16 @@ export default function Settings() {
             대상·되돌리기 둘·알림 둘. **다섯은 콕이 오가기 시작하면 함께 굳는다** (ADR-35) —
             도중에 바뀌면 참가자가 겪는 규칙이 갈린다. 콕 횟수만 위에서 계속 열려 있다.
             순서는 위저드 3스텝과 같다.
+
+            **설명 줄은 없다** (ADR-54 후기 2). 고른 결과가 무엇을 뜻하는지 적어뒀었는데,
+            토글 다섯에 설명 셋이 붙어 화면이 글로 덮였다 — 켜고 끄는 자리가 읽는 자리가 됐다.
+            ⚠️ 되붙이지 마라. 다만 `locked` 가 쓰는 `frozen` 은 **설명이 아니라 상태**라 남는다 —
+            굳은 칸이 왜 안 눌리는지는 말해줘야 한다.
           */}
           <Toggle
             label={HOST_UI.fields.pokeTarget}
             value={allowSameGender}
             options={TARGET_OPTIONS}
-            note={HOST_UI.fields.pokeTargetNote}
             locked={frozen}
             onChange={setAllowSameGender}
           />
@@ -331,7 +335,6 @@ export default function Settings() {
             label={HOST_UI.fields.preNotify}
             value={preNotify}
             options={NOTIFY_OPTIONS}
-            note={HOST_UI.fields.preNotifyNote}
             locked={frozen}
             onChange={setPreNotify}
           />
@@ -339,7 +342,6 @@ export default function Settings() {
             label={HOST_UI.fields.pokeNotify}
             value={pokeNotify}
             options={NOTIFY_OPTIONS}
-            note={HOST_UI.fields.pokeNotifyNote}
             locked={frozen}
             onChange={setPokeNotify}
           />
