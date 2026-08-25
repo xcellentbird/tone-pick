@@ -768,8 +768,87 @@ describe("파티 룰 도움말", () => {
      * 이걸 안 말하면, 바로 위 단계 그림을 되풀이한 것에 지나지 않는다.
      */
     expect(HELP.qa.poke.a).toContain("발표");
-    // 그리고 투표도 해야 한다는 걸 알려준다 — 안 그러면 "그럼 투표는 왜?" 로 끝난다
-    expect(HELP.qa.prevote.a).toContain("파티");
+    /*
+     * 그리고 **투표를 왜 하는지**를 말해야 한다 — 안 그러면 "그럼 투표는 왜?" 로 끝난다.
+     * 한동안 이걸 *파티에서 다시 고를 기회가 있다* 로 대신 말했는데, 그건 답이 아니라
+     * 미루기였다. 지금은 자리로 답한다 (ADR-52).
+     */
+    expect(HELP.qa.prevote.a).toContain("테이블");
+  });
+
+  /**
+   * ★ **자리 이야기는 `내 쪽만` 한다** (ADR-52).
+   *
+   * `서로 고른 사람끼리 같은 테이블` 이라고 쓰면, 내가 고르지 않은 사람과 같은 테이블일 때
+   * **그 사람이 나를 골랐다**로 좁혀진다 — 이 앱이 없애려는 경험을 앱이 직접 만드는 일이다.
+   * 고를 이유는 전하되, 상대의 선택을 되짚는 문장은 주지 않는다.
+   */
+  it("★ 도움말이 '서로 고르면 같은 테이블' 이라고 말하지 않는다", async () => {
+    for (const [where, text] of [
+      ["매력 투표", HELP.qa.prevote.a],
+      ["콕 찌르기", HELP.qa.poke.a],
+    ] as const) {
+      // 자리를 말하는 줄에는 **내가** 가 있어야 한다. 주어가 없으면 양쪽으로 읽힌다
+      expect(text, `${where}: ${text}`).toContain("내가");
+      expect(text, `${where}: ${text}`).not.toContain("서로 고른");
+      expect(text, `${where}: ${text}`).not.toContain("서로 찌른 사람과 같은");
+    }
+  });
+
+  /**
+   * ★ **연락처가 열린다고 말하지 마라** (ADR-42·47·52).
+   *
+   * 한동안 발표 칸이 `그때 연락처가 열려요` 라고 적혀 있었다 — **거짓이었다.**
+   * 매칭된 상대에게 나가는 건 실명 하나이고(`MatchInfo.realName`), 등록 화면은
+   * *인스타는 운영자 확인용* 이라고 말한다. 두 화면이 서로 다른 말을 하고 있었다.
+   */
+  it("★ 도움말 어디에도 연락처가 열린다고 쓰여 있지 않다", async () => {
+    const all = [
+      ...HELP.steps.map((v) => v.body),
+      HELP.qa.result.a,
+      HELP.qa.secret.a,
+      HELP.qa.host.a,
+    ];
+    for (const text of all) {
+      expect(text, text).not.toContain("연락처가 열");
+    }
+    // 대신 무엇이 나가는지는 분명히 말한다 — 실명까지다
+    expect(HELP.qa.result.a).toContain("이름");
+    expect(HELP.qa.result.a).toContain("연락처는 앱이 전하지 않아요");
+  });
+
+  /**
+   * ★ **되돌리기와 알림은 회차 설정이 답을 바꾼다** (ADR-34·43 → ADR-52).
+   *
+   * 기본값이 서로 반대다 — 되돌리기는 **없으면 되고**, 알림은 **없으면 안 알린다.**
+   * 못 무르는 회차에서 그 사실을 말하지 않으면 무를 수 있는 줄 알고 누르고,
+   * 알림이 꺼진 회차에서 말하지 않으면 **아무도 나를 안 골랐다**로 읽는다 —
+   * 그 라운드는 받은 수가 화면 어디에도 없기 때문이다 (`visibleReceived`).
+   */
+  it("★ 되돌리기·알림 설명이 회차 설정을 따라간다", async () => {
+    const open = async (config: ParticipantState["event"]["config"]) => {
+      const state = participantState();
+      state.event.config = config;
+      renderParticipant(fakeSource({ load: async () => state }), undefined, () => {}, "home", true);
+      await screen.findByText(HELP.title);
+    };
+
+    // 기본 회차 — 되돌릴 수 있고, 알림은 꺼져 있다
+    await open({ maxPre: 3, maxParty: 3 });
+    expect(screen.getByText(HELP.qa.undo.a(true, true))).toBeTruthy();
+    expect(screen.getByText(HELP.qa.notify.a(false, false))).toBeTruthy();
+    cleanup();
+
+    // 못 무르고 둘 다 알리는 회차 — 네 줄이 전부 반대로 간다
+    await open({ maxPre: 3, maxParty: 3, allowUndoPre: false, allowUndo: false, preNotify: true, pokeNotify: true });
+    expect(screen.getByText(HELP.qa.undo.a(false, false))).toBeTruthy();
+    expect(screen.getByText(HELP.qa.notify.a(true, true))).toBeTruthy();
+    cleanup();
+
+    // 라운드마다 갈린 회차 — 한 줄이 두 라운드를 함께 말한다
+    await open({ maxPre: 3, maxParty: 3, allowUndo: false, preNotify: true });
+    expect(screen.getByText(HELP.qa.undo.a(true, false))).toBeTruthy();
+    expect(screen.getByText(HELP.qa.notify.a(true, false))).toBeTruthy();
   });
 
   it("★ 동성에게 못 찌르는 회차에서만 그 줄이 보인다", async () => {
