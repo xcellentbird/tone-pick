@@ -74,10 +74,11 @@ participantRoutes.get("/events/by-id/:id", async (c) => {
  */
 
 /**
- * 입장. **운영자가 미리 넣어둔 번호만 통과한다** (ADR-15).
+ * 입장. **명단 한 줄의 토큰만 통과한다** (ADR-32) — 참가자는 번호를 치지 않는다.
  *
- * 통과한 번호는 쿠키에 서명해 담는다 — 등록 폼이 번호를 다시 받으면
- * 명단에 없는 번호로 바꿔 낼 수 있다. 이미 등록한 사람에게는 곧바로 참가자 세션을 준다.
+ * 통과한 토큰은 쿠키에 서명해 담는다 — 등록 폼이 번호를 받으면
+ * 명단에 없는 번호로 바꿔 낼 수 있어서, 번호는 회차 DO 안에서만 푼다.
+ * 이미 등록한 사람에게는 곧바로 참가자 세션을 준다.
  *
  * 이 문은 인증 없이 열려 있어서 시도 횟수를 센다. 제한이 없으면
  * "이 번호가 이 파티에 있나"를 되묻는 창구가 된다.
@@ -140,7 +141,7 @@ participantRoutes.post("/events/:id/enter", async (c) => {
 });
 
 /**
- * 등록. 번호는 **초대 쿠키에서** 꺼낸다 — 폼에서 받지 않는다.
+ * 등록. 초대 쿠키에 든 것은 **토큰**이고, 번호는 회차 DO 가 그 토큰에서 푼다 (ADR-32) — 폼은 받지 않는다.
  * 등록이 끝나면 초대 쿠키를 비우고 참가자 세션으로 바꾼다.
  */
 participantRoutes.post("/register", async (c) => {
@@ -218,7 +219,7 @@ participantRoutes.post("/poke", async (c) => {
 });
 
 /**
- * 콕 되돌리기 (ADR-34). 매력 투표는 언제나, 파티 콕은 **회차 설정을 따른다**.
+ * 콕 되돌리기 (ADR-34). **두 라운드 다 회차 설정을 따른다** — `allowUndoPre`·`allowUndo` 가 따로다.
  * 알림은 파생값이라 무르면 그 줄이 저절로 사라진다 (`noticesOf`).
  */
 participantRoutes.post("/unpoke", async (c) => {
@@ -368,7 +369,7 @@ async function seatOf(c: Ctx) {
   return { playerId: scope.playerId, eventId: scope.eventId, stub: eventStub(c.env, scope.eventId) };
 }
 
-/** 이미 등록한 사람의 세션. 번호로 그 사람을 찾는다 */
+/** 이미 등록한 사람의 세션. **토큰으로** 그 사람을 찾는다 (ADR-32) — 번호로 찾던 길은 닫혔다 */
 async function playerScopeFor(c: Ctx, eventId: string, token: string) {
   const found = await eventStub(c.env, eventId).playerIdByToken(token);
   return found.ok && found.value ? ({ kind: "player", eventId, playerId: found.value } as const) : null;

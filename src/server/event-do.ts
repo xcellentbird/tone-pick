@@ -56,7 +56,6 @@ import {
   realNameProblem,
 } from "../shared/constants.ts";
 import { PHASE_ORDER, canPoke, dueAt, dueTransition, rulesLocked, schedLocked, voteClosed } from "../shared/phase.ts";
-import { formatWhen } from "../shared/time.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
 
@@ -246,14 +245,14 @@ export class EventDO extends DurableObject {
       phase: meta.phase,
       ...(meta.schedule.partyAt ? { partyAt: meta.schedule.partyAt } : {}),
     };
+    /*
+     * **시각을 말하지 않는다** (ADR-38). 등록은 회차를 만드는 순간 열리므로 `regOpenAt` 은
+     * 늘 **지나간** 시각이다 — 그걸 "그때부터 열려요" 로 내보내면 이미 지난 시각을 가리키며
+     * 곧 열릴 것처럼 말하게 된다. 여기 오는 길은 운영자가 단계를 되돌린 회차뿐이고,
+     * 그때 다시 열리는 시각은 아무도 모른다.
+     */
     if (meta.phase === "prep") {
-      return ok({
-        ...base,
-        canRegister: false,
-        message: meta.schedule.regOpenAt
-          ? ENTRY.notOpenYet(formatWhen(meta.schedule.regOpenAt))
-          : ENTRY.notOpenYetUnknown,
-      });
+      return ok({ ...base, canRegister: false, message: ENTRY.notOpenYetUnknown });
     }
     if (meta.phase === "done") return ok({ ...base, canRegister: false, message: ENTRY.finished });
     return ok({ ...base, canRegister: true });
@@ -1471,14 +1470,20 @@ export class EventDO extends DurableObject {
     );
   }
 
-  private receivedCount(toId: string, only?: PokeRound): number {
-    return only
-      ? this.rows<{ n: number }>(
-          "SELECT COUNT(*) AS n FROM pokes WHERE to_id = ? AND round = ?",
-          toId,
-          only,
-        )[0]?.n ?? 0
-      : this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM pokes WHERE to_id = ?", toId)[0]?.n ?? 0;
+  /**
+   * 받은 콕 수. **라운드를 반드시 준다** (ADR-43·46).
+   *
+   * 총합을 읽는 갈래가 있었는데, 알림이 라운드마다 갈리면서(`visibleReceived`) 부르는 곳이 없어졌다.
+   * 되살리지 마라 — 총합을 그대로 내려보내면 꺼둔 라운드가 파티 시작과 함께 얹힌다.
+   */
+  private receivedCount(toId: string, round: PokeRound): number {
+    return (
+      this.rows<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM pokes WHERE to_id = ? AND round = ?",
+        toId,
+        round,
+      )[0]?.n ?? 0
+    );
   }
 
   /**
@@ -1644,20 +1649,7 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * 내 자리. **파티가 시작돼야 나간다.**
-   *
-   * 예전에는 단계를 안 봐서, 운영자가 사전 투표 중에 발행하면 그 순간 참가자 화면에
-   * 테이블 번호가 뜨고 전체 화면 확인창이 덮쳤다. 그래서 **미리 짜둘 수가 없었고**,
-   * 파티가 시작된 뒤에 급히 배정하게 됐다 — 피하려던 바로 그 상황이다.
-   *
-   * 이제 미리 짜둬도 조용하다. 그리고 **파티 시작 버튼이 그대로 자리 알림이 된다** —
-   * 단계 전환 방송이 이미 전원 재조회를 부르므로 (ADR-26) 새 장치가 필요 없다.
-   *
-   * 발표 후에도 남긴다. 매칭 상대와 같은 테이블이었는지를 발표 화면이 쓴다 (`MatchInfo.sameTable`).
-   * **화면에서 감추는 것으로는 부족하다** — 개발자 도구를 여는 참가자가 있다.
-   */
-  /**
-   * **발행하면 그 순간부터 보인다** (ADR-39). 단계를 보지 않는다.
+   * 내 자리. **발행하면 그 순간부터 보인다** (ADR-39). 단계를 보지 않는다.
    *
    * 슬라이스 12 에서는 파티가 시작돼야 보이게 막았다 — 운영자가 자리를 미리 짜두려면
    * 짜는 동안 참가자에게 새지 않아야 했기 때문이다. 그 방어는 지금 **초안**이 맡는다.
@@ -1793,7 +1785,7 @@ function cleanProfile(input: RegisterInput): CleanProfile | null {
     return null;
   }
 
-  // 인스타는 필수다. 매칭되면 서로에게 공개되는 연락 수단이라 없이는 매칭이 반쪽이 된다
+  // 인스타는 필수다. **운영자가 사람을 확인하는 자리**라서다 (ADR-42) — 참가자에게는 나가지 않는다
   const instagram = normalizeInstagram(String(input.instagram ?? ""));
   if (instagram.length > LIMITS.instagramMax || !/^[A-Za-z0-9._]+$/.test(instagram)) return null;
 
@@ -1853,8 +1845,8 @@ function notifyOn(config: EventConfig, round: PokeRound): boolean {
 }
 
 /**
- * 순서 검증. 등록보다 먼저 사전 투표가 열리는 것만 막는다.
- * 파티 일시는 언제든 옮길 수 있다 — 장소가 바뀌면 시각이 바뀌고, 그건 일정이 아니라 사실이다.
+ * 일정 칸의 이름들. **순서는 검사하지 않는다** (ADR-36) — `setSchedule` 은 `schedLocked` 만 본다.
+ * 이 배열이 하는 일은 "무엇이 잠겼나" 를 훑는 것 하나다.
  */
 const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt", "revealAt"] as const;
 

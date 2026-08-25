@@ -8,7 +8,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, VOTE_END, phaseAction, schedDiff } from "../../src/shared/copy.ts";
-import { formatGap, formatWhen } from "../../src/shared/time.ts";
+import { formatGap, formatWhen, toLocalInput } from "../../src/shared/time.ts";
 import type { HostState, SeatingRound } from "../../src/shared/types.ts";
 import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
@@ -793,15 +793,38 @@ describe("운영자 콘솔", () => {
     const labels = [...document.querySelectorAll(".field")]
       .filter((f) => f.querySelector('input[type="datetime-local"]'))
       .map((f) => f.querySelector("label")!.textContent);
-    expect(labels).toEqual([
+    /*
+     * ⚠️ **파티 시작은 여기 없다** (ADR-54). 그것만 예약이 아니라(ADR-14)
+     * `기본 정보` 묶음에 있다 — 위저드 1스텝과 같은 자리다.
+     */
+    expect(labels, "예약 묶음에 예약 아닌 칸이 있다").toEqual([
       HOST_UI.fields.regOpenAt,
       HOST_UI.fields.prevoteAt,
       HOST_UI.fields.voteEndAt,
-      HOST_UI.fields.partyAt,
       HOST_UI.fields.revealAt,
     ]);
-    // 파티 시작만 예약이 아니라는 걸 그 칸에서 말한다 (ADR-14)
-    expect(screen.getByText(HOST_UI.fields.partyHint)).toBeTruthy();
+  });
+
+  /**
+   * ★ **파티 시작은 기본 정보 묶음이다** (ADR-54) — 위저드 1스텝과 같다.
+   *
+   * 고치면 점도 그 묶음에 붙어야 한다. 다른 알약에 붙으면 어디를 고쳤는지 못 찾는다.
+   */
+  it("★ 파티 시작은 기본 정보 묶음에 있고, 점도 거기 붙는다", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/settings");
+    await screen.findByLabelText(HOST_UI.fields.name);
+
+    const row = (label: string) =>
+      screen.getAllByText(label).find((el) => el.tagName === "LABEL")!.parentElement!;
+    const party = row(HOST_UI.fields.partyAt).querySelector("input");
+    expect(party, "기본 정보에 파티 시작이 없다").toBeTruthy();
+    expect(party!.type).toBe("datetime-local");
+
+    // 고치면 `기본 정보` 알약에 점이 붙는다
+    fireEvent.change(party!, { target: { value: toLocalInput(Date.now() + 48 * HOUR) } });
+    const pill = screen.getByText(HOST_UI.settings.identity).closest("button")!;
+    expect(pill.textContent, "고쳤는데 기본 정보에 점이 없다").toContain(HOST_UI.settings.dirty);
   });
 
   it("★ 콕이 오가기 시작하면 규칙 넷과 일정이 잠긴다 (ADR-35)", async () => {
@@ -836,9 +859,15 @@ describe("운영자 콘솔", () => {
 
     // 일정도 함께 굳는다 — 다른 묶음이라 옮겨가서 본다
     fireEvent.click(screen.getByText(HOST_UI.settings.schedule));
-    for (const label of [HOST_UI.fields.partyAt, HOST_UI.fields.regOpenAt, HOST_UI.fields.prevoteAt]) {
+    for (const label of [HOST_UI.fields.regOpenAt, HOST_UI.fields.prevoteAt]) {
       expect((row(label).querySelector("input") as HTMLInputElement).disabled, label).toBe(true);
     }
+    // 파티 시작도 굳는다 — 다만 `기본 정보` 묶음에 있다 (ADR-54)
+    fireEvent.click(screen.getByText(HOST_UI.settings.identity));
+    expect(
+      (row(HOST_UI.fields.partyAt).querySelector("input") as HTMLInputElement).disabled,
+      HOST_UI.fields.partyAt,
+    ).toBe(true);
   });
 
   it("★ 입장 코드는 바꿀 수 없다", async () => {

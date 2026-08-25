@@ -7,8 +7,9 @@
  *
  * **등록 시작은 묻지 않는다** (ADR-38). 회차를 만드는 순간 열린다 —
  * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열어 지킬 것이 없었다.
- * 그래서 예약이 걸리는 전환은 **매력 투표 시작 하나뿐**이다.
- * 매력 투표 마감·파티 시작·발표는 현장에서 운영자가 누른다 (ADR-14).
+ * 그래서 예약이 걸리는 전환은 **매력 투표 시작과 커플 발표 둘**이다 (ADR-43).
+ * **파티 시작은 운영자가 누른다** (ADR-14) — 사람이 다 모였는지는 시계가 모른다.
+ * 매력 투표 마감(`voteEndAt`)은 전환이 아니라 판정이라 알람이 울리지 않는다 (ADR-39).
  */
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -150,13 +151,19 @@ export default function HostWizard() {
         {/*
           **회차 코드는 묻지 않는다.** 서버가 겹치지 않는 것으로 붙인다 (`freeCode`).
           참가자가 코드를 입력하는 화면이 없어진 뒤로 (ADR-15) 이 칸이 답하는 질문이 없어졌다 —
-          운영자가 링크를 돌리고, 문은 초대 명단의 전화번호가 연다.
+          운영자가 링크를 돌리고, 문은 그 링크의 토큰이 연다 (ADR-32).
           코드는 만들어진 뒤 회차 목록과 콘솔 머리에서 볼 수 있다.
         */}
         {/*
-          **1스텝은 기본 정보다** — 이 회차가 무엇이고 어디서 열리는지.
-          장소는 2스텝(일시)에 있었는데, 그 스텝이 **예약**만 다루게 되면서 여기로 왔다.
-          시각이 아닌 유일한 칸이 시각 넷 사이에 끼어 있으면 그 목록이 시간 순으로 안 읽힌다.
+          **1스텝은 기본 정보다** — 이 회차가 **무엇이고, 어디서, 언제** 열리는지.
+
+          **파티 시작이 여기 있다** (ADR-54). 2스텝은 예약만 다루는데 이것 하나는 예약이 아니다 —
+          운영자가 현황 탭에서 직접 누른다 (ADR-14). 예약 넷 사이에 끼어 있던 동안에는
+          `이 시각은 예약되지 않아요` 라는 줄을 그 칸에 붙여 막아야 했는데,
+          **자리를 옮기니 그 줄이 필요 없어졌다** — 구조가 말하는 것을 문장으로 되풀이하지 않는다.
+
+          기준점이기도 하다 — 나머지 일정 기본값이 여기서 거꾸로 계산된다 (`changeParty`).
+          그러니 **가장 먼저 정하는 것**이 맞다.
         */}
         {at === 1 && (
           <>
@@ -170,20 +177,30 @@ export default function HostWizard() {
               <input id="place" value={place} onChange={(e) => setPlace(e.target.value)} />
               <span className="tiny dim">{HOST_UI.fields.placeHint}</span>
             </div>
+            <div className="field">
+              <label htmlFor="party">{HOST_UI.fields.partyAt}</label>
+              <input
+                id="party"
+                type="datetime-local"
+                step={SCHEDULE_STEP_MIN * 60}
+                value={toLocalInput(partyAt)}
+                onChange={(e) => changeParty(e.target.value)}
+              />
+            </div>
           </>
         )}
 
         {/*
-          **2스텝은 예약이다.** 네 시각을 **시간 순으로** 늘어놓는다 —
-          매력 투표 시작 → 마감 → 파티 시작 → 커플 발표.
-          그래야 읽는 사람이 어느 것이 먼저인지 다시 계산하지 않는다.
+          **2스텝은 예약이다 — 여기 있는 것은 저절로 넘어간다** (ADR-54).
+          세 시각을 **시간 순으로** 늘어놓는다: 매력 투표 시작 → 마감 → 커플 발표.
 
-          ⚠️ **넷 중 파티 시작만 예약이 아니다** (ADR-14). 운영자가 현황 탭에서 누른다.
-          그 사실은 목록 아래가 아니라 **그 칸에** 붙는다(`partyHint`) — 아래에 떠 있으면
-          어느 칸 이야기인지 알 수 없고, 넷 다 저절로 넘어가는 줄로 읽으면 파티가 영영 안 열린다.
+          ⚠️ **파티 시작을 여기 되돌리지 마라.** 그것만 예약이 아니라(ADR-14) 여기 있으면
+          넷 다 저절로 넘어가는 줄로 읽히고, 그러면 운영자가 아무것도 안 눌러서 파티가 영영 안 열린다.
+          한동안 그 칸에 `이 시각은 예약되지 않아요` 를 붙여 막았는데,
+          **1스텝으로 옮기는 것이 그 줄보다 낫다** — 구조가 이미 말한다.
 
-          **`partyAt` 은 여전히 기준점이다.** 셋째 자리에 있어도 이걸 옮기면 손대지 않은 칸이
-          따라 움직인다 (`changeParty`). 화면 순서와 계산 순서는 다른 이야기다.
+          설명 줄도 걷었다. 남은 셋은 라벨만으로 무엇인지 알 수 있고,
+          이 화면은 대부분 **기본값 그대로 다음을 누르는** 자리다.
         */}
         {at === 2 && (
           <>
@@ -198,10 +215,7 @@ export default function HostWizard() {
                 onChange={(e) => changeWhen("prevote", e.target.value)}
               />
             </div>
-            {/*
-              매력 투표 마감 (ADR-39). **이 시각과 파티 시작 사이가 자리를 짜는 시간이다** —
-              그래서 힌트가 몇 시인지가 아니라 그 사이에 무엇을 하는지를 말한다.
-            */}
+            {/* 매력 투표 마감 (ADR-39). 이 시각과 파티 시작 사이가 첫 자리를 짜는 시간이다 */}
             <div className="field">
               <label htmlFor="voteEnd">{HOST_UI.fields.voteEndAt}</label>
               <input
@@ -211,24 +225,8 @@ export default function HostWizard() {
                 value={toLocalInput(voteEndAt)}
                 onChange={(e) => changeWhen("voteEnd", e.target.value)}
               />
-              <span className="tiny dim">{HOST_UI.fields.voteEndHint}</span>
             </div>
-            <div className="field">
-              <label htmlFor="party">{HOST_UI.fields.partyAt}</label>
-              <input
-                id="party"
-                type="datetime-local"
-                step={SCHEDULE_STEP_MIN * 60}
-                value={toLocalInput(partyAt)}
-                onChange={(e) => changeParty(e.target.value)}
-              />
-              <span className="tiny dim">{HOST_UI.fields.partyHint}</span>
-            </div>
-            {/*
-              커플 발표 (ADR-43). 힌트는 `파티를 시작해야 울린다` 를 말한다 —
-              그걸 모르면 이 시각만 믿고 `파티 시작` 을 안 눌러서,
-              발표도 콕도 안 열린 채 시각만 지나간다.
-            */}
+            {/* 커플 발표 (ADR-43). 파티를 시작해야 울린다 — 설정 탭이 그 사실을 말한다 */}
             <div className="field">
               <label htmlFor="reveal">{HOST_UI.fields.revealAt}</label>
               <input
@@ -238,9 +236,7 @@ export default function HostWizard() {
                 value={toLocalInput(revealAt)}
                 onChange={(e) => changeWhen("reveal", e.target.value)}
               />
-              <span className="tiny dim">{HOST_UI.fields.revealHint}</span>
             </div>
-            <p className="tiny dim">{HOST_UI.regOpensNow}</p>
           </>
         )}
 
@@ -268,12 +264,15 @@ export default function HostWizard() {
               여기서 고르지 않으면 나중에 못 고친다. 그래서 설정 탭과 **같은 순서**로 둔다:
               대상 → 되돌리기(매력 투표·콕) → 알림(매력 투표·콕).
               두 화면의 순서가 다르면 운영자가 매번 다시 찾는다.
+
+              **설명 줄은 여기도 없다** (ADR-54 후기). 위저드는 대부분 기본값 그대로 지나가는
+              자리고, 고르는 것이 무엇을 뜻하는지는 **설정 탭에 그대로 남아 있다** —
+              고치러 갈 때 읽으면 된다. 되붙이지 마라.
             */}
             <Toggle
               label={HOST_UI.fields.pokeTarget}
               value={allowSameGender}
               options={TARGET_OPTIONS}
-              note={HOST_UI.fields.pokeTargetNote}
               onChange={setAllowSameGender}
             />
             <Toggle
@@ -292,14 +291,12 @@ export default function HostWizard() {
               label={HOST_UI.fields.preNotify}
               value={preNotify}
               options={NOTIFY_OPTIONS}
-              note={HOST_UI.fields.preNotifyNote}
               onChange={setPreNotify}
             />
             <Toggle
               label={HOST_UI.fields.pokeNotify}
               value={pokeNotify}
               options={NOTIFY_OPTIONS}
-              note={HOST_UI.fields.pokeNotifyNote}
               onChange={setPokeNotify}
             />
           </>
