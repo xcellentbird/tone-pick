@@ -84,7 +84,6 @@ export async function freshEvent(config: Partial<EventConfig> = {}): Promise<Eve
     cookie: master,
     body: {
       name: `${seq}회차`,
-      pin: String(3000 + seq),
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
       voteEndAt: Date.now() + 3 * 24 * HOUR - HOUR,

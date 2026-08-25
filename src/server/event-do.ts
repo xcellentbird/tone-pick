@@ -74,10 +74,13 @@ CREATE TABLE IF NOT EXISTS players (
   mbti       TEXT NOT NULL,
   charms     TEXT NOT NULL,          -- JSON string[3]
   created_at INTEGER NOT NULL,
-  attendance TEXT,                   -- 안 쓴다 (ADR-45 가 ADR-33 을 되돌렸다). 옛 회차의 값이 남아 있을 뿐이다
+  attendance TEXT,                   -- 안 쓴다 (ADR-45 가 ADR-33 을 되돌렸다). **지우지 마라** — 아래 셋이 같은 이유다
   contact_share TEXT,                -- 안 쓴다 (ADR-42 가 ADR-37 을 되돌렸다). 읽지도 쓰지도 않는다.
-                                     -- 지우지 마라 — DROP COLUMN 은 옛 회차의 표를 건드리는 일이고,
-                                     -- 남은 값은 참·거짓 둘뿐이라 개인정보도 아니다
+                                     -- ⚠️ **안 쓰는 칸 셋을 2.0.0 에서도 지우지 않았다.**
+                                     -- DROP COLUMN 은 **살아 있는 회차의 표를 건드리는 일**이고,
+                                     -- 얻는 것이 없다 — 아무도 읽지 않으므로 비용이 0 이다.
+                                     -- 남은 값도 개인정보가 아니다 (참·거짓 · 라운드 표시 · 참석 여부).
+                                     -- 호환성을 안 봐도 되는 판이라고 해서 지울 이유가 생기지는 않는다
   token      TEXT                    -- 등록할 때 초대 명단에서 복사해 온다 (ADR-32).
                                      -- 명단에서 지워져도 자기 링크로 계속 들어오게 하는 값이다
 );
@@ -122,7 +125,7 @@ CREATE INDEX IF NOT EXISTS votes_ann ON votes(ann_id);
 CREATE TABLE IF NOT EXISTS seatings (
   round        INTEGER PRIMARY KEY,
   table_count  INTEGER NOT NULL,
-  final        INTEGER NOT NULL DEFAULT 0,   -- 안 쓴다 (ADR-51 가 ADR-23 을 걷어냈다). 옛 회차의 값이 남아 있을 뿐이다
+  final        INTEGER NOT NULL DEFAULT 0,   -- 안 쓴다 (ADR-51 이 ADR-23 을 걷어냈다). **지우지 마라** (players 의 둘과 같은 이유)
   status       TEXT NOT NULL DEFAULT 'draft',
   seats        TEXT NOT NULL,        -- JSON Seat[]
   acks         TEXT NOT NULL DEFAULT '[]',
