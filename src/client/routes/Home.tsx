@@ -190,7 +190,7 @@ export default function Home({
  * 그래서 읽음 플래그도 알림 테이블도 없다 — 단계가 바뀌면 목록이 그 자리에서 따라간다.
  */
 function News({ state }: { state: ParticipantState }) {
-  const list = noticesOf(state);
+  const list = noticesOf(state, now());
   if (list.length === 0) return null;
 
   return (
