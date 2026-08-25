@@ -67,7 +67,6 @@ export const UNIT = {
   people: (n: number) => `${n}명`,
   age: (n: number) => `${n}세`,
   times: (n: number) => `${n}회`,
-  days: (n: number) => `${n}일`,
   pairs: (n: number) => `${n}쌍`,
 } as const;
 
@@ -1355,7 +1354,6 @@ export const HOST_UI = {
     editTemplate: "안내문 문구 고치기",
     templateTitle: "안내문 문구",
     templateHint: "{장소} {일시} 를 쓰면 회차마다 알아서 채워져요. 링크는 버튼으로 따로 복사되니 넣지 않아도 돼요.",
-    templateSaved: "안내문 문구를 저장했어요",
     /** 장소를 안 넣은 채로 보내는 걸 막는 게 아니라, 비어 있다는 걸 그 자리에서 알린다 */
     noPlace: "회차에 장소를 아직 넣지 않았어요.",
   },
