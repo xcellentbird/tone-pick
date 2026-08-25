@@ -222,13 +222,11 @@ export default function Settings() {
       */}
       {group === "schedule" && (
         <>
-          <When
-            label={HOST_UI.fields.regOpenAt}
-            value={schedule.regOpenAt}
-            locked={schedLocked(meta.fired, "regOpenAt")}
-            hint={HOST_UI.fields.regOpenHint}
-            onChange={(v) => setSchedule({ ...schedule, regOpenAt: v })}
-          />
+          {/*
+            등록 시작은 **회차를 만든 시각**이라 늘 잠겨 있다 (ADR-38) —
+            고칠 길이 없으니 고치는 손잡이도 두지 않는다. 줄은 기록으로 남긴다.
+          */}
+          <When label={HOST_UI.fields.regOpenAt} value={schedule.regOpenAt} locked />
           <When
             label={HOST_UI.fields.prevoteAt}
             value={schedule.prevoteAt}
@@ -380,7 +378,8 @@ function When({
   locked: boolean;
   /** 그 시각이 **무엇을 하는 시각인지** 한 줄. 없으면 안 그린다 */
   hint?: string;
-  onChange: (v: number | undefined) => void;
+  /** 늘 잠긴 줄에는 없다 */
+  onChange?: (v: number | undefined) => void;
 }) {
   return (
     <div className="field">
@@ -393,7 +392,7 @@ function When({
         // 이미 저장된 값은 건드리지 않는다. 사람이 새로 고른 값만 30분에 맞춘다
         onChange={(e) => {
           const ts = fromLocalInput(e.target.value);
-          onChange(ts ? snapSchedule(ts) : undefined);
+          onChange?.(ts ? snapSchedule(ts) : undefined);
         }}
       />
       {hint && !locked && <span className="tiny dim">{hint}</span>}

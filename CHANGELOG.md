@@ -116,3 +116,7 @@ v1 에서 가장 크게 되돌린 자리다.
 **v1 과 호환되지 않는다.** 참가자 응답의 모양이 바뀌었고(`me` 가 `MyProfile` 이다),
 `SeatingInput.final`·`SeatingRound.final`·`MySeat.final` 이 없어졌으며,
 회차 설정에 키 넷이 늘었다. v1 회차 데이터는 **v1 에서 끝낸 뒤** 올린다.
+
+**DB 는 그대로 열린다.** 안 쓰는 칸 셋(`players.attendance`·`players.contact_share`·`seatings.final`)을
+`CREATE TABLE` 에서 뺐지만 `DROP COLUMN` 은 하지 않는다 — **새 회차에 안 생길 뿐, 옛 표는 건드리지 않는다.**
+읽는 코드가 없어서 있든 없든 같고, `INSERT` 가 칸을 나열하므로 양쪽 표에서 똑같이 동작한다.

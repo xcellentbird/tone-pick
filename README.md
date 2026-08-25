@@ -116,7 +116,7 @@ src/
 │   ├── index.ts       Hono 진입점. 인증·라우팅만 한다
 │   ├── event-do.ts    회차 DO — 상태를 바꾸는 곳은 여기뿐이다
 │   ├── registry-do.ts 회차 목록·입장 코드·공통 PIN. 단 하나뿐인 DO
-│   ├── auth.ts        PIN 검사 (회차 PIN 우선 — 보안 경계다) + 세션 쿠키
+│   ├── auth.ts        PIN 검사 (운영자 PIN 하나뿐 — ADR-12) + 탭별 세션 쿠키 (ADR-44)
 │   ├── seating.ts     자리 배정. 성비는 구조적으로 못 깨진다
 │   ├── http.ts        환경·서버 시각·에러 응답·권한 확인
 │   └── routes/        host.ts / participant.ts

@@ -239,12 +239,6 @@ export default function Players() {
               <Row label={HOST_UI.players.sent(state.sent.party[picked.id] ?? 0)} value="" />
             </div>
 
-            {/*
-              참석은 **순서가 있는 한 축**이다 — 안 옴 → 도착 → 나감.
-              토글 둘로 두면 "나갔는데 온 적 없음" 같은 조합이 생긴다 (ADR-33).
-              되돌릴 수 있어서 확인창이 없다.
-            */}
-
             <p className="kicker" style={{ marginTop: 16 }}>
               {ME.labels.charms}
             </p>

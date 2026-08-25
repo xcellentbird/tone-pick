@@ -377,14 +377,14 @@ export interface EventSummary {
   code: string;
   phase: Phase;
   playerCount: number;
-  createdAt: number;
 }
 
 /**
  * 회차 미리보기 — **인증 없이** 누구나 받는다. 여기에 비밀을 넣지 마라.
  *
- * 입장 코드는 절대 넣지 않는다. 참가 링크를 받은 사람이 코드를 **입력해야** 들어오는 구조라,
- * 이 응답에 코드가 실리면 그 문이 그대로 열린다.
+ * **토큰이 있어야 열린다** (ADR-32). 회차 아이디만으로 이름·일정이 열리면
+ * 링크를 사람마다 다르게 만든 의미가 없다 — 아이디는 링크에 그대로 보이는 값이다.
+ * 입장 코드도 절대 넣지 않는다. 코드는 등록을 마친 사람의 화면 주소(`/e/:code`)를 가리킨다.
  */
 export interface PublicEvent {
   id: string;
@@ -410,8 +410,8 @@ export type ErrorCode =
   | "code_taken"
   | "bad_request"
   // 슬라이스 02~05 에서 늘어난 것
-  | "not_invited"    // 403 · 초대 명단에 없는 번호다
-  | "too_many"       // 429 · 번호를 너무 여러 번 넣었다
+  | "not_invited"    // 403 · 명단의 어느 줄도 이 토큰이 아니다 (ADR-32)
+  | "too_many"       // 429 · 이 회차의 문을 너무 여러 번 두드렸다
   | "nick_taken"     // 409 · 회차 안에서 닉네임이 겹쳤다
   | "closed"         // 409 · 지금 단계에서는 할 수 없다
   | "no_budget"      // 409 · 이번 라운드 콕을 다 썼다
@@ -608,12 +608,6 @@ export interface HostState {
   meta: EventMeta;
   players: Player[];
   /**
-   * playerId -> 보낸 콕 / 받은 콕.
-   *
-   * 받은 콕은 **현황 탭의 순위**에서만 쓴다 (ADR-30).
-   * 참가자 탭의 개인 행에는 넣지 않는다 — 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
-   */
-  /**
    * playerId -> 보낸 횟수. **라운드마다 따로 센다** (ADR-46 과 같은 이유).
    *
    * 합치면 `보낸 콕 N회` 가 매력 투표 표까지 세게 되고, 그 사람이 콕을 한 번도 안 찔렀는데
@@ -623,6 +617,9 @@ export interface HostState {
   sent: Record<PokeRound, Record<string, number>>;
   /**
    * 받은 수를 **라운드마다 따로** 센다 (ADR-46).
+   *
+   * ⚠️ **받은 콕은 현황 탭의 순위에서만 쓴다** (ADR-30). 참가자 탭의 개인 행에는 넣지 마라 —
+   * 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
    *
    * 합쳐 세면 현황 탭의 `콕 TOP` 에 매력 투표 표가 얹혀서, 운영자가
    * *이 사람이 파티에서 몇 번 받았나* 를 못 읽는다 — 그 둘은 쓰임이 다르다 (ADR-34).
@@ -636,10 +633,6 @@ export interface HostState {
   /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다 */
   pokeUsedMax: Record<PokeRound, number>;
   seatings: SeatingRound[];
-  /**
-   * 참석 상태 (ADR-33). **운영자만 본다** — `sent`·`received` 와 같은 모양으로 여기 둔다.
-   * `Player` 에 넣으면 `me` 로 참가자에게 따라 나간다. 없는 키는 `안 옴` 이다.
-   */
   /** 초대 명단. 참가자 응답에는 절대 실리지 않는다 */
   invites: Invite[];
   /** 운영자가 보낸 알림. 최신순 */
