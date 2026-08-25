@@ -109,7 +109,9 @@ export default function Settings() {
     changed("rules", HOST_UI.fields.pokeNotify, notifyWord(meta.config.pokeNotify === true), notifyWord(pokeNotify));
     // 시간 순으로 센다 — 확인창에 뜨는 순서가 화면 순서와 같아야 어디를 고쳤는지 짚인다
     for (const key of SCHED_ORDER) {
-      changed("schedule", HOST_UI.fields[key], formatWhen(meta.schedule[key]) || "—", formatWhen(schedule[key]) || "—");
+      // 파티 시작은 `기본 정보` 묶음에 있다 (ADR-54) — 고쳤다는 점도 거기 붙어야 한다
+      const g = key === "partyAt" ? "identity" : "schedule";
+      changed(g, HOST_UI.fields[key], formatWhen(meta.schedule[key]) || "—", formatWhen(schedule[key]) || "—");
     }
     return out;
   }
@@ -202,6 +204,19 @@ export default function Settings() {
             <input id="splace" value={place} onChange={(e) => setPlace(e.target.value)} />
             <span className="tiny dim">{HOST_UI.fields.placeHint}</span>
           </div>
+          {/*
+            **파티 시작이 여기 있다** (ADR-54) — 위저드 1스텝과 같은 자리다.
+            예약이 아니라 운영자가 현황 탭에서 누르는 것이고(ADR-14),
+            나머지 일정이 여기서 거꾸로 계산되는 기준점이다.
+            ⚠️ `예약` 묶음으로 되돌리지 마라 — 거기 있으면 저절로 넘어가는 줄로 읽힌다.
+          */}
+          <When
+            label={HOST_UI.fields.partyAt}
+            value={schedule.partyAt}
+            locked={schedLocked(meta.fired, "partyAt")}
+            hint={HOST_UI.fields.partyHint}
+            onChange={(v) => setSchedule({ ...schedule, partyAt: v })}
+          />
           {/* 입장 코드는 만든 뒤에 바꾸지 않는다 (ADR-22) — 이미 나간 안내와 어긋난다 */}
           <div className="field">
             <label>{HOST_UI.fields.code}</label>
@@ -214,9 +229,12 @@ export default function Settings() {
       )}
 
       {/*
-        **예약. 위저드 2스텝과 같은 시간 순이다** — 등록 시작 → 매력 투표 시작 → 마감 →
-        파티 시작 → 커플 발표. 두 화면이 다른 순서면 고치러 온 사람이 어느 칸인지 다시 찾는다.
+        **예약. 위저드 2스텝과 같은 시간 순이다** — 등록 시작 → 매력 투표 시작 → 마감 → 커플 발표.
+        두 화면이 다른 순서면 고치러 온 사람이 어느 칸인지 다시 찾는다.
         (위저드에 없는 `등록 시작` 만 맨 앞에 더 있다. 이미 지나간 기록이라 늘 잠겨 있다.)
+
+        **파티 시작은 여기 없다** (ADR-54). 예약이 아니라 운영자가 누르는 것이라
+        `기본 정보` 묶음으로 갔다 — 위저드와 같은 자리다.
 
         잠긴 줄도 지우지 않는다 — "예약은 21:00 이었는데 20:45 에 진행했다" 를 보여줄 수 있어야 한다.
       */}
@@ -243,14 +261,6 @@ export default function Settings() {
             locked={schedLocked(meta.fired, "voteEndAt")}
             hint={HOST_UI.fields.voteEndHint}
             onChange={(v) => setSchedule({ ...schedule, voteEndAt: v })}
-          />
-          {/* 파티 시작만 예약이 아니다 (ADR-14). 그 사실을 **그 칸에서** 말한다 */}
-          <When
-            label={HOST_UI.fields.partyAt}
-            value={schedule.partyAt}
-            locked={schedLocked(meta.fired, "partyAt")}
-            hint={HOST_UI.fields.partyHint}
-            onChange={(v) => setSchedule({ ...schedule, partyAt: v })}
           />
           {/*
             커플 발표 (ADR-43). **파티가 시작된 뒤에도 열려 있는 유일한 일정이다** —
