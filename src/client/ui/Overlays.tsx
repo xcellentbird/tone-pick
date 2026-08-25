@@ -6,8 +6,6 @@
  *     안 그러면 실행 후 뒤로 갔을 때 이미 처리된 다이얼로그가 다시 뜬다 (ROUTES.md)
  *  2. 확인창은 "정말 하시겠습니까?"가 아니라 무엇이 어떻게 바뀌는지 항목으로 보여준다.
  *     그래서 문구가 아니라 `ActionCopy`(항목 배열)를 받는다
- *
- * 한 대에서 연 확인창이 다른 대의 뒤로 가기로 닫힌다 (ADR-7).
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";

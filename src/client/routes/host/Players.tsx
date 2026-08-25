@@ -163,8 +163,9 @@ export default function Players() {
     <div className="stack">
       {/*
         **명단 카드가 맨 위다** — 파티의 문이고, 운영자가 먼저 하는 일이 여기 있다.
-        카드는 **열지 않고도 아는 것**만 말한다: 비었나 · 몇 명인가 · 안내문을 못 보낸 사람이 있나.
-        나머지는 전부 시트 안이다.
+        카드는 **열지 않고도 아는 것**만 말한다: 비었나 · 몇 명인가 · 몇 명이 등록했나.
+        나머지는 전부 시트 안이다. **보냄 표시는 없다** (ADR-32 후기) — 복사가 곧 발송이 아니라서,
+        남아 있는 줄이 곧 아직 안 온 사람이다.
 
         **링크를 통째로 복사하는 버튼은 없다** (ADR-32). 링크가 사람마다 달라서
         한 번 복사해 단톡방에 뿌릴 수가 없다 — 그게 이 슬라이스의 요점이다.
@@ -178,7 +179,6 @@ export default function Players() {
               ? HOST_UI.invites.empty
               : HOST_UI.invites.count(state.invites.length, joinedN)}
           </div>
-          {/* 안내문을 아직 못 보낸 사람 — **여는 이유**가 되는 유일한 숫자다 */}
         </span>
         <span className="dim">{"›"}</span>
       </button>
@@ -283,7 +283,8 @@ export default function Players() {
           onRemove={askRemove}
           onEditTemplate={() => navigate("/host/defaults")}
           onDone={(added) => {
-            toast(added > 0 ? HOST_UI.invites.saved : added < 0 ? HOST_UI.invites.removed : HOST_UI.invites.already);
+            // 명단은 더하기만 한다 — 서버가 전체를 돌려주므로 길이가 줄지 않는다. 빼기는 `askRemove` 가 따로 알린다
+            toast(added > 0 ? HOST_UI.invites.saved : HOST_UI.invites.already);
             reload();
           }}
         />
@@ -329,8 +330,9 @@ function Invites({
   onDone: (added: number) => void;
 }) {
   /**
-   * 참가자가 입장할 때 치는 칸과 **같은 모양**이다 — `010` 이 미리 들어가 있고
-   * 하이픈으로 끊어 보인다. 두 칸이 달리 보이면 같은 번호를 다르게 옮겨 적게 된다.
+   * **번호를 치는 칸은 이제 여기 하나뿐이다** (ADR-32) — `010` 이 미리 들어가 있고
+   * 하이픈으로 끊어 보인다. 칸과 아래 목록이 달리 보이면 이미 넣은 사람을 못 알아보고
+   * 같은 번호를 두 줄로 넣는다 — 그러면 토큰도 둘이 되고, 어느 링크를 보냈는지 아무도 모른다.
    *
    * 상태는 **숫자 그대로**다. 하이픈은 보여줄 때만 붙는다 (`formatPhone`).
    */

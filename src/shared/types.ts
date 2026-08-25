@@ -155,10 +155,11 @@ export interface SeatingRound {
 // ─────────────────────────── 회차
 
 /**
- * 예약할 수 있는 시각은 **앞의 두 개뿐**이다.
+ * 알람이 울리는 시각은 **`prevoteAt` 과 `revealAt` 둘뿐**이다 (ADR-38·43).
  *
- * 사전 투표 마감 · 파티 시작 · 발표는 예약하지 않는다. 현장에서 사람이 다 모였는지,
- * 이야기가 무르익었는지 보고 운영자가 누른다 — 시각을 미리 박아두면 그 판단을 못 한다.
+ * **파티 시작은 운영자가 누른다** (ADR-14) — 사람이 다 모였는지, 이야기가 무르익었는지는
+ * 시계가 모른다. `voteEndAt` 은 시각이 있지만 **전환이 아니라 판정이라** 알람이 없다 (ADR-39).
+ * `regOpenAt` 은 회차를 만든 시각의 기록이다 (ADR-38).
  *
  * `partyAt` 은 전환을 울리지 않는다. 등록·사전 투표 시작의 기준점이고,
  * 참가자 화면 카운트다운이 향하는 곳이다.
@@ -523,7 +524,6 @@ export interface MySeat {
   acked: boolean;
 }
 
-/** 참가자 화면 한 벌. 이 타입이 참가자 응답의 유일한 형태다 */
 // ─────────────────────────── 운영자가 보내는 알림 (슬라이스 14)
 
 export type PollChoice = "a" | "b";
@@ -577,6 +577,7 @@ export interface AnnounceInput {
   poll?: { a: string; b: string };
 }
 
+/** 참가자 화면 한 벌. 이 타입이 참가자 응답의 유일한 형태다 */
 export interface ParticipantState {
   event: PublicEventState;
   /**

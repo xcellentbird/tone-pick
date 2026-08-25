@@ -106,7 +106,7 @@ const TTL = { player: 30 * 24 * 3600_000, host: 12 * 3600_000 } as const;
 
 export function sessionTtl(scope: AuthScope): number {
   if (scope.kind === "player") return TTL.player;
-  // 초대는 등록 폼을 채울 시간이면 된다. 확인한 번호를 오래 들고 있을 이유가 없다
+  // 초대는 등록 폼을 채울 시간이면 된다. 확인한 토큰을 오래 들고 있을 이유가 없다
   if (scope.kind === "invited") return INVITE_TTL;
   return TTL.host;
 }

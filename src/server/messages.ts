@@ -15,9 +15,9 @@ export function pokeMessage(error: string, detail?: number): string | undefined 
 }
 
 /**
- * 명단에 없는 번호에는 **왜 없는지 말하지 않는다.**
+ * 명단에 없는 토큰에는 **왜 없는지 말하지 않는다** (ADR-32).
  * "초대되지 않았습니다" 와 "그런 회차가 없습니다" 를 구분해 주면
- * 그 자체가 "이 파티에 이 번호가 있나"를 알려주는 창구가 된다.
+ * 그 자체가 "이 사람이 이 파티에 있나"를 알려주는 창구가 된다.
  */
 export function enterMessage(error: string): string | undefined {
   if (error === "not_invited") return ENTRY.notInvited;
