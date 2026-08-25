@@ -96,14 +96,19 @@ export class RegistryDO extends DurableObject {
     snap.defaults = {
       maxPre: next.maxPre,
       maxParty: next.maxParty,
-      regOpenBeforeD: next.regOpenBeforeD,
+      // 빈 장소는 그대로 둔다 — "회차마다 다른 곳에서 연다" 는 뜻이다 (ADR-38)
+      place: next.place ?? "",
       prevoteBeforeH: next.prevoteBeforeH,
+      voteEndBeforeH: next.voteEndBeforeH,
+      revealAfterH: next.revealAfterH,
+      // 빈 문구를 저장하면 안내문이 링크 없이 나간다. 비면 기본 문구로 되돌린다
+      inviteTemplate: next.inviteTemplate?.trim() ? next.inviteTemplate : DEFAULTS.inviteTemplate,
     };
     await this.save(snap);
     return snap.defaults;
   }
 
-  /** 콕 횟수와 일정 오프셋만 되돌린다. 이미 만든 회차는 건드리지 않는다 (S-B9) */
+  /** 기본값만 되돌린다. 이미 만든 회차는 건드리지 않는다 (S-B9) */
   async resetDefaults(): Promise<Defaults> {
     const snap = await this.load();
     snap.defaults = DEFAULTS;

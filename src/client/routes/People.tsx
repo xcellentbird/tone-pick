@@ -8,14 +8,15 @@
  * 되돌리기는 지금 화면에 두지 않는다. 그래서 확인창이 "되돌릴 수 없다"고 분명히 말한다.
  */
 import { useRef, useState } from "react";
-import { BTN, ME, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
-import type { MatchInfo, MyPokeState, ParticipantState, Phase, Player, PublicPlayer } from "../../shared/types.ts";
+import { ACT, BTN, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
+import type { MatchInfo, MyPokeState, MyProfile, ParticipantState, Phase, PokeRound, PublicPlayer } from "../../shared/types.ts";
 import type { Tab } from "./Participant.tsx";
 import { canPoke } from "../../shared/phase.ts";
 import { afterPoke } from "../../shared/poke.ts";
 import { useCovered } from "../lib/covered.ts";
 import { rosterOpen, toPublic } from "../../shared/types.ts";
 import { ApiError } from "../lib/api.ts";
+import { now } from "../lib/serverTime.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
 import Avatar from "../ui/Avatar.tsx";
@@ -41,7 +42,12 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
 
   const round = state.event.phase === "prevote" ? "pre" : "party";
   const budget = state.poke.budget[round];
-  const open = canPoke(state.event.phase);
+  /*
+   * 매력 투표는 **시각으로** 닫힌다 (ADR-39). 서버 시각으로 재고, 폰 시계는 쓰지 않는다.
+   * 닫히는 순간 화면이 저절로 바뀌지는 않는다 — 그때 누르면 서버가 같은 이유로 거절하고
+   * `POKE.blocked` 가 뜬다. 1초마다 다시 그리는 것보다 그 편이 조용하다.
+   */
+  const open = canPoke(state.event.phase, now(), state.event.schedule, state.event.fired);
   /** 나이·MBTI 가 아직 안 열린 단계인가. `toPublic()` 이 여는 시점과 같아야 한다 (ADR-21) */
   const agesHidden = state.event.phase !== "party" && state.event.phase !== "done";
   /**
@@ -76,22 +82,83 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
   const sending = useRef(false);
   const [covered, setCovered] = useCovered();
 
+  /** 되돌릴 수 있나 (ADR-34). **라운드마다 따로** 정한다. 없으면 무를 수 있다 */
+  const canUndo =
+    round === "pre"
+      ? state.event.config.allowUndoPre !== false
+      : state.event.config.allowUndo !== false;
+
+  /** 되돌리기. **확인창을 붙이지 않는다** — 되돌리는 것 자체가 되돌리기다 */
+  async function undo(target: PublicPlayer) {
+    if (sending.current) return;
+    sending.current = true;
+    const before = state.poke;
+    try {
+      setPoke(await source.unpoke(target.id));
+      toast(POKE.undo.done(target.nickname));
+    } catch (e) {
+      setPoke(before);
+      toast(e instanceof ApiError && e.userMessage ? e.userMessage : closedWhy);
+    } finally {
+      sending.current = false;
+    }
+  }
+
+  /**
+   * 왜 못 찌르나. **마감돼서 닫힌 것과 아직 안 열린 것은 다르다** (ADR-39) —
+   * "시간이 아니에요" 는 *곧 열린다* 로 읽히는데, 매력 투표 마감 뒤에는 그게 거짓말이다.
+   */
+  const voteEnded = !open && state.event.phase === "prevote" && !!state.event.schedule.voteEndAt;
+  const closedWhy = voteEnded ? POKE.blocked.voteEnded : POKE.blocked.closed(round);
+
   async function send(target: PublicPlayer) {
     const already = state.poke.sentTo[target.id] ?? 0;
-    if (!open) return toast(POKE.blocked.closed);
+    if (!open) return toast(closedWhy);
     if (!sameGenderOk && target.gender === state.me.gender) return toast(POKE.blocked.sameGender);
-    if (budget.used >= budget.max) return toast(POKE.blocked.noBudget(budget.max));
 
-    // 확인창은 무엇이 어떻게 바뀌는지 숫자로 보여준다
+    /*
+     * **다 썼어도 되돌릴 것이 있으면 창을 연다** (ADR-34 후기).
+     *
+     * 되돌리기는 이 창 안에만 있다. 그래서 예산이 0 이 되는 순간 창이 안 열려
+     * **되돌릴 길이 통째로 사라졌다** — 토스트만 뜨고 끝이었다.
+     * 하필 다 쓴 순간이 옮기고 싶은 순간이다. 셋을 다 쓰고 나서야 넷째 사람을 만난다.
+     *
+     * 그때 창에는 되돌리기 하나만 둔다. 보낼 것이 없으니 보내기 버튼을 그릴 수 없다.
+     * 되돌릴 것도 없으면 그때는 토스트가 맞다 — 이 사람에게는 할 수 있는 일이 없다.
+     */
+    if (budget.used >= budget.max) {
+      if (!(already > 0 && canUndo)) return toast(POKE.blocked.noBudget(round, budget.max));
+      const spent = budget.max - budget.used;
+      return confirm(
+        {
+          btn: POKE.undo.btn,
+          title: POKE.confirm.spentTitle(round),
+          note: POKE.confirm.spentNote,
+          // 되돌리면 **늘어난다.** 화살표 방향이 반대인 것이 이 창이 하는 일이다
+          facts: [[POKE.confirm.rowBudget(round), POKE.confirm.change(spent, spent + 1)]],
+        },
+        () => undo(target),
+      );
+    }
+
+    /*
+     * 확인창은 무엇이 **어떻게 바뀌는지** 숫자로 보여준다 (규칙 4).
+     *
+     * **누른 뒤의 값만 적으면 지금 값으로 읽힌다.** 예전에는 `남은 콕` 자리에 `max - used - 1`
+     * 하나만 적었는데, 바로 위 카드는 `남은 콕 3회` 인데 창이 `2회` 라고 해서 같은 화면의
+     * 두 숫자가 어긋나 보였다 — 그걸 본 사람은 매력 투표가 콕에 합산된 줄로 읽었다.
+     * 왼쪽에 지금 값을 함께 두면 카드와 같아져서 그 오해가 생길 자리가 없다.
+     */
+    const left = budget.max - budget.used;
     confirm(
       {
-        btn: POKE.confirm.submit,
-        title: POKE.confirm.title(already),
-        note: POKE.confirm.note,
-        facts: [
-          [POKE.confirm.rowTarget, UNIT.times(already + 1)],
-          [POKE.confirm.rowBudget(round), UNIT.times(budget.max - budget.used - 1)],
-        ],
+        btn: POKE.confirm.submit(round),
+        title: POKE.confirm.title(round, already),
+        note: POKE.confirm.note(round, canUndo),
+        // 한 줄뿐이다. 몇 번째인지는 제목과 그 사람 카드의 숫자가 이미 말한다
+        facts: [[POKE.confirm.rowBudget(round), POKE.confirm.change(left, left - 1)]],
+        // 이미 보낸 적이 있고 되돌릴 수 있을 때만. 창이 숫자를 이미 보여주고 있다
+        ...(already > 0 && canUndo ? { second: { label: POKE.undo.btn, run: () => undo(target) } } : {}),
       },
       async () => {
         /*
@@ -111,11 +178,11 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
         setPoke(afterPoke(before, target.id, round));
         try {
           setPoke(await source.poke(target.id));
-          toast(POKE.sent(target.nickname));
+          toast(POKE.sent(round, target.nickname));
         } catch (e) {
           // 되돌리지 않으면 **쓰지도 않은 콕이 쓴 것으로 보인다**
           setPoke(before);
-          toast(e instanceof ApiError && e.userMessage ? e.userMessage : POKE.blocked.closed);
+          toast(e instanceof ApiError && e.userMessage ? e.userMessage : closedWhy);
         } finally {
           sending.current = false;
         }
@@ -143,10 +210,15 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
         {open && (
           <div className="mineCell">
             <span className="n">{UNIT.times(budget.max - budget.used)}</span>
-            <span className="t">{PEOPLE.pokeLeftLabel}</span>
+            <span className="t">{PEOPLE.pokeLeftLabel(round)}</span>
           </div>
         )}
       </div>
+      {/*
+        **마감되면 남은 횟수 칸이 사라진다** — 그 자리가 그냥 비면 앱이 고장 난 것으로 읽힌다.
+        버튼도 잠기는데 잠긴 버튼은 눌러도 아무 말이 없어서, 이유를 말할 자리가 여기뿐이다 (ADR-39).
+      */}
+      {voteEnded && <p className="tiny dim center">{POKE.blocked.voteEndedLine}</p>}
 
       {/*
         필터는 **전체 폭**을 쓴다. 옆에 글자를 붙이면 알약 컨테이너와 맨 글자가 한 줄에서
@@ -252,6 +324,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
                   disabled={!open}
                   covered={covered}
                   onSend={() => send(p)}
+                  round={round}
                 />
               )}
             </div>
@@ -276,9 +349,8 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
                     : REVEAL.hintOther}
                 </span>
 
-                {/* 연락처는 **서로 찌른 사이에게만** 열린다 (ADR-19) */}
-                <Contact match={matched.get(profile.id)!} />
-                <span className="tiny dim">{REVEAL.contactNote}</span>
+                {/* 실명은 **서로 찌른 사이에게만** 나간다 (ADR-19·42) */}
+                <MatchName match={matched.get(profile.id)!} />
               </div>
             )}
             <div className="row">
@@ -295,6 +367,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
               {!revealed && (
                 <PokeControls
                   count={state.poke.sentTo[profile.id] ?? 0}
+                  round={round}
                   disabled={!open}
                   covered={covered}
                   onSend={() => send(profile)}
@@ -343,7 +416,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
  * 탭 이동은 `onTab` 이 맡는다 — push/replace 규칙이 거기 한 곳에 있다 (`docs/ROUTES.md`).
  * 여기서 `navigate` 를 직접 부르면 그 규칙이 두 곳으로 갈라진다.
  */
-function MyCard({ me, phase, onOpen }: { me: Player; phase: Phase; onOpen: () => void }) {
+function MyCard({ me, phase, onOpen }: { me: MyProfile; phase: Phase; onOpen: () => void }) {
   const seenAs: Phase = phase === "party" || phase === "done" ? phase : "prevote";
   const shown = toPublic(me, seenAs);
   return (
@@ -378,33 +451,27 @@ function MyCard({ me, phase, onOpen }: { me: Player; phase: Phase; onOpen: () =>
 }
 
 /**
- * 서로 찌른 상대의 연락처.
+ * 서로 찌른 상대의 **실명.**
  *
- * 전화와 인스타는 **누를 수 있게** 둔다 — 파티장에서 번호를 손으로 옮겨 적게 하지 않는다.
- * 이 컴포넌트는 `MatchInfo` 없이는 그려지지 않는다. 그 타입이 곧 "발표 후 서로 찌른 쌍"이다.
+ * 전에는 여기가 연락처 카드였다 — 전화번호와 인스타를 눌러서 걸고 열 수 있었다.
+ * **지금은 이름 한 줄뿐이다** (ADR-42). 연락처는 매칭된 쌍에게도 나가지 않고,
+ * `MatchInfo` 에 그 값이 아예 없다.
+ *
+ * ⚠️ **전화번호·인스타 줄을 다시 만들지 마라.** 타입에 자리가 없는 것이 곧 방어다 —
+ * 되살리려면 `MatchInfo` 부터 고쳐야 하고, 그건 이 앱이 참가자에게 한 약속을 바꾸는 일이다
+ * (등록 화면의 `REGISTER.contactNote` 가 먼저다).
+ *
+ * 라벨을 `연락처` 라고 쓰지 않는다. 그렇게 쓰면 뒤에 뭔가 더 있어야 하는 칸이 된다.
  */
-function Contact({ match }: { match: MatchInfo }) {
-  const { realName, phone, instagram } = match.contact;
+function MatchName({ match }: { match: MatchInfo }) {
   return (
     <div className="stack">
-      {/* 이름은 신원이지 연락 수단이 아니다 — '연락처' 라벨 밖에 둔다 */}
       <div className="row between">
-        <span className="small dim">{ME.labels.realName}</span>
-        <span>{realName}</span>
+        <span className="small dim">{REVEAL.nameTitle}</span>
+        <span>{match.realName}</span>
       </div>
-      <div className="kicker">{REVEAL.contactTitle}</div>
-      <div className="row between">
-        <span className="small dim">{ME.labels.phone}</span>
-        <a href={`tel:${phone}`}>{phone}</a>
-      </div>
-      {instagram && (
-        <div className="row between">
-          <span className="small dim">{ME.labels.instagram}</span>
-          <a href={`https://instagram.com/${instagram}`} target="_blank" rel="noreferrer">
-            @{instagram}
-          </a>
-        </div>
-      )}
+      {/* 왜 이름까지만인지 그 자리에서 말한다 — 안 그러면 그 질문이 운영자에게 간다 */}
+      <span className="tiny dim">{REVEAL.nameNote}</span>
     </div>
   );
 }
@@ -413,10 +480,13 @@ function PokeControls({
   count,
   disabled,
   covered,
+  round,
   onSend,
 }: {
   count: number;
   disabled: boolean;
+  /** 라운드가 이름과 이모지를 정한다 (ADR-34) */
+  round: PokeRound;
   /** 어깨너머 가리기 (슬라이스 16) */
   covered?: boolean;
   onSend: () => void;
@@ -449,13 +519,18 @@ function PokeControls({
    */
   return (
     <div className="pokeCell">
+      {/*
+        **버튼은 하나뿐이다.** 되돌리기를 옆에 두면 한 줄에 둘이 되어 카드가 화면 밖으로 밀린다 —
+        그리고 가린 동안 그 버튼이 보이면 "이 사람을 골랐다" 가 그대로 샌다.
+        되돌리기는 **확인창 안**으로 갔다 (ADR-34).
+      */}
       <button
         className={`pokeBtn ${count > 0 ? "on" : ""}`}
         disabled={disabled}
         onClick={onSend}
-        aria-label={POKE.confirm.submit}
+        aria-label={POKE.confirm.submit(round)}
       >
-        <span aria-hidden>👉</span>
+        <span aria-hidden>{ACT.emoji(round)}</span>
         {count > 0 && <span className="n">{count}</span>}
       </button>
     </div>

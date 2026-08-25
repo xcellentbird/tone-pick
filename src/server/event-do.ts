@@ -4,7 +4,7 @@
  * 이 매핑이 주는 것:
  *  - 요청이 순차 처리되므로 닉네임 유일성·콕 예산 차감에 경쟁 조건이 없다
  *  - 브로드캐스트 대상이 정확히 그 회차 참가자다
- *  - 회차가 끝나면 이 DO 만 지우면 개인정보 파기가 끝난다
+ *  - 운영자가 회차를 지우면 이 DO 하나로 개인정보가 다 사라진다 (자동 파기는 없다 — ADR-36)
  *
  * 무료 플랜에서 쓰려면 wrangler.jsonc 의 migrations 가 `new_sqlite_classes` 여야 한다.
  *
@@ -16,7 +16,7 @@ import type {
   EventMeta,
   EventSchedule,
   EventSummary,
-  EnterResult,
+  EntryOutcome,
   Gender,
   Invite,
   MatchInfo,
@@ -28,6 +28,7 @@ import type {
   PollChoice,
   PublicAnnouncement,
   Phase,
+  MyProfile,
   Player,
   Poke,
   PokeRound,
@@ -42,12 +43,11 @@ import type {
 } from "../shared/types.ts";
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
-import { rosterOpen, toPublic } from "../shared/types.ts";
+import { rosterOpen, toMe, toPublic } from "../shared/types.ts";
 import { ENTRY } from "../shared/copy.ts";
 import {
   ENTRY_TRIES,
   LIMITS,
-  RETENTION_DAYS,
   cleanName,
   nicknameProblem,
   normalizeInstagram,
@@ -55,7 +55,7 @@ import {
   normalizePhone,
   realNameProblem,
 } from "../shared/constants.ts";
-import { PHASE_ORDER, canPoke, dueTransition, purgeDueAt } from "../shared/phase.ts";
+import { PHASE_ORDER, canPoke, dueAt, dueTransition, rulesLocked, schedLocked, voteClosed } from "../shared/phase.ts";
 import { formatWhen } from "../shared/time.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
@@ -73,7 +73,16 @@ CREATE TABLE IF NOT EXISTS players (
   instagram  TEXT NOT NULL,
   mbti       TEXT NOT NULL,
   charms     TEXT NOT NULL,          -- JSON string[3]
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  attendance TEXT,                   -- 안 쓴다 (ADR-45 가 ADR-33 을 되돌렸다). **지우지 마라** — 아래 셋이 같은 이유다
+  contact_share TEXT,                -- 안 쓴다 (ADR-42 가 ADR-37 을 되돌렸다). 읽지도 쓰지도 않는다.
+                                     -- ⚠️ **안 쓰는 칸 셋을 2.0.0 에서도 지우지 않았다.**
+                                     -- DROP COLUMN 은 **살아 있는 회차의 표를 건드리는 일**이고,
+                                     -- 얻는 것이 없다 — 아무도 읽지 않으므로 비용이 0 이다.
+                                     -- 남은 값도 개인정보가 아니다 (참·거짓 · 라운드 표시 · 참석 여부).
+                                     -- 호환성을 안 봐도 되는 판이라고 해서 지울 이유가 생기지는 않는다
+  token      TEXT                    -- 등록할 때 초대 명단에서 복사해 온다 (ADR-32).
+                                     -- 명단에서 지워져도 자기 링크로 계속 들어오게 하는 값이다
 );
 CREATE TABLE IF NOT EXISTS pokes (
   id      TEXT PRIMARY KEY,
@@ -86,7 +95,8 @@ CREATE INDEX IF NOT EXISTS pokes_from ON pokes(from_id, round);
 CREATE INDEX IF NOT EXISTS pokes_to   ON pokes(to_id);
 CREATE TABLE IF NOT EXISTS invites (
   phone    TEXT PRIMARY KEY,      -- 숫자만. 운영자가 미리 넣어두는 초대 명단
-  added_at INTEGER NOT NULL
+  added_at INTEGER NOT NULL,
+  token    TEXT                   -- 이 사람의 참가 링크. 넣는 순간 생긴다 (ADR-32)
 );
 CREATE TABLE IF NOT EXISTS entry_tries (
   ip_hash TEXT NOT NULL,          -- 접속지 해시. 원본 IP 는 저장하지 않는다
@@ -115,7 +125,7 @@ CREATE INDEX IF NOT EXISTS votes_ann ON votes(ann_id);
 CREATE TABLE IF NOT EXISTS seatings (
   round        INTEGER PRIMARY KEY,
   table_count  INTEGER NOT NULL,
-  final        INTEGER NOT NULL DEFAULT 0,
+  final        INTEGER NOT NULL DEFAULT 0,   -- 안 쓴다 (ADR-51 이 ADR-23 을 걷어냈다). **지우지 마라** (players 의 둘과 같은 이유)
   status       TEXT NOT NULL DEFAULT 'draft',
   seats        TEXT NOT NULL,        -- JSON Seat[]
   acks         TEXT NOT NULL DEFAULT '[]',
@@ -131,10 +141,10 @@ type Fail =
   | "conflict"
   | "forbidden"
   | "bad_request"
-  | "schedule_order"
   | "nick_taken"
   | "closed"
   | "same_gender"
+  | "locked"
   | "no_budget";
 
 /** `detail` 은 문구에 들어갈 숫자다 (예: 남은 콕 최대 횟수). 문장은 Worker 가 고른다 */
@@ -154,6 +164,49 @@ export class EventDO extends DurableObject {
     super(ctx as never, env as never);
     ctx.blockConcurrencyWhile(async () => {
       ctx.storage.sql.exec(SCHEMA);
+      /*
+       * 옛 회차에는 토큰 칸이 없다. `CREATE TABLE IF NOT EXISTS` 는 **이미 있는 표를 건드리지 않아서**,
+       * 칸을 더하는 건 여기서 따로 해야 한다. 이미 있으면 던지므로 삼킨다 —
+       * 버전 표를 두는 것보다 싸고, 칸을 더하는 일은 되돌릴 게 없다.
+       *
+       * ⚠️ **새 칸을 가리키는 인덱스를 `SCHEMA` 에 두지 마라.** 옛 표에는 그 칸이 아직 없어서
+       * `no such column` 으로 던지는데, `SCHEMA` 의 exec 는 이 try 밖이라 **DO 가 통째로 죽는다.**
+       * 회차 목록이 모든 회차를 훑기 때문에 화면 하나가 아니라 운영자 콘솔 전체가 멈췄다.
+       * 칸을 더한 **뒤에** 인덱스를 만든다. 순서가 곧 규칙이다.
+       */
+      // copy-ok — SQL 이지 화면 문구가 아니다
+      for (const sql of [
+        "ALTER TABLE invites ADD COLUMN token TEXT",
+        // 보냄 표시를 걷었다 (ADR-32 후기). 안 읽는 칸을 들고 다니면 다음 사람이 쓰이는 줄 안다
+        "ALTER TABLE invites DROP COLUMN sent_at",
+        "ALTER TABLE players ADD COLUMN token TEXT",
+        "ALTER TABLE players ADD COLUMN attendance TEXT",
+        "ALTER TABLE players ADD COLUMN contact_share TEXT",
+        "CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token)",
+        "CREATE INDEX IF NOT EXISTS players_token ON players(token)",
+      ]) {
+        try {
+          ctx.storage.sql.exec(sql);
+        } catch {
+          /* 이미 있다 */
+        }
+      }
+
+      /*
+       * **토큰 없는 명단 행은 아무도 못 쓰는 행이다.** 옛 회차의 초대 명단을 그대로 두면
+       * 그 파티는 문이 잠긴 채 남는다 — 운영자가 안내문을 다시 보내면 살아난다.
+       * 한 번만 돌고, 그 뒤로는 빈 UPDATE 다.
+       */
+      try {
+        const rows = ctx.storage.sql
+          .exec<{ phone: string }>("SELECT phone FROM invites WHERE token IS NULL OR token = ''")
+          .toArray();
+        for (const r of rows) {
+          ctx.storage.sql.exec("UPDATE invites SET token = ? WHERE phone = ?", randomHex(16), r.phone);
+        }
+      } catch {
+        /* 명단이 아직 없다 */
+      }
     });
   }
 
@@ -198,9 +251,7 @@ export class EventDO extends DurableObject {
       id: meta.id,
       name: meta.name,
       phase: meta.phase,
-      partyAt: meta.schedule.partyAt,
-      // 등록 화면의 "N일 뒤에 지워져요" 약속이 읽는다 — 회차 설정과 어긋나면 안 된다
-      retentionDays: meta.config.retentionDays ?? RETENTION_DAYS,
+      ...(meta.schedule.partyAt ? { partyAt: meta.schedule.partyAt } : {}),
     };
     if (meta.phase === "prep") {
       return ok({
@@ -220,6 +271,19 @@ export class EventDO extends DurableObject {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (!PHASE_ORDER.includes(to)) return fail("bad_request");
+    /*
+     * **발표는 끝이다** (ADR-50). `done` 에서는 어디로도 못 나간다.
+     *
+     * 화면에서 버튼만 걷어내면 요청은 그대로 통한다 — 이 앱에서 되돌리기가 위험한 건
+     * 운영자가 실수해서가 아니라, **한 번 본 것은 못 되돌리기 때문**이다. 결과를 본 사람과
+     * 못 본 사람이 갈린 채로 화면만 닫히고, 그 뒤에 오는 질문에 앱이 답할 말이 없다.
+     * 그래서 문을 여기서 잠근다.
+     *
+     * **다만 `done` → `done` 은 통과시킨다.** 두 번 눌린 발표를 실패로 답하면 운영자는
+     * 안 된 줄 알고 다시 누른다 — 앞의 `forward` 판정이 거짓이라 `fired.done` 은
+     * 처음 발표한 시각 그대로 남는다.
+     */
+    if (meta.phase === "done" && to !== "done") return fail("bad_request");
 
     const forward = PHASE_ORDER.indexOf(to) > PHASE_ORDER.indexOf(meta.phase);
     meta.phase = to;
@@ -231,11 +295,51 @@ export class EventDO extends DurableObject {
     return ok(meta);
   }
 
+  /**
+   * 매력 투표를 **지금** 마감한다 (ADR-39 후기).
+   *
+   * 다른 단계 버튼과 같은 꼴이다 — 예약(`voteEndAt`)을 앞당긴다. 다만 **단계는 넘기지 않는다**:
+   * `phase` 는 `prevote` 그대로고, 나이·MBTI(ADR-21)도 파티 콕도 `파티 시작` 이 연다.
+   * 넘기면 아직 아무도 안 온 자리에서 파티가 시작된 것이 된다.
+   *
+   * **예약 시각은 덮어쓰지 않는다.** 실제로 닫은 시각만 `fired.voteEnd` 에 남긴다 —
+   * 지나간 예약은 기록이라, 덮으면 "예약은 20시였는데 19시에 닫았다" 를 말할 수 없다.
+   *
+   * 이미 닫혀 있으면 **아무 일도 하지 않는다** — 두 번 눌러도 처음 닫은 시각이 남아야 한다.
+   * 알람은 다시 걸지 않는다. 마감에는 알람이 없다 (`dueAt` 이 이 값을 모른다).
+   */
+  async closeVote(now: number): Promise<Result<EventMeta>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (meta.phase !== "prevote") return fail("bad_request");
+    if (voteClosed(meta.schedule, meta.fired, now)) return ok(meta);
+
+    meta.fired.voteEnd = now;
+    await this.ctx.storage.put("meta", meta);
+    // 참가자 화면은 콕 버튼이 닫힌 걸 그 자리에서 알아야 한다 — 단계 신호를 그대로 쓴다
+    this.broadcast({ type: "phase", phase: meta.phase, fired: meta.fired });
+    return ok(meta);
+  }
+
   async setSchedule(patch: EventSchedule, now: number): Promise<Result<EventMeta>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     const next: EventSchedule = { ...meta.schedule, ...patch };
-    if (!validSchedule(next)) return fail("schedule_order");
+    /*
+     * **순서는 검사하지 않는다** (ADR-36). 등록이 늘 열려 있는 지금, "사전 투표가 등록보다
+     * 먼저 열렸다" 는 위반이 성립하지 않는다. 검사를 남겨두면 오히려 **매력 투표를
+     * 지금 당장 열려는 정당한 조작**이 회차 만든 시각에 걸려 거절당했다.
+     */
+    /*
+     * 잠긴 항목은 못 고친다. **키마다 따로 본다** (ADR-39) — 매력 투표 마감과 파티 일시는
+     * 파티가 시작될 때까지 열려 있어야 한다. 파티가 늦어지면 마감도 미뤄야 하기 때문이다.
+     *
+     * **같은 값이 오는 건 통과시킨다** — 설정 탭은 저장할 때마다 일정을 통째로 다시 보내므로,
+     * 있고 없고로 막으면 이름만 고쳐도 거절당한다. 막는 것은 '보냈나'가 아니라 '달라졌나'다.
+     */
+    if (SCHEDULE_KEYS.some((k) => next[k] !== meta.schedule[k] && schedLocked(meta.fired, k))) {
+      return fail("locked");
+    }
     meta.schedule = next;
     await this.ctx.storage.put("meta", meta);
     await this.rearm(meta, now);
@@ -244,7 +348,7 @@ export class EventDO extends DurableObject {
   }
 
   async patchMeta(
-    patch: { name?: string; config?: EventConfig },
+    patch: { name?: string; place?: string; config?: EventConfig },
     now: number,
   ): Promise<Result<EventMeta>> {
     const meta = await this.touch(now);
@@ -253,18 +357,30 @@ export class EventDO extends DurableObject {
       if (!patch.name.trim()) return fail("bad_request");
       meta.name = patch.name.trim();
     }
+    // 장소는 지울 수도 있어야 한다 — 빈 문자열이면 없앤다 (안내문에서 자리만 빈다)
+    if (patch.place !== undefined) {
+      const place = patch.place.trim();
+      if (place) meta.place = place;
+      else delete meta.place;
+    }
     if (patch.config) {
-      const { maxPre, maxParty, allowSameGender } = patch.config;
+      const { maxPre, maxParty } = patch.config;
+      // 안 보내면 지금 값을 지킨다 — 콕 횟수만 고치다 알림 설정이 딸려 초기화되면 안 된다
+      const allowSameGender = patch.config.allowSameGender ?? meta.config.allowSameGender;
+      const allowUndo = patch.config.allowUndo ?? meta.config.allowUndo;
+      const allowUndoPre = patch.config.allowUndoPre ?? meta.config.allowUndoPre;
+      const preNotify = patch.config.preNotify ?? meta.config.preNotify;
+      const pokeNotify = patch.config.pokeNotify ?? meta.config.pokeNotify;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
 
-      // 안 보내면 지금 값을 지킨다 — 파기 약속이 다른 설정 저장에 딸려 초기화되면 안 된다
-      const retentionDays = patch.config.retentionDays ?? meta.config.retentionDays;
-      // 알림도 같다. 안 보낸 저장에 딸려 조용하던 회차가 다시 말을 걸면 안 된다
-      const prevoteNotice = patch.config.prevoteNotice ?? meta.config.prevoteNotice;
-      if (retentionDays !== undefined) {
-        if (!Number.isInteger(retentionDays) || !inRange(retentionDays, LIMITS.retentionDays)) {
-          return fail("bad_request");
-        }
+      /*
+       * 굳은 규칙은 못 고친다 (ADR-35). 일정과 같은 이유로 **달라졌을 때만** 막는다.
+       * 비교는 '적혀 있나'가 아니라 **뜻**으로 한다 — 기본값과 같으면 아예 안 적히므로
+       * (`allowUndo` 없음 = 할 수 있음), 키 유무로 재면 저장할 때마다 달라 보인다.
+       */
+      if (rulesLocked(meta.fired)) {
+        const next = { ...meta.config, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify };
+        if (frozenRules(next).some((v, i) => v !== frozenRules(meta.config)[i])) return fail("locked");
       }
 
       /**
@@ -286,8 +402,11 @@ export class EventDO extends DurableObject {
         maxPre,
         maxParty,
         ...(allowSameGender === false ? { allowSameGender: false } : {}),
-        ...(prevoteNotice === false ? { prevoteNotice: false } : {}),
-        ...(retentionDays !== undefined && retentionDays !== RETENTION_DAYS ? { retentionDays } : {}),
+        // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
+        ...(allowUndo === false ? { allowUndo: false } : {}),
+        ...(allowUndoPre === false ? { allowUndoPre: false } : {}),
+        ...(preNotify === true ? { preNotify: true } : {}),
+        ...(pokeNotify === true ? { pokeNotify: true } : {}),
       };
     }
     await this.ctx.storage.put("meta", meta);
@@ -300,22 +419,7 @@ export class EventDO extends DurableObject {
     await this.ctx.storage.deleteAll();
   }
 
-  /**
-   * 보관 기간이 지났으면 통째로 버린다.
-   *
-   * 개인정보만 골라 지우는 대신 회차째 지운다 — 반쯤 지워진 상태를 만들지 않기 위해서다.
-   * "회차 1개 = DO 1개"로 잡은 것이 여기서 값을 한다. 지울 게 한 곳에 다 있다.
-   */
-  async purgeIfExpired(now: number): Promise<boolean> {
-    const meta = await this.ctx.storage.get<EventMeta>("meta");
-    if (!meta) return false;
-    // 대기 일수는 회차 설정을 따른다. 등록 화면이 한 약속과 같은 값이다
-    if (now < purgeDueAt(meta, meta.config.retentionDays ?? RETENTION_DAYS)) return false;
-    await this.ctx.storage.deleteAll();
-    return true;
-  }
-
-  // ─────────────────────────── 입장 명단
+  // ─────────────────────────── 초대 명단
   //
   // 파티에 들어오는 문은 **운영자가 미리 넣어둔 전화번호**다 (ADR-15).
   // 코드 여섯 자리는 옮겨 적을 수 있지만 남의 번호로는 들어올 수 없다.
@@ -338,8 +442,17 @@ export class EventDO extends DurableObject {
     const fresh = clean.filter((p) => !already.has(p));
     if (already.size + fresh.length > LIMITS.inviteMax) return fail("bad_request");
 
+    /*
+     * **토큰은 넣는 순간 생긴다. 그리고 그뿐이다** (S-B1).
+     * 여기서 안내를 보내면 붙여넣기 사고가 그대로 문자로 새어나가고, 되돌릴 방법이 없다.
+     */
     for (const phone of fresh) {
-      this.ctx.storage.sql.exec("INSERT INTO invites (phone, added_at) VALUES (?,?)", phone, now);
+      this.ctx.storage.sql.exec(
+        "INSERT INTO invites (phone, added_at, token) VALUES (?,?,?)",
+        phone,
+        now,
+        randomHex(16),
+      );
     }
     return ok(this.invites());
   }
@@ -350,15 +463,19 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * 입장 확인. 명단에 있는 번호만 통과한다.
+   * 입장 확인. **참가 링크의 토큰만 통과한다** (ADR-32).
+   *
+   * 번호를 받지 않는다 — 같은 파티에 오는 사람들은 서로 번호를 아는 사이라
+   * 번호는 열쇠가 못 된다. 토큰은 그 사람에게만 배달된 값이다.
    *
    * **이미 등록한 사람은 명단과 무관하게 통과한다.** 명단은 문이지 자격이 아니다 —
    * 운영자가 명단을 정리하다 이미 등록한 사람을 지웠다고 파티 중에 쫓겨나면 안 된다.
+   * 그래서 등록할 때 토큰을 `players` 에도 복사해 둔다.
    *
-   * 실패는 회차·접속지별로 센다. 이 문은 인증 없이 열려서, 제한이 없으면
-   * "이 번호가 이 파티에 있나"를 되묻는 창구가 된다 (constants.ts).
+   * 실패는 회차·접속지별로 센다. 문은 여전히 인증 없이 열려 있다 — 다만
+   * **"번호 넣어보기" 는 이제 일어나지 않는다.** 넣어볼 칸이 없다.
    */
-  async checkEntry(phone: string, ipHash: string, now: number): Promise<Result<EnterResult>> {
+  async checkEntry(token: string, ipHash: string, now: number): Promise<Result<EntryOutcome>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
 
@@ -367,9 +484,11 @@ export class EventDO extends DurableObject {
       this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM entry_tries WHERE ip_hash = ?", ipHash)[0]?.n ?? 0;
     if (tries >= ENTRY_TRIES.max) return fail("too_many");
 
-    const clean = normalizePhone(phone);
-    const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", clean)[0];
-    const invited = !!this.rows<{ phone: string }>("SELECT phone FROM invites WHERE phone = ?", clean)[0];
+    const clean = String(token ?? "").trim();
+    // 등록을 마친 사람이 먼저다 — 명단에서 지워졌어도 그의 토큰은 여기 남아 있다
+    const mine = clean ? this.rows<PlayerRow>("SELECT * FROM players WHERE token = ?", clean)[0] : undefined;
+    const invited =
+      !!clean && !!this.rows<{ phone: string }>("SELECT phone FROM invites WHERE token = ?", clean)[0];
 
     if (!mine && !invited) {
       this.ctx.storage.sql.exec("INSERT INTO entry_tries (ip_hash, at) VALUES (?,?)", ipHash, now);
@@ -380,6 +499,37 @@ export class EventDO extends DurableObject {
     return ok(mine ? { registered: true, code: meta.code } : { registered: false });
   }
 
+  /**
+  * 토큰이 가리키는 번호. **DO 안에서만 쓴다** — 이 값이 Worker 를 지나 쿠키로 나가면
+  * 번호를 치지 않기로 한 결정(ADR-32)이 브라우저에서 새어 나간다.
+  */
+  private phoneOf(token: string): string | null {
+    const clean = String(token ?? "").trim();
+    if (!clean) return null;
+    const inv = this.rows<{ phone: string }>("SELECT phone FROM invites WHERE token = ?", clean)[0];
+    if (inv) return inv.phone;
+    return this.rows<{ phone: string }>("SELECT phone FROM players WHERE token = ?", clean)[0]?.phone ?? null;
+  }
+
+  /**
+   * 이 토큰이 이 회차의 것인가, 그리고 그 주인이 이미 등록했나.
+   * **번호를 꺼내지 않는다** — 회차 정보를 여는 데 번호는 필요 없다.
+   */
+  async tokenState(token: string): Promise<Result<{ known: boolean; registered: boolean }>> {
+    const clean = String(token ?? "").trim();
+    if (!clean) return ok({ known: false, registered: false });
+    const registered = !!this.rows<{ id: string }>("SELECT id FROM players WHERE token = ?", clean)[0];
+    return ok({ known: registered || !!this.phoneOf(clean), registered });
+  }
+
+  /** 토큰의 주인이 이미 등록했다면 그 사람. 통과한 뒤 참가자 세션을 만들 때 쓴다 */
+  async playerIdByToken(token: string): Promise<Result<string | null>> {
+    const clean = String(token ?? "").trim();
+    if (!clean) return ok(null);
+    const row = this.rows<{ id: string }>("SELECT id FROM players WHERE token = ?", clean)[0];
+    return ok(row?.id ?? null);
+  }
+
   /** 번호로 그 사람을 찾는다. 입장 확인을 통과한 뒤 세션을 만들 때만 쓴다 */
   async playerIdByPhone(phone: string): Promise<Result<string | null>> {
     const row = this.rows<{ id: string }>("SELECT id FROM players WHERE phone = ?", normalizePhone(phone))[0];
@@ -388,9 +538,18 @@ export class EventDO extends DurableObject {
 
   private invites(): Invite[] {
     const byPhone = new Map(this.players().map((p) => [p.phone, p.nickname]));
-    return this.rows<{ phone: string; added_at: number }>(
-      "SELECT * FROM invites ORDER BY added_at, phone",
-    ).map((r) => ({ phone: r.phone, addedAt: r.added_at, nickname: byPhone.get(r.phone) }));
+    /*
+     * 칸을 골라 읽는다. `SELECT *` 로 두면 걷어낸 `sent_at` 이 남아 있는 옛 회차에서
+     * 그 값이 응답에 딸려 나간다 — 지운 기능이 조용히 되살아 보이는 자리다.
+     */
+    return this.rows<{ phone: string; added_at: number; token: string | null }>(
+      "SELECT phone, added_at, token FROM invites ORDER BY added_at, phone",
+    ).map((r) => ({
+      phone: r.phone,
+      addedAt: r.added_at,
+      token: r.token ?? "",
+      nickname: byPhone.get(r.phone),
+    }));
   }
 
   // ─────────────────────────── 참가자
@@ -417,6 +576,13 @@ export class EventDO extends DurableObject {
     });
     if (!saved.ok) return saved;
 
+    /*
+     * **토큰을 이 사람에게 붙인다** (ADR-32). 명단에서 지워져도 자기 링크로 계속 들어온다 —
+     * "명단은 문이지 자격이 아니다" 를 지키는 자리가 여기다.
+     */
+    const tok = this.rows<{ token: string | null }>("SELECT token FROM invites WHERE phone = ?", phone)[0]?.token;
+    if (tok) this.ctx.storage.sql.exec("UPDATE players SET token = ? WHERE phone = ?", tok, phone);
+
     this.broadcast({ type: "roster" });
     return saved;
   }
@@ -431,7 +597,7 @@ export class EventDO extends DurableObject {
    * **전화번호는 바뀌지 않는다.** 입력에 자리가 없고, 저장할 때도 저장된 값을 그대로 쓴다 (ADR-15).
    * 고치는 대상은 쿠키에서 온 `playerId` 뿐이다 — 입력에 담긴 id 는 읽지 않는다.
    */
-  async editProfile(playerId: string, input: RegisterInput, now: number): Promise<Result<Player>> {
+  async editProfile(playerId: string, input: RegisterInput, now: number): Promise<Result<MyProfile>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (meta.phase !== "reg") return fail("closed");
@@ -455,7 +621,8 @@ export class EventDO extends DurableObject {
      * 바뀐 닉네임이 필요한 건 운영자 명단 하나뿐이다.
      */
     this.toHosts({ type: "roster" });
-    return saved;
+    // 저장 응답도 참가자에게 그대로 간다 — 여기서도 번호를 싣지 않는다 (ADR-47)
+    return ok(toMe(saved.value));
   }
 
   /**
@@ -513,7 +680,10 @@ export class EventDO extends DurableObject {
    * 예전에는 Worker 가 findByPhone → register → participantState 로 **세 번** 들어왔다.
    * 회차 DO 는 요청을 순차 처리하므로, 등록이 몰리는 순간 그 세 배가 그대로 줄이 된다.
    */
-  async registerAndLoad(input: RegisterInput, phone: string, now: number): Promise<Result<RegisterResult>> {
+  async registerAndLoad(input: RegisterInput, token: string, now: number): Promise<Result<RegisterResult>> {
+    // 번호는 **여기서** 푼다. 쿠키에는 토큰만 들어 있다 (ADR-32)
+    const phone = this.phoneOf(token);
+    if (!phone) return fail("not_invited") as Result<RegisterResult>;
     const before = this.rows<{ id: string }>("SELECT id FROM players WHERE phone = ?", phone)[0];
 
     const made = await this.register(input, phone, now);
@@ -562,7 +732,7 @@ export class EventDO extends DurableObject {
   async poke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    if (!canPoke(meta.phase)) return fail("closed");
+    if (!canPoke(meta.phase, now, meta.schedule, meta.fired)) return fail("closed");
 
     const me = this.player(fromId);
     const target = this.player(toId);
@@ -584,8 +754,46 @@ export class EventDO extends DurableObject {
       round,
       now,
     );
-    // 익명이다. 누가 찔렀는지는 이 메시지에도, 어디에도 싣지 않는다
-    this.toPlayer(toId, { type: "poke", receivedCount: this.receivedCount(toId) });
+    /*
+     * 익명이다. 누가 찔렀는지는 이 메시지에도, 어디에도 싣지 않는다.
+     * **알림은 회차 설정을 따르고, 라운드마다 따로다** (ADR-34·43) — 없으면 보내지 않는다.
+     * 싣는 숫자도 `visibleReceived` 여야 한다. 총합을 실으면 꺼둔 라운드가 그대로 새어나간다.
+     */
+    if (notifyOn(meta.config, round)) {
+      this.toPlayer(toId, { type: "poke", received: this.visibleReceived(toId, meta) });
+    }
+    return ok(await this.pokeState(fromId, meta));
+  }
+
+  /**
+   * 콕 되돌리기 (ADR-34). **하나씩 무른다** — 그 사람에게 여러 번 찔렀으면 한 번만 준다.
+   *
+   * **라운드마다 따로 정한다** — 매력 투표는 `allowUndoPre`, 파티 콕은 `allowUndo`.
+   *
+   * 알림은 저장하지 않고 `receivedCount` 에서 파생되므로(`noticesOf`),
+   * 무르면 그 줄이 저절로 사라져 **받지 않았던 상태로 돌아간다.**
+   */
+  async unpoke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (!canPoke(meta.phase, now, meta.schedule, meta.fired)) return fail("closed");
+
+    const round = roundOf(meta.phase);
+    const allowed = round === "pre" ? meta.config.allowUndoPre !== false : meta.config.allowUndo !== false;
+    if (!allowed) return fail("closed");
+
+    const one = this.rows<{ id: string }>(
+      "SELECT id FROM pokes WHERE from_id = ? AND to_id = ? AND round = ? ORDER BY at DESC LIMIT 1",
+      fromId,
+      toId,
+      round,
+    )[0];
+    if (!one) return fail("not_found");
+    this.ctx.storage.sql.exec("DELETE FROM pokes WHERE id = ?", one.id);
+
+    if (notifyOn(meta.config, round)) {
+      this.toPlayer(toId, { type: "poke", received: this.visibleReceived(toId, meta) });
+    }
     return ok(await this.pokeState(fromId, meta));
   }
 
@@ -608,7 +816,7 @@ export class EventDO extends DurableObject {
         schedule: meta.schedule,
         config: meta.config,
       },
-      me,
+      me: toMe(me),
       // 명단은 사전 투표부터 열린다. 그 전에는 몇 명이 왔는지만 안다 (ADR-21)
       roster: rosterOpen(meta.phase)
         ? this.players()
@@ -616,7 +824,7 @@ export class EventDO extends DurableObject {
             .map((p) => toPublic(p, meta.phase))
         : [],
       poke: await this.pokeState(playerId, meta),
-      seat: this.mySeat(playerId, meta.phase),
+      seat: this.mySeat(playerId),
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
       ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),
       announcements: this.publicAnnouncements(playerId),
@@ -637,7 +845,11 @@ export class EventDO extends DurableObject {
   async fortuneContext(
     playerId: string,
     now: number,
-  ): Promise<Result<{ phase: Phase; me: Player; fortune?: Fortune }>> {
+    /**
+     * 파티 시각도 함께 준다 — 운세의 `오늘` 이 그 날이다 (ADR-20 후기).
+     * **비어 있을 수 있다** (일정 없이 만든 회차). 그때는 부르는 쪽이 지금을 쓴다.
+     */
+  ): Promise<Result<{ phase: Phase; partyAt?: number; me: Player; fortune?: Fortune }>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     const me = this.player(playerId);
@@ -645,6 +857,7 @@ export class EventDO extends DurableObject {
     const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
     return ok({
       phase: meta.phase,
+      ...(meta.schedule.partyAt ? { partyAt: meta.schedule.partyAt } : {}),
       me,
       ...(row ? { fortune: readFortune(JSON.parse(row.json)) } : {}),
     });
@@ -675,34 +888,49 @@ export class EventDO extends DurableObject {
     const here = new Set(players.map((p) => p.id));
     const pokes = this.pokes().filter((k) => here.has(k.fromId) && here.has(k.toId));
 
-    const sent: Record<string, number> = {};
-    const received: Record<string, number> = {};
-    const preReceived: Record<string, number> = {};
+    /** 참석 상태. **운영자 응답에만 실린다** (ADR-33) */
+
+    const sent: Record<PokeRound, Record<string, number>> = { pre: {}, party: {} };
+    /*
+     * **라운드마다 따로 센다** (ADR-46). 합치면 현황 탭의 `콕 TOP` 에 매력 투표 표가 얹혀서,
+     * 운영자가 "이 사람이 파티에서 몇 번 받았나" 를 못 읽는다 — 그 둘은 쓰임이 다르다 (ADR-34).
+     */
+    const received: Record<PokeRound, Record<string, number>> = { pre: {}, party: {} };
     // 상한을 내릴 수 있는지 판단하려면 **한 사람이 라운드마다 몇 번 썼는지**가 필요하다
     const usedBy: Record<PokeRound, Record<string, number>> = { pre: {}, party: {} };
     for (const p of players) {
-      sent[p.id] = 0;
-      received[p.id] = 0;
-      preReceived[p.id] = 0;
+      sent.pre[p.id] = 0;
+      sent.party[p.id] = 0;
+      received.pre[p.id] = 0;
+      received.party[p.id] = 0;
     }
     const pokeCount: Record<PokeRound, number> = { pre: 0, party: 0 };
     const pairs = new Set<string>();
+    const when = new Map<string, Set<PokeRound>>();
     for (const k of pokes) {
-      sent[k.fromId] = (sent[k.fromId] ?? 0) + 1;
-      received[k.toId] = (received[k.toId] ?? 0) + 1;
-      if (k.round === "pre") preReceived[k.toId] = (preReceived[k.toId] ?? 0) + 1;
+      sent[k.round][k.fromId] = (sent[k.round][k.fromId] ?? 0) + 1;
+      received[k.round][k.toId] = (received[k.round][k.toId] ?? 0) + 1;
       usedBy[k.round][k.fromId] = (usedBy[k.round][k.fromId] ?? 0) + 1;
       pokeCount[k.round]++;
       pairs.add(`${k.fromId}>${k.toId}`);
+      // 어느 라운드에 찔렀는지. 매칭이 **어떻게 이루어졌는가**를 가르는 데만 쓴다
+      const key = `${k.fromId}>${k.toId}`;
+      if (!when.has(key)) when.set(key, new Set());
+      when.get(key)!.add(k.round);
     }
     const pokeUsedMax: Record<PokeRound, number> = {
       pre: Math.max(0, ...Object.values(usedBy.pre)),
       party: Math.max(0, ...Object.values(usedBy.party)),
     };
+    /*
+     * 매칭은 **파티 콕만** 센다 (ADR-34). 매력 투표는 프로필만 보고 고른 것이라
+     * 첫 자리 배정의 재료일 뿐이고, 만나보고 찌른 것과 같은 무게로 세면 안 된다.
+     */
+    const partyPairs = new Set(pokes.filter((k) => k.round === "party").map((k) => `${k.fromId}>${k.toId}`));
     const mutual: Array<[string, string]> = [];
-    for (const key of pairs) {
+    for (const key of partyPairs) {
       const [a, b] = key.split(">");
-      if (a < b && pairs.has(`${b}>${a}`)) mutual.push([a, b]);
+      if (a < b && partyPairs.has(`${b}>${a}`)) mutual.push([a, b]);
     }
 
     return ok({
@@ -710,9 +938,6 @@ export class EventDO extends DurableObject {
       players,
       sent,
       received,
-      prevoteRank: Object.entries(preReceived)
-        .map(([id, count]) => ({ id, count }))
-        .sort((a, b) => b.count - a.count),
       mutual,
       pokeCount,
       pokeUsedMax,
@@ -904,12 +1129,7 @@ export class EventDO extends DurableObject {
   // ─────────────────────────── 자리
 
   /** 초안 생성. 참가자에게는 보이지 않으므로 확인 없이 몇 번이든 다시 만든다 (ADR-6) */
-  async makeSeating(
-    tableCount: number,
-    final: boolean,
-    now: number,
-    exclude: string[] = [],
-  ): Promise<Result<SeatingRound>> {
+  async makeSeating(tableCount: number, exclude: string[], now: number): Promise<Result<SeatingRound>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (meta.phase === "done") return fail("closed");
@@ -918,10 +1138,14 @@ export class EventDO extends DurableObject {
     }
 
     /*
-     * **이번 라운드에서만** 뺀다. 참가자에게 붙는 상태를 만들지 않는다 —
-     * 노쇼는 다음 라운드에 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다.
+     * **뺄 사람은 운영자가 이 라운드에만 고른다** (ADR-45).
      *
-     * `buildSeating` 은 그대로다. 명단이 짧아질 뿐이라 순수 함수를 건드릴 일이 없다.
+     * 참가자에게 붙는 상태를 만들지 않는다 — 노쇼는 다음 라운드에 나타날 수 있고,
+     * 온 사람이 잠깐 빠질 수도 있다. 사람에게 붙는 플래그는 시간이 지나면 틀리고,
+     * 틀린 상태는 다음 라운드에서 사람을 조용히 빠뜨린다 (FLOWS.md).
+     *
+     * 그래서 이 목록은 **요청에만 있고 어디에도 저장되지 않는다.** 다음 배정은 전원으로 시작한다.
+     * `buildSeating` 은 그대로다 — 명단이 짧아질 뿐이라 순수 함수를 건드릴 일이 없다.
      */
     const out = new Set(exclude);
     const players = this.players().filter((p) => !out.has(p.id));
@@ -929,23 +1153,21 @@ export class EventDO extends DurableObject {
 
     const published = this.seatings().filter((s) => s.status === "published");
     const round = (published.at(-1)?.round ?? 0) + 1;
-    const { mutual, oneWay, strength } = this.pairs();
+    const { mutual, oneWay, votes } = this.pairs();
 
     const seats = buildSeating({
       players,
       tableCount,
       round,
-      final,
       history: published.map((s) => s.seats),
       mutual,
-      strength,
+      votes,
       oneWay,
     });
 
     const draft: SeatingRound = {
       round,
       tableCount,
-      final,
       status: "draft",
       seats,
       acks: [],
@@ -1086,7 +1308,7 @@ export class EventDO extends DurableObject {
     const gender = new Map(
       this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
     );
-    const held = draft.final ? this.pairedSeatIds(draft) : new Set<string>();
+    const held = this.pairedSeatIds(draft);
 
     for (const g of ["M", "F"] as const) {
       // 이 성별이 앉아 있던 자리들과 사람들을 따로 모아, 사람 쪽만 섞어 도로 앉힌다.
@@ -1103,7 +1325,7 @@ export class EventDO extends DurableObject {
   private pairedSeatIds(round: SeatingRound): Set<string> {
     const table = new Map(round.seats.map((s) => [s.playerId, s.table]));
     const held = new Set<string>();
-    for (const [a, b] of this.pairs().mutual) {
+    for (const [a, b] of this.pairs("party").mutual) {
       if (table.has(a) && table.get(a) === table.get(b)) {
         held.add(a);
         held.add(b);
@@ -1170,7 +1392,7 @@ export class EventDO extends DurableObject {
 
   /** 다음에 울릴 예약 하나만 걸어둔다. 폴링이 아니라서 유휴 중 비용이 0이다 */
   private async rearm(meta: EventMeta, now: number) {
-    const at = nextDue(meta);
+    const at = dueAt(meta);
     if (at === null) {
       await this.ctx.storage.deleteAlarm();
       return;
@@ -1282,8 +1504,36 @@ export class EventDO extends DurableObject {
     );
   }
 
-  private receivedCount(toId: string): number {
-    return this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM pokes WHERE to_id = ?", toId)[0]?.n ?? 0;
+  private receivedCount(toId: string, only?: PokeRound): number {
+    return only
+      ? this.rows<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM pokes WHERE to_id = ? AND round = ?",
+          toId,
+          only,
+        )[0]?.n ?? 0
+      : this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM pokes WHERE to_id = ?", toId)[0]?.n ?? 0;
+  }
+
+  /**
+   * 참가자에게 **보여도 되는** 받은 수 (ADR-43).
+   *
+   * 알림이 라운드마다 따로라, 꺼둔 라운드는 **0으로 내려보낸다** — 실어 보내면
+   * 매력 투표 알림을 끈 회차에서 파티가 시작되는 순간 그때까지 쌓인 표가 드러난다.
+   * 화면에서 감추는 걸로는 부족하다. 개발자 도구를 여는 참가자가 있고,
+   * **이 숫자가 곧 "지금까지 몇 명이 나를 골랐나" 다** (ADR-34).
+   *
+   * **라운드를 가른다** (ADR-46 후기). 합쳐 두면 소식 줄이 매력 투표에서도 `콕` 이라고
+   * 부르게 되는데, 참가자는 그 단계에서 콕을 찌른 적이 없다. 가른 대가는 그 후기에 적었다.
+   */
+  private visibleReceived(toId: string, meta: EventMeta): Record<PokeRound, number> {
+    // 발표 뒤에는 전부 센다 — 그때는 매칭까지 열리므로 감출 것이 없다
+    if (meta.phase === "done") {
+      return { pre: this.receivedCount(toId, "pre"), party: this.receivedCount(toId, "party") };
+    }
+    return {
+      pre: meta.config.preNotify ? this.receivedCount(toId, "pre") : 0,
+      party: meta.config.pokeNotify ? this.receivedCount(toId, "party") : 0,
+    };
   }
 
   /**
@@ -1300,15 +1550,30 @@ export class EventDO extends DurableObject {
       "SELECT to_id, round, COUNT(*) AS n FROM pokes WHERE from_id = ? GROUP BY to_id, round",
       playerId,
     );
+    /*
+     * **`sentTo` 는 이번 라운드만 센다** (ADR-34).
+     *
+     * 예전에는 두 라운드를 합쳤다. 그래서 매력 투표에서 한 번 고른 사람이 파티가 시작되자
+     * **콕을 이미 한 번 찌른 것처럼** 보였다 — 남은 콕은 그대로인데 그 사람 카드에만 `1` 이 붙었다.
+     * 매력 투표와 콕은 다른 일이고(ADR-34), 그 둘을 한 숫자로 더하면 어느 쪽도 아닌 값이 된다.
+     *
+     * 되돌리기도 같은 자리에서 어긋났다. 서버는 **이번 라운드의 콕만** 지우는데
+     * (`unpoke` 의 `round = ?`), 화면은 합계를 보고 되돌리기를 내줬다 —
+     * 누르면 지울 것이 없어 아무 일도 일어나지 않았다.
+     *
+     * 예산(`used`)은 그대로 라운드마다 따로 센다. 그건 처음부터 맞았다.
+     */
+    const round = roundOf(meta.phase);
     for (const r of mine) {
-      sentTo[r.to_id] = (sentTo[r.to_id] ?? 0) + r.n;
+      if (r.round === round) sentTo[r.to_id] = (sentTo[r.to_id] ?? 0) + r.n;
       used[r.round] += r.n;
     }
 
     const matches: MatchInfo[] = [];
     if (meta.phase === "done") {
-      const { mutual } = this.pairs();
-      const mySeat = this.mySeat(playerId, meta.phase);
+      // 매칭은 **만나보고 찌른 것**만 센다 (ADR-34). 매력 투표는 자리의 재료일 뿐이다
+      const { mutual } = this.pairs("party");
+      const mySeat = this.mySeat(playerId);
       const last = this.lastPublished();
       for (const [a, b] of mutual) {
         const otherId = a === playerId ? b : b === playerId ? a : null;
@@ -1316,16 +1581,20 @@ export class EventDO extends DurableObject {
         const other = this.player(otherId);
         if (!other) continue;
         const theirTable = last?.seats.find((s) => s.playerId === otherId)?.table;
+
+        /*
+         * **실명이 참가자에게 나가는 유일한 자리다** (ADR-19·42). 조건 셋이 여기 겹쳐 있다 —
+         * 이 블록은 `meta.phase === "done"` 안이고(①), `mutual` 에 든 쌍만 지나며(②),
+         * 꺼내는 건 `other` 의 것이다(③).
+         *
+         * ⚠️ **여기에 `other.phone`·`other.instagram` 을 다시 더하지 마라** (ADR-42).
+         * 연락처는 매칭된 쌍에게도 안 나간다 — 앱은 *누구와 마음이 맞았는지*까지만 알려주고,
+         * 연락은 그 자리에서 두 사람이 직접 한다. `MatchInfo` 에 담을 자리가 없는 것이 곧 방어다.
+         */
         matches.push({
           player: toPublic(other, meta.phase),
           sameTable: mySeat && theirTable === mySeat.table ? mySeat.table : undefined,
-          // 연락처가 참가자에게 나가는 유일한 자리다 (ADR-19).
-          // 이 블록은 `meta.phase === "done"` 안이고, `mutual` 에 든 쌍만 지난다
-          contact: {
-            realName: other.realName,
-            phone: other.phone,
-            ...(other.instagram ? { instagram: other.instagram } : {}),
-          },
+          realName: other.realName,
         });
       }
     }
@@ -1336,7 +1605,8 @@ export class EventDO extends DurableObject {
         party: { max: meta.config.maxParty, used: used.party },
       },
       sentTo,
-      receivedCount: this.receivedCount(playerId),
+      // 알림을 끈 라운드는 발표 전까지 세지 않는다 (ADR-34·43) — `visibleReceived` 가 판단한다
+      received: this.visibleReceived(playerId, meta),
       matches,
     };
   }
@@ -1347,33 +1617,53 @@ export class EventDO extends DurableObject {
    * 상호 매칭은 **주고받은 콕이 많은 순**으로 준다 (ADR-25). 한 사람이 여러 명과 이어졌는데
    * 정원이 모자라면 앞의 쌍이 자리를 가져가고, 화면의 커플 목록도 같은 순서로 읽힌다.
    */
-  private pairs() {
+  /**
+   * 쌍을 센다. `only` 를 주면 그 라운드만 본다.
+   *
+   * **매칭은 `party` 만 본다** (ADR-34). 매력 투표는 프로필만 보고 고른 것이라
+   * 첫 자리 배정의 재료일 뿐이고, 만나보고 찌른 것과 같은 무게로 세면 안 된다.
+   * 자리 배정은 반대로 **둘 다** 본다 — 첫 라운드를 정하는 게 매력 투표다.
+   */
+  /**
+   * 서로 찌른 쌍과 한쪽만 찌른 쌍, 그리고 **쌍마다 오간 표의 총합**.
+   *
+   * `votes` 는 **단방향 쌍에도 채운다** (ADR-40) — 자리 배정의 끌림이 표 하나하나에서
+   * 나오기 때문이다. 예전에는 상호 쌍에만 있었고, 그래서 한 사람에게 세 번 투표한 것과
+   * 한 번 투표한 것이 자리에서는 똑같았다.
+   */
+  private pairs(only?: PokeRound) {
     const sent = new Map<string, number>();
-    for (const k of this.pokes()) sent.set(`${k.fromId}>${k.toId}`, (sent.get(`${k.fromId}>${k.toId}`) ?? 0) + 1);
+    for (const k of this.pokes()) {
+      if (only && k.round !== only) continue;
+      const key = `${k.fromId}>${k.toId}`;
+      sent.set(key, (sent.get(key) ?? 0) + 1);
+    }
 
     const mutual: Array<[string, string]> = [];
     const oneWay: Array<[string, string]> = [];
-    const strength: Record<string, number> = {};
-    for (const key of sent.keys()) {
+    const votes: Record<string, number> = {};
+    const add = (a: string, b: string, n: number) => {
+      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+      votes[key] = (votes[key] ?? 0) + n;
+    };
+    for (const [key, n] of sent) {
       const [a, b] = key.split(">");
+      add(a, b, n);
       if (sent.has(`${b}>${a}`)) {
-        if (a < b) {
-          mutual.push([a, b]);
-          strength[`${a}|${b}`] = (sent.get(key) ?? 0) + (sent.get(`${b}>${a}`) ?? 0);
-        }
+        // 상호는 한 번만 담는다. 뒤집힌 같은 쌍이 또 오기 때문
+        if (a < b) mutual.push([a, b]);
       } else {
         oneWay.push([a, b]);
       }
     }
-    mutual.sort((x, y) => strength[`${y[0]}|${y[1]}`] - strength[`${x[0]}|${x[1]}`]);
-    return { mutual, oneWay, strength };
+    mutual.sort((x, y) => votes[`${y[0]}|${y[1]}`] - votes[`${x[0]}|${x[1]}`]);
+    return { mutual, oneWay, votes };
   }
 
   private seatings(): SeatingRound[] {
     return this.rows<SeatingRow>("SELECT * FROM seatings ORDER BY round").map((r) => ({
       round: r.round,
       tableCount: r.table_count,
-      final: !!r.final,
       status: r.status,
       seats: JSON.parse(r.seats) as Seat[],
       acks: JSON.parse(r.acks) as string[],
@@ -1399,8 +1689,17 @@ export class EventDO extends DurableObject {
    * 발표 후에도 남긴다. 매칭 상대와 같은 테이블이었는지를 발표 화면이 쓴다 (`MatchInfo.sameTable`).
    * **화면에서 감추는 것으로는 부족하다** — 개발자 도구를 여는 참가자가 있다.
    */
-  private mySeat(playerId: string, phase: Phase): MySeat | undefined {
-    if (phase !== "party" && phase !== "done") return undefined;
+  /**
+   * **발행하면 그 순간부터 보인다** (ADR-39). 단계를 보지 않는다.
+   *
+   * 슬라이스 12 에서는 파티가 시작돼야 보이게 막았다 — 운영자가 자리를 미리 짜두려면
+   * 짜는 동안 참가자에게 새지 않아야 했기 때문이다. 그 방어는 지금 **초안**이 맡는다.
+   * 초안은 발행하기 전까지 `lastPublished()` 에 잡히지 않는다.
+   *
+   * 게이트를 풀어야 했던 이유는 **일찍 온 사람을 앉히기** 위해서다.
+   * 파티 시작 전에 자리를 보내고, 온 사람이 자기 테이블을 보고 앉아 기다린다.
+   */
+  private mySeat(playerId: string): MySeat | undefined {
     const last = this.lastPublished();
     if (!last) return undefined;
     const mine = last.seats.find((s) => s.playerId === playerId);
@@ -1414,7 +1713,6 @@ export class EventDO extends DurableObject {
     return {
       round: last.round,
       table: mine.table,
-      final: last.final,
       mates: mates.length,
       men,
       acked: last.acks.includes(playerId),
@@ -1422,15 +1720,19 @@ export class EventDO extends DurableObject {
   }
 
   private writeSeating(s: SeatingRound) {
+    /*
+     * **`final` 칸은 쓰지 않는다** (ADR-51). 칸은 남겨둔다 — `DROP COLUMN` 은 옛 회차의
+     * 표를 건드리는 일이고, `NOT NULL DEFAULT 0` 이라 안 적어도 들어간다.
+     * `contact_share`·`attendance` 와 같은 자리다.
+     */
     this.ctx.storage.sql.exec(
-      `INSERT INTO seatings (round, table_count, final, status, seats, acks, created_at, published_at)
-       VALUES (?,?,?,?,?,?,?,?)
+      `INSERT INTO seatings (round, table_count, status, seats, acks, created_at, published_at)
+       VALUES (?,?,?,?,?,?,?)
        ON CONFLICT(round) DO UPDATE SET
-         table_count=excluded.table_count, final=excluded.final, status=excluded.status,
+         table_count=excluded.table_count, status=excluded.status,
          seats=excluded.seats, acks=excluded.acks, published_at=excluded.published_at`,
       s.round,
       s.tableCount,
-      s.final ? 1 : 0,
       s.status,
       JSON.stringify(s.seats),
       JSON.stringify(s.acks),
@@ -1442,6 +1744,7 @@ export class EventDO extends DurableObject {
 }
 
 // ─────────────────────────── 순수 헬퍼
+
 
 interface AnnRow {
   id: string;
@@ -1480,7 +1783,6 @@ interface PlayerRow {
 interface SeatingRow {
   round: number;
   table_count: number;
-  final: number;
   status: "draft" | "published";
   seats: string;
   acks: string;
@@ -1576,20 +1878,32 @@ function inRange(n: number, r: { min: number; max: number }): boolean {
 }
 
 /**
- * 다음에 울릴 예약 시각. fired 가 찬 항목은 이미 울린 것이므로 건너뛴다.
- * 사전 투표 마감부터는 예약이 없어서 알람도 걸지 않는다.
+ * 이 라운드의 알림이 켜져 있나 (ADR-43). **되돌리기와 같은 꼴이다** —
+ * 매력 투표는 `preNotify`, 파티 콕은 `pokeNotify`. 둘 다 없으면 알리지 않는다.
  */
-function nextDue(meta: EventMeta): number | null {
-  const { phase, fired, schedule } = meta;
-  if (phase === "prep" && schedule.regOpenAt && !fired.reg) return schedule.regOpenAt;
-  if (phase === "reg" && schedule.prevoteAt && !fired.prevote) return schedule.prevoteAt;
-  return null;
+function notifyOn(config: EventConfig, round: PokeRound): boolean {
+  return round === "pre" ? config.preNotify === true : config.pokeNotify === true;
 }
 
 /**
  * 순서 검증. 등록보다 먼저 사전 투표가 열리는 것만 막는다.
  * 파티 일시는 언제든 옮길 수 있다 — 장소가 바뀌면 시각이 바뀌고, 그건 일정이 아니라 사실이다.
  */
-export function validSchedule(s: EventSchedule): boolean {
-  return !(s.regOpenAt && s.prevoteAt && s.prevoteAt <= s.regOpenAt);
+const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt", "revealAt"] as const;
+
+/**
+ * 굳는 규칙 다섯을 **뜻으로** 편다 (ADR-35·43).
+ *
+ * 기본값이 항목마다 다르다 — 대상·되돌리기는 없으면 '열림', 알림은 없으면 '끔'.
+ * 그래서 `undefined` 를 그대로 견주면 안 되고, 저마다의 기본으로 접어서 본다.
+ * 새 규칙을 굳히려면 이 배열에 한 줄을 더한다. 그게 잠금 목록의 전부다.
+ */
+function frozenRules(c: EventConfig): boolean[] {
+  return [
+    c.allowSameGender !== false,
+    c.allowUndo !== false,
+    c.allowUndoPre !== false,
+    c.preNotify === true,
+    c.pokeNotify === true,
+  ];
 }

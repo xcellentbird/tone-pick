@@ -1,7 +1,13 @@
 /**
  * 내 정보 탭.
  *
- * 실명과 전화번호는 기본으로 가린다 — 파티장에서 어깨너머로 보인다.
+ * **전화번호와 인스타는 여기 없다** (ADR-47). 이 탭이 답하는 질문이 *내가 낸 것이 무엇인가* 인데
+ * 번호는 참가자가 낸 값이 아니고(초대 명단에서 온다 — ADR-32), 인스타는 운영자 확인용이라
+ * 남에게도 나에게도 보여줄 자리가 아니다. 실명은 그대로 보여준다 — 내가 적은 값이다.
+ *
+ * 그래서 **가리기 토글도 없다.** 가릴 것이 없어진 토글은 아무 일도 안 하면서
+ * "여기 감춘 게 있다" 고 말한다. ⚠️ 참가자 탭의 어깨너머 가리기(`ROSTER.cover`, 슬라이스 16)는
+ * **다른 기능이다** — 그건 콕 버튼을 덮는 것이고 그대로 있다.
  *
  * **결과는 여기 없다.** 서로 찌른 사람도, 익명으로 남은 콕도 참가자 탭에서 본다 (ADR-18) —
  * 같은 것을 두 곳에 두면 어느 쪽이 맞는지 눈이 한 번 더 확인하게 된다.
@@ -12,7 +18,7 @@
  */
 import { useEffect, useState } from "react";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, UNIT } from "../../shared/copy.ts";
-import type { ParticipantState, Player } from "../../shared/types.ts";
+import type { MyProfile, ParticipantState } from "../../shared/types.ts";
 import { LIMITS, normalizeInstagram } from "../../shared/constants.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
@@ -61,23 +67,19 @@ export default function Me({ state, source, reload, editing, onEdit }: Props) {
 }
 
 /** 저장된 내 정보. 기본 정보와 매력을 나눠 그리되 고치는 버튼은 그 아래 하나뿐이다 */
-function Saved({ me, canEdit, edit }: { me: Player; canEdit: boolean; edit: () => void }) {
-  const [shown, setShown] = useState(false);
-
+function Saved({ me, canEdit, edit }: { me: MyProfile; canEdit: boolean; edit: () => void }) {
   return (
     <>
+      {/*
+        전화번호·인스타 줄을 여기 되살리지 마라 (ADR-47). 번호는 응답에 아예 없고,
+        인스타는 **고치는 폼에만** 있다 — 값을 되보여주는 자리가 아니라 고치는 칸이라서다.
+      */}
       <div className="card stack">
         <Row label={ME.labels.nickname} value={me.nickname} />
         <Row label={ME.labels.age} value={UNIT.age(me.age)} />
         <Row label={ME.labels.gender} value={GENDER[me.gender]} />
         <Row label={ME.labels.mbti} value={me.mbti} />
-        <Row label={ME.labels.realName} value={shown ? me.realName : ME.hidden} />
-        <Row label={ME.labels.phone} value={shown ? me.phone : ME.hidden} />
-        {me.instagram && <Row label={ME.labels.instagram} value={shown ? me.instagram : ME.hidden} />}
-        <button className="btn ghost" onClick={() => setShown((v) => !v)}>
-          {shown ? ME.hide : ME.show}
-        </button>
-        <p className="tiny dim">{ME.hideNote}</p>
+        <Row label={ME.labels.realName} value={me.realName} />
       </div>
 
       <div className="card stack">
@@ -116,7 +118,7 @@ function EditForm({
   reload,
   done,
 }: {
-  me: Player;
+  me: MyProfile;
   source: ParticipantSource;
   reload: () => void;
   done: () => void;
@@ -233,12 +235,10 @@ function EditForm({
             onChange={(e) => set("instagram", e.target.value)}
             {...invalid("instagram")}
           />
+          {/* 등록 화면과 **같은 말**이어야 한다 — 두 화면이 다르게 말하면 둘 다 못 믿는다 */}
+          <p className="tiny dim">{REGISTER.instaWhy}</p>
           {err("instagram")}
         </div>
-
-        {/* 전화번호는 파티의 문이라 고칠 수 없다 (ADR-15). 칸이 아니라 사실로 보여준다 */}
-        <Row label={ME.labels.phone} value={me.phone} />
-        <p className="tiny dim">{ME.phoneFixed}</p>
       </div>
 
       <div className="card stack">

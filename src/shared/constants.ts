@@ -1,14 +1,31 @@
 import type { Defaults } from "./types.ts";
+import { INVITE_TEMPLATE } from "./copy.ts";
 
 /**
- * 등록은 파티 **6일 전**에 연다. 한 주 전 주말에 알리고 평일 내내 모으는 리듬이다.
- * 사전 투표는 파티 **20시간 전**에 열어, 참가자가 전날 밤에 명단을 훑어볼 수 있게 한다.
+ * 등록은 **회차를 만드는 순간** 열린다 (ADR-38). 예약이 남은 건 매력 투표뿐이다 —
+ * 파티 **20시간 전**에 열어, 참가자가 전날 밤에 명단을 훑어볼 수 있게 한다.
+ *
+ * 장소는 **빈 값이 기본**이다. 늘 같은 곳에서 여는 모임이면 한 번 적어두고 쓴다.
  */
 export const DEFAULTS: Defaults = {
   maxPre: 1,
   maxParty: 2,
-  regOpenBeforeD: 6,
+  place: "",
   prevoteBeforeH: 20,
+  /**
+   * 매력 투표는 파티 **1시간 전**에 닫힌다 (ADR-39).
+   * 그 한 시간이 운영자가 첫 자리를 짜고 손보고 내보내는 시간이다.
+   */
+  voteEndBeforeH: 1,
+  /**
+   * 커플 발표는 파티 **3시간 뒤** (ADR-43). 두세 시간이면 라운드가 다 돌고
+   * 이야기도 한 바퀴 돈다 — 그보다 이르면 아직 안 만나본 사람이 남는다.
+   *
+   * **예약이 있어도 운영자가 먼저 누를 수 있다.** 이 값은 "안 누르면 이때" 이지
+   * "이때 끝난다" 가 아니다.
+   */
+  revealAfterH: 3,
+  inviteTemplate: INVITE_TEMPLATE,
 };
 
 /**
@@ -23,11 +40,16 @@ export const DEFAULTS: Defaults = {
 export function withDefaults(saved: Partial<Defaults> | null | undefined): Defaults {
   const num = (v: unknown, fallback: number) =>
     typeof v === "number" && Number.isFinite(v) ? v : fallback;
+  const text = (v: unknown, fallback: string) => (typeof v === "string" && v.trim() ? v : fallback);
   return {
     maxPre: num(saved?.maxPre, DEFAULTS.maxPre),
     maxParty: num(saved?.maxParty, DEFAULTS.maxParty),
-    regOpenBeforeD: num(saved?.regOpenBeforeD, DEFAULTS.regOpenBeforeD),
+    // 장소는 **비워두는 것도 뜻이 있다** — 회차마다 다른 곳에서 연다는 뜻이다
+    place: text(saved?.place, DEFAULTS.place),
     prevoteBeforeH: num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH),
+    voteEndBeforeH: num(saved?.voteEndBeforeH, DEFAULTS.voteEndBeforeH),
+    revealAfterH: num(saved?.revealAfterH, DEFAULTS.revealAfterH),
+    inviteTemplate: text(saved?.inviteTemplate, DEFAULTS.inviteTemplate),
   };
 }
 
@@ -44,37 +66,48 @@ export const LIMITS = {
   /** 매력 한 줄 상한. 문장으로 써도 좋지만 명단 카드가 견디는 크기까지만 */
   charmMax: 100,
   tableMax: 12,
-  /** 회차별 파기 대기 일수 범위. 기본은 `RETENTION_DAYS` */
-  retentionDays: { min: 1, max: 14 },
   /**
    * 한 회차 초대 명단 상한. 붙여넣기 사고로 수만 줄이 들어오는 걸 막는다.
    * 파티 규모의 상한이 아니다 — 100명 파티 + 시연·리허설 여유가 들어가는 크기로 둔다.
    */
   inviteMax: 150,
+  /** 장소 상한. 안내문에 한 줄로 들어가는 값이라 한 줄이 견디는 크기까지만 */
+  placeMax: 60,
+  /** 안내문 문구 상한. 문자 한 통에 들어가는 크기를 훌쩍 넘기지 않게 (ADR-32) */
+  inviteTemplateMax: 500,
   /** 테이블당 인원이 이 범위를 벗어나면 운영자에게 경고 */
   seatPerTable: { warnBelow: 2, warnAbove: 8 },
 } as const;
 
 /** 자리 배정 벌점 가중치. 상세는 문서 `자리배정-알고리즘.md` */
+/**
+ * 자리 배정 가중치. 낮을수록 좋은 자리다 (벌점), 음수는 끌어당기는 힘이다.
+ *
+ * **끌림은 표 하나하나가 만든다** (ADR-40). 예전에는 상호냐 단방향이냐 **두 칸**뿐이라,
+ * 한 사람에게 세 번 투표한 것과 한 번 투표한 것이 똑같이 −4 였다.
+ * 매력 투표를 여러 표로 열어둔 회차에서는 그 표들이 자리에 아무 말도 하지 않았다.
+ */
 export const SEAT_W = {
   AGE: 30,          // 10살 이상 차이 — 가장 무겁다
   REP: 8,           // 재회 (라운드마다 증가, AGE*0.75 상한)
   IE: 4,            // I·E 쏠림
-  POKE_MUTUAL: 12,  // 상호 매칭 동석 보너스
-  POKE_ONE: 4,      // 단방향 콕 동석 보너스
+  VOTE: 4,          // **표 하나당** 끌림. 어느 쪽이 보냈든 같다
+  MUTUAL: 8,        // 서로 보냈다는 사실에 **얹는** 부가 점수
 } as const;
 
 /**
- * 회차를 얼마나 들고 있을 것인가.
+ * 끌림의 상한. **나이차 벌점(30)을 넘지 못한다.**
  *
- * 파티 뒤 며칠은 참가자가 결과를 다시 본다. 그 뒤로는 실명과 전화번호를 들고 있을 이유가 없다 —
- * 이 앱이 참가자에게 요구한 것 중 가장 무거운 게 그 둘이다.
+ * 넘게 두면 한 쌍이 나이차를 통째로 밀어내고 그 테이블만 이상해진다 (ADR-11).
+ *
+ * 서로 좋아하는데 나이차가 큰 쌍은 **이 식이 못 붙인다.** 붙이는 일은 운영자가 한다 —
+ * 자리 탭이 쌍을 💘 로 짚어주고 맞교환으로 옮긴다 (ADR-51).
+ * 한동안 마지막 라운드가 구조로 붙였는데, 그 라운드를 걷어내면서 여기로 왔다.
  */
-export const RETENTION_DAYS = 3;
+export const PULL_CAP = 24;
 
 export const AGE_GAP = 10;
 export const REP_CAP_RATIO = 0.75;
-export const FINAL_MUTUAL_BOOST = 2.5;
 
 /**
  * 입장 문을 두드리는 횟수 제한.

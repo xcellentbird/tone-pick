@@ -1,11 +1,11 @@
 /**
- * 참가자 화면 한 벌. 네 탭(홈·참가자·내 정보·오늘)이 이 컴포넌트 하나를 나눠 쓴다.
+ * 참가자 화면 한 벌. 네 탭(홈·참가자·내 정보·재미)이 이 컴포넌트 하나를 나눠 쓴다.
  *
  * 자료는 통로(source)로 받는다 — 화면은 세션도 요청 경로도 모른다.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { BTN, ENTRY, FAIL, TABS_PARTICIPANT } from "../../shared/copy.ts";
+import { BTN, ENTRY, FAIL, FORTUNE, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
@@ -18,11 +18,13 @@ import People from "./People.tsx";
 import Me from "./Me.tsx";
 import Home from "./Home.tsx";
 import SeatTakeover from "../ui/SeatTakeover.tsx";
+import Sheet from "../ui/Sheet.tsx";
+import Help from "../ui/Help.tsx";
 import { canOpenFortune } from "../../shared/phase.ts";
 import FortuneTab from "./Fortune.tsx";
 import StatusBar from "../ui/StatusBar.tsx";
 
-export type Tab = "home" | "fortune" | "people" | "me";
+export type Tab = "home" | "fun" | "people" | "me";
 
 interface ViewProps {
   source: ParticipantSource;
@@ -51,6 +53,48 @@ interface ViewProps {
    */
   seatOpen?: boolean;
   onSeat: (on: boolean, opts?: { replace?: boolean }) => void;
+  /**
+   * 파티 룰 도움말. 라우트라 뒤로 가기로 닫힌다.
+   *
+   * 자리 확인창과 달리 **되돌릴 자리가 없는 경우를 걱정하지 않아도 된다** —
+   * 주소를 직접 열 일이 없고, 열더라도 볼 것이 늘 있다.
+   */
+  helpOpen?: boolean;
+  onHelp: (on: boolean) => void;
+}
+
+/**
+ * 하단 탭.
+ *
+ * **'재미' 는 없다가 생기지 않는다** (ADR-20 후기). 처음부터 자리를 지키고,
+ * 매력 투표와 함께 켜진다 — 탭이 도중에 생기면 넷이 나눠 쓰던 폭이 통째로 다시 나뉘어
+ * 손가락이 기억한 자리가 어긋난다.
+ *
+ * 꺼진 탭은 **죽은 버튼이 아니다.** 누르면 언제 열리는지 말한다 —
+ * 눌러도 아무 일이 없으면 고장으로 읽힌다. (`Overlays` 안이라 토스트를 쓸 수 있다)
+ */
+function Tabs({ tab, onTab, funOpen }: { tab: Tab; onTab: (t: Tab) => void; funOpen: boolean }) {
+  const { toast } = useOverlay();
+  return (
+    <nav className="tabbar">
+      {TABS_PARTICIPANT.map((t) => {
+        const off = t.key === "fun" && !funOpen;
+        return (
+          <button
+            key={t.key}
+            className={tab === t.key ? "active" : ""}
+            /* `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 */
+            aria-disabled={off || undefined}
+            onClick={() => (off ? toast(FORTUNE.closed) : onTab(t.key as Tab))}
+            aria-current={tab === t.key}
+          >
+            <span className="icon">{t.icon}</span>
+            <span>{t.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
 }
 
 /** URL 이 상태를 들고 있는 진짜 참가자 화면 */
@@ -66,8 +110,8 @@ export default function Participant() {
   const editing = location.pathname.endsWith("/me/edit");
   const tab: Tab = location.pathname.endsWith("/me") || editing
     ? "me"
-    : location.pathname.endsWith("/fortune")
-      ? "fortune"
+    : location.pathname.endsWith("/fun")
+      ? "fun"
       : location.pathname.endsWith("/people") || location.pathname.includes("/p/")
         ? "people"
         : "home";
@@ -76,6 +120,8 @@ export default function Participant() {
     : undefined;
   // 자리 화면을 **다시 여는** 길. 자동으로 뜨는 쪽은 라우트가 아니다 — 참가자가 연 게 아니다
   const seatOpen = location.pathname.endsWith("/seat");
+  // 도움말도 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md)
+  const helpOpen = location.pathname.endsWith("/help");
 
   return (
     <ParticipantView
@@ -97,6 +143,8 @@ export default function Participant() {
       // 시트 열기는 push, 닫기는 뒤로 가기 — 안드로이드 백 버튼으로 닫혀야 한다
       onProfile={(id) => (id ? navigate(`${base}/p/${id}`) : navigate(-1))}
       seatOpen={seatOpen}
+      helpOpen={helpOpen}
+      onHelp={(on) => (on ? navigate(`${base}/help`) : navigate(-1))}
       /*
        * 편집과 같다 — **닫기는 뒤로 가기**이되, 주소를 직접 연 사람에게는 뒤로 갈 자리가 없다.
        * 그때 `navigate(-1)` 은 앱을 벗어난다. iOS 는 가장자리 스와이프가 뒤로 가기라 더 쉽게 걸린다.
@@ -173,6 +221,8 @@ function Loaded({
   state,
   reload,
   setPoke,
+  helpOpen,
+  onHelp,
 }: ViewProps & { state: ParticipantState; reload: () => void; setPoke: (poke: MyPokeState) => void }) {
   const [acked, setAcked] = useState<number[]>([]);
   const banner = bannerOf(noticesOf(state), now());
@@ -203,6 +253,24 @@ function Loaded({
     if (seatOpen && !state.seat) onSeat(false, { replace: true });
   }, [seatOpen, state.seat, onSeat]);
 
+  /**
+   * 파티가 시작됐나. 자리 확인 화면의 문장이 여기서 갈린다 (ADR-39) —
+   * 첫 자리는 파티 전에 나가고, 그때 받는 사람은 **아직 오는 중**일 수 있다.
+   */
+  const started = state.event.phase === "party" || state.event.phase === "done";
+
+  /*
+   * 아직 안 열린 '재미' 주소를 직접 연 경우. 탭이 꺼져 있어도 주소는 칠 수 있다 —
+   * 자리 화면과 같이 홈으로 **갈아끼운다** (`onTab` 이 replace 한다).
+   *
+   * 탭의 문은 **가장 먼저 열리는 카드의 문**이다. 지금은 그게 운세라 `canOpenFortune` 이
+   * 그대로 탭의 문이고, 더 일찍 열리는 카드가 들어오면 이 줄이 바뀔 자리다.
+   */
+  const funOpen = canOpenFortune(state.event.phase);
+  useEffect(() => {
+    if (tab === "fun" && !funOpen) onTab("home");
+  }, [tab, funOpen, onTab]);
+
   // 발표가 끝났으면 자리 이동 확인을 띄우지 않는다 (FLOWS.md)
   const needsSeatAck =
     !!state.seat && !state.seat.acked && !acked.includes(state.seat.round) && state.event.phase !== "done";
@@ -213,7 +281,7 @@ function Loaded({
       <div className="screen">
         {/* 스크롤해도 남는 자리다. 여기엔 반복해서 볼 것만 둔다 */}
         <header className="bar">
-          <StatusBar state={state} />
+          <StatusBar state={state} onHelp={() => onHelp(true)} />
         </header>
 
         <div className="body stack">
@@ -223,15 +291,17 @@ function Loaded({
              * 홈에는 소식 목록이 있고, 목적지 탭에는 소식 그 자체가 있다.
              * 누르면 그 알림의 목적지로 간다. 발표는 홈이 아니라 참가자 탭이다.
              */
-            <button className={`banner ${banner.warn ? "warn" : ""}`} onClick={() => onTab(banner.tab)}>
+            <button className="banner" onClick={() => onTab(banner.tab)}>
               <span className="icon">{banner.icon}</span>
               <span className="grow">
                 <span className="name">{banner.title}</span>
-                <div className="small dim">{banner.body}</div>
+                {banner.body && <div className="small dim">{banner.body}</div>}
               </span>
             </button>
           )}
-          {tab === "home" && <Home state={state} onTab={onTab} onSeat={() => onSeat(true)} />}
+          {tab === "home" && (
+            <Home state={state} onTab={onTab} onSeat={() => onSeat(true)} onHelp={() => onHelp(true)} />
+          )}
           {tab === "people" && (
             <People
               state={state}
@@ -243,36 +313,41 @@ function Loaded({
               onTab={onTab}
             />
           )}
-          {tab === "fortune" && <FortuneTab state={state} reload={reload} />}
+          {/* 재미 탭. 지금은 운세 카드 하나뿐이다 — 이상형 찾기가 여기 두 번째로 붙는다 */}
+          {tab === "fun" && <FortuneTab state={state} reload={reload} />}
           {tab === "me" && (
             <Me state={state} source={source} reload={reload} editing={!!editing} onEdit={onEdit} />
           )}
         </div>
 
-        <nav className="tabbar">
-          {/* '오늘' 은 파티가 시작돼야 생긴다. 그 전에는 빈 탭을 보여줄 이유가 없다 */}
-          {TABS_PARTICIPANT.filter((t) => t.key !== "fortune" || canOpenFortune(state.event.phase)).map((t) => (
-            <button
-              key={t.key}
-              className={tab === t.key ? "active" : ""}
-              onClick={() => onTab(t.key as Tab)}
-              aria-current={tab === t.key}
-            >
-              <span className="icon">{t.icon}</span>
-              <span>{t.label}</span>
-            </button>
-          ))}
-        </nav>
+        <Tabs tab={tab} onTab={onTab} funOpen={funOpen} />
 
         {/*
           아직 안 본 사람에게는 **자동으로** 덮치고 확인을 받는다.
           이미 본 사람이 홈에서 다시 연 경우(`/seat`)에는 닫기만 있다 —
           이미 센 사람을 또 세면 `acks` 가 뜻을 잃는다.
         */}
-        {needsSeatAck && state.seat && <SeatTakeover seat={state.seat} onAck={ack} />}
+        {needsSeatAck && state.seat && <SeatTakeover seat={state.seat} started={started} onAck={ack} />}
         {!needsSeatAck && seatOpen && state.seat && (
-          <SeatTakeover seat={state.seat} onClose={() => onSeat(false)} />
+          <SeatTakeover seat={state.seat} started={started} onClose={() => onSeat(false)} />
         )}
+
+        {/* 파티 룰 도움말. 어느 탭에서 열든 같은 것이 뜬다 */}
+        <Sheet open={!!helpOpen} onClose={() => onHelp(false)} title={HELP.title}>
+          <Help state={state} />
+          {/*
+            **읽기를 마친 손가락이 그 자리에서 닫는다.** 도움말은 화면을 거의 덮고
+            등록을 마치면 저절로 열리는데, 그때까지 닫는 길은 뒤로 가기와 바깥 누르기뿐이라
+            **처음 들어온 사람이 나갈 곳을 찾아 헤맸다** — 하필 그 사람이 이 글의 독자다.
+            프로필 시트가 이미 같은 자리에 같은 버튼을 둔다 (`People.tsx`).
+
+            닫기는 여전히 **뒤로 가기**다 (ROUTES.md) — 이 버튼도 `navigate(-1)` 로 간다.
+            여기서 주소를 직접 갈아끼우면 히스토리에 도움말이 남아 뒤로 가기가 다시 연다.
+          */}
+          <button className="btn block ghost" onClick={() => onHelp(false)}>
+            {BTN.close}
+          </button>
+        </Sheet>
       </div>
     </Overlays>
   );

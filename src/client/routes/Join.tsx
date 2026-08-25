@@ -1,85 +1,87 @@
 /**
- * 참가 링크가 여는 화면. **방이 보이고, 전화번호를 맞춰야 들어간다** (ADR-15).
+ * 참가 링크가 여는 화면. **링크가 곧 신원이다** (ADR-32).
  *
- * 링크만 받은 사람은 "어느 파티인가"까지만 볼 수 있고, 문을 여는 건
- * **운영자가 미리 받아둔 번호**다. 코드 여섯 자리는 옮겨 적을 수 있지만
- * 남의 번호로는 들어올 수 없다 — 참가 링크는 한 번 뿌려지면 어디까지 퍼질지 모른다.
+ * 번호를 묻지 않는다. 같은 파티에 오는 사람들은 서로 번호를 아는 사이라
+ * 번호는 열쇠가 못 됐다 — 번호를 아는 사람이 그 사람이 될 수 있었다 (ADR-15 후기 2).
  *
- * 등록할 수 있는 상태인지는 서버가 판단해서 문장까지 들려준다 —
- * 준비 중이면 언제 열리는지, 끝났으면 끝났다고.
+ * **그런데 이 화면은 남는다.** 곧바로 등록 폼으로 넘기지 않는 이유가 둘이다 —
+ *   · 안내문은 등록 시작 **전에** 보낸다. 일찍 연 사람에게 "언제 열리는지" 를 말할 자리가 필요하다
+ *   · 링크를 열자마자 입력 폼이 뜨는 것보다 어느 파티인지 한 번 보여주는 쪽이 낫다
+ *
+ * **장소는 여기 없다.** 안내문으로만 알린다 (ADR-32) — 지금 운영이 그렇다.
  *
  * 그리고 **이미 등록한 사람인지 먼저 본다** — 아니면 등록을 마친 사람이 링크를 다시 열 때마다
- * 코드부터 다시 물어본다. (실제로 그랬다)
+ * 문을 다시 두드리게 된다.
+ *
+ * ⚠️ **그 판정은 토큰이 한다. 브라우저 쿠키가 아니다** (ADR-44).
+ *    예전에는 여기서 `/me?event=` 를 먼저 불러 "이 브라우저에 세션이 있나" 로 넘겼는데,
+ *    쿠키는 탭이 아니라 브라우저 단위라 **두 번째 탭에서 다른 사람의 링크를 열면
+ *    첫 번째 탭의 사람으로 넘어갔다.** 링크가 사람마다 달라도 소용이 없었다 —
+ *    토큰을 보기도 전에 답이 정해져 있었기 때문이다.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, PHASE_LABEL, SCREEN_TITLE } from "../../shared/copy.ts";
-import type { EnterResult, ParticipantState, PublicEvent } from "../../shared/types.ts";
+import type { EnterResult, PublicEvent } from "../../shared/types.ts";
 import { formatWhen } from "../../shared/time.ts";
-import { PHONE_SEED, formatPhone, typedPhone } from "../../shared/constants.ts";
-import { keepPhoneSeed } from "../lib/phoneField.ts";
 import { ApiError, api, post } from "../lib/api.ts";
+import { setTabRef } from "../lib/session.ts";
 import { useLoad } from "../lib/useLoad.ts";
 
 export default function Join() {
-  const { id = "" } = useParams();
+  const { id = "", token = "" } = useParams();
   const navigate = useNavigate();
-  const found = useLoad(() => api<PublicEvent>(`/events/by-id/${id}`), [id]);
-  // 세션이 이 회차의 것인지 서버가 판정한다. 다른 회차 세션이면 401 이 와서 여기 남는다
-  const [checking, setChecking] = useState(true);
-  /**
-   * **`010` 을 미리 채워 둔다.** 거의 모든 번호가 그렇게 시작하니 세 번의 탭을 아낀다.
-   *
-   * 고정 접두사(칸 밖의 라벨)로 두지 않은 이유가 둘이다 —
-   *   · **자동완성이 살아야 한다.** 칸이 여덟 자리짜리면 브라우저가 채운 열한 자리가 안 들어간다.
-   *     세 번 아끼려다 열한 번을 잃는다
-   *   · 011·016 처럼 다른 번호도 지우고 칠 수 있어야 한다. 고정하면 그 사람은 문 앞에서 막히는데,
-   *     실패 문구는 하나뿐이라(ADR-15) 왜 막혔는지 알 길이 없다
-   *
-   * 상태는 **숫자만** 들고, 하이픈은 그릴 때만 넣는다 (생년월일 칸과 같은 방식).
-   */
-  const [phone, setPhone] = useState(PHONE_SEED);
+  // 회차 정보도 토큰이 있어야 열린다 — 아이디만으로 열리면 토큰을 만든 의미가 없다
+  const found = useLoad(
+    () => api<PublicEvent>(`/events/by-id/${id}?t=${encodeURIComponent(token)}`),
+    [id, token],
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** 자동 입장은 한 번뿐이다. 회차 정보가 다시 그려져도 문을 두 번 두드리지 않는다 */
+  const entered = useRef(false);
 
-  useEffect(() => {
-    let alive = true;
-    api<ParticipantState>(`/me?event=${encodeURIComponent(id)}`)
-      .then((state) => {
-        // 이미 등록한 사람이다. 뒤로 가기로 이 화면에 되돌아가지 않게 replace 로 넘긴다
-        if (alive) navigate(`/e/${state.event.code}`, { replace: true });
-      })
-      .catch(() => alive && setChecking(false));
-    return () => {
-      alive = false;
-    };
-  }, [id, navigate]);
-
-  async function unlock(e: React.FormEvent) {
-    e.preventDefault();
+  const start = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      // 통과하면 서버가 쿠키를 준다. 이미 등록한 사람은 곧바로 자기 화면으로
-      const res = await post<EnterResult>(`/events/${id}/enter`, { phone });
-      navigate(res.registered && res.code ? `/e/${res.code}` : `/j/${id}/register/1`, {
+      // 통과하면 서버가 쿠키를 준다. 번호는 서버가 토큰에서 꺼낸다 — 폼이 번호를 만지지 않는다
+      const res = await post<EnterResult>(`/events/${id}/enter`, { token });
+      /*
+       * **이 탭이 누구인지 기억한다** (ADR-44). 다음 요청부터 이 이름표가 실려,
+       * 다른 탭이 다른 링크로 들어와도 서로를 덮지 않는다.
+       */
+      setTabRef(res.ref);
+      navigate(res.registered && res.code ? `/e/${res.code}` : `/j/${id}/${token}/register/1`, {
         replace: res.registered,
       });
     } catch (err) {
-      // 번호가 틀려도 입력값을 지우지 않는다 — 다시 치게 하는 건 벌이다 (UI.md)
       setError(err instanceof ApiError ? (err.userMessage ?? ENTRY.notInvited) : ENTRY.notInvited);
       setBusy(false);
     }
-  }
+  }, [id, token, navigate]);
 
-  if (checking) return <div className="screen" />;
+  /*
+   * 등록을 마친 사람은 링크를 여는 것만으로 자기 화면으로 간다.
+   *
+   * **판정은 `found.data.registered` 다** — 서버가 **이 토큰으로** 답한 값이다.
+   * 브라우저에 어떤 세션이 남아 있든 보지 않는다. 그게 탭이 서로를 덮던 원인이었다.
+   */
+  const registered = found.data?.registered;
+  useEffect(() => {
+    if (entered.current || !registered) return;
+    entered.current = true;
+    void start();
+  }, [registered, start]);
+
+  // 회차를 아직 못 읽었거나, 읽자마자 넘어갈 사람이다. 카드를 한 번 그리면 화면이 튄다
+  if ((!found.data && !found.error) || (registered && !error)) return <div className="screen" />;
 
   return (
     <div className="screen">
       {/*
         **`이전` 버튼을 두지 않는다.** 이 화면에 오는 길은 참가 링크 하나뿐이고,
-        링크로 온 사람에게는 앱 안에 돌아갈 자리가 없다 — 예전엔 여기서 코드 입력 화면으로
-        보냈는데, 링크만 받은 사람은 알지도 못하는 코드를 요구받는 막다른 길이었다.
+        링크로 온 사람에게는 앱 안에 돌아갈 자리가 없다.
         브라우저 뒤로 가기로 링크를 받은 자리(카톡)로 돌아가는 게 맞는 동작이다.
       */}
       <header>
@@ -103,25 +105,12 @@ export default function Join() {
                 {BTN.home}
               </button>
             ) : (
-              <form className="stack" onSubmit={unlock}>
-                <div className="field">
-                  <label htmlFor="phone">{ENTRY.phoneLabel}</label>
-                  <input
-                    id="phone"
-                    value={formatPhone(phone)}
-                    onChange={(e) => setPhone(typedPhone(e.target.value))}
-                    /* 미리 든 `010` 이 통째로 선택된 채 오면 다음 숫자가 그걸 덮는다 */
-                    onFocus={keepPhoneSeed}
-                    inputMode="tel"
-                    autoComplete="tel"
-                    style={{ fontSize: 20, textAlign: "center", letterSpacing: "0.06em" }}
-                  />
-                  {error ? <span className="err">{error}</span> : <span className="tiny dim">{ENTRY.gateNote}</span>}
-                </div>
-                <button className="btn primary block" disabled={phone.length < 10 || busy}>
-                  {ENTRY.submit}
+              <>
+                <button className="btn primary block" disabled={busy} onClick={start}>
+                  {found.data.registered ? ENTRY.reenter : ENTRY.start}
                 </button>
-              </form>
+                {error && <p className="err">{error}</p>}
+              </>
             )}
           </>
         )}

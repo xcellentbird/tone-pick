@@ -1,29 +1,27 @@
 /**
  * 새 회차 만들기 3스텝.
  *
- * **파티 일시가 먼저다.** 등록 시작도 사전 투표 시작도 거기서 거꾸로 계산된다 —
+ * **파티 일시가 먼저다.** 매력 투표 시작이 거기서 거꾸로 계산된다 —
  * 운영자가 실제로 아는 건 "언제 모이나" 하나뿐이고, 나머지는 그것에 딸린 값이다.
- * 파티 일시를 옮기면 아직 손대지 않은 값들이 따라 움직인다. 직접 고친 값은 그대로 둔다.
+ * 파티 일시를 옮기면 아직 손대지 않은 값이 따라 움직인다. 직접 고친 값은 그대로 둔다.
  *
- * 예약하는 건 등록 시작과 사전 투표 시작 **둘뿐**이다.
- * 사전 투표 마감·파티 시작·발표는 현장에서 운영자가 누른다 (ADR-14).
- *
- * '지금 바로'는 시각이 아니라 **토글**이다 — `datetime-local` 이 초를 버려서
- * "지금"을 시각으로 넣으면 매번 몇 초씩 어긋난다. 서버에는 리터럴 "now" 로 보낸다.
+ * **등록 시작은 묻지 않는다** (ADR-38). 회차를 만드는 순간 열린다 —
+ * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열어 지킬 것이 없었다.
+ * 그래서 예약이 걸리는 전환은 **매력 투표 시작 하나뿐**이다.
+ * 매력 투표 마감·파티 시작·발표는 현장에서 운영자가 누른다 (ADR-14).
  */
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, HOST_UI, SCREEN_TITLE, pokeEstimateLabel } from "../../../shared/copy.ts";
 import type { CreateEventInput, Defaults, EventMeta } from "../../../shared/types.ts";
-import { DEFAULTS, LIMITS, RETENTION_DAYS, pokeEstimate } from "../../../shared/constants.ts";
+import { DEFAULTS, LIMITS, pokeEstimate } from "../../../shared/constants.ts";
 import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, api, post } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
-import { Num } from "./HostDefaults.tsx";
+import { NOTIFY_OPTIONS, Num, TARGET_OPTIONS, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
 
 const HOUR = 3600_000;
-const DAY = 24 * HOUR;
 
 /** 다음 금요일 저녁 8시 — 손대지 않고 넘어가도 말이 되는 값 */
 function defaultPartyAt(from: number): number {
@@ -44,31 +42,47 @@ export default function HostWizard() {
   const requestId = useMemo(() => `w-${Date.now()}-${Math.random().toString(36).slice(2)}`, []);
 
   const [name, setName] = useState("");
-  const [openNow, setOpenNow] = useState(false);
-  const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
-  const [regOpenAt, setRegOpenAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.regOpenBeforeD * DAY);
-  const [prevoteAt, setPrevoteAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.prevoteBeforeH * HOUR);
-  // 직접 고친 값은 파티 일시를 옮겨도 따라가지 않는다. 고쳐놓은 걸 되돌리는 건 사고다
-  const [touched, setTouched] = useState<{ reg?: boolean; prevote?: boolean }>({});
-  const [maxPre, setMaxPre] = useState(DEFAULTS.maxPre);
-  const [maxParty, setMaxParty] = useState(DEFAULTS.maxParty);
+  /** 늘 같은 곳에서 여는 모임이면 기본값이 채워 온다 (ADR-38). 회차마다 고칠 수 있다 */
+  const [place, setPlace] = useState("");
   /**
-   * 콕 대상과 파기 대기 일수는 **회차 기본 설정에 없다** (`Defaults` 는 콕 횟수 둘 · 일정 오프셋 둘).
-   * 그래서 상수에서 시작한다 — 없으면 '모두에게'이고, 없으면 `RETENTION_DAYS` 다.
+   * 콕을 찌를 수 있는 대상. **기본은 '모두에게'** 다 —
+   * 누구에게 마음이 가는지는 앱이 정할 일이 아니다 (ADR-17).
+   * 좁히고 싶은 회차에서만 '이성에게만' 으로 바꾼다.
    */
   const [allowSameGender, setAllowSameGender] = useState(true);
-  const [prevoteNotice, setPrevoteNotice] = useState(true);
-  const [retentionDays, setRetentionDays] = useState(RETENTION_DAYS);
+  // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
+  const [allowUndo, setAllowUndo] = useState(true);
+  const [allowUndoPre, setAllowUndoPre] = useState(true);
+  const [preNotify, setPreNotify] = useState(false);
+  const [pokeNotify, setPokeNotify] = useState(false);
+  const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
+  const [prevoteAt, setPrevoteAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.prevoteBeforeH * HOUR);
+  /** 매력 투표 마감 (ADR-39). 이 뒤로 파티 시작까지가 운영자가 첫 자리를 짜는 시간이다 */
+  const [voteEndAt, setVoteEndAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.voteEndBeforeH * HOUR);
+  /** 커플 발표 (ADR-43). **더하기다** — 파티 뒤를 재는 유일한 값이라 부호가 반대다 */
+  const [revealAt, setRevealAt] = useState<number>(() => defaultPartyAt(Date.now()) + DEFAULTS.revealAfterH * HOUR);
+  // 직접 고친 값은 파티 일시를 옮겨도 따라가지 않는다. 고쳐놓은 걸 되돌리는 건 사고다
+  const [touched, setTouched] = useState<{ prevote?: boolean; voteEnd?: boolean; reveal?: boolean }>({});
+  const [maxPre, setMaxPre] = useState(DEFAULTS.maxPre);
+  const [maxParty, setMaxParty] = useState(DEFAULTS.maxParty);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const d = defaults.data;
+    /*
+     * **빠진 칸은 코드의 기본값으로 메운다.** 서버가 `withDefaults` 로 채워 보내지만,
+     * 새 칸이 붙은 직후에는 그렇지 않은 응답이 올 수 있다 — 그때 `undefined * HOUR` 가
+     * `NaN` 이 되고, 시각 칸이 **빈 채로** 뜬다. 빈 칸은 만들기 버튼에서야 막힌다.
+     */
+    const d = defaults.data && { ...DEFAULTS, ...defaults.data };
     if (!d) return;
     setMaxPre(d.maxPre);
     setMaxParty(d.maxParty);
-    setRegOpenAt((prev) => (touched.reg ? prev : partyAt - d.regOpenBeforeD * DAY));
+    // 장소는 **비어 있을 때만** 채운다. 운영자가 이미 적었으면 기본값이 덮지 않는다
+    setPlace((prev) => prev || d.place);
     setPrevoteAt((prev) => (touched.prevote ? prev : partyAt - d.prevoteBeforeH * HOUR));
+    setVoteEndAt((prev) => (touched.voteEnd ? prev : partyAt - d.voteEndBeforeH * HOUR));
+    setRevealAt((prev) => (touched.reveal ? prev : partyAt + d.revealAfterH * HOUR));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaults.data]);
 
@@ -77,19 +91,21 @@ export default function HostWizard() {
     if (!raw) return;
     const ts = snapSchedule(raw);
     setPartyAt(ts);
-    const d = defaults.data ?? DEFAULTS;
-    if (!touched.reg) setRegOpenAt(ts - d.regOpenBeforeD * DAY);
+    const d = { ...DEFAULTS, ...defaults.data };
     if (!touched.prevote) setPrevoteAt(ts - d.prevoteBeforeH * HOUR);
+    if (!touched.voteEnd) setVoteEndAt(ts - d.voteEndBeforeH * HOUR);
+    if (!touched.reveal) setRevealAt(ts + d.revealAfterH * HOUR);
   }
 
-  function changeWhen(key: "reg" | "prevote", value: string) {
+  function changeWhen(key: "prevote" | "voteEnd" | "reveal", value: string) {
     const raw = fromLocalInput(value);
     if (!raw) return;
     // 직접 타이핑하면 브라우저가 step 을 강제하지 않는다. 받은 값을 여기서 맞춘다
     const ts = snapSchedule(raw);
     setTouched({ ...touched, [key]: true });
-    if (key === "reg") setRegOpenAt(ts);
-    else setPrevoteAt(ts);
+    if (key === "prevote") setPrevoteAt(ts);
+    else if (key === "voteEnd") setVoteEndAt(ts);
+    else setRevealAt(ts);
   }
 
   async function finish() {
@@ -98,10 +114,12 @@ export default function HostWizard() {
     try {
       const body: CreateEventInput = {
         name: name.trim(),
+        place: place.trim(),
         partyAt,
-        regOpenAt: openNow ? "now" : regOpenAt,
         prevoteAt,
-        config: { maxPre, maxParty, allowSameGender, prevoteNotice, retentionDays },
+        voteEndAt,
+        revealAt,
+        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify },
         requestId,
       };
       const made = await post<EventMeta>("/host/events", body);
@@ -123,7 +141,8 @@ export default function HostWizard() {
         </button>
         <div className="grow">
           <h1>{SCREEN_TITLE.hostWizard}</h1>
-          <div className="sub">{at}/3</div>
+          {/* 숫자만 있으면 몇 장 남았는지는 알아도 **지금 무엇을 정하는 중인지**는 모른다 */}
+          <div className="sub">{at}/3 · {HOST_UI.steps[at - 1]}</div>
         </div>
       </header>
 
@@ -134,46 +153,41 @@ export default function HostWizard() {
           운영자가 링크를 돌리고, 문은 초대 명단의 전화번호가 연다.
           코드는 만들어진 뒤 회차 목록과 콘솔 머리에서 볼 수 있다.
         */}
+        {/*
+          **1스텝은 기본 정보다** — 이 회차가 무엇이고 어디서 열리는지.
+          장소는 2스텝(일시)에 있었는데, 그 스텝이 **예약**만 다루게 되면서 여기로 왔다.
+          시각이 아닌 유일한 칸이 시각 넷 사이에 끼어 있으면 그 목록이 시간 순으로 안 읽힌다.
+        */}
         {at === 1 && (
-          <div className="field">
-            <label htmlFor="ename">{HOST_UI.fields.name}</label>
-            <input id="ename" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-        )}
-
-        {at === 2 && (
           <>
             <div className="field">
-              <label htmlFor="party">{HOST_UI.fields.partyAt}</label>
-              <input
-                id="party"
-                type="datetime-local"
-                step={SCHEDULE_STEP_MIN * 60}
-                value={toLocalInput(partyAt)}
-                onChange={(e) => changeParty(e.target.value)}
-              />
+              <label htmlFor="ename">{HOST_UI.fields.name}</label>
+              <input id="ename" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
-
+            {/* 장소는 안내문에만 쓰인다 (ADR-32) — 참가자 화면에는 안 나간다 */}
             <div className="field">
-              <label>{HOST_UI.fields.regOpenAt}</label>
-              <div className="choice">
-                <button type="button" aria-pressed={openNow} onClick={() => setOpenNow(true)}>
-                  {HOST_UI.nowToggle}
-                </button>
-                <button type="button" aria-pressed={!openNow} onClick={() => setOpenNow(false)}>
-                  {HOST_UI.pickTime}
-                </button>
-              </div>
-              {!openNow && (
-                <input
-                  type="datetime-local"
-                  step={SCHEDULE_STEP_MIN * 60}
-                  value={toLocalInput(regOpenAt)}
-                  onChange={(e) => changeWhen("reg", e.target.value)}
-                />
-              )}
+              <label htmlFor="place">{HOST_UI.fields.place}</label>
+              <input id="place" value={place} onChange={(e) => setPlace(e.target.value)} />
+              <span className="tiny dim">{HOST_UI.fields.placeHint}</span>
             </div>
+          </>
+        )}
 
+        {/*
+          **2스텝은 예약이다.** 네 시각을 **시간 순으로** 늘어놓는다 —
+          매력 투표 시작 → 마감 → 파티 시작 → 커플 발표.
+          그래야 읽는 사람이 어느 것이 먼저인지 다시 계산하지 않는다.
+
+          ⚠️ **넷 중 파티 시작만 예약이 아니다** (ADR-14). 운영자가 현황 탭에서 누른다.
+          그 사실은 목록 아래가 아니라 **그 칸에** 붙는다(`partyHint`) — 아래에 떠 있으면
+          어느 칸 이야기인지 알 수 없고, 넷 다 저절로 넘어가는 줄로 읽으면 파티가 영영 안 열린다.
+
+          **`partyAt` 은 여전히 기준점이다.** 셋째 자리에 있어도 이걸 옮기면 손대지 않은 칸이
+          따라 움직인다 (`changeParty`). 화면 순서와 계산 순서는 다른 이야기다.
+        */}
+        {at === 2 && (
+          <>
+            {/* 등록 시작은 묻지 않는다 (ADR-38) — 만들면 곧바로 열린다. 그 사실만 한 줄로 알린다 */}
             <div className="field">
               <label htmlFor="prevote">{HOST_UI.fields.prevoteAt}</label>
               <input
@@ -184,45 +198,54 @@ export default function HostWizard() {
                 onChange={(e) => changeWhen("prevote", e.target.value)}
               />
             </div>
-
             {/*
-              **언제 여는가 바로 아래에서 묻는다.** 알릴지 말지는 여는 시각에 딸린 질문이라,
-              규칙 스텝으로 떼어놓으면 시각을 고른 사람이 그 칸을 다시 찾아가야 한다.
-              끄는 것은 알림 하나뿐이다 — 단계는 예약대로 열린다.
+              매력 투표 마감 (ADR-39). **이 시각과 파티 시작 사이가 자리를 짜는 시간이다** —
+              그래서 힌트가 몇 시인지가 아니라 그 사이에 무엇을 하는지를 말한다.
             */}
             <div className="field">
-              <label>{HOST_UI.fields.prevoteNotice}</label>
-              <div className="choice">
-                {[
-                  { on: false, text: HOST_UI.fields.prevoteNoticeOff },
-                  { on: true, text: HOST_UI.fields.prevoteNoticeOn },
-                ].map((opt) => (
-                  <button
-                    key={opt.text}
-                    type="button"
-                    aria-pressed={prevoteNotice === opt.on}
-                    onClick={() => setPrevoteNotice(opt.on)}
-                  >
-                    {opt.text}
-                  </button>
-                ))}
-              </div>
-              <span className="tiny dim">{HOST_UI.fields.prevoteNoticeNote}</span>
+              <label htmlFor="voteEnd">{HOST_UI.fields.voteEndAt}</label>
+              <input
+                id="voteEnd"
+                type="datetime-local"
+                step={SCHEDULE_STEP_MIN * 60}
+                value={toLocalInput(voteEndAt)}
+                onChange={(e) => changeWhen("voteEnd", e.target.value)}
+              />
+              <span className="tiny dim">{HOST_UI.fields.voteEndHint}</span>
             </div>
-
-            {/* 예약이 없는 전환을 설정 화면에서 찾지 않도록 일정 묶음 끝에 이유를 적어둔다 */}
-            <p className="tiny dim">{HOST_UI.fields.manualNote}</p>
+            <div className="field">
+              <label htmlFor="party">{HOST_UI.fields.partyAt}</label>
+              <input
+                id="party"
+                type="datetime-local"
+                step={SCHEDULE_STEP_MIN * 60}
+                value={toLocalInput(partyAt)}
+                onChange={(e) => changeParty(e.target.value)}
+              />
+              <span className="tiny dim">{HOST_UI.fields.partyHint}</span>
+            </div>
+            {/*
+              커플 발표 (ADR-43). 힌트는 `파티를 시작해야 울린다` 를 말한다 —
+              그걸 모르면 이 시각만 믿고 `파티 시작` 을 안 눌러서,
+              발표도 콕도 안 열린 채 시각만 지나간다.
+            */}
+            <div className="field">
+              <label htmlFor="reveal">{HOST_UI.fields.revealAt}</label>
+              <input
+                id="reveal"
+                type="datetime-local"
+                step={SCHEDULE_STEP_MIN * 60}
+                value={toLocalInput(revealAt)}
+                onChange={(e) => changeWhen("reveal", e.target.value)}
+              />
+              <span className="tiny dim">{HOST_UI.fields.revealHint}</span>
+            </div>
+            <p className="tiny dim">{HOST_UI.regOpensNow}</p>
           </>
         )}
 
-        {/*
-          설정 탭과 **같은 값을 같은 이름으로** 묻는다. 만들 때 못 고르면 회차를 만들자마자
-          설정 탭으로 들어가 고쳐야 하는데, 그 사이에 등록이 열리면 이미 명단을 훑은 사람이 생긴다.
-          묶음도 설정 탭과 같게 나눈다 — 콕 규칙과 파기는 답하는 질문이 다르다.
-        */}
         {at === 3 && (
           <>
-            <div className="kicker">{HOST_UI.settings.rules}</div>
             <Num
               label={HOST_UI.fields.maxPre}
               value={maxPre}
@@ -240,40 +263,45 @@ export default function HostWizard() {
             {/* 기대 상호 매칭 쌍 수는 파티 규모와 무관하게 k² 에 수렴한다 — 고르는 자리에서 보여준다 */}
             <p className={`small ${label.tone === "good" ? "okText" : "warnText"}`}>{label.label}</p>
 
-            {/* 기본은 '모두에게'다 — 누구에게 마음이 가는지는 앱이 정할 일이 아니다 */}
-            <div className="field">
-              <label>{HOST_UI.fields.pokeTarget}</label>
-              <div className="choice">
-                {[
-                  { on: false, text: HOST_UI.fields.pokeTargetOpposite },
-                  { on: true, text: HOST_UI.fields.pokeTargetAll },
-                ].map((opt) => (
-                  <button
-                    key={opt.text}
-                    type="button"
-                    aria-pressed={allowSameGender === opt.on}
-                    onClick={() => setAllowSameGender(opt.on)}
-                  >
-                    {opt.text}
-                  </button>
-                ))}
-              </div>
-              <span className="tiny dim">{HOST_UI.fields.pokeTargetNote}</span>
-            </div>
-
-            <div className="kicker">{HOST_UI.settings.privacy}</div>
-            <Num
-              label={HOST_UI.fields.retentionDays}
-              value={retentionDays}
-              min={LIMITS.retentionDays.min}
-              max={LIMITS.retentionDays.max}
-              onChange={setRetentionDays}
-            />
             {/*
-              등록 화면이 참가자에게 하는 약속과 같은 숫자다. 만드는 자리에서 그 문장을 그대로 보여줘야,
-              운영자가 모르는 채로 회차가 사라지는 일이 없다.
+              대상·되돌리기 둘·알림 둘. **다섯은 콕이 오가기 시작하면 함께 굳는다** (ADR-35) —
+              여기서 고르지 않으면 나중에 못 고친다. 그래서 설정 탭과 **같은 순서**로 둔다:
+              대상 → 되돌리기(매력 투표·콕) → 알림(매력 투표·콕).
+              두 화면의 순서가 다르면 운영자가 매번 다시 찾는다.
             */}
-            <p className="tiny dim">{HOST_UI.retention(retentionDays)}</p>
+            <Toggle
+              label={HOST_UI.fields.pokeTarget}
+              value={allowSameGender}
+              options={TARGET_OPTIONS}
+              note={HOST_UI.fields.pokeTargetNote}
+              onChange={setAllowSameGender}
+            />
+            <Toggle
+              label={HOST_UI.fields.undoPre}
+              value={allowUndoPre}
+              options={UNDO_OPTIONS}
+              onChange={setAllowUndoPre}
+            />
+            <Toggle
+              label={HOST_UI.fields.undoParty}
+              value={allowUndo}
+              options={UNDO_OPTIONS}
+              onChange={setAllowUndo}
+            />
+            <Toggle
+              label={HOST_UI.fields.preNotify}
+              value={preNotify}
+              options={NOTIFY_OPTIONS}
+              note={HOST_UI.fields.preNotifyNote}
+              onChange={setPreNotify}
+            />
+            <Toggle
+              label={HOST_UI.fields.pokeNotify}
+              value={pokeNotify}
+              options={NOTIFY_OPTIONS}
+              note={HOST_UI.fields.pokeNotifyNote}
+              onChange={setPokeNotify}
+            />
           </>
         )}
 

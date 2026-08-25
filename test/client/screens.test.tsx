@@ -13,10 +13,11 @@ import { readFileSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
-import { BTN, ENTRY, ENV_BANNER, FAIL, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
+import { ACT, BTN, ENTRY, ENV_BANNER, FAIL, HELP, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
+import Register from "../../src/client/routes/Register.tsx";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
 import { ApiError, api, timeoutFor } from "../../src/client/lib/api.ts";
@@ -33,10 +34,13 @@ async function pump(ms: number) {
 
 // ─────────────────────────────────────────── 재료
 
+/** 맨 오른쪽 탭. 이름은 탭 표가 든다 — 여기 문자열로 베껴 두면 이름을 바꿀 때 어긋난다 */
+const FUN_TAB = TABS_PARTICIPANT.find((t) => t.key === "fun")!;
+
 const POKE_STATE: MyPokeState = {
   budget: { pre: { max: 3, used: 1 }, party: { max: 3, used: 0 } },
   sentTo: { her: 1 },
-  receivedCount: 0,
+  received: { pre: 0, party: 0 },
   matches: [],
 };
 
@@ -58,11 +62,10 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
       realName: "김나",
       age: 30,
       gender: "M",
-      phone: "01000000000",
       instagram: "na_gram",
       mbti: "ENFP",
       charms: ["하나", "둘", "셋"],
-      createdAt: 1,
+        createdAt: 1,
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE_STATE,
@@ -83,6 +86,10 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
       calls.poke.push(toId);
       return POKE_STATE;
     },
+    unpoke: async (toId) => {
+      calls.poke.push(`-${toId}`);
+      return POKE_STATE;
+    },
     ackSeat: async (round) => {
       calls.ack.push(round);
     },
@@ -94,10 +101,29 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
   };
 }
 
-function renderParticipant(source: ParticipantSource, profileId?: string, onTab: (t: string) => void = () => {}) {
+/**
+ * 확인창 안의 버튼. **명단의 콕 버튼과 글자가 같다** — 라운드 이름이 곧 버튼 이름이라(ADR-34)
+ * `getByText` 로는 갈리지 않는다. 창 안의 버튼만 `btn wide` 를 쓴다.
+ */
+function dialogBtn(label: string) {
+  const found = screen
+    .getAllByRole("button")
+    .find((b) => b.className.includes("btn wide") && b.textContent === label);
+  if (!found) throw new Error(`확인창에 "${label}" 버튼이 없다`);
+  return found;
+}
+
+function renderParticipant(
+  source: ParticipantSource,
+  profileId?: string,
+  onTab: (t: string) => void = () => {},
+  tab: "home" | "people" | "me" | "fun" = "people",
+  helpOpen = false,
+  onHelp: (on: boolean) => void = () => {},
+) {
   return render(
     <MemoryRouter>
-      <ParticipantView source={source} tab="people" profileId={profileId} onTab={onTab} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
+      <ParticipantView source={source} tab={tab} profileId={profileId} onTab={onTab} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={helpOpen} onHelp={onHelp} />
     </MemoryRouter>,
   );
 }
@@ -416,23 +442,106 @@ describe("뿌리 화면", () => {
 // ─────────────────────────────────────────── 콕
 
 describe("참가자 화면 · 콕", () => {
-  it("★ 콕 찌르기는 확인을 거치고, 확인창이 숫자를 보여준다", async () => {
+  it("★ 매력 투표가 마감되면 목록이 이유를 말한다 (ADR-39)", async () => {
+    /*
+     * 마감되면 `남은 횟수` 칸이 사라지고 버튼이 잠긴다. 잠긴 버튼은 눌러도 아무 말이 없어서,
+     * 아무 설명 없이 자리만 비면 참가자는 앱이 고장 난 줄 안다.
+     */
+    renderParticipant(
+      fakeSource({
+        load: async () =>
+          participantState({
+            event: {
+              ...participantState().event,
+              schedule: { ...participantState().event.schedule, voteEndAt: Date.now() - 60_000 },
+            },
+          }),
+      }),
+    );
+    await screen.findByText(POKE.blocked.voteEndedLine);
+    // 남은 횟수는 사라진다 — 쓸 수 없는 숫자를 남겨두면 그게 더 헷갈린다
+    expect(screen.queryByText(PEOPLE.pokeLeftLabel("pre"))).toBeNull();
+  });
+
+  /**
+   * ★ 확인창은 **바뀌는 것**을 보여준다 (규칙 4).
+   *
+   * 한동안 누른 **뒤의 값**만 적었다. 카드는 `남은 투표 2회` 인데 창은 `1회` 라고 해서
+   * 같은 화면의 두 숫자가 어긋나 보였고, 그걸 본 사람은 매력 투표가 파티 콕에
+   * **합산된 줄로 읽었다** — 서버는 멀쩡했다. 그래서 여기서 재는 것이 둘이다:
+   * 창의 왼쪽 숫자가 카드와 같은가, 그리고 둘이 같은 이름으로 불리는가.
+   */
+  it("★ 확인창이 남은 콕이 어떻게 바뀌는지 보여주고, 카드와 어긋나지 않는다", async () => {
     const source = fakeSource();
     renderParticipant(source);
     await screen.findByText(/그녀/);
 
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    // 카드가 말하는 남은 수 (max 3 − used 1)
+    expect(screen.getByText(UNIT.times(2))).toBeTruthy();
+
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
 
     // 이미 1회 보냈으므로 "한 번 더" 쪽 문장이다
-    await screen.findByText(POKE.confirm.title(1));
-    expect(screen.getByText(POKE.confirm.rowTarget)).toBeTruthy();
-    // 보낸 콕 2회 · 남은 횟수 1회 — 무엇이 어떻게 바뀌는지 숫자로
-    expect(screen.getAllByText(UNIT.times(2)).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(UNIT.times(1)).length).toBeGreaterThan(0);
+    await screen.findByText(POKE.confirm.title("pre", 1));
+    const dialog = await screen.findByRole("dialog");
+
+    // **줄은 하나뿐이다** — 남은 수. 몇 번째인지는 제목과 그 사람 카드가 이미 말한다
+    expect(dialog.querySelectorAll(".fact")).toHaveLength(1);
+    // 왼쪽이 지금(카드와 같은 2회), 오른쪽이 누르면 될 값(1회)
+    expect(screen.getByText(POKE.confirm.change(2, 1))).toBeTruthy();
+    // 카드와 창이 **같은 이름**으로 부른다. 이름이 갈리면 다른 숫자로 읽힌다
+    expect(screen.getAllByText(PEOPLE.pokeLeftLabel("pre"))).toHaveLength(2);
     expect(source.calls.poke).toEqual([]);   // 아직 보내지 않았다
 
-    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    fireEvent.click(dialogBtn(POKE.confirm.submit("pre")));
     await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
+  });
+
+  /**
+   * ★ **다 쓰고 나면 되돌릴 길이 사라졌다.**
+   *
+   * 되돌리기는 확인창 **안에만** 있는데(ADR-34), 예산이 0 이 되면 창이 열리기 전에
+   * 토스트로 끊겼다. 하필 다 쓴 순간이 옮기고 싶은 순간이다 —
+   * 셋을 다 쓰고 나서야 넷째 사람을 만난다.
+   */
+  it("★ 다 써도 찌른 사람에게는 창이 열리고, 되돌릴 수 있다", async () => {
+    const source = fakeSource({
+      load: async () =>
+        participantState({
+          poke: { ...POKE_STATE, budget: { pre: { max: 3, used: 3 }, party: { max: 3, used: 0 } } },
+        }),
+    });
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+
+    await screen.findByText(POKE.confirm.spentTitle("pre"));
+    // 보낼 것이 없으니 보내기 버튼은 그리지 않는다
+    expect(() => dialogBtn(POKE.confirm.submit("pre"))).toThrow();
+    // 되돌리면 **늘어난다** — 화살표 방향이 반대인 것이 이 창이 하는 일이다
+    expect(screen.getByText(POKE.confirm.change(0, 1))).toBeTruthy();
+
+    fireEvent.click(dialogBtn(POKE.undo.btn));
+    await waitFor(() => expect(source.calls.poke).toEqual(["-her"]));
+  });
+
+  /** 되돌릴 것조차 없으면 그때는 토스트가 맞다 — 이 사람에게는 할 수 있는 일이 없다 */
+  it("★ 다 썼고 찌른 적도 없는 사람에게는 창을 열지 않는다", async () => {
+    const source = fakeSource({
+      load: async () =>
+        participantState({
+          poke: { ...POKE_STATE, sentTo: {}, budget: { pre: { max: 3, used: 3 }, party: { max: 3, used: 0 } } },
+        }),
+    });
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+
+    await screen.findByText(POKE.blocked.noBudget("pre", 3));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(source.calls.poke).toEqual([]);
   });
 
   it("★ 확인을 누르면 서버를 기다리지 않고 그 자리에서 바뀐다", async () => {
@@ -451,9 +560,9 @@ describe("참가자 화면 · 콕", () => {
     renderParticipant(source);
     await screen.findByText(/그녀/);
 
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
-    await screen.findByText(POKE.confirm.title(1));
-    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 1));
+    fireEvent.click(dialogBtn(POKE.confirm.submit("pre")));
 
     // 서버는 아직 답하지 않았다. 그런데 화면은 이미 2회다
     await screen.findByText("2");
@@ -468,17 +577,17 @@ describe("참가자 화면 · 콕", () => {
   it("★ 서버가 거절하면 되돌린다 — 쓰지도 않은 콕이 쓴 것으로 남지 않는다", async () => {
     const source = fakeSource({
       poke: async () => {
-        throw new ApiError(409, "closed", POKE.blocked.closed);
+        throw new ApiError(409, "closed", POKE.blocked.closed("pre"));
       },
     });
     renderParticipant(source);
     await screen.findByText(/그녀/);
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
-    await screen.findByText(POKE.confirm.title(1));
-    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 1));
+    fireEvent.click(dialogBtn(POKE.confirm.submit("pre")));
 
     // 잠깐 2회로 보였다가 1회로 돌아온다
-    await screen.findByText(POKE.blocked.closed);
+    await screen.findByText(POKE.blocked.closed("pre"));
     await waitFor(() => expect(screen.queryByText("2")).toBeNull());
     expect(screen.getByText("1")).toBeTruthy();
   });
@@ -498,15 +607,15 @@ describe("참가자 화면 · 콕", () => {
     });
     renderParticipant(source);
     await screen.findByText(/그녀/);
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
-    await screen.findByText(POKE.confirm.title(1));
-    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 1));
+    fireEvent.click(dialogBtn(POKE.confirm.submit("pre")));
     await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
 
     // 답이 오기 전에 또 누른다
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
-    await screen.findByText(POKE.confirm.title(2));
-    fireEvent.click(screen.getByText(POKE.confirm.submit));
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 2));
+    fireEvent.click(dialogBtn(POKE.confirm.submit("pre")));
     await waitFor(() => expect(source.calls.poke).toEqual(["her"]));
 
     release(POKE_STATE);
@@ -542,7 +651,7 @@ describe("참가자 화면 · 콕", () => {
      */
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
-    const btn = screen.getAllByLabelText(POKE.confirm.submit)[0];
+    const btn = screen.getAllByLabelText(POKE.confirm.submit("pre"))[0];
     // 이미 1회 보냈다 (sentTo.her = 1). 그 숫자가 버튼 안에 있다
     expect(btn.querySelector(".n")?.textContent).toBe("1");
     expect(btn.classList.contains("on")).toBe(true);
@@ -556,11 +665,257 @@ describe("참가자 화면 · 콕", () => {
     });
     renderParticipant(source);
     await screen.findByText(/그녀/);
-    expect((screen.getAllByLabelText(POKE.confirm.submit)[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByLabelText(POKE.confirm.submit("party"))[0] as HTMLButtonElement).disabled).toBe(true);
   });
 });
 
 // ─────────────────────────────────────────── 자리
+
+describe("파티 룰 도움말", () => {
+  /**
+   * 이 화면의 값어치는 **운영자가 가리킬 곳이 생기는 것**이다 —
+   * "앱에서 물음표 눌러보세요" 가 통하려면 찾아 들어가지 않아도 되는 자리에 있어야 한다.
+   */
+  it("★ 물음표는 어느 탭에서든 보인다", async () => {
+    for (const tab of ["home", "people", "me"] as const) {
+      cleanup();
+      renderParticipant(fakeSource(), undefined, () => {}, tab);
+      await screen.findByLabelText(HELP.open);
+    }
+  });
+
+  it("★ 콕 횟수는 회차 설정에서 온다 — 문구에 숫자를 박아두지 않는다", async () => {
+    /*
+     * 회차마다 다른 값이다. 도움말이 `3회` 라고 말하는데 실제로 5회면
+     * 그 순간 도움말 전체를 못 믿게 된다.
+     */
+    const state = participantState();
+    state.event.config = { maxPre: 7, maxParty: 9 };
+    renderParticipant(fakeSource({ load: async () => state }), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.count.a(7, 9));
+  });
+
+  it("★ 지금 단계를 색이 아니라 글자로도 말한다", async () => {
+    // 매칭 표시와 같은 규칙이다 — 색만으로 말하면 화면 낭독기에는 아무 말도 안 된다
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.nowHere);
+  });
+
+  /** 등록 단계의 상태. 등록을 막 마친 사람이 보는 것이다 */
+  function justRegistered() {
+    const state = participantState();
+    state.event.phase = "reg";
+    state.event.fired = { reg: 1 };
+    return state;
+  }
+
+  it("★ 등록 중이면 `등록` 칸에 `지금` 이 붙는다", async () => {
+    /*
+     * 예전에는 단계가 셋(사전·파티·발표)뿐이라 **등록 중에는 어디에도 `지금` 이 없었다.**
+     * 도움말이 등록 직후 저절로 열리게 된 뒤로는 하필 **처음 읽는 사람이 그때 읽는다** —
+     * 자기 위치를 못 찾는 그림은 그림이 아니다.
+     */
+    renderParticipant(fakeSource({ load: async () => justRegistered() }), undefined, () => {}, "home", true);
+    const now = await screen.findByText(HELP.nowHere);
+    expect(now.closest("li")?.textContent).toContain(HELP.steps[0].title);
+  });
+
+  it("★ 매력 투표 문구에 '콕' 을 쓰지 않는다", async () => {
+    /*
+     * ADR-34 — 둘은 쓰임이 아예 다르다. 매력 투표는 만나기 전에 프로필만 보고 고르는 것이고,
+     * 콕은 만나본 뒤에 고르는 것이며 **발표에 이어지는 건 콕뿐이다.**
+     * 같은 말로 부르면 참가자가 "아까 찔렀는데 왜 또?" 가 된다.
+     *
+     * 실제로 이름만 `매력 투표` 로 바꾸고 이 문구들을 안 고쳐서 한동안 어긋나 있었다 —
+     * 도움말은 `콕 찔러요` 라고 했고 홈 카드는 `서로 찔렀을 때만 공개돼요` 라고 했는데
+     * **뒤엣것은 사실도 아니었다.** 그래서 사람 눈이 아니라 여기가 지킨다.
+     */
+    const prevoteStep = HELP.steps.find((v) => v.key === "prevote")!;
+
+    // 지금 하는 일을 이름 붙이는 자리 — 여기엔 `콕` 이 한 글자도 없어야 한다
+    for (const [where, text] of [
+      ["도움말 단계", prevoteStep.body],
+      ["도움말 문답", HELP.qa.prevote.a],
+      ["홈 제목", HOME.todo.prevote.title],
+      ["다 썼을 때 제목", HOME.spent.prevote.title],
+    ] as const) {
+      expect(text, `${where}: ${text}`).not.toContain("콕");
+    }
+
+    /*
+     * 본문은 다르다. **다음 단계를 가리키는 `콕` 은 오히려 있어야 한다** —
+     * `파티에서 만나본 뒤에 콕 찌를 기회가 따로 있어요` 가 둘이 다른 일임을 알려준다.
+     * 그래서 금지하는 건 낱말이 아니라 **주어**다: `콕` 이 나오는 줄은 `파티` 를 함께 말해야 한다.
+     * 그 조건이 없으면 지금 하는 일을 콕이라 부른 것이다.
+     */
+    for (const [where, text] of [
+      ["홈 본문", HOME.todo.prevote.body],
+      ["다 썼을 때 본문", HOME.spent.prevote.body],
+    ] as const) {
+      for (const line of text.split("\n").filter((l) => l.includes("콕"))) {
+        expect(line, `${where}: ${line}`).toContain("파티");
+      }
+    }
+  });
+
+  it("★ 매력 투표와 콕 찌르기를 가르는 문답이 있다", async () => {
+    // 단계 그림만으로는 "둘이 뭐가 다른가" 가 안 풀린다. 바로 아래에서 풀어준다
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.prevote.q);
+    await screen.findByText(HELP.qa.poke.q);
+    /*
+     * **핵심은 "발표에 이어지는 게 어느 쪽이냐" 다.** 두 줄이 이름과 시점만 말하고
+     * 이걸 안 말하면, 바로 위 단계 그림을 되풀이한 것에 지나지 않는다.
+     */
+    expect(HELP.qa.poke.a).toContain("발표");
+    /*
+     * 그리고 **투표를 왜 하는지**를 말해야 한다 — 안 그러면 "그럼 투표는 왜?" 로 끝난다.
+     * 한동안 이걸 *파티에서 다시 고를 기회가 있다* 로 대신 말했는데, 그건 답이 아니라
+     * 미루기였다. 지금은 자리로 답한다 (ADR-52).
+     */
+    expect(HELP.qa.prevote.a).toContain("테이블");
+  });
+
+  /**
+   * ★ **자리 이야기는 `내 쪽만` 한다** (ADR-52).
+   *
+   * `서로 고른 사람끼리 같은 테이블` 이라고 쓰면, 내가 고르지 않은 사람과 같은 테이블일 때
+   * **그 사람이 나를 골랐다**로 좁혀진다 — 이 앱이 없애려는 경험을 앱이 직접 만드는 일이다.
+   * 고를 이유는 전하되, 상대의 선택을 되짚는 문장은 주지 않는다.
+   */
+  it("★ 도움말이 '서로 고르면 같은 테이블' 이라고 말하지 않는다", async () => {
+    for (const [where, text] of [
+      ["매력 투표", HELP.qa.prevote.a],
+      ["콕 찌르기", HELP.qa.poke.a],
+    ] as const) {
+      // 자리를 말하는 줄에는 **내가** 가 있어야 한다. 주어가 없으면 양쪽으로 읽힌다
+      expect(text, `${where}: ${text}`).toContain("내가");
+      expect(text, `${where}: ${text}`).not.toContain("서로 고른");
+      expect(text, `${where}: ${text}`).not.toContain("서로 찌른 사람과 같은");
+    }
+  });
+
+  /**
+   * ★ **연락처가 열린다고 말하지 마라** (ADR-42·47·52).
+   *
+   * 한동안 발표 칸이 `그때 연락처가 열려요` 라고 적혀 있었다 — **거짓이었다.**
+   * 매칭된 상대에게 나가는 건 실명 하나이고(`MatchInfo.realName`), 등록 화면은
+   * *인스타는 운영자 확인용* 이라고 말한다. 두 화면이 서로 다른 말을 하고 있었다.
+   */
+  it("★ 도움말 어디에도 연락처가 열린다고 쓰여 있지 않다", async () => {
+    const all = [
+      ...HELP.steps.map((v) => v.body),
+      HELP.qa.result.a,
+      HELP.qa.secret.a,
+      HELP.qa.host.a,
+    ];
+    for (const text of all) {
+      expect(text, text).not.toContain("연락처가 열");
+    }
+    // 대신 무엇이 나가는지는 분명히 말한다 — 실명까지다
+    expect(HELP.qa.result.a).toContain("이름");
+    expect(HELP.qa.result.a).toContain("연락처는 앱이 전하지 않아요");
+  });
+
+  /**
+   * ★ **되돌리기와 알림은 회차 설정이 답을 바꾼다** (ADR-34·43 → ADR-52).
+   *
+   * 기본값이 서로 반대다 — 되돌리기는 **없으면 되고**, 알림은 **없으면 안 알린다.**
+   * 못 무르는 회차에서 그 사실을 말하지 않으면 무를 수 있는 줄 알고 누르고,
+   * 알림이 꺼진 회차에서 말하지 않으면 **아무도 나를 안 골랐다**로 읽는다 —
+   * 그 라운드는 받은 수가 화면 어디에도 없기 때문이다 (`visibleReceived`).
+   */
+  it("★ 되돌리기·알림 설명이 회차 설정을 따라간다", async () => {
+    const open = async (config: ParticipantState["event"]["config"]) => {
+      const state = participantState();
+      state.event.config = config;
+      renderParticipant(fakeSource({ load: async () => state }), undefined, () => {}, "home", true);
+      await screen.findByText(HELP.title);
+    };
+
+    // 기본 회차 — 되돌릴 수 있고, 알림은 꺼져 있다
+    await open({ maxPre: 3, maxParty: 3 });
+    expect(screen.getByText(HELP.qa.undo.a(true, true))).toBeTruthy();
+    expect(screen.getByText(HELP.qa.notify.a(false, false))).toBeTruthy();
+    cleanup();
+
+    // 못 무르고 둘 다 알리는 회차 — 네 줄이 전부 반대로 간다
+    await open({ maxPre: 3, maxParty: 3, allowUndoPre: false, allowUndo: false, preNotify: true, pokeNotify: true });
+    expect(screen.getByText(HELP.qa.undo.a(false, false))).toBeTruthy();
+    expect(screen.getByText(HELP.qa.notify.a(true, true))).toBeTruthy();
+    cleanup();
+
+    // 라운드마다 갈린 회차 — 한 줄이 두 라운드를 함께 말한다
+    await open({ maxPre: 3, maxParty: 3, allowUndo: false, preNotify: true });
+    expect(screen.getByText(HELP.qa.undo.a(true, false))).toBeTruthy();
+    expect(screen.getByText(HELP.qa.notify.a(true, false))).toBeTruthy();
+  });
+
+  it("★ 동성에게 못 찌르는 회차에서만 그 줄이 보인다", async () => {
+    /*
+     * 지금까지는 **눌러봐야** 알았다 (`POKE.blocked.sameGender` 토스트).
+     * 그래서 "왜 안 찔러져요?" 가 운영자에게 갔다.
+     *
+     * 기본값(모두에게)에서는 줄을 만들지 않는다 — "누구에게나 찌를 수 있어요" 는
+     * 아무도 안 묻는 답이고, 안 묻는 답을 적는 만큼 묻는 답이 뒤로 밀린다.
+     */
+    const state = participantState();
+    state.event.config = { maxPre: 3, maxParty: 3, allowSameGender: false };
+    renderParticipant(fakeSource({ load: async () => state }), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.sameGender.a);
+
+    cleanup();
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.title);
+    expect(screen.queryByText(HELP.qa.sameGender.a)).toBeNull();
+  });
+
+  it("★ 운영자에게도 안 보인다는 것이 적혀 있다", async () => {
+    /*
+     * 익명 걱정은 **상대 다음이 운영자**다. 이 줄이 없으면 *누군가는 다 보고 있다* 고
+     * 여긴 채로 고르게 되고, 그 채로 고르는 것은 이 앱이 없애려던 경험 쪽에 가깝다.
+     *
+     * ⚠️ 이 줄은 **거짓이면 안 된다.** 서로 콕 찌른 쌍은 운영자가 본다 — 발표를 누르는 게
+     * 사람이다. 그래서 "아무도 못 봐요" 가 아니라 **무엇까지 보이는지**를 같은 줄에 적는다.
+     * 지켜지는 쪽(한쪽만 찌른 것은 숫자로만 남는다)은 `04-match-budget.test.ts` 가 지킨다.
+     */
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.host.a);
+    expect(HELP.qa.host.a).toContain("서로 콕 찌른");
+  });
+
+  it("★ 맨 아래에 닫기가 있다 — 끝까지 읽은 자리에서 닫힌다", async () => {
+    /*
+     * 도움말은 화면을 거의 덮고, 등록을 마치면 저절로 열린다. 닫는 길이 뒤로 가기와
+     * 바깥 누르기뿐이면 **처음 들어온 사람이 나갈 곳을 찾는다** — 하필 그 사람이 이 글의 독자다.
+     *
+     * 닫기는 여전히 뒤로 가기다 (ROUTES.md). 버튼은 `onHelp(false)` 라고만 말하고,
+     * 그걸 `navigate(-1)` 로 옮기는 건 라우트 쪽이다 — 거기는 `back.test.tsx` 가 지킨다.
+     */
+    const onHelp = vi.fn();
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true, onHelp);
+    await screen.findByText(HELP.title);
+    fireEvent.click(screen.getByText(BTN.close));
+    expect(onHelp).toHaveBeenCalledWith(false);
+  });
+
+  it("★ 반사적으로 닫은 사람이 다시 여는 길은 등록 중에만 카드에 있다", async () => {
+    /*
+     * 덮치는 화면은 반사적으로 닫힌다 — 자리 확인창에서 이미 겪었고 그때도
+     * 홈 카드가 다시 여는 길이 됐다 (슬라이스 12).
+     *
+     * **사전 콕 찌르기부터는 없다.** 그 자리에 `참가자 보러 가기` 가 서고,
+     * 한 카드에 버튼이 둘이면 어느 것이 지금 할 일인지 갈린다. 그 뒤로는 물음표가 맡는다.
+     */
+    renderParticipant(fakeSource({ load: async () => justRegistered() }), undefined, () => {}, "home");
+    await screen.findByText(HOME.guide);
+
+    cleanup();
+    renderParticipant(fakeSource(), undefined, () => {}, "home");
+    await screen.findByText(HOME.todo.prevote.title);
+    expect(screen.queryByText(HOME.guide)).toBeNull();
+  });
+});
 
 describe("참가자 화면 · 어깨너머 가리기", () => {
   afterEach(() => window.localStorage.clear());
@@ -569,6 +924,33 @@ describe("참가자 화면 · 어깨너머 가리기", () => {
   function pokeButtons() {
     return screen.getAllByRole("button").filter((b) => b.className.includes("pokeBtn"));
   }
+
+  it("★ 되돌리기는 행이 아니라 확인창 안에 있다 (ADR-34)", async () => {
+    /*
+     * 행에 버튼을 하나 더 두면 카드가 화면 밖으로 밀리고,
+     * **가린 동안 그 버튼이 보이면 "이 사람을 골랐다" 가 그대로 샌다** —
+     * 이 슬라이스의 불변식이 되돌리기 버튼 하나로 깨진다.
+     * 창은 이미 숫자를 보여주고 있으니 거기 둔다.
+     */
+    renderParticipant(fakeSource());
+    await screen.findByText(/그녀/);
+
+    // 행에는 없다 — 버튼은 하나뿐이다
+    expect(screen.queryAllByText(POKE.undo.btn)).toHaveLength(0);
+
+    // 이미 찌른 사람의 창을 열면 그 안에 있다 (POKE_STATE 는 her 를 1회 찔렀다)
+    const source = fakeSource();
+    cleanup();
+    renderParticipant(source);
+    await screen.findByText(/그녀/);
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 1));
+    expect(screen.getByText(POKE.undo.btn)).toBeTruthy();
+
+    // 누르면 되돌아간다. 확인을 한 번 더 묻지 않는다 — 되돌리는 것 자체가 되돌리기다
+    fireEvent.click(screen.getByText(POKE.undo.btn));
+    await waitFor(() => expect(source.calls.poke).toEqual(["-her"]));
+  });
 
   it("★ 가리면 찌른 버튼과 안 찌른 버튼이 구별되지 않는다", async () => {
     /*
@@ -599,7 +981,7 @@ describe("참가자 화면 · 어깨너머 가리기", () => {
     fireEvent.click(screen.getByText(PEOPLE.cover));
 
     fireEvent.click(pokeButtons()[0]);
-    expect(screen.queryByText(POKE.confirm.submit)).toBeNull();
+    expect(() => dialogBtn(POKE.confirm.submit("pre"))).toThrow();
     expect(source.calls.poke).toEqual([]);
   });
 
@@ -613,7 +995,7 @@ describe("참가자 화면 · 어깨너머 가리기", () => {
     // 가린 채로 프로필을 연다
     renderParticipant(fakeSource(), "her");
     await screen.findByText(PEOPLE.charmTitle);
-    expect(screen.queryByLabelText(POKE.confirm.submit)).toBeNull();
+    expect(screen.queryByLabelText(POKE.confirm.submit("pre"))).toBeNull();
     expect(screen.getAllByLabelText(PEOPLE.coveredPoke).length).toBeGreaterThan(1);
   });
 
@@ -643,15 +1025,36 @@ describe("참가자 화면 · 어깨너머 가리기", () => {
 });
 
 describe("참가자 화면 · 자리", () => {
-  const seat = { round: 1, table: 2, final: false, mates: 6, men: 3, acked: false };
+  const seat = { round: 1, table: 2, mates: 6, men: 3, acked: false };
 
   it("자리가 발행되면 전체 화면으로 확인을 받는다", async () => {
     const source = fakeSource({ load: async () => participantState({ seat }) });
     renderParticipant(source);
-    await screen.findByText(SEAT.ack.headline(2));
+    await screen.findByText(SEAT.ack.headline(2, false));
 
-    fireEvent.click(screen.getByText(SEAT.ack.submit));
+    fireEvent.click(screen.getByText(SEAT.ack.submit(false)));
     await waitFor(() => expect(source.calls.ack).toEqual([1]));
+  });
+
+  it("★ 파티 전과 파티 중이 다르게 말한다 (ADR-39)", async () => {
+    /*
+     * 첫 자리는 파티가 시작되기 전에 나간다. 그때 이 화면을 받는 사람은 **아직 오는 중**일 수 있어서
+     * "이동해주세요" 도 "지켜보고 있어요" 도 그 사람에게는 재촉이다.
+     */
+    const party = fakeSource({
+      load: async () => participantState({ seat, event: { ...participantState().event, phase: "party" } }),
+    });
+    renderParticipant(party);
+    await screen.findByText(SEAT.ack.headline(2, true));
+    expect(screen.getByText(SEAT.ack.watching)).toBeTruthy();
+
+    cleanup();
+
+    // 픽스처의 기본 단계는 매력 투표다 — 파티 전이다
+    renderParticipant(fakeSource({ load: async () => participantState({ seat }) }));
+    await screen.findByText(SEAT.ack.headline(2, false));
+    expect(screen.getByText(SEAT.ack.beforeParty)).toBeTruthy();
+    expect(screen.queryByText(SEAT.ack.watching)).toBeNull();
   });
 
   it("★ 확인 저장이 실패하면 안내가 그대로 남는다 — 조용히 삼키지 않는다", async () => {
@@ -666,10 +1069,10 @@ describe("참가자 화면 · 자리", () => {
       },
     });
     renderParticipant(source);
-    await screen.findByText(SEAT.ack.headline(2));
-    fireEvent.click(screen.getByText(SEAT.ack.submit));
+    await screen.findByText(SEAT.ack.headline(2, false));
+    fireEvent.click(screen.getByText(SEAT.ack.submit(false)));
     // 되돌아와서 한 번 더 누를 수 있다
-    await waitFor(() => expect(screen.getByText(SEAT.ack.submit)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(SEAT.ack.submit(false))).toBeTruthy());
   });
 
   it("★ 이미 확인한 사람은 홈에서 다시 열 수 있다", async () => {
@@ -683,6 +1086,7 @@ describe("참가자 화면 · 자리", () => {
     render(
       <MemoryRouter>
         <ParticipantView
+          onHelp={() => {}}
           source={source}
           tab="home"
           onTab={() => {}}
@@ -694,7 +1098,7 @@ describe("참가자 화면 · 자리", () => {
     );
     // 확인했으므로 전체 화면은 안 뜬다
     await screen.findByText(SEAT.banner(2));
-    expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+    expect(screen.queryByText(SEAT.ack.submit(false))).toBeNull();
 
     // 홈의 자리 카드를 누르면 다시 열린다
     fireEvent.click(screen.getByText(SEAT.banner(2)).closest("button")!);
@@ -711,6 +1115,7 @@ describe("참가자 화면 · 자리", () => {
     render(
       <MemoryRouter>
         <ParticipantView
+          onHelp={() => {}}
           source={fakeSource()}
           tab="home"
           seatOpen
@@ -731,6 +1136,7 @@ describe("참가자 화면 · 자리", () => {
     render(
       <MemoryRouter>
         <ParticipantView
+          onHelp={() => {}}
           source={source}
           tab="home"
           seatOpen
@@ -741,8 +1147,8 @@ describe("참가자 화면 · 자리", () => {
         />
       </MemoryRouter>,
     );
-    await screen.findByText(SEAT.ack.headline(2));
-    expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+    await screen.findByText(SEAT.ack.headline(2, false));
+    expect(screen.queryByText(SEAT.ack.submit(false))).toBeNull();
     expect(screen.getByText(BTN.close)).toBeTruthy();
   });
 
@@ -753,13 +1159,13 @@ describe("참가자 화면 · 자리", () => {
     });
     renderParticipant(source);
     await screen.findByText(/그녀/);
-    expect(screen.queryByText(SEAT.ack.submit)).toBeNull();
+    expect(screen.queryByText(SEAT.ack.submit(false))).toBeNull();
   });
 });
 
 // ─────────────────────────────────────────── 오늘의 연애운
 
-describe("오늘 탭", () => {
+describe("재미 탭 · 운세 카드", () => {
   /**
    * 이 앱에서 유일하게 기능이 아니라 재미인 자리다. 그래도 규칙은 같다 —
    * 열기 전에는 뒷면이고, 한 번 열면 그대로 남는다.
@@ -773,14 +1179,14 @@ describe("오늘 탭", () => {
   function renderFortune(source: ParticipantSource) {
     return render(
       <MemoryRouter>
-        <ParticipantView source={source} tab="fortune" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
+        <ParticipantView source={source} tab="fun" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
   }
 
   it("★ 파티가 시작되면 탭이 생긴다", async () => {
     renderFortune(party());
-    expect(await screen.findByText(FORTUNE.tab)).toBeTruthy();
+    expect(await screen.findByText(FUN_TAB.label)).toBeTruthy();
   });
 
   it("★ 열기 전에는 뒷면이다 — 운세가 미리 보이지 않는다", async () => {
@@ -911,7 +1317,7 @@ describe("발표 후 참가자 탭", () => {
           charms: ["매력가", "매력나", "매력다"],
         },
         sameTable: 2,
-        contact: { realName: "이실명", phone: "01055556666", instagram: "her_gram" },
+        realName: "이실명",
       },
     ],
   };
@@ -926,6 +1332,61 @@ describe("발표 후 참가자 탭", () => {
         }),
     });
 
+  /**
+   * **매칭 카드에는 이름뿐이다** (ADR-42). 전화번호·인스타는 `MatchInfo` 에 담길 자리가 없어서
+   * 서버가 애초에 안 보낸다 — 화면은 그걸 그대로 그린다.
+   *
+   * 그래서 이 테스트가 재는 건 **없는 것**이다. 픽스처에 연락처를 넣을 수조차 없으므로
+   * (타입이 막는다) 여기서는 화면에 그 낱말이 안 뜨는지를 본다.
+   */
+  it("★ 매칭 카드에 이름은 있고 연락처 칸은 없다", async () => {
+    renderParticipant(revealed(), "her");
+
+    await screen.findByText("이실명");
+    // 다음에 뭘 하면 되는지 한 줄. 두 사람에게 주는 유일한 다음 걸음이다
+    expect(screen.getByText(REVEAL.nameNote)).toBeTruthy();
+    // 매칭 자체는 그대로 보인다
+    expect(screen.getAllByText(new RegExp(REVEAL.matchBadge)).length).toBeGreaterThan(0);
+
+    /*
+     * `연락처` 라는 라벨을 두지 않는다 — 그렇게 쓰면 뒤에 뭔가 더 있어야 하는 칸이 되고,
+     * 빈 채로 남으면 고장 난 화면으로 읽힌다.
+     */
+    expect(screen.queryByText("연락처"), "연락처 칸이 남아 있다").toBeNull();
+    for (const [what, needle] of [
+      ["전화번호 라벨", ME.labels.phone],
+      ["인스타 라벨", ME.labels.instagram],
+    ] as const) {
+      expect(screen.queryByText(needle), `${what} 가 남아 있다`).toBeNull();
+    }
+    // 걸 수 있는 링크도 없어야 한다 — 있으면 값이 어딘가로 흘렀다는 뜻이다
+    expect(document.querySelector('a[href^="tel:"]'), "전화 링크가 남아 있다").toBeNull();
+    expect(document.querySelector('a[href*="instagram.com"]'), "인스타 링크가 남아 있다").toBeNull();
+  });
+
+  /**
+   * 이 한 줄은 **앱이 하지 않는 일을 가리키면 안 된다.**
+   *
+   * 인스타를 나누는 건 두 사람이지 앱이 아니다 (ADR-42). `인스타가 열려요` 처럼 쓰면
+   * 화면 어디에도 없는 것을 찾아 헤매게 되고, 못 찾으면 그 질문이 운영자에게 간다.
+   *
+   * 그리고 **상대를 지목하지 않는다.** `상대가 안 열었어요` 는 이름 붙은 거절이고,
+   * 서로 콕 찌른 사이라 상대가 누구인지 이미 아는 화면에서 그건 가장 아픈 문장이다.
+   */
+  it("★ 다음 걸음 한 줄이 앱에 없는 것을 가리키지 않는다", async () => {
+    for (const [why, word] of [
+      ["앱이 열어준다고 읽힌다", "열려"],
+      ["앱 어딘가에 있다고 읽힌다", "확인"],
+      ["상대를 지목한다", "상대가"],
+      ["거절로 읽힌다", "거절"],
+      ["수락 단계가 있다고 읽힌다", "수락"],
+    ] as const) {
+      expect(REVEAL.nameNote, `'${word}' — ${why}`).not.toContain(word);
+    }
+    // 있는 쪽을 가리킨다 — 두 사람이 직접 나누는 것
+    expect(REVEAL.nameNote, "무엇을 하면 되는지 말해야 한다").toContain("인스타");
+  });
+
   it("★ 발표 후에는 콕 버튼이 아예 없다 — 잠긴 버튼도 남기지 않는다", async () => {
     /*
      * 아직 안 열린 것(등록 중 = 잠김)과 끝난 것(발표 후 = 없음)은 다르다.
@@ -933,7 +1394,7 @@ describe("발표 후 참가자 탭", () => {
      */
     renderParticipant(revealed());
     await screen.findByText(/그녀/);
-    expect(screen.queryAllByLabelText(POKE.confirm.submit)).toHaveLength(0);
+    expect(screen.queryAllByLabelText(POKE.confirm.submit("pre"))).toHaveLength(0);
   });
 
   it("★ 서로 찌른 사람은 목록에서 글자로도 구분된다 — 색만으로 말하지 않는다", async () => {
@@ -973,17 +1434,6 @@ describe("발표 후 참가자 탭", () => {
     expect(screen.queryByText(new RegExp(REVEAL.matchBadge))).toBeNull();
   });
 
-  it("★ 서로 찌른 상대의 연락처가 프로필에서 열린다", async () => {
-    // 프로필 시트를 연 채로 그린다
-    renderParticipant(revealed(), "her");
-
-    await screen.findByText(REVEAL.contactTitle);
-    expect(screen.getByText("이실명")).toBeTruthy();
-    // 번호는 눌러서 걸 수 있어야 한다 — 파티장에서 손으로 옮겨 적게 하지 않는다
-    expect(screen.getByText("01055556666").getAttribute("href")).toBe("tel:01055556666");
-    // 상대에게도 내 연락처가 간다는 걸 그 자리에서 말한다
-    expect(screen.getByText(REVEAL.contactNote)).toBeTruthy();
-  });
 });
 
 // ─────────────────────────────────────────── 두 회차
@@ -1011,7 +1461,7 @@ describe("한 폰으로 두 회차", () => {
     });
     render(
       <MemoryRouter initialEntries={["/e/ABCDEF"]}>
-        <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
+        <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
 
@@ -1027,135 +1477,31 @@ describe("한 폰으로 두 회차", () => {
 
 describe("참가 링크", () => {
   /**
-   * 운영자는 링크를 한 번 뿌리고 참가자는 그 링크를 계속 다시 연다.
+   * 링크가 곧 신원이다 (ADR-32). **번호 칸은 없다** —
+   * 번호를 아는 사람이 그 사람이 될 수 있던 구멍을 그렇게 닫았다 (ADR-15 후기 2).
+   *
+   * 운영자는 사람마다 다른 링크를 1:1 로 보내고, 참가자는 그 링크를 계속 다시 연다.
    * 등록을 마친 사람에게 등록 화면을 다시 보여주면 "내가 등록이 안 됐나?" 하고
    * 두 번 등록하려 든다. 실제로 나온 신고다.
    */
   function renderJoin() {
     const router = createMemoryRouter(
       [
-        { path: "/j/:id", element: <Join /> },
-        { path: "/j/:id/register/:step", element: <div>{SCREEN_TITLE.register}</div> },
+        { path: "/j/:id/:token", element: <Join /> },
+        { path: "/j/:id/:token/register/:step", element: <div>{SCREEN_TITLE.register}</div> },
         { path: "/e/:code", element: <div>참가자 화면</div> },
       ],
-      { initialEntries: ["/j/e1"] },
+      { initialEntries: ["/j/e1/tok123"] },
     );
     return render(<RouterProvider router={router} />);
   }
 
-  /** 세션이 없어 전화번호 칸이 뜨는 상태 */
-  const atGate = () =>
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) =>
-        url.includes("/me")
-          ? new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 })
-          : new Response(
-              JSON.stringify({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true }),
-              { headers: { "content-type": "application/json" } },
-            ),
-      ),
-    );
-
-  it("★ 전화번호 칸은 010 이 채워진 채로 시작한다", async () => {
-    /*
-     * 거의 모든 번호가 010 이라 세 번의 탭을 아낀다. 다만 **칸 밖의 고정 접두사로 두지 않는다** —
-     * 칸이 여덟 자리짜리가 되면 브라우저 자동완성이 채운 열한 자리가 안 들어가고,
-     * 011 같은 옛 번호를 지우고 칠 수도 없어진다 (그 사람은 문 앞에서 막히는데 이유를 알 수 없다).
-     */
-    atGate();
-    renderJoin();
-    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
-    expect(input.value).toBe("010");
-    // 지우고 다른 번호를 칠 수 있다
-    fireEvent.change(input, { target: { value: "0112345678" } });
-    expect(input.value).toBe("011-2345-678");
-  });
-
-  it("★ 씨앗만 있는 칸에 포커스가 오면 010 이 선택된 채로 남지 않는다", async () => {
-    /*
-     * 브라우저가 `010` 을 **통째로 선택한 채** 포커스를 준다. 그대로 두면 다음에 누르는
-     * 숫자 하나가 그 세 글자를 덮어써서, 여덟 자리만 친 사람은 `010` 이 있는 줄 알고 보낸다.
-     * 운영자 명단 칸에서 같은 일이 나면 그 사람은 파티 당일 문 앞에서 막힌다.
-     */
-    atGate();
-    renderJoin();
-    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
-
-    input.setSelectionRange(0, input.value.length);
-    fireEvent.focus(input);
-    await new Promise((r) => requestAnimationFrame(() => r(null)));
-    expect(input.selectionStart).toBe(3);
-    expect(input.selectionEnd).toBe(3);
-  });
-
-  it("이미 친 번호가 있으면 전체 선택을 건드리지 않는다 — 다 지우고 다시 치려는 것이다", async () => {
-    atGate();
-    renderJoin();
-    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
-
-    fireEvent.change(input, { target: { value: "01012345678" } });
-    input.setSelectionRange(0, input.value.length);
-    fireEvent.focus(input);
-    await new Promise((r) => requestAnimationFrame(() => r(null)));
-    expect(input.selectionStart).toBe(0);
-    expect(input.selectionEnd).toBe(input.value.length);
-  });
-
-  it("★ 치는 대로 하이픈이 붙고, 자리가 덜 차면 보낼 수 없다", async () => {
-    atGate();
-    renderJoin();
-    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
-    const submit = screen.getByText(ENTRY.submit) as HTMLButtonElement;
-
-    fireEvent.change(input, { target: { value: "0101234" } });
-    expect(input.value).toBe("010-1234");
-    // 덜 찬 채로 보내면 돌아오는 건 "이 번호로는 들어갈 수 없어요" 하나뿐이라 이유를 알 수 없다
-    expect(submit.disabled).toBe(true);
-
-    fireEvent.change(input, { target: { value: "01012345678" } });
-    expect(input.value).toBe("010-1234-5678");
-    expect(submit.disabled).toBe(false);
-  });
-
-  it("자동완성이 채운 열한 자리도 그대로 받는다", async () => {
-    // 자동완성은 하이픈 없이 한 번에 넣는다. 세 번 아끼려다 열한 번을 잃으면 안 된다
-    atGate();
-    renderJoin();
-    const input = (await screen.findByLabelText(ENTRY.phoneLabel)) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "010-9876-5432" } });
-    expect(input.value).toBe("010-9876-5432");
-  });
-
-  it("★ 이미 등록한 사람은 등록 화면이 아니라 자기 화면으로 간다", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        const body = url.includes("/me")
-          ? participantState()
-          : { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true };
-        return new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }),
-    );
-    renderJoin();
-    await screen.findByText("참가자 화면");
-  });
-
-  /**
-   * ★ 링크만으로는 들어올 수 없다 (ADR-15).
-   *
-   * 참가 링크는 단톡방에 돌고, 스크린샷으로도 퍼진다. 그 링크가 곧 입장이면
-   * 운영자가 부르지 않은 사람이 명단에 들어온다 —
-   * 문을 여는 건 **운영자가 미리 받아둔 전화번호**다. 코드는 옮겨 적을 수 있지만
-   * 남의 번호로는 들어올 수 없다.
-   */
   function stubGate(enter: { status: number; body: unknown }) {
+    const calls: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
+        calls.push(url);
         if (url.includes("/me")) {
           return new Response(JSON.stringify({ error: "unauthorized" }), {
             status: 401,
@@ -1174,37 +1520,42 @@ describe("참가 링크", () => {
         );
       }),
     );
+    return calls;
   }
 
-  it("★ 링크만 열면 회차만 보이고, 번호를 넣어야 등록으로 간다", async () => {
+  it("★ 번호를 묻지 않는다 — 링크를 열고 누르면 등록으로 간다", async () => {
     stubGate({ status: 200, body: { registered: false } });
     renderJoin();
 
-    // 방은 보인다
+    // 방이 보인다
     await screen.findByText("테스트 파티");
     // 등록으로 가는 문은 아직 닫혀 있다
     expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
-    expect(screen.getByText(ENTRY.gateNote)).toBeTruthy();
+    // **번호 칸이 없다.** 있으면 지인이 남의 번호로 그 사람이 될 수 있다
+    expect(document.querySelector('input[inputmode="tel"]')).toBeNull();
 
-    fireEvent.change(screen.getByLabelText(ENTRY.phoneLabel), { target: { value: "010-1234-5678" } });
-    fireEvent.click(screen.getByText(ENTRY.submit));
-
+    fireEvent.click(screen.getByText(ENTRY.start));
     expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
   });
 
-  it("★ 명단에 없는 번호는 문 앞에서 막히고, 입력값은 남는다", async () => {
+  it("★ 회차 조회도 토큰을 싣는다 — 아이디만으로 열리면 안 된다", async () => {
+    const calls = stubGate({ status: 200, body: { registered: false } });
+    renderJoin();
+    await screen.findByText("테스트 파티");
+
+    const info = calls.find((u) => u.includes("/events/by-id/"));
+    expect(info).toContain("t=tok123");
+  });
+
+  it("★ 통하지 않는 링크는 문 앞에서 막힌다", async () => {
     stubGate({ status: 403, body: { error: "not_invited", message: ENTRY.notInvited } });
     renderJoin();
     await screen.findByText("테스트 파티");
 
-    const input = screen.getByLabelText(ENTRY.phoneLabel) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "01099998888" } });
-    fireEvent.click(screen.getByText(ENTRY.submit));
+    fireEvent.click(screen.getByText(ENTRY.start));
 
     expect(await screen.findByText(ENTRY.notInvited)).toBeTruthy();
     expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
-    // 번호를 다시 치게 하지 않는다 (칸은 하이픈을 넣어 보여준다)
-    expect(input.value).toBe("010-9999-8888");
   });
 
   it("이미 등록한 사람은 등록 폼을 건너뛴다", async () => {
@@ -1212,11 +1563,132 @@ describe("참가 링크", () => {
     renderJoin();
     await screen.findByText("테스트 파티");
 
-    fireEvent.change(screen.getByLabelText(ENTRY.phoneLabel), { target: { value: "01012345678" } });
-    fireEvent.click(screen.getByText(ENTRY.submit));
-
+    fireEvent.click(screen.getByText(ENTRY.start));
     expect(await screen.findByText("참가자 화면")).toBeTruthy();
   });
+
+  /**
+   * ★ **등록 폼의 확인도 토큰이 한다** (ADR-44).
+   *
+   * Join 과 같은 자리다 — `/me` 로 브라우저 세션을 물으면 다른 탭에 열린 사람으로 넘어간다.
+   * 두 곳 다 고쳐야 규칙이 규칙이 된다.
+   */
+  it("★ 아직 등록하지 않은 토큰은 남의 세션이 있어도 폼을 연다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const json = (body: unknown) =>
+          new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+        // 세션은 **있는 것처럼** 답한다. 옛 코드라면 이것만 보고 남의 화면으로 넘어갔다
+        if (String(url).includes("/me")) return json(participantState());
+        return json({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true, registered: false });
+      }),
+    );
+    const router = createMemoryRouter(
+      [
+        { path: "/j/:id/:token/register/:step", element: <Register /> },
+        { path: "/e/:code", element: <div>참가자 화면</div> },
+      ],
+      { initialEntries: ["/j/e1/tok123/register/1"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
+    expect(screen.queryByText("참가자 화면")).toBeNull();
+  });
+
+  it("★ 등록을 마친 뒤 뒤로 가도 등록 폼이 다시 뜨지 않는다", async () => {
+    /*
+     * 완료할 때 `replace` 로 갈아끼우는 건 **마지막 스텝 한 칸뿐**이다.
+     * 스텝은 `push` 로 쌓이므로(`이전` 버튼이 그 히스토리를 쓴다) 1·2 스텝이 남는다.
+     * 홈에서 뒤로 가면 그 칸을 밟는데, 다 채워진 것처럼 보이는 폼을 보면 두 번 등록하려 든다.
+     */
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("/me")
+          ? new Response(JSON.stringify(participantState()), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            })
+          : // 회차 조회가 이 토큰의 등록 여부를 답한다 (ADR-44)
+            new Response(JSON.stringify({ id: "e1", registered: true }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+      ),
+    );
+    const router = createMemoryRouter(
+      [
+        { path: "/j/:id/:token/register/:step", element: <Register /> },
+        { path: "/e/:code", element: <div>참가자 화면</div> },
+      ],
+      // 뒤로 가서 2스텝을 밟은 상태
+      { initialEntries: ["/j/e1/tok123/register/2"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    await screen.findByText("참가자 화면");
+    // 폼은 한 번도 보이지 않는다
+    expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
+  });
+
+  /**
+   * ★ **등록했는지는 토큰이 정한다. 브라우저 세션이 아니다** (ADR-44).
+   *
+   * 예전에는 이 화면이 `/me` 를 먼저 불러 "이 브라우저에 세션이 있나" 로 넘겼다.
+   * 쿠키는 탭이 아니라 브라우저 단위라, **두 번째 탭에서 다른 사람의 링크를 열면
+   * 첫 번째 탭의 사람으로 넘어갔다** — 링크가 사람마다 달라도 소용이 없었다.
+   */
+  it("★ 등록을 마친 링크는 곧바로 자기 화면으로 간다", async () => {
+    const fetched = stubRoom({ registered: true }, { registered: true, code: "ABCDEF", ref: "aabbccdd" });
+    renderJoin();
+
+    await screen.findByText("참가자 화면");
+    // 등록 여부를 브라우저 세션에 묻지 않는다 — 그게 탭을 서로 덮던 길이었다
+    for (const [url] of fetched.mock.calls as unknown as Array<[string]>) {
+      expect(String(url)).not.toMatch(/\/me\b/);
+    }
+  });
+
+  it("★ 아직 등록하지 않은 링크는 남의 세션이 있어도 등록부터 시작한다", async () => {
+    // `/me` 는 200 을 준다 — 옛 코드라면 이것만 보고 남의 화면으로 넘어갔다
+    stubRoom({ registered: false }, { registered: false, ref: "aabbccdd" });
+    renderJoin();
+
+    await screen.findByText("테스트 파티");
+    expect(screen.queryByText("참가자 화면")).toBeNull();
+
+    fireEvent.click(screen.getByText(ENTRY.start));
+    expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
+  });
+
+  /** 이름표를 탭에 든다. 다른 탭이 다른 링크로 들어와도 서로 안 건드린다 */
+  it("★ 들어가면서 이 탭의 이름표를 sessionStorage 에 든다", async () => {
+    stubRoom({ registered: true }, { registered: true, code: "ABCDEF", ref: "12ab34cd" });
+    renderJoin();
+
+    await screen.findByText("참가자 화면");
+    expect(sessionStorage.getItem("tp.ref")).toBe("12ab34cd");
+  });
+
+  /**
+   * 회차 정보는 **토큰으로** 묻고, 그 답의 `registered` 가 이 화면의 판정이다.
+   * `/me` 로 브라우저 세션을 묻던 자리를 대신한다.
+   */
+  function stubRoom(room: { registered: boolean }, enter: unknown) {
+    sessionStorage.clear();
+    const fetched = vi.fn(async (url: string) => {
+      const json = (status: number, body: unknown) =>
+        new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+      // 옛 경로가 살아 있으면 잡히도록, 세션은 **있는 것처럼** 답한다
+      if (String(url).includes("/me")) return json(200, participantState());
+      if (String(url).includes("/enter")) return json(200, enter);
+      return json(200, { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true, ...room });
+    });
+    vi.stubGlobal("fetch", fetched);
+    return fetched;
+  }
 });
 
 // ─────────────────────────────────────────── 연습용 환경 표시
@@ -1252,60 +1724,47 @@ describe("연습용 환경", () => {
 
 describe("상단 바", () => {
   /**
-   * 참가자가 반복해서 보는 건 셋뿐이다 — 지금 단계, 남은 콕, 남은 시간.
-   * 헤더는 스크롤되지 않으므로 여기 있는 것만 항상 보인다.
+   * 답하는 질문은 하나다 — **"내가 지금 어느 파티의 어느 단계에 있나."**
+   * 헤더는 스크롤되지 않아 어느 탭에서든 계속 보이므로 자리값이 비싸다.
    */
-  it("★ 단계와 '무엇까지' 가 붙은 카운트다운이 한 줄에 있다", async () => {
-    renderParticipant(fakeSource());
+  it("★ 회차 이름과 단계는 어느 탭에서든 보인다", async () => {
+    for (const tab of ["home", "people", "me"] as const) {
+      cleanup();
+      renderParticipant(fakeSource(), undefined, () => {}, tab);
+      await screen.findByText(PHASE_LABEL.prevote);
+      expect(screen.getByText("테스트 파티")).toBeTruthy();
+    }
+  });
+
+  it("★ 카운트다운은 상단 바에 없다 — 홈의 할 일 카드가 맡는다", async () => {
+    /*
+     * 카운트다운이 세는 건 늘 **다음에 일어날 일**이지 지금 하는 일의 마감이 아니다
+     * (사전 투표 마감은 운영자가 눌러서 셀 수 있는 시각이 없다 — ADR-14).
+     * 그건 "지금 무슨 일이고 내가 뭘 하면 되나" 에 답하는 홈의 질문이다.
+     *
+     * 여기 있던 시절의 대가는 **회차 이름**이 치렀다 — 오른쪽 열이 제 폭을 붙들고 있어
+     * 390px 폰에서 이름 칸이 219px 뿐이었다.
+     */
+    renderParticipant(fakeSource(), undefined, () => {}, "people");
     await screen.findByText(PHASE_LABEL.prevote);
-    // 숫자만 있으면 무엇을 세는지 알 수 없다
-    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
-    expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/)).toBeTruthy();
-  });
-
-  const withSchedule = (phase: "reg" | "prevote", schedule: Record<string, number>) =>
-    fakeSource({
-      load: async () =>
-        participantState({
-          event: { ...participantState().event, phase, schedule },
-          ...(phase === "reg" ? { roster: [] } : {}),
-        }),
-    });
-
-  it("★ 등록 중에는 사전 투표까지를 센다 — 다음에 일어날 일이다", async () => {
-    /*
-     * 한동안 내내 파티만 셌다. 등록 기간이 며칠이라 `1일 2시간` 만 계속 보였고,
-     * 정작 참가자가 알고 싶은 건 **언제 콕을 찌를 수 있나** 였다.
-     */
-    renderParticipant(withSchedule("reg", { prevoteAt: Date.now() + 1_800_000, partyAt: Date.now() + 90_000_000 }));
-    await screen.findByText(PHASE_LABEL.reg);
-    expect(screen.getByText(STATUS.untilPrevote)).toBeTruthy();
     expect(screen.queryByText(STATUS.untilParty)).toBeNull();
+    expect(screen.queryByText(/^\d{2}:\d{2}:\d{2}$/)).toBeNull();
   });
-
-  it("★ 사전 투표 시각이 지났는데 아직 등록 중이면 파티를 센다", async () => {
-    /*
-     * 예약이 걸려 있어도 운영자가 아직 안 넘겼을 수 있다. 지나간 시각을 세면 음수가 뜨고,
-     * 사람은 그 숫자를 **자기 시계가 틀린 걸로** 읽는다.
-     */
-    renderParticipant(withSchedule("reg", { prevoteAt: Date.now() - 60_000, partyAt: Date.now() + 3_600_000 }));
-    await screen.findByText(PHASE_LABEL.reg);
-    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
-    expect(screen.queryByText(STATUS.untilPrevote)).toBeNull();
-  });
-
   it("★ 남은 콕은 한 곳에만 — 콕을 찌르는 화면", async () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
     // 내 카드 오른쪽 칸 하나뿐이다 (예산 3, 1회 씀 → 2회 남음)
-    expect(screen.getAllByText(PEOPLE.pokeLeftLabel)).toHaveLength(1);
+    expect(screen.getAllByText(PEOPLE.pokeLeftLabel("pre"))).toHaveLength(1);
     expect(screen.getAllByText(UNIT.times(2))).toHaveLength(1);
   });
 
-  it("★ 회차 이름이 길어도 카운트다운을 밀어내지 않는다", async () => {
+  it("★ 회차 이름이 길어도 옆의 것을 밀어내지 않는다", async () => {
     /*
      * 실기기에서 났던 것 — `108th TONE PARTY🔥 …` 처럼 이름이 길면 옆의 것들이 다 같이
      * 쪼그라들어 `1명` 도 `파티까지` 도 두 줄로 접혔다. **줄어드는 건 이름 하나뿐이어야 한다.**
+     *
+     * 카운트다운이 홈으로 간 뒤로 옆에 서는 건 도움말 버튼이다. 규칙은 그대로다 —
+     * 그 버튼은 손가락이 닿는 크기(`--tap`)를 지켜야 하므로 이름에 양보하면 안 된다.
      */
     renderParticipant(
       fakeSource({
@@ -1316,10 +1775,11 @@ describe("상단 바", () => {
       }),
     );
     const name = await screen.findByText(/108th TONE PARTY/);
-    // 이름과 카운트다운이 **다른 칸**에 있다. 한 칸에 있으면 같이 줄어든다
+    // 이름과 도움말이 **다른 칸**에 있다. 한 칸에 있으면 같이 줄어든다
     expect(name.closest(".where")).toBeTruthy();
-    expect(name.closest(".until")).toBeNull();
-    expect(document.querySelector(".statusbar .until")).toBeTruthy();
+    const help = screen.getByLabelText(HELP.open);
+    expect(help.closest(".where")).toBeNull();
+    expect(name.closest(".statusbar")).toBe(help.closest(".statusbar"));
   });
 
   it("★ 인원 수는 홈 탭에만 있다", async () => {
@@ -1351,7 +1811,7 @@ describe("상단 바", () => {
     // 내 정보 탭으로 옮겨도 여전히 한 곳뿐이다 (예전에는 그 탭 안에 또 있었다)
     rerender(
       <MemoryRouter>
-        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getAllByText("테스트 파티")).toHaveLength(1));
@@ -1361,7 +1821,7 @@ describe("상단 바", () => {
     // 라운드는 상단 바가, 콕 숫자는 참가자 탭이 맡는다
     render(
       <MemoryRouter>
-        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} />
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
     await screen.findByText(ME.labels.nickname);
@@ -1374,7 +1834,7 @@ describe("상단 바", () => {
 
 /**
  * `position: fixed; bottom: 0` 은 **레이아웃 뷰포트** 기준이라 키보드가 떠도 안 움직인다.
- * 운영자가 입장 명단에 번호를 넣을 때 시트가 통째로 키보드 뒤로 들어갔다.
+ * 운영자가 초대 명단에 번호를 넣을 때 시트가 통째로 키보드 뒤로 들어갔다.
  *
  * 안드로이드는 뷰포트 메타(`interactive-widget=resizes-content`)가 맡지만
  * **iOS 사파리는 그 속성을 모른다** — 거기서는 이 값이 유일한 단서라 계산이 틀리면 조용히 가려진다.
@@ -1614,7 +2074,7 @@ describe("참가자 탭 · 내 카드", () => {
     renderParticipant(fakeSource());
     await screen.findByText(PEOPLE.mine);
     // 목록에는 '그녀' 하나뿐이니 콕 버튼도 하나뿐이어야 한다 — 내 것이 생기면 둘이 된다
-    expect(screen.getAllByLabelText(POKE.confirm.submit).length).toBe(1);
+    expect(screen.getAllByLabelText(POKE.confirm.submit("pre")).length).toBe(1);
   });
 });
 
@@ -1640,6 +2100,7 @@ describe("내 정보 고치기", () => {
       const navigate = useNavigate();
       return (
         <ParticipantView
+          onHelp={() => {}}
           source={source}
           tab="me"
           onSeat={() => {}}
@@ -1681,13 +2142,53 @@ describe("내 정보 고치기", () => {
     expect(screen.getAllByText(BTN.save).length).toBe(1);
   });
 
-  it("★ 전화번호는 편집 모드에서도 칸이 아니다", async () => {
+  /**
+   * **전화번호는 이 탭 어디에도 없다** (ADR-47) — 칸도, 값도, 왜 못 고치는지 설명도.
+   *
+   * 참가자가 낸 값이 아니라 초대 명단에서 온 값이라(ADR-32) *내가 낸 것* 을 답하는
+   * 이 탭의 물음에 애초에 해당하지 않는다. 설명이 남아 있으면 없는 칸을 가리키는 줄이 된다.
+   */
+  it("★ 전화번호는 편집 모드에도, 읽기 화면에도 없다", async () => {
     renderMe(reg);
-    fireEvent.click(await screen.findByText(ME.edit));
+    // ⚠️ **먼저 떠야 없는 걸 잴 수 있다** — 안 기다리면 빈 화면에서 통과한다
+    await screen.findByText(ME.edit);
+    expect(screen.queryByText(ME.labels.phone), "읽기 화면에 번호 줄이 있다").toBeNull();
 
-    // 파티의 문이라 고칠 수 없다 — 값은 보이되 입력 칸은 없다
-    expect(screen.queryByLabelText(ME.labels.phone)).toBeNull();
-    expect(screen.getByText(ME.phoneFixed)).toBeTruthy();
+    fireEvent.click(screen.getByText(ME.edit));
+    expect(screen.queryByLabelText(ME.labels.phone), "번호 칸이 생겼다").toBeNull();
+    expect(screen.queryByText(ME.labels.phone), "편집 모드에 번호 줄이 있다").toBeNull();
+  });
+
+  /**
+   * **인스타는 고치는 칸으로만 남는다** (ADR-47).
+   *
+   * 받는 이유가 운영자 확인 하나라(ADR-42) 되보여줄 자리가 아니다. 다만 칸까지 없애면
+   * 오타를 낸 사람이 영영 못 고친다 — 그래서 읽기 화면에는 없고 폼에는 있다.
+   */
+  it("★ 인스타는 읽기 화면에 없고 고치는 칸에만 있다", async () => {
+    renderMe(reg);
+    await screen.findByText(ME.edit);
+    expect(screen.queryByText(ME.labels.instagram), "읽기 화면에 인스타 줄이 있다").toBeNull();
+    expect(screen.queryByText("na_gram"), "인스타 값이 그대로 떠 있다").toBeNull();
+
+    fireEvent.click(screen.getByText(ME.edit));
+    expect(screen.getByLabelText(ME.labels.instagram), "고치는 칸이 사라졌다").toBeTruthy();
+  });
+
+  /**
+   * **가리기 토글은 없다** (ADR-47). 가릴 값이 사라졌는데 토글만 남으면
+   * 아무 일도 안 하면서 "여기 감춘 게 있다" 고 말한다.
+   *
+   * ⚠️ 참가자 탭의 어깨너머 가리기(`ROSTER.cover`)는 **다른 기능이라 그대로 있다.**
+   */
+  it("★ 가리기 토글이 없고, 이름은 늘 보인다", async () => {
+    renderMe(reg);
+    await screen.findByText("김나");
+
+    expect(screen.queryByText("••••••"), "가려진 값이 남아 있다").toBeNull();
+    for (const gone of ["가린 정보 보기", "다시 가리기"]) {
+      expect(screen.queryByText(gone), `${gone} 버튼이 남아 있다`).toBeNull();
+    }
   });
 
   it("★ 사전 투표가 열린 뒤에는 왜 못 고치는지 말한다", async () => {
@@ -1773,12 +2274,19 @@ describe("탭 역할 분담", () => {
    * 같은 정보가 두 탭에 있으면 어느 쪽이 맞는지 눈이 한 번 더 확인한다.
    * 탭마다 답하는 질문이 하나씩이고 겹치지 않아야 한다.
    */
-  const withSeat = { round: 1, table: 2, final: false, mates: 6, men: 3, acked: true };
+  const withSeat = { round: 1, table: 2, mates: 6, men: 3, acked: true };
+
+  /** 그 단계의 상태 한 벌. `event` 는 통째로 갈아끼우는 자리라 기본값에서 떠온다 */
+  const inPhase = (phase: ParticipantState["event"]["phase"]): Partial<ParticipantState> => ({
+    event: { ...participantState().event, phase, fired: { reg: 1 } },
+  });
+  const funTab = () => screen.getByText(FUN_TAB.label).closest("button")!;
 
   const renderTab = (t: "home" | "me" | "people", over: Partial<ParticipantState> = {}) =>
     render(
       <MemoryRouter>
         <ParticipantView
+          onHelp={() => {}}
           source={fakeSource({ load: async () => participantState(over) })}
           tab={t}
           onTab={() => {}}
@@ -1806,68 +2314,240 @@ describe("탭 역할 분담", () => {
 
   it("★ 소식은 홈에 있다 — 알림 탭을 따로 두지 않는다", async () => {
     // 파티 한 번에 많아야 몇 개다. 탭 하나를 상시 내줄 양이 아니다
-    renderTab("home", { poke: { ...POKE_STATE, receivedCount: 2 } });
+    renderTab("home", { poke: { ...POKE_STATE, received: { pre: 2, party: 0 } } });
     await screen.findByText(HOME.news);
     expect(screen.getByText(NOTICE.prevote(3).title)).toBeTruthy();
   });
 
   /**
-   * 운영자가 알림을 꺼둔 회차는 **조용히 열린다.**
+   * ★ **소식 칸은 위가 늘 최신이다** (ADR-48).
    *
-   * 끄는 건 소식 한 줄뿐이다 — 단계도, 명단도, 콕 예산도 평소와 같다.
-   * 현장에서 운영자가 직접 말하는 회차를 위한 것이라, 화면이 먼저 말해버리면 안 된다.
+   * 받은 콕에는 시각이 없지만(있으면 발신자가 좁혀진다) **제자리에는 서야 한다.**
+   * 그 자리는 라운드가 정한다 — 매력 투표 콕은 `매력 투표가 시작됐어요` 위,
+   * 파티 콕은 `파티가 시작됐어요` 위.
+   *
+   * 여기가 깨지면 방금 받은 콕이 며칠 전 단계 알림 **아래**에 깔린다.
    */
-  it("★ 사전 콕 찌르기 알림을 꺼두면 소식에 그 줄이 없다", async () => {
-    const base = participantState();
-    const quiet = {
-      event: { ...base.event, config: { ...base.event.config, prevoteNotice: false } },
-      poke: { ...POKE_STATE, receivedCount: 2 },
-    };
-    renderTab("home", quiet);
-
-    // 받은 콕 줄은 그대로 있다 — 소식 자체를 없앤 게 아니다
+  it("★ 소식은 최신이 위다 — 콕도 제자리에 선다", async () => {
+    const T = (m: number) => new Date(`2026-08-25T04:${m}:00`).getTime();
+    renderTab("home", {
+      event: {
+        ...participantState().event,
+        phase: "party" as const,
+        fired: { reg: T(20), prevote: T(23), party: T(26) },
+      },
+      poke: { ...POKE_STATE, received: { pre: 1, party: 2 } },
+    });
     await screen.findByText(HOME.news);
-    expect(screen.queryByText(NOTICE.prevote(3).title)).toBeNull();
+
+    // 소식 칸의 제목을 위에서 아래 순서 그대로 읽는다
+    const titles = [...document.querySelectorAll(".banner .name")].map((n) => n.textContent);
+    expect(titles).toEqual([
+      POKE.received("party"),           // 파티 콕 둘 — 가장 최신
+      POKE.received("party"),
+      NOTICE.party(3).title,            // 04:26
+      POKE.received("pre"),             // 매력 투표 표 하나
+      NOTICE.prevote(3).title,          // 04:23
+    ]);
+  });
+
+  /**
+   * ★ **콕에는 시각이 없다.** 자리는 잡되 시각은 안 붙는다 —
+   * "21:03에 왔다" 를 알면 그때 누가 화면을 보고 있었는지와 맞춰 발신자를 좁힌다.
+   */
+  it("★ 콕에는 시각이 붙지 않는다 — 단계 알림에는 붙는다", async () => {
+    const T = (m: number) => new Date(`2026-08-25T04:${m}:00`).getTime();
+    renderTab("home", {
+      event: { ...participantState().event, phase: "party" as const, fired: { reg: T(20), prevote: T(23), party: T(26) } },
+      poke: { ...POKE_STATE, received: { pre: 0, party: 1 } },
+    });
+    await screen.findByText(HOME.news);
+
+    const rows = [...document.querySelectorAll(".banner")];
+    const timeOf = (row: Element) => [...row.querySelectorAll(".tiny.dim")].map((e) => e.textContent).join("");
+    const poked = rows.find((r) => r.querySelector(".name")?.textContent === POKE.received("party"))!;
+    const stage = rows.find((r) => r.querySelector(".name")?.textContent === NOTICE.party(3).title)!;
+
+    expect(timeOf(poked), "콕에 시각이 붙었다").toBe("");
+    expect(timeOf(stage), "단계 알림에서 시각이 사라졌다").not.toBe("");
+  });
+
+  /** 매칭 하나. 배너가 어느 탭을 가리키는지 재는 데만 쓴다 */
+  const matchedPoke: MyPokeState = {
+    ...POKE_STATE,
+    matches: [
+      {
+        player: { id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["가", "나", "다"] },
+        realName: "이실명",
+      },
+    ],
+  };
+
+  /**
+   * ★ **누구인지는 홈에서 바로 안다** (ADR-53).
+   *
+   * 지금까지 홈에는 `서로 찌른 상대 N명` 숫자만 있고 이름은 탭을 옮겨야 나왔다 —
+   * 발표 순간 가장 먼저 궁금한 것이 *누구야* 인데 그걸 한 번 더 눌러야 알았다.
+   *
+   * ⚠️ **카드를 홈에 그리는 게 아니다.** 프로필·같은 테이블·💘 배지는 참가자 탭 것이다 (ADR-18).
+   */
+  it("★ 매칭 상대의 이름이 홈에 뜬다", async () => {
+    const revealed = {
+      event: { ...participantState().event, phase: "done" as const, fired: { reg: 1, prevote: 2, done: Date.now() } },
+      poke: matchedPoke,
+    };
+    renderTab("home", revealed);
+
+    await screen.findByText(HOME.matched(1));
+    expect(screen.getByText("이실명"), "홈에 매칭 상대 이름이 없다").toBeTruthy();
+    // 카드까지 옮겨오지 않는다 — 그건 참가자 탭 것이다
+    expect(screen.queryByText(REVEAL.matchBadge), "홈에 매칭 배지가 딸려왔다").toBeNull();
   });
 
   it("★ 발표 배너는 결과가 있는 탭에는 뜨지 않는다 — 서로를 가리키면 안 된다", async () => {
     /*
      * 배너가 "홈으로 가라" 하고 홈 카드가 "참가자 탭으로 가라" 하면 두 화면이 서로를 가리킨다.
-     * 결과는 참가자 탭에 있으므로 (ADR-18) 거기서는 배너를 띄우지 않는다.
+     *
+     * **결과가 있는 탭이 사람마다 다르다** (ADR-53) — 매칭이 있으면 참가자 탭,
+     * 없으면 홈이다. 배너는 그 탭에서만 안 뜬다.
      */
     const revealed = {
       event: { ...participantState().event, phase: "done" as const, fired: { reg: 1, prevote: 2, done: Date.now() } },
     };
 
-    renderTab("people", revealed);
+    // 매칭이 있는 사람 — 결과는 참가자 탭이라 거기서는 안 뜬다
+    renderTab("people", { ...revealed, poke: matchedPoke });
     await screen.findByText(PEOPLE.everyone);
-    expect(screen.queryByText(NOTICE.done.title)).toBeNull();
+    expect(screen.queryByText(NOTICE.done.title), "결과가 있는 탭에 배너가 떴다").toBeNull();
     cleanup();
 
     // 결과를 볼 수 없는 탭에서는 그대로 뜬다 — 알림을 없앤 게 아니라 자리를 가린 것이다
+    renderTab("me", { ...revealed, poke: matchedPoke });
+    await screen.findByText(NOTICE.done.title);
+  });
+
+  /**
+   * ★ **매칭이 없으면 참가자 탭으로 보내지 않는다** (ADR-53).
+   *
+   * 가서 할 일이 **💘 없는 것을 훑는 일**이 된다 — 이 앱이 없애려던 경험 그대로다.
+   * 그 사람의 답은 홈 카드에 문장으로 다 있고, 배너도 홈을 가리켜야 한다.
+   */
+  it("★ 매칭이 없으면 발표 안내가 참가자 탭을 가리키지 않는다", async () => {
+    const revealed = {
+      event: { ...participantState().event, phase: "done" as const, fired: { reg: 1, prevote: 2, done: Date.now() } },
+    };
+
+    /*
+     * **참가자 탭에서도 배너가 뜬다** — 이 사람의 결과는 거기 없기 때문이다.
+     * 매칭이 있었다면(위 테스트) 안 떴을 자리다. 눌러서 갈 곳은 홈이다.
+     */
+    renderTab("people", revealed);
+    await screen.findByText(NOTICE.done.title);
+
+    /*
+     * 몸글은 없다 — `참가자 탭에서 확인해보세요` 가 이 사람에게는 **없는 것을 훑으라는 말**이고,
+     * 홈이 조심스럽게 한 말을 소식 목록에서 한 번 더 하지도 않는다.
+     */
+    expect(screen.queryByText(NOTICE.done.body), "매칭도 없는데 참가자 탭으로 보낸다").toBeNull();
+    cleanup();
+
+    // 내 정보 탭에서도 마찬가지다. 알림을 없앤 게 아니라 길만 바꿨다
     renderTab("me", revealed);
     await screen.findByText(NOTICE.done.title);
+    expect(screen.queryByText(NOTICE.done.body)).toBeNull();
   });
 
   it("★ 콕을 다 쓰면 할 수 없는 일을 시키지 않는다 — 0 도 들이대지 않는다", async () => {
     renderTab("home", { poke: { ...POKE_STATE, budget: { pre: { max: 1, used: 1 }, party: { max: 2, used: 0 } } } });
     await screen.findByText(HOME.spent.prevote.title);
     expect(screen.queryByText(HOME.todo.prevote.title)).toBeNull();
-    expect(screen.queryByText(STATUS.pokeLeft(0))).toBeNull();
+    expect(screen.queryByText(STATUS.pokeLeft("pre", 0))).toBeNull();
     // 명단 구경은 여전히 된다
     expect(screen.getByText(HOME.goPeople)).toBeTruthy();
   });
 
   it("★ 받은 콕은 한 번에 하나씩 쌓인다 — 합쳐서 세지 않는다", async () => {
-    renderTab("home", { poke: { ...POKE_STATE, receivedCount: 3 } });
+    renderTab("home", { poke: { ...POKE_STATE, received: { pre: 3, party: 0 } } });
     await screen.findByText(HOME.news);
     // 세 번 받았으면 세 줄이다. "지금까지 3회" 한 줄이 아니다
-    expect(screen.getAllByText(POKE.received)).toHaveLength(3);
+    // 매력 투표 중이라 세 줄 다 투표로 불린다 — 줄마다 라운드를 말하지는 않는다 (ADR-46)
+    expect(screen.getAllByText(POKE.received("pre"))).toHaveLength(3);
 
-    // '오늘' 은 파티가 시작돼야 생긴다. 사전 투표 중에는 세 개다
-    // '오늘' 은 맨 오른쪽에 붙는다 — 도중에 끼어들면 옆 탭들이 밀린다
-    expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me", "fortune"]);
-    expect(screen.queryByText(FORTUNE.tab)).toBeNull();
+    /* '재미' 는 맨 오른쪽에 붙는다 — 도중에 끼어들면 옆 탭들이 밀린다 */
+    expect(TABS_PARTICIPANT.map((t) => t.key)).toEqual(["home", "people", "me", "fun"]);
+    // 매력 투표 중이라 이미 켜져 있다 (ADR-20 후기)
+    expect(funTab().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  /**
+   * 매력 투표 중에는 **콕이라고 부르지 않는다** (ADR-34).
+   *
+   * 그 단계에서 참가자는 콕을 찌른 적이 없다 — 표를 냈다. 받은 줄이 `콕! 찔렀어요` 라고 하면
+   * 화면이 말하는 것과 참가자가 겪은 것이 갈린다.
+   */
+  it("★ 매력 투표 중에 받은 줄은 투표라고 부른다", async () => {
+    renderTab("home", { poke: { ...POKE_STATE, received: { pre: 2, party: 0 } } });
+    await screen.findByText(HOME.news);
+
+    expect(screen.getAllByText(POKE.received("pre"))).toHaveLength(2);
+    expect(screen.queryByText(POKE.received("party"))).toBeNull();
+  });
+
+  /**
+   * 두 라운드가 섞여 있으면 **줄마다 제 이름으로** 불린다 (ADR-46 후기).
+   *
+   * 합쳐 두던 시절에는 한 낱말로 뭉개져서, 콕을 찌른 적도 없는 사람이 콕을 받은 것이 됐다.
+   * 대가는 어느 줄이 어느 라운드인지 드러나는 것이고, 그건 받아들이기로 한 값이다.
+   */
+  it("★ 표와 콕이 섞여 있으면 줄마다 제 이름으로 부른다", async () => {
+    const base = participantState();
+    renderTab("home", {
+      event: {
+        ...base.event,
+        phase: "party",
+        fired: { reg: 1, prevote: 2, party: 3 },
+        config: { ...base.event.config, preNotify: true, pokeNotify: true },
+      },
+      poke: { ...POKE_STATE, received: { pre: 2, party: 3 } },
+    });
+    await screen.findByText(HOME.news);
+
+    // 다섯 줄이 두 이름으로 갈려 선다 — 합쳐서 "5회" 한 줄이 아니다
+    expect(screen.getAllByText(POKE.received("pre"))).toHaveLength(2);
+    expect(screen.getAllByText(POKE.received("party"))).toHaveLength(3);
+
+    /*
+     * **이모지도 버튼과 같다** (`ACT.emoji`). 참가자가 누른 버튼과 받은 줄이 같은 그림이면
+     * *내가 한 그 일을 누군가 나에게 했다* 가 글자 없이도 읽힌다.
+     * 하트 하나를 둘에 같이 쓰던 자리라, 갈렸다는 것이 그림으로도 보여야 한다.
+     */
+    const iconOf = (title: string) =>
+      screen.getAllByText(title).map((el) => el.closest(".banner")!.querySelector(".icon")!.textContent);
+    expect(iconOf(POKE.received("pre"))).toEqual([ACT.emoji("pre"), ACT.emoji("pre")]);
+    expect(iconOf(POKE.received("party"))).toEqual(Array(3).fill(ACT.emoji("party")));
+    expect(ACT.emoji("pre")).not.toBe(ACT.emoji("party"));
+  });
+
+  /**
+   * '재미' 탭은 **없다가 생기지 않는다** (ADR-20 후기).
+   *
+   * 처음부터 자리를 지키고 매력 투표와 함께 켜진다 — 도중에 생기면 넷이 나눠 쓰던 폭이
+   * 통째로 다시 나뉘어, 손가락이 기억한 자리가 어긋난다.
+   */
+  it("★ 매력 투표 전에도 '재미' 탭은 자리를 지킨다 — 꺼져 있을 뿐이다", async () => {
+    renderTab("home", inPhase("reg"));
+    await screen.findByText(FUN_TAB.label);
+
+    expect(document.querySelectorAll(".tabbar button")).toHaveLength(TABS_PARTICIPANT.length);
+    expect(funTab().getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("★ 꺼진 '재미' 탭은 언제 열리는지 말한다 — 눌러도 조용하면 고장으로 읽힌다", async () => {
+    renderTab("home", inPhase("reg"));
+    await screen.findByText(FUN_TAB.label);
+
+    fireEvent.click(funTab());
+    expect(await screen.findByText(FORTUNE.closed)).toBeTruthy();
   });
 });
 
@@ -1883,11 +2563,11 @@ describe("시트와 확인창", () => {
     renderParticipant(source);
     await screen.findByText(/그녀/);
 
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
-    await screen.findByText(POKE.confirm.title(1));
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
+    await screen.findByText(POKE.confirm.title("pre", 1));
 
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByText(POKE.confirm.title(1))).toBeNull());
+    await waitFor(() => expect(screen.queryByText(POKE.confirm.title("pre", 1))).toBeNull());
     expect(source.calls.poke).toEqual([]);
   });
 
@@ -1895,8 +2575,75 @@ describe("시트와 확인창", () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
 
-    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit)[0]);
+    fireEvent.click(screen.getAllByLabelText(POKE.confirm.submit("pre"))[0]);
     const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain(POKE.confirm.title(1));
+    expect(dialog.textContent).toContain(POKE.confirm.title("pre", 1));
+  });
+});
+
+// ─────────────────────────────────────────── 홈 · 남은 시간
+
+describe("홈 · 남은 시간", () => {
+  const home = (source: ParticipantSource) => renderParticipant(source, undefined, () => {}, "home");
+
+  it("★ '무엇까지' 가 붙은 카운트다운이 할 일 카드에 있다", async () => {
+    home(fakeSource());
+    await screen.findByText(HOME.todo.prevote.title);
+    // 숫자만 있으면 무엇을 세는지 알 수 없다
+    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
+    expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/)).toBeTruthy();
+  });
+
+  const withSchedule = (phase: "reg" | "prevote", schedule: Record<string, number>) =>
+    fakeSource({
+      load: async () =>
+        participantState({
+          event: { ...participantState().event, phase, schedule },
+          ...(phase === "reg" ? { roster: [] } : {}),
+        }),
+    });
+
+  it("★ 등록 중에는 사전 투표까지를 센다 — 다음에 일어날 일이다", async () => {
+    /*
+     * 한동안 내내 파티만 셌다. 등록 기간이 며칠이라 `1일 2시간` 만 계속 보였고,
+     * 정작 참가자가 알고 싶은 건 **언제 콕을 찌를 수 있나** 였다.
+     */
+    home(withSchedule("reg", { prevoteAt: Date.now() + 1_800_000, partyAt: Date.now() + 90_000_000 }));
+    await screen.findByText(HOME.todo.reg.title);
+    expect(screen.getByText(STATUS.untilPrevote)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilParty)).toBeNull();
+  });
+
+  it("★ 사전 투표 시각이 지났는데 아직 등록 중이면 파티를 센다", async () => {
+    /*
+     * 예약이 걸려 있어도 운영자가 아직 안 넘겼을 수 있다. 지나간 시각을 세면 음수가 뜨고,
+     * 사람은 그 숫자를 **자기 시계가 틀린 걸로** 읽는다.
+     */
+    home(withSchedule("reg", { prevoteAt: Date.now() - 60_000, partyAt: Date.now() + 3_600_000 }));
+    await screen.findByText(HOME.todo.reg.title);
+    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilPrevote)).toBeNull();
+  });
+
+  it("★ 매력 투표 중에는 마감까지를 센다 (ADR-39)", async () => {
+    /*
+     * 예전에는 이 자리에서 파티를 셌다 — 마감이 운영자 손에 있어 셀 시각이 없었다.
+     * 시각이 생기면서 **다음에 일어날 일**이 마감으로 바뀌었다.
+     */
+    home(withSchedule("prevote", { voteEndAt: Date.now() + 1_800_000, partyAt: Date.now() + 5_400_000 }));
+    await screen.findByText(HOME.todo.prevote.title);
+    expect(screen.getByText(STATUS.untilVoteEnd)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilParty)).toBeNull();
+  });
+
+  it("★ 마감이 지나면 할 일 카드가 바뀌고 파티를 센다", async () => {
+    /*
+     * 단계는 아직 `prevote` 지만 할 일이 다르다 — 투표는 끝났고 자리를 기다린다.
+     * 단계 이름만으로는 이 카드를 고를 수 없다는 게 이 화면의 새로운 사정이다.
+     */
+    home(withSchedule("prevote", { voteEndAt: Date.now() - 60_000, partyAt: Date.now() + 3_600_000 }));
+    await screen.findByText(HOME.todo.voteClosed.title);
+    expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
+    expect(screen.queryByText(STATUS.untilVoteEnd)).toBeNull();
   });
 });

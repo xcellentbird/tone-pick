@@ -5,7 +5,15 @@
  */
 import type { Context } from "hono";
 import type { ApiErrorBody, AuthScope, ErrorCode } from "../shared/types.ts";
-import { HOST_COOKIE, INVITE_COOKIE, PLAYER_COOKIE, readCookie, readSession } from "./auth.ts";
+import {
+  HOST_COOKIE,
+  INVITE_COOKIE,
+  PLAYER_COOKIE,
+  REF_HEADER,
+  cookieName,
+  readCookie,
+  readSession,
+} from "./auth.ts";
 import type { EventDO, Result } from "./event-do.ts";
 import type { RegistryDO } from "./registry-do.ts";
 
@@ -95,8 +103,8 @@ const STATUS: Record<ErrorCode, number> = {
   closed: 409,
   no_budget: 409,
   same_gender: 409,
+  locked: 409,
   conflict: 409,
-  schedule_order: 400,
   bad_request: 400,
 };
 
@@ -142,17 +150,30 @@ export async function ipHash(c: Ctx, eventId: string): Promise<string> {
   return [...new Uint8Array(buf).slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * 이 요청이 읽을 세션 이름표 (ADR-44). 탭마다 다른 참가자로 있기 위한 것이다.
+ *
+ * 이름표가 **틀렸다고 남의 세션으로 떨어지지 않는다** — `cookieName` 이 16진수가 아닌 값을
+ * 이름표 없음으로 되돌리고, 그러면 기본 쿠키를 읽을 뿐이다.
+ */
+export function sessionRef(c: Ctx): string | undefined {
+  return c.req.header(REF_HEADER);
+}
+
 export async function playerScope(c: Ctx): Promise<AuthScope | null> {
-  const token = readCookie(c.req.header("cookie") ?? null, PLAYER_COOKIE);
+  const token = readCookie(c.req.header("cookie") ?? null, cookieName(PLAYER_COOKIE, sessionRef(c)));
   const scope = await readSession(token, c.env.SESSION_SECRET, serverNow());
   return scope?.kind === "player" ? scope : null;
 }
 
-/** 명단 확인은 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다 */
-export async function inviteScope(c: Ctx): Promise<{ eventId: string; phone: string } | null> {
-  const token = readCookie(c.req.header("cookie") ?? null, INVITE_COOKIE);
-  const scope = await readSession(token, c.env.SESSION_SECRET, serverNow());
-  return scope?.kind === "invited" ? { eventId: scope.eventId, phone: scope.phone } : null;
+/**
+ * 링크는 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다.
+ * **번호가 아니라 참가 토큰을 들고 있다** (ADR-32) — 번호는 회차 DO 안에서만 푼다.
+ */
+export async function inviteScope(c: Ctx): Promise<{ eventId: string; token: string } | null> {
+  const session = readCookie(c.req.header("cookie") ?? null, cookieName(INVITE_COOKIE, sessionRef(c)));
+  const scope = await readSession(session, c.env.SESSION_SECRET, serverNow());
+  return scope?.kind === "invited" ? { eventId: scope.eventId, token: scope.token } : null;
 }
 
 /** 운영자 권한은 한 종류뿐이다 — 운영자 PIN 을 통과했는가 (ADR-12) */

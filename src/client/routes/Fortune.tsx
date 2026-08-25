@@ -1,5 +1,5 @@
 /**
- * 오늘 탭 — 파티가 시작되면 열리는 운세 카드 (ADR-20).
+ * 재미 탭의 **첫 카드** — 매력 투표와 함께 열리는 운세 카드 (ADR-20).
  *
  * 이 앱에서 유일하게 기능이 아니라 **재미**인 자리다. 그래도 규칙은 같다.
  *
@@ -12,6 +12,7 @@
  */
 import { useState } from "react";
 import { FORTUNE } from "../../shared/copy.ts";
+import { canOpenMission } from "../../shared/phase.ts";
 import { paragraphs, validBirth, type Fortune } from "../../shared/fortune.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { ApiError, post } from "../lib/api.ts";
@@ -50,14 +51,18 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
   }
 
   /** 미션은 **누르는 그 순간에** 만든다. 한 번 연 것은 서버가 그대로 돌려준다 */
+  /** 미션의 문은 운세보다 하나 늦다 — 파티장에서만 할 수 있는 것이다 (ADR-20 후기) */
+  const missionOpen = canOpenMission(state.event.phase);
+
   async function openMission() {
     if (missionOpening || card?.mission) return;
+    if (!missionOpen) return toast(FORTUNE.missionClosed);
     setMissionOpening(true);
     try {
       setCard(await post<Fortune>("/fortune/mission", {}));
       reload();
     } catch (e) {
-      toast(e instanceof ApiError && e.userMessage ? e.userMessage : FORTUNE.closed);
+      toast(e instanceof ApiError && e.userMessage ? e.userMessage : FORTUNE.missionClosed);
     } finally {
       setMissionOpening(false);
     }
@@ -140,15 +145,27 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
             <p className="missionLine pre">{card.mission}</p>
           </div>
         ) : (
+          /*
+            **아직 파티가 아니면 뒤집히지 않는다** (ADR-20 후기). 미션 문장에는 언제 할지가
+            들어가는데("자리를 옮기고 막 앉았을 때") 그 순간이 아직 없고,
+            한 번 연 미션은 그대로 굳는다. 그래서 못 여는 게 아니라 **아직 안 열린 것**이라고 말한다.
+          */
           <button
             className={`fortuneMission missionBack ${missionOpening ? "opening" : ""}`}
+            aria-disabled={!missionOpen || undefined}
             onClick={openMission}
             disabled={missionOpening}
           >
             <span className="orb" aria-hidden>
               🎯
             </span>
-            <span className="small">{missionOpening ? FORTUNE.missionOpening : FORTUNE.missionOpen}</span>
+            <span className="small">
+              {missionOpening
+                ? FORTUNE.missionOpening
+                : missionOpen
+                  ? FORTUNE.missionOpen
+                  : FORTUNE.missionClosed}
+            </span>
           </button>
         )}
 

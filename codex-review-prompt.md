@@ -1,40 +1,48 @@
 # Code review — tone-pick
 
-You are reviewing the uncommitted changes on branch `main` of the tone-pick app
+You are reviewing changes to the tone-pick app
 (Cloudflare Workers + Durable Objects backend, React SPA frontend).
 
-Run `git diff HEAD` and review the changes. Read surrounding files as needed for context.
+Run `git diff HEAD` (or against the base branch for a PR) and review the changes.
+Read surrounding files as needed for context.
 
 The app lets solo-party guests anonymously "poke" each other; only mutual pokes are
-revealed at a scheduled time. The privacy and fairness rules below are non-negotiable —
+revealed at a scheduled time. Its privacy and fairness rules are non-negotiable —
 prioritize finding violations of them over style nits.
 
-## Absolute rules to verify (from CLAUDE.md)
+## Where the rules live
 
-1. **No PII in participant responses.** Only `PublicPlayer` from `toPublic()` reaches
-   participants — never real name, phone, or Instagram, not even to a matched partner.
-   Before reveal, the poke sender (`fromId`) must also be absent from responses. Assume a
-   participant will open the raw response in devtools.
-2. **Round PIN is checked before master PIN.** Checking master first lets a round operator
-   gain full rights when the two PINs are equal (a real past incident:
-   `roundPIN=0000, commonPIN=0000 → granted master, all-round access true`). Also, every
-   place that *creates* PINs must prevent the two values from being equal.
-3. **Phase transitions use server time.** Never judge a deadline with client `Date.now()` —
-   a guest could change their phone clock to see results early. Responses carry
-   `x-server-time`; client only corrects for offset.
-4. **Confirmation dialogs show what changes, with numbers.** No bare "Are you sure?".
-   Reversible actions get no confirmation at all.
-5. **Modals/sheets are routes** (closeable with back). Confirm dialogs must `navigate(-1)`
-   *before* executing, or the handled dialog reappears when going back after execution.
+**Read `CLAUDE.md` first, then `docs/ADR.md` for anything that looks deliberate.**
 
-## Design boundaries
-- Only `EventDO` mutates state; the Worker only does auth/routing.
-- `toPublic()` is the single place participant responses are built.
-- `buildSeating` is a pure function — no DO/request/current-time access.
-- Seat changes are only `swap(a, b)`; there must be no single-move API (breaks gender-ratio quota).
-- Participant notifications go only through the DO's `broadcast()`.
+⚠️ **Do not restate the rules in this file.** They used to be copied here and they
+drifted: this prompt still claimed *"never real name, not even to a matched partner"*
+after ADR-42 made a matched partner's real name the one thing that does go out, and it
+still described a per-round PIN that ADR-12 removed. A second copy of a rule is a
+second thing to keep true. `CLAUDE.md` is the only copy.
+
+Load in this order:
+
+| | |
+|---|---|
+| `CLAUDE.md` | the rules that are load-bearing right now — "이 앱이 지키는 것" and "절대 규칙" |
+| `docs/ADR.md` | why a thing is the way it is. **Check here before calling something wrong** — most surprises are recorded decisions, often reversals of an earlier one |
+| `docs/UI.md` · `docs/FLOWS.md` | screen requirements and cross-side effects |
+| `CHANGELOG.md` | what shipped in the current major version |
+
+## What to weigh most
+
+1. **Anything that widens what reaches a participant.** `toPublic()` is the single place
+   participant responses are built. Assume a participant opens the raw response in devtools.
+2. **Anything that lets a one-way poke be inferred** — from a response, a count, a
+   notification, a timestamp, a seating hint, or a screen that says more than the code does.
+3. **Copy that promises more than the code delivers.** This has bitten twice
+   (auto-deletion that never ran; "contacts open at reveal" when they never do).
+   A sentence is as load-bearing as a type here.
+4. **Server-time judgments.** A deadline decided with client `Date.now()` is a bug.
+5. **Design boundaries** listed under "설계 경계" in `CLAUDE.md`.
 
 ## Output
-For each finding: file:line, which rule/boundary it breaks, why it's exploitable or wrong,
-and a concrete fix. Rank by severity. If a rule is upheld well, say so briefly. Do not
-rewrite the code — report findings only.
+
+For each finding: `file:line`, which rule or boundary it breaks, why it is exploitable or
+wrong, and a concrete fix. Rank by severity. If a rule is upheld well, say so briefly.
+Do not rewrite the code — report findings only.

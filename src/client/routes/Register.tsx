@@ -2,8 +2,9 @@
  * 참가자 등록 3스텝.
  *
  * 지키는 것
- *  · 스텝 이동은 push — 뒤로 가기가 이전 스텝이다
- *  · 등록 완료는 replace — 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
+ *  · 스텝 이동은 push — 뒤로 가기가 이전 스텝이다 (`이전` 버튼이 그걸 쓴다)
+ *  · 등록 완료는 replace — 그런데 **replace 는 마지막 한 칸만 갈아끼운다.**
+ *    1·2 스텝은 히스토리에 남으므로, 이미 등록한 사람이 그 칸을 밟으면 홈으로 돌려보낸다
  *  · 에러는 **그 값을 입력한 자리에** 띄운다. 닉네임 중복이면 3스텝이 아니라 1스텝으로 되돌린다
  *  · 에러가 뜨면 그 칸으로 스크롤·포커스한다 — 3스텝은 길어서 화면 밖에 뜰 수 있다
  *  · 인스타의 @·URL 껍데기는 오류가 아니라 의도다 — 벗겨서 받는다 (normalizeInstagram)
@@ -13,9 +14,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared/copy.ts";
-import type { RegisterResult } from "../../shared/types.ts";
+import type { ParticipantState, RegisterResult } from "../../shared/types.ts";
 import { LIMITS, normalizeInstagram } from "../../shared/constants.ts";
-import { ApiError, post } from "../lib/api.ts";
+import { ApiError, api, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
 import type { ProfileDraft } from "../lib/profileForm.ts";
 import { EMPTY_DRAFT, toInput, validateProfile } from "../lib/profileForm.ts";
@@ -25,12 +26,54 @@ type Draft = ProfileDraft;
 const EMPTY = EMPTY_DRAFT;
 
 export default function Register() {
-  const { id = "", step = "1" } = useParams();
+  const { id = "", token = "", step = "1" } = useParams();
   const navigate = useNavigate();
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<{ field: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const at = Math.min(3, Math.max(1, Number(step) || 1));
+  const [checking, setChecking] = useState(true);
+
+  /*
+   * **이미 등록을 마쳤으면 폼을 보여주지 않는다.**
+   *
+   * 완료할 때 `replace` 로 갈아끼우는 건 마지막 스텝 한 칸뿐이다. 스텝은 `push` 로 쌓이므로
+   * (`이전` 버튼이 그 히스토리를 쓴다) 1·2 스텝이 남고, 홈에서 뒤로 가면 등록 폼이 다시 떴다.
+   * 다 채워진 것처럼 보이는 폼을 보면 **두 번 등록하려 든다** — Join 화면이 하는 확인과 같은 것이다.
+   *
+   * ⚠️ **그 확인은 토큰에게 묻는다. 브라우저 세션이 아니다** (ADR-44).
+   *    예전에는 `/me` 로 "이 브라우저에 세션이 있나" 를 물었는데, 쿠키는 탭이 아니라
+   *    브라우저 단위라 **다른 탭에 열린 사람으로 넘어갈 수 있었다.** Join 에서 고친 것과
+   *    같은 자리이고, 두 곳 다 고쳐야 규칙이 규칙이 된다.
+   */
+  useEffect(() => {
+    let alive = true;
+    api<{ registered?: boolean; code?: string }>(
+      `/events/by-id/${id}?t=${encodeURIComponent(token)}`,
+    )
+      .then((room) => {
+        if (!alive) return;
+        // 이 토큰의 주인이 이미 등록했다. 자기 화면은 세션이 아는 코드로 간다
+        if (room.registered) return void enterHome();
+        setChecking(false);
+      })
+      .catch(() => alive && setChecking(false));
+
+    /** 등록을 마친 사람을 자기 화면으로. 회차 조회는 코드를 주지 않으므로 세션에 묻는다 */
+    async function enterHome() {
+      try {
+        const me = await api<ParticipantState>(`/me?event=${encodeURIComponent(id)}`);
+        if (alive) navigate(`/e/${me.event.code}`, { replace: true });
+      } catch {
+        // 이 탭에는 세션이 없다 — 링크부터 다시 지나야 한다
+        if (alive) navigate(`/j/${id}/${token}`, { replace: true });
+      }
+    }
+
+    return () => {
+      alive = false;
+    };
+  }, [id, token, navigate]);
 
   // 오류를 만든 칸으로 데려간다 — 키보드가 올라온 폰에서는 화면 밖 오류가 "아무 일도 없음"으로 보인다.
   // error.field 가 곧 요소 id 다. 서버 오류로 스텝을 되돌린 경우(nick_taken)도 이 효과가 받는다
@@ -55,7 +98,7 @@ export default function Register() {
     if (d !== draft) setDraft(d);
     const bad = validateProfile(d, at);
     if (bad) return setError(bad);
-    if (at < 3) return navigate(`/j/${id}/register/${at + 1}`);
+    if (at < 3) return navigate(`/j/${id}/${token}/register/${at + 1}`);
     submit();
   }
 
@@ -64,22 +107,38 @@ export default function Register() {
     try {
       // 번호는 입장할 때 확인한 값이다. 서버가 초대 쿠키에서 꺼내 쓴다 (ADR-15)
       const done = await post<RegisterResult>("/register", toInput(draft));
+      const home = `/e/${done.state.event.code}`;
       // 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
-      navigate(`/e/${done.state.event.code}`, {
+      navigate(home, {
         replace: true,
         state: done.resumed ? { welcome: REGISTER.welcomeBack(done.state.me.nickname) } : undefined,
       });
+      /*
+       * **등록을 마친 사람에게 진행 방식을 한 번 밀어준다** (슬라이스 21).
+       *
+       * 도움말은 상단 물음표로 늘 열리지만, 그건 **이미 질문이 생긴 사람**의 장치라 늦다.
+       * 목표가 "운영자에게 묻는 일을 줄이는 것" 이면 질문이 생기기 전에 한 번 읽혀야 하고,
+       * 그 순간은 등록 직후다 — 주의가 가장 높고, 화면은 가장 비어 있다.
+       *
+       * **갈아끼운 뒤에 밀어 넣는다.** 순서가 뒤집히면 도움말이 3스텝 위에 얹혀서
+       * 뒤로 가기가 등록 폼을 밟는다. 이렇게 두면 뒤로 가기 한 번이 곧 홈이다.
+       *
+       * 본 적이 있다는 기록은 남기지 않는다 (ADR-4). **`등록 완료` 라는 사건에 붙는다** —
+       * 새로고침하면 안 뜨고, 다시 보고 싶으면 물음표이거나 홈 카드의 `진행 방식 보기` 다.
+       * `resumed` 는 새로 등록한 게 아니라 돌아온 것이라 밀지 않는다.
+       */
+      if (!done.resumed) navigate(`${home}/help`);
     } catch (e) {
       setBusy(false);
       if (e instanceof ApiError && e.code === "nick_taken") {
         // 닉네임 칸이 있는 1스텝으로 되돌린 뒤 띄운다. 입력값은 그대로 둔다
         setError({ field: "nickname", text: e.userMessage ?? REGISTER.err.nick });
-        navigate(`/j/${id}/register/1`);
+        navigate(`/j/${id}/${token}/register/1`);
         return;
       }
       // 초대 확인이 만료되면 폼을 계속 붙들고 있어봐야 소용없다. 문 앞으로 돌려보낸다
       if (e instanceof ApiError && e.status === 401) {
-        navigate(`/j/${id}`, { replace: true });
+        navigate(`/j/${id}/${token}`, { replace: true });
         return;
       }
       setError({ field: "form", text: e instanceof ApiError ? (e.userMessage ?? REGISTER.err.retry) : REGISTER.err.retry });
@@ -95,6 +154,9 @@ export default function Register() {
     ) : null;
   const invalid = (field: string) =>
     error?.field === field ? ({ "aria-invalid": true, "aria-describedby": `${field}-err` } as const) : {};
+
+  // 확인하는 동안은 빈 화면이다. 폼을 먼저 그리면 이미 등록한 사람에게 한 번 번쩍인다 (Join 과 같다)
+  if (checking) return <div className="screen" />;
 
   return (
     <div className="screen">
@@ -165,6 +227,11 @@ export default function Register() {
             <div className="field">
               <label htmlFor="instagram">{ME.labels.instagram}</label>
               <input id="instagram" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} {...invalid("instagram")} />
+              {/*
+                **왜 받는지 그 자리에서 말한다** (ADR-42). 이 줄이 없으면 참가자가
+                `연락 수단으로 쓰이겠구나` 로 읽는데, 그건 이제 사실이 아니다
+              */}
+              <p className="tiny dim">{REGISTER.instaWhy}</p>
               {err("instagram")}
             </div>
           </>

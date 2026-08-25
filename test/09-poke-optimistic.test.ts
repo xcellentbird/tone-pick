@@ -13,7 +13,7 @@ function state(over: Partial<MyPokeState> = {}): MyPokeState {
   return {
     budget: { pre: { max: 3, used: 1 }, party: { max: 5, used: 0 } },
     sentTo: { a: 1 },
-    receivedCount: 4,
+    received: { pre: 0, party: 4 },
     matches: [],
     ...over,
   };
@@ -38,7 +38,7 @@ describe("콕을 보낸 직후 미리 그리는 값", () => {
      */
     const before = state();
     const next = afterPoke(before, "b", "pre");
-    expect(next.receivedCount).toBe(before.receivedCount);
+    expect(next.received).toEqual(before.received);
     expect(next.matches).toBe(before.matches);
   });
 
