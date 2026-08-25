@@ -1049,15 +1049,33 @@ export const STATUS = {
 
 /** 참가자 알림. `ev.fired` 에서 파생되며 읽음 상태를 따로 저장하지 않는다 */
 export const NOTICE = {
-  /**
-   * **마감 알림은 없다.** 마감은 `fired` 에 짝이 없는 **판정**이라(ADR-39) 파생시킬 자리가 없고,
-   * 홈의 할 일 카드(`HOME.todo.voteClosed`)와 카운트다운이 이미 그 자리를 맡는다.
-   */
   prevote: (maxPre: number) => ({
     icon: "🗳️",
     title: "매력 투표가 시작됐어요",
     body: `1인당 ${maxPre}회씩 투표할 수 있어요`,
   }),
+  /**
+   * 매력 투표 마감 (ADR-55). **한동안 없던 알림이다** —
+   * `마감은 fired 에 짝이 없는 판정이라 파생시킬 자리가 없다` 가 그 이유였는데,
+   * 운영자가 앞당겨 닫는 길이 생기면서 `fired.voteEnd` 가 생겼고(ADR-39 후기),
+   * 예약대로 닫히는 쪽도 `schedule.voteEndAt` 이라는 **정확한 시각**이 있다.
+   * 파생시킬 자리가 없다는 말이 더는 맞지 않는다.
+   *
+   * **몸글이 없다** (ADR-53 이 연 자리). 바로 위 홈 카드(`HOME.todo.voteClosed`)가
+   * 다음에 무슨 일이 있는지 두 줄로 이미 말한다 — 소식 목록에서 그걸 되풀이하지 않는다.
+   *
+   * ⚠️ **표를 자리에 쓴다고 쓰지 마라.** 누가 나를 골랐는지 짐작하게 된다.
+   */
+  voteEnd: {
+    icon: "⏳",
+    /**
+     * **참가자 탭의 줄과 같은 문장을 쓴다** (`POKE.blocked.voteEndedLine`).
+     * 같은 일을 두 자리에서 말하는 것이라, 낱말이 갈리면 두 화면이 다른 사건처럼 읽힌다.
+     * 여기서 새 문장을 짓지 마라 — 고칠 때 한 곳만 고치면 되게 둔다.
+     */
+    title: POKE.blocked.voteEndedLine,
+    body: "",
+  },
   party: (maxParty: number) => ({
     icon: "🎉",
     title: "파티가 시작됐어요",

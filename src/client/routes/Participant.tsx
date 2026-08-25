@@ -8,10 +8,12 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, FAIL, FORTUNE, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { MyPokeState, ParticipantState } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
+import { voteClosed } from "../../shared/phase.ts";
+import { TICK_WINDOW } from "../../shared/time.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
 import { sessionSource, type ParticipantSource } from "../lib/participant.ts";
-import { useLoad } from "../lib/useLoad.ts";
+import { useLoad, useTicker } from "../lib/useLoad.ts";
 import { ApiError } from "../lib/api.ts";
 import { Overlays, useOverlay } from "../ui/Overlays.tsx";
 import People from "./People.tsx";
@@ -225,7 +227,23 @@ function Loaded({
   onHelp,
 }: ViewProps & { state: ParticipantState; reload: () => void; setPoke: (poke: MyPokeState) => void }) {
   const [acked, setAcked] = useState<number[]>([]);
-  const banner = bannerOf(noticesOf(state), now());
+  /**
+   * **마감은 아무도 밀어주지 않는다** (ADR-55). 예약대로 닫히는 쪽에는 서버가 보낼 신호가 없다 —
+   * 그 순간 코드를 돌리는 사람이 없기 때문이다. 그래서 마감이 가까우면 여기서 1초마다 다시 그린다.
+   *
+   * 홈에만 두면 모자란다. 투표 중에 참가자가 있는 곳은 대개 **참가자 탭**이고,
+   * 거기서 마감이 지나면 배너도 안 뜨고 콕 버튼도 열린 채로 남는다.
+   *
+   * **마감이 지나면 꺼진다** — 그 뒤로는 1초마다 다시 그릴 이유가 없다.
+   * (운영자가 앞당겨 닫는 쪽은 소켓이 밀어준다.)
+   */
+  const untilVoteEnd = (state.event.schedule.voteEndAt ?? 0) - now();
+  useTicker(
+    !voteClosed(state.event.schedule, state.event.fired, now()) &&
+      untilVoteEnd > 0 &&
+      untilVoteEnd <= TICK_WINDOW,
+  );
+  const banner = bannerOf(noticesOf(state, now()), now());
 
   const ack = useCallback(async () => {
     if (!state.seat) return;
