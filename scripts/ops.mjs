@@ -67,11 +67,15 @@ const LABEL = {
   enter: "입장 시도",
   fortune: "오늘의 운세",
 };
+/*
+ * 입장 결과는 셋뿐이다 (`metrics.ts` 의 `enter`). `bad_phone` 은 번호로 문을 열던 시절의
+ * 라벨이라 걷어냈다 — 지금 문을 여는 건 링크의 토큰이고(ADR-32) 형식이 틀릴 칸이 없다.
+ * 모르는 값이 오면 아래 `?? r.outcome` 이 원래 문자열을 그대로 보여준다.
+ */
 const OUTCOME = {
   ok: "통과",
   not_invited: "명단에 없음",
   too_many: "시도 초과",
-  bad_phone: "번호 형식",
   llm: "LLM",
   fallback: "규칙 문구",
 };
@@ -96,7 +100,8 @@ const fail = enter.filter((r) => r.outcome !== "ok").reduce((a, r) => a + Number
 const all = enter.reduce((a, r) => a + Number(r.n), 0);
 if (all > 0 && fail > 0) {
   console.log(`  ⓘ 입장 시도 ${all}건 중 ${fail}건이 못 들어왔습니다 (${((fail / all) * 100).toFixed(0)}%).`);
-  console.log(`    명단에 없는 번호이거나, 참가자가 다른 형식으로 넣고 있다는 뜻입니다.\n`);
+  // 참가자는 아무것도 치지 않는다 (ADR-32). 그래서 남는 원인은 링크 쪽 둘뿐이다
+  console.log(`    명단에서 빠진 사람이 옛 링크로 들어왔거나, 시도 제한에 걸린 것입니다.\n`);
 }
 const fb = (by.fortune ?? []).find((r) => r.outcome === "fallback");
 if (fb) console.log(`  ⓘ 운세 ${fb.n}건이 규칙 문구로 나갔습니다. LLM 쪽을 확인해보세요.\n`);

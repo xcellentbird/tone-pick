@@ -104,10 +104,12 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
   document.addEventListener("visibilitychange", onVisible);
   window.addEventListener("pageshow", onShow);
 
+  /*
+   * **닫는 길만 준다.** 소켓으로 보내는 것은 안쪽의 `ping` 하나뿐이고,
+   * 참가자가 하는 일(콕·자리 확인)은 전부 HTTP 다 — 실시간은 "다시 읽어라" 신호로만 쓴다 (ADR-26).
+   * `send` 를 내주면 부분 갱신을 그리로 하고 싶어지고, 그때 화면과 서버가 조용히 어긋난다.
+   */
   return {
-    send(msg: ClientEvent) {
-      ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify(msg));
-    },
     close() {
       closed = true;
       clearTimeout(timer);

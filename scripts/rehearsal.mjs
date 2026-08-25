@@ -214,8 +214,16 @@ const made = await host("/host/events", {
   method: "POST",
   body: {
     name: `리허설 ${new Date(stamp).toISOString().slice(11, 16)}`,
+    /*
+     * **시각 넷을 다 보낸다.** v2 서버는 `partyAt`·`prevoteAt`·`voteEndAt`·`revealAt` 이
+     * 전부 유한수여야 회차를 만든다 (host.ts 의 `every(Number.isFinite)`).
+     * 등록 시작은 받지 않는다 — 만드는 순간 열린다 (ADR-38).
+     * 발표는 **파티보다 뒤**여야 한다 (ADR-43) — 앞이면 400 이다.
+     */
     partyAt: stamp + 86400_000,
     prevoteAt: stamp + 3600_000,
+    voteEndAt: stamp + 86400_000 - 3600_000,
+    revealAt: stamp + 86400_000 + 3 * 3600_000,
     config: { maxPre: MAX_PRE, maxParty: MAX_PARTY },
     requestId: `rehearsal-${stamp}`,
   },
@@ -227,7 +235,13 @@ if (made.status !== 200) {
 const { id: eventId, code } = made.body;
 console.log(`회차 ${code} (${eventId})\n`);
 
-// ② 초대 명단 — 파티의 문이다. 명단에 없으면 아무도 못 들어온다 (ADR-15)
+/*
+ * ② 초대 명단 — 파티의 문이다. 명단에 없으면 아무도 못 들어온다.
+ *
+ * **문을 여는 건 번호가 아니라 토큰이다** (ADR-32). 명단에 번호를 넣으면 그 줄에
+ * 토큰이 생기고, 그 토큰이 곧 그 사람의 신원이다. 응답에서 번호별 토큰을 받아 둔다 —
+ * 리허설도 **실제 참가자가 지나는 길 그대로** 가야 의미가 있다.
+ */
 const phones = Array.from(
   { length: PEOPLE },
   (_, i) => `010${String(stamp).slice(-4)}${String(i).padStart(4, "0")}`,
@@ -235,6 +249,11 @@ const phones = Array.from(
 const invited = await host(`/host/events/${eventId}/invites`, { method: "POST", body: { phones } });
 if (invited.status !== 200) {
   console.error("❌ 초대 명단을 넣지 못했습니다:", invited.body);
+  process.exit(1);
+}
+const tokenOf = new Map((invited.body ?? []).map((i) => [i.phone, i.token]));
+if (tokenOf.size < PEOPLE) {
+  console.error(`❌ 초대 응답에 토큰이 모자랍니다 (${tokenOf.size}/${PEOPLE}).`);
   process.exit(1);
 }
 console.log(`초대 명단 ${phones.length}명\n`);
@@ -246,8 +265,9 @@ const regTimes = [];
 let regFailed = 0;
 await pool([...Array(PEOPLE).keys()], WIDTH, async (i) => {
   const c = client();
-  // 문을 먼저 지난다. 통과하면 쿠키가 붙고, 등록은 그 번호로 이뤄진다
-  await c(`/events/${eventId}/enter`, { method: "POST", body: { phone: phones[i] } });
+  // 문을 먼저 지난다. **번호가 아니라 토큰이다** (ADR-32) — 통과하면 쿠키가 붙고,
+  // 번호는 서버가 토큰에서 꺼내 담는다. 등록 폼은 번호를 만지지 않는다 (ADR-31)
+  await c(`/events/${eventId}/enter`, { method: "POST", body: { token: tokenOf.get(phones[i]) } });
   const res = await c("/register", {
     method: "POST",
     body: {
@@ -452,7 +472,7 @@ herd.armed = false;
 console.log("\n④ 자리 배정 (CPU 10ms 관문)");
 const draft = await host(`/host/events/${eventId}/seating`, {
   method: "POST",
-  body: { tableCount: TABLES, final: false },
+  body: { tableCount: TABLES },
 });
 if (draft.status === 200) {
   console.log(`  초안 ${ms(draft.took)} · ${draft.body.seats.length}자리 / ${draft.body.tableCount}테이블`);

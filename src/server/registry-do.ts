@@ -15,7 +15,6 @@ import { genCode, randomHex } from "./auth.ts";
 export interface EventIndexEntry {
   id: string;
   code: string;
-  createdAt: number;
 }
 
 interface Snapshot {
@@ -29,7 +28,6 @@ interface Snapshot {
 export interface ReserveInput {
   code?: string;
   requestId: string;
-  now: number;
 }
 
 export type ReserveResult =
@@ -152,7 +150,7 @@ export class RegistryDO extends DurableObject {
     }
 
     const id = randomHex(8);
-    snap.events.push({ id, code, createdAt: input.now });
+    snap.events.push({ id, code });
     snap.requests[input.requestId] = id;
     await this.save(snap);
     return { ok: true, id, code, reused: false };

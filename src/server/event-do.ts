@@ -121,7 +121,6 @@ CREATE TABLE IF NOT EXISTS votes (
   choice    TEXT NOT NULL CHECK (choice IN ('a','b')),
   PRIMARY KEY (ann_id, player_id)   -- 한 사람 한 표. 다시 고르면 옮겨간다
 );
-CREATE INDEX IF NOT EXISTS votes_ann ON votes(ann_id);
 CREATE TABLE IF NOT EXISTS seatings (
   round        INTEGER PRIMARY KEY,
   table_count  INTEGER NOT NULL,
@@ -139,7 +138,6 @@ type Fail =
   | "not_invited"
   | "too_many"
   | "conflict"
-  | "forbidden"
   | "bad_request"
   | "nick_taken"
   | "closed"
@@ -235,7 +233,6 @@ export class EventDO extends DurableObject {
       code: meta.code,
       phase: meta.phase,
       playerCount: this.playerCount(),
-      createdAt: meta.createdAt,
     });
   }
 
@@ -421,12 +418,12 @@ export class EventDO extends DurableObject {
 
   // ─────────────────────────── 초대 명단
   //
-  // 파티에 들어오는 문은 **운영자가 미리 넣어둔 전화번호**다 (ADR-15).
-  // 코드 여섯 자리는 옮겨 적을 수 있지만 남의 번호로는 들어올 수 없다.
-
-  async listInvites(): Promise<Result<Invite[]>> {
-    return ok(this.invites());
-  }
+  // 파티에 들어오는 문은 **명단 한 줄마다 생기는 토큰**이다 (ADR-32).
+  // 번호는 명단을 만드는 재료일 뿐이고, 참가자는 번호를 치지 않는다 —
+  // 같은 파티에 오는 사람들은 서로 번호를 아는 사이라 번호가 열쇠가 못 됐다.
+  //
+  // 목록을 읽는 RPC 는 없다. 운영자 화면은 `hostState()` 가 함께 내려주는 것을 쓰고,
+  // 더하기·빼기가 각자 바뀐 명단을 돌려준다.
 
   /**
    * 명단에 **더한다**. 한 명이든 붙여넣은 백 명이든 같은 문이다.
@@ -527,12 +524,6 @@ export class EventDO extends DurableObject {
     const clean = String(token ?? "").trim();
     if (!clean) return ok(null);
     const row = this.rows<{ id: string }>("SELECT id FROM players WHERE token = ?", clean)[0];
-    return ok(row?.id ?? null);
-  }
-
-  /** 번호로 그 사람을 찾는다. 입장 확인을 통과한 뒤 세션을 만들 때만 쓴다 */
-  async playerIdByPhone(phone: string): Promise<Result<string | null>> {
-    const row = this.rows<{ id: string }>("SELECT id FROM players WHERE phone = ?", normalizePhone(phone))[0];
     return ok(row?.id ?? null);
   }
 
@@ -888,8 +879,6 @@ export class EventDO extends DurableObject {
     const here = new Set(players.map((p) => p.id));
     const pokes = this.pokes().filter((k) => here.has(k.fromId) && here.has(k.toId));
 
-    /** 참석 상태. **운영자 응답에만 실린다** (ADR-33) */
-
     const sent: Record<PokeRound, Record<string, number>> = { pre: {}, party: {} };
     /*
      * **라운드마다 따로 센다** (ADR-46). 합치면 현황 탭의 `콕 TOP` 에 매력 투표 표가 얹혀서,
@@ -905,18 +894,11 @@ export class EventDO extends DurableObject {
       received.party[p.id] = 0;
     }
     const pokeCount: Record<PokeRound, number> = { pre: 0, party: 0 };
-    const pairs = new Set<string>();
-    const when = new Map<string, Set<PokeRound>>();
     for (const k of pokes) {
       sent[k.round][k.fromId] = (sent[k.round][k.fromId] ?? 0) + 1;
       received[k.round][k.toId] = (received[k.round][k.toId] ?? 0) + 1;
       usedBy[k.round][k.fromId] = (usedBy[k.round][k.fromId] ?? 0) + 1;
       pokeCount[k.round]++;
-      pairs.add(`${k.fromId}>${k.toId}`);
-      // 어느 라운드에 찔렀는지. 매칭이 **어떻게 이루어졌는가**를 가르는 데만 쓴다
-      const key = `${k.fromId}>${k.toId}`;
-      if (!when.has(key)) when.set(key, new Set());
-      when.get(key)!.add(k.round);
     }
     const pokeUsedMax: Record<PokeRound, number> = {
       pre: Math.max(0, ...Object.values(usedBy.pre)),
@@ -1073,17 +1055,6 @@ export class EventDO extends DurableObject {
   }
 
   // ─────────────────────────── 오늘의 연애운 (ADR-20)
-
-  /**
-   * 저장된 운세를 준다. 없으면 null — 만드는 건 Worker 가 한다.
-   *
-   * LLM 호출을 여기서 하지 않는 이유: DO 는 요청을 한 줄로 처리한다.
-   * 응답을 1~3초 기다리는 동안 그 회차의 모든 요청이 뒤에 선다.
-   */
-  async fortuneOf(playerId: string): Promise<Result<Fortune | null>> {
-    const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
-    return ok(row ? readFortune(JSON.parse(row.json)) : null);
-  }
 
   /**
    * 처음 저장한 것만 남는다. 두 번 눌러 두 번 만들어졌더라도 **먼저 온 하나**가 오늘의 운세다 —

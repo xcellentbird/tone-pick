@@ -114,7 +114,6 @@ flowchart LR
     events --> w1 --> w2 --> w3 --> dash
 
     dash --> phaseConfirm
-    dash --> demo
     players --> sheet --> delConfirm
     seats --> draft --> swap
     draft --> pubConfirm

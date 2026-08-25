@@ -67,7 +67,6 @@ export const UNIT = {
   people: (n: number) => `${n}명`,
   age: (n: number) => `${n}세`,
   times: (n: number) => `${n}회`,
-  pairs: (n: number) => `${n}쌍`,
 } as const;
 
 /**
@@ -409,7 +408,6 @@ export const PEOPLE = {
 } as const;
 
 export const ME = {
-  title: "내 정보",
   /**
    * 등록할 때 낸 것은 **매력 투표가 열리기 전까지만** 고칠 수 있다 (ADR-31).
    * 그 뒤에는 사람들이 이 정보를 보고 콕을 찌른다 —
@@ -1408,7 +1406,6 @@ export const HOST_UI = {
      */
     partyHint: "이 시각은 예약되지 않아요 — 현황 탭에서 직접 넘깁니다. 나머지 일정의 기준이에요.",
     /** 지나간 예약. 지우지 않고 기록으로 남긴다 — "예약은 21:00 이었는데 20:45 에 열었다" */
-    regOpenHint: "회차를 만들 때 열렸어요. 기록으로 남깁니다.",
     maxPre: "매력 투표 횟수 (1~5)",
     maxParty: "파티 콕 (1~10)",
     /**

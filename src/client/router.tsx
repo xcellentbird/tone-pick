@@ -56,8 +56,6 @@ export const PARTICIPANT_ROUTES = [
   { path: "/e/:code/seat", element: <Participant /> },
   // 파티 룰 도움말. 시트도 라우트라 **여기 없으면 "찾을 수 없어요" 로 떨어진다**
   { path: "/e/:code/help", element: <Participant /> },
-  // 파티 룰 도움말. 시트도 라우트라 **여기 없으면 "찾을 수 없어요" 로 떨어진다**
-
 ];
 
 /**

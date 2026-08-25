@@ -383,7 +383,7 @@ button {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-.tabbar a, .tabbar button {
+.tabbar button {
   flex: 1;
   min-height: var(--tap);
   padding: 8px 0 10px;
@@ -398,7 +398,7 @@ button {
   border: none;
 }
 
-.tabbar a.active, .tabbar button.active { color: var(--accent); }
+.tabbar button.active { color: var(--accent); }
 
 /*
  * 아직 안 열린 탭 — **자리는 지키고 꺼져 있다** (ADR-20 후기의 '재미').
@@ -612,38 +612,9 @@ button {
 }
 .person .charm.matchLine { color: var(--accent); font-weight: 700; }
 
-/*
- * 목록 맨 위 내 카드의 "나" 표시.
- *
- * **매칭 색(--accent)을 쓰지 않는다.** 목록에서 가장 눈에 띄어야 하는 건 서로 찌른 사람이고,
- * 내 카드는 맨 위에 있다는 위치와 이 글자로 충분하다. 카드 자체는 다른 카드와 같은 모양이어야
- * 한다 — 이 카드가 답하는 게 "남들에게 어떻게 보이나" 라서, 다르게 그리면 답이 틀린다.
- */
-.person .mineTag {
-  flex: none;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  padding: 4px 7px;
-  border-radius: var(--radius-sm);
-  background: var(--card-2);
-  border: 1px solid var(--line);
-  color: var(--dim);
-}
 .matchCard { border: 1px solid var(--accent); }
 
 /* ── 현황 탭 (ADR-30) */
-
-/* 👑 사전 투표 1위. 진행 멘트에 쓰는 정보라 이름이 크게 읽혀야 한다 */
-.crown {
-  padding: 14px;
-  border-radius: var(--radius);
-  border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent);
-  background: linear-gradient(100deg, color-mix(in srgb, var(--gold) 16%, transparent), transparent);
-  box-shadow: var(--shadow);
-}
-.crown .ico { font-size: 24px; flex: none; }
-.crown .name { font-weight: 800; font-size: 16px; }
 
 /* 💘 상호 매칭. 양쪽 아바타 사이에 하트 — 누구와 누구인지가 한눈에 */
 /* 매칭의 색은 참가자·운영자 모두 **주 색 하나**다. 화면마다 다르면 색이 뜻을 잃는다 */
@@ -715,6 +686,13 @@ button {
  * 이 카드는 남들이 보는 모습이고, 남들은 내 동물을 본다. 동물을 지우면
  * 내가 어느 동물인지 끝내 모르게 되는데, 파티장에서 사람을 찾는 게 그 동물이다 (ADR-30).
  * 이름 줄에서 뺀 이유는 거기가 닉네임·나이·MBTI 로 이미 꽉 차서다.
+ */
+/*
+ * 목록 맨 위 내 카드의 "나" 표시. 아바타 위에 얹는다 — 이름 줄은 이미 꽉 차 있다.
+ *
+ * **매칭 색(--accent)을 쓰지 않는다.** 목록에서 가장 눈에 띄어야 하는 건 서로 찌른 사람이고,
+ * 내 카드는 맨 위에 있다는 위치와 이 글자로 충분하다. 카드 자체는 다른 카드와 같은 모양이어야
+ * 한다 — 이 카드가 답하는 게 "남들에게 어떻게 보이나" 라서, 다르게 그리면 답이 틀린다.
  */
 .avatarMine { position: relative; flex: none; display: inline-flex; }
 .avatarMine .mineTag {
