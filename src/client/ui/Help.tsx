@@ -31,6 +31,15 @@ export default function Help({ state }: { state: ParticipantState }) {
    * 판정을 `People.tsx` 와 같은 모양으로 둔다 — 한쪽만 바뀌면 화면과 설명이 어긋난다.
    */
   const sameGenderOk = config.allowSameGender !== false;
+  /*
+   * 되돌리기와 알림은 **라운드마다 따로다** (ADR-34·43). 기본값이 서로 반대라 헷갈리기 쉽다 —
+   * 되돌리기는 **없으면 된다**(`!== false`), 알림은 **없으면 안 알린다**(`!!`).
+   * 판정을 `People.tsx`·`visibleReceived` 와 같은 모양으로 둔다. 한쪽만 바뀌면 설명이 거짓이 된다.
+   */
+  const undoPre = config.allowUndoPre !== false;
+  const undoParty = config.allowUndo !== false;
+  const notifyPre = !!config.preNotify;
+  const notifyParty = !!config.pokeNotify;
 
   return (
     <div className="stack">
@@ -65,8 +74,15 @@ export default function Help({ state }: { state: ParticipantState }) {
            */
           { q: qa.host.q, a: qa.host.a },
           { q: qa.count.q, a: qa.count.a(config.maxPre, config.maxParty) },
+          /*
+           * **회차 설정이 답을 바꾸는 둘** (ADR-52). 그전에는 눌러봐야 알거나,
+           * 알림이 꺼진 회차에서는 아예 알 길이 없었다 — 받은 수가 화면에 없으므로
+           * 참가자는 *아무도 나를 안 골랐다* 로 읽었다.
+           */
+          { q: qa.undo.q, a: qa.undo.a(undoPre, undoParty) },
+          { q: qa.notify.q, a: qa.notify.a(notifyPre, notifyParty) },
           ...(sameGenderOk ? [] : [{ q: qa.sameGender.q, a: qa.sameGender.a }]),
-          { q: qa.where.q, a: qa.where.a },
+          { q: qa.result.q, a: qa.result.a },
           { q: qa.ages.q, a: qa.ages.a },
         ].map((item) => (
           <div className="helpQa" key={item.q}>
