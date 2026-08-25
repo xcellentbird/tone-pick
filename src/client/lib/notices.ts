@@ -67,7 +67,28 @@ export function noticesOf(state: ParticipantState): Notice[] {
    * 파티 진행에 서 있다. 그 화면에 `결과가 발표됐어요` 를 띄우면 참가자 탭에는 아무것도 없다.
    */
   if (fired.done && phase === "done") {
-    list.push({ key: "done", ...NOTICE.done, at: fired.done, order: fired.done, bannerable: true, tab: "people" });
+    /*
+     * **매칭이 없으면 참가자 탭으로 보내지 않는다** (ADR-53).
+     *
+     * 거기서 할 일이 **💘 없는 것을 훑는 일**이 된다 — 이 앱이 없애려던 경험 그대로다.
+     * 그 사람의 답은 이미 홈 카드에 문장으로 다 있다.
+     *
+     * 몸글도 비운다. 여기에 무슨 말을 넣든 홈이 조심스럽게 한 말을 **소식 목록에서 한 번 더**
+     * 하는 것이고, 그 목록은 계속 남는다. 일어난 일만 적고 길 안내는 하지 않는다.
+     *
+     * `tab` 이 배너가 갈 곳도 정한다 — 배너는 `tab !== banner.tab` 일 때만 뜨므로,
+     * 매칭 없는 사람은 홈에서 배너를 보지 않는다. 답이 그 화면에 이미 있으니 맞다.
+     */
+    const matched = state.poke.matches.length > 0;
+    list.push({
+      key: "done",
+      ...NOTICE.done,
+      body: matched ? NOTICE.done.body : "",
+      at: fired.done,
+      order: fired.done,
+      bannerable: true,
+      tab: matched ? "people" : "home",
+    });
   }
   /**
    * 받은 콕은 **한 번에 하나씩** 쌓인다. 합쳐서 "지금까지 N회" 로 세어 주면

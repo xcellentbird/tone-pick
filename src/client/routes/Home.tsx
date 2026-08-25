@@ -149,6 +149,13 @@ export default function Home({
           ) : (
             <>
               <div className="kicker">{HOME.matched(state.poke.matches.length)}</div>
+              {/*
+                **이름만 한 줄** (ADR-53). 발표 순간 가장 먼저 궁금한 건 *누구야* 인데
+                지금까지는 숫자만 있고 이름은 탭을 옮겨야 나왔다.
+                ⚠️ **카드를 여기 그리지 마라** — 프로필·같은 테이블·💘 배지는 참가자 탭 것이다 (ADR-18).
+                여기 있는 건 그 탭으로 가기 전에 답하는 한 줄뿐이다.
+              */}
+              <p className="small">{state.poke.matches.map((m) => m.realName).join(" · ")}</p>
               {/* 결과는 그 사람이 있는 자리에 있다 — 참가자 탭 맨 위 (ADR-18) */}
               <button className="btn primary block" onClick={() => onTab("people")}>
                 {HOME.goResult}
@@ -195,7 +202,8 @@ function News({ state }: { state: ParticipantState }) {
             <span className="icon">{n.icon}</span>
             <span className="grow">
               <span className="name">{n.title}</span>
-              <div className="small dim pre">{n.body}</div>
+              {/* 몸글이 빈 알림이 있다 (ADR-53). 빈 칸도 flex 항목이라 자리를 먹는다 */}
+              {n.body && <div className="small dim pre">{n.body}</div>}
               {n.at > 0 && <div className="tiny dim">{formatWhen(n.at)}</div>}
             </span>
           </div>

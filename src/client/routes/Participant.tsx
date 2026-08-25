@@ -295,7 +295,7 @@ function Loaded({
               <span className="icon">{banner.icon}</span>
               <span className="grow">
                 <span className="name">{banner.title}</span>
-                <div className="small dim">{banner.body}</div>
+                {banner.body && <div className="small dim">{banner.body}</div>}
               </span>
             </button>
           )}
