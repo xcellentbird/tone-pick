@@ -168,11 +168,13 @@ export default function Dash() {
       */}
       {started && (
         <>
-          {/* 💘 상호 매칭 — 자리를 붙일지 판단하는 자리. 그래서 파티 중에는 맨 위다 */}
-          <div className="row between">
-            <span className="kicker">{HOST_UI.dash.mutualTitle(mutual.length)}</span>
-            <span className="tiny dim">{HOST_UI.dash.live}</span>
-          </div>
+          {/*
+            💘 상호 매칭 — 자리를 붙일지 판단하는 자리. 그래서 파티 중에는 맨 위다.
+
+            **`실시간 · 운영자만` 을 되붙이지 마라.** 이 탭은 통째로 운영자 것이고
+            숫자는 늘 지금 것이라, 세 머리줄에 같은 말이 세 번 서 있었을 뿐이다.
+          */}
+          <div className="kicker">{HOST_UI.dash.mutualTitle(mutual.length)}</div>
           {/*
             **갈래를 나누지 않는다** (ADR-34). 매칭은 이제 파티 콕만 세므로
             사전·엇갈림 같은 갈래가 나올 수 없다 — 매력 투표를 서로 했다는 건
@@ -267,16 +269,18 @@ function Ranking({
 
   return (
     <>
-      <div className="row between">
-        {/* 비어 있을 때 "TOP 0" 이라 쓰지 않는다 — 이 자리가 담을 수 있는 수(5)를 말한다 */}
-        <span className="kicker">{title(rows.length || TOP_RANKS)}</span>
-        <span className="tiny dim">{HOST_UI.dash.rankNote}</span>
-      </div>
+      {/* 비어 있을 때 "TOP 0" 이라 쓰지 않는다 — 이 자리가 담을 수 있는 수(5)를 말한다 */}
+      <div className="kicker">{title(rows.length || TOP_RANKS)}</div>
       {rows.length === 0 && (
         <div className="card">
           <span className="small dim">{empty}</span>
         </div>
       )}
+      {/*
+        ⚠️ **빈 `stack` 을 남기지 마라.** 자식이 없어도 flex 항목이라 부모의 `gap` 을 한 번 더 먹는다 —
+        받은 콕이 없는 회차에서 그 아래 칸만 넓어져 **묶음마다 간격이 다르게** 보였다.
+      */}
+      {rows.length > 0 && (
       <div className="stack">
         {rows.map((r) => (
           <div className="rank" key={r.p.id}>
@@ -294,6 +298,7 @@ function Ranking({
           </div>
         ))}
       </div>
+      )}
     </>
   );
 }

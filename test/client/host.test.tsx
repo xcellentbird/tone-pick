@@ -194,8 +194,8 @@ describe("현황 탭의 순위 둘", () => {
   /** 제목 줄부터 **다음 제목 줄 전까지**를 한 묶음으로 본다. 순위 행은 그 사이에만 있다 */
   function rankRows(title: string) {
     const rows: Array<[string, string]> = [];
-    let el = screen.getByText(title).closest(".row")!.nextElementSibling;
-    while (el && !el.classList.contains("row")) {
+    let el = screen.getByText(title).nextElementSibling;
+    while (el && !el.classList.contains("kicker")) {
       for (const r of el.querySelectorAll(".rank")) {
         rows.push([r.querySelector(".name")!.textContent!, r.querySelector(".ct")!.textContent!]);
       }
@@ -276,6 +276,23 @@ describe("현황 탭의 순위 둘", () => {
    * 매칭이 맨 위인 건 자리를 붙일지 판단하는 게 그 시점의 일이라서고,
    * 매력 투표는 끝난 라운드라 기록으로 맨 아래에 남는다.
    */
+  /**
+   * ★ **빈 순위가 아래 칸의 간격을 벌리지 않는다.**
+   *
+   * 순위 행을 담는 `stack` 이 자식 없이도 그려지면, 그것도 flex 항목이라 부모의 `gap` 을
+   * 한 번 더 먹는다. 받은 콕이 없는 회차에서 **콕 TOP 아래만 넓어져** 묶음마다
+   * 간격이 다르게 보였다 — 눈에는 "여기만 뭔가 빠졌나" 로 읽힌다.
+   */
+  it("★ 빈 순위가 아래 간격을 벌리지 않는다", async () => {
+    stubFetch(hostState({ phase: "party" }, { received: { pre: { p1: 2, p2: 1 }, party: {} }, mutual: [] }));
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.rankEmpty);
+
+    // 자식 없는 `stack` 이 하나도 없어야 한다. 있으면 그 자리가 곧 유령 간격이다
+    const empties = [...document.querySelectorAll(".stack")].filter((el) => el.children.length === 0);
+    expect(empties.length, `빈 stack ${empties.length}개가 간격을 먹고 있다`).toBe(0);
+  });
+
   it("★ 파티가 시작되면 매칭 · 콕 TOP · 매력 투표 순으로 선다", async () => {
     for (const phase of ["party", "done"] as const) {
       cleanup();
