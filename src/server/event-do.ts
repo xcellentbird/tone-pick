@@ -74,13 +74,11 @@ CREATE TABLE IF NOT EXISTS players (
   mbti       TEXT NOT NULL,
   charms     TEXT NOT NULL,          -- JSON string[3]
   created_at INTEGER NOT NULL,
-  attendance TEXT,                   -- 안 쓴다 (ADR-45 가 ADR-33 을 되돌렸다). **지우지 마라** — 아래 셋이 같은 이유다
-  contact_share TEXT,                -- 안 쓴다 (ADR-42 가 ADR-37 을 되돌렸다). 읽지도 쓰지도 않는다.
-                                     -- ⚠️ **안 쓰는 칸 셋을 2.0.0 에서도 지우지 않았다.**
-                                     -- DROP COLUMN 은 **살아 있는 회차의 표를 건드리는 일**이고,
-                                     -- 얻는 것이 없다 — 아무도 읽지 않으므로 비용이 0 이다.
-                                     -- 남은 값도 개인정보가 아니다 (참·거짓 · 라운드 표시 · 참석 여부).
-                                     -- 호환성을 안 봐도 되는 판이라고 해서 지울 이유가 생기지는 않는다
+                                     -- 여기 있던 attendance(ADR-45)·contact_share(ADR-42) 는 2.0.0 에서 뺐다.
+                                     -- ⚠️ 뺀 것은 이 CREATE 문뿐이다 — 새로 만드는 회차에 안 생길 뿐,
+                                     -- 이미 그 칸을 가진 옛 표는 건드리지 않는다. DROP COLUMN 은 하지 않는다:
+                                     -- 살아 있는 회차의 표를 건드리는 일인데 아무도 안 읽으므로 얻는 것이 없다.
+                                     -- 읽는 코드가 없으니 있든 없든 같다 — SELECT * 의 결과를 칸 이름으로만 쓴다
   token      TEXT                    -- 등록할 때 초대 명단에서 복사해 온다 (ADR-32).
                                      -- 명단에서 지워져도 자기 링크로 계속 들어오게 하는 값이다
 );
@@ -124,7 +122,7 @@ CREATE TABLE IF NOT EXISTS votes (
 CREATE TABLE IF NOT EXISTS seatings (
   round        INTEGER PRIMARY KEY,
   table_count  INTEGER NOT NULL,
-  final        INTEGER NOT NULL DEFAULT 0,   -- 안 쓴다 (ADR-51 이 ADR-23 을 걷어냈다). **지우지 마라** (players 의 둘과 같은 이유)
+                                    -- 여기 있던 final(ADR-51 이 ADR-23 을 걷어냈다) 도 뺐다. players 의 둘과 같은 자리다
   status       TEXT NOT NULL DEFAULT 'draft',
   seats        TEXT NOT NULL,        -- JSON Seat[]
   acks         TEXT NOT NULL DEFAULT '[]',
@@ -178,8 +176,6 @@ export class EventDO extends DurableObject {
         // 보냄 표시를 걷었다 (ADR-32 후기). 안 읽는 칸을 들고 다니면 다음 사람이 쓰이는 줄 안다
         "ALTER TABLE invites DROP COLUMN sent_at",
         "ALTER TABLE players ADD COLUMN token TEXT",
-        "ALTER TABLE players ADD COLUMN attendance TEXT",
-        "ALTER TABLE players ADD COLUMN contact_share TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token)",
         "CREATE INDEX IF NOT EXISTS players_token ON players(token)",
       ]) {
@@ -1692,9 +1688,9 @@ export class EventDO extends DurableObject {
 
   private writeSeating(s: SeatingRound) {
     /*
-     * **`final` 칸은 쓰지 않는다** (ADR-51). 칸은 남겨둔다 — `DROP COLUMN` 은 옛 회차의
-     * 표를 건드리는 일이고, `NOT NULL DEFAULT 0` 이라 안 적어도 들어간다.
-     * `contact_share`·`attendance` 와 같은 자리다.
+     * **칸을 골라 적는다.** 옛 회차의 표에는 걷어낸 `final` 이 아직 있는데(ADR-51),
+     * `NOT NULL DEFAULT 0` 이라 안 적어도 들어간다. `INSERT` 가 칸을 나열하는 것이 그 방어다 —
+     * `VALUES` 만 늘어놓으면 표마다 칸 수가 달라서 옛 회차에서만 터진다.
      */
     this.ctx.storage.sql.exec(
       `INSERT INTO seatings (round, table_count, status, seats, acks, created_at, published_at)

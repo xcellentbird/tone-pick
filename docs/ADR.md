@@ -2225,6 +2225,10 @@ ADR-37 은 그 값을 참가자가 조절하게 해서 문제를 풀려 했다. 
   (`CLAUDE.md` 의 `CREATE TABLE IF NOT EXISTS` 함정과 같은 자리), 남은 값은 참·거짓 둘뿐이라
   개인정보도 아니다. **읽지도 쓰지도 않는다**
 
+> **후기 (2.0.0)** — `CREATE TABLE` 에서는 뺐다. **새로 만드는 회차에는 안 생긴다.**
+> `DROP COLUMN` 은 여전히 하지 않는다 — 이미 그 칸을 가진 표는 그대로 두고,
+> 읽는 코드가 없으니 있든 없든 같다.
+
 ### 실명은 왜 남기나
 
 **연락 수단이 아니라 신원이다.** 닉네임만으로는 파티장에서 서로를 못 찾는다 —
@@ -2511,7 +2515,7 @@ ADR-41 이 걱정한 것("화면이 보낸 목록은 시트를 열어둔 만큼 
 |---|---|
 | **걷어냄** | `Attendance` 타입 · `HostState.attendance` · `POST /players/:pid/attendance` · `setAttendance` · `leftIds()` · 카드의 상태 배지와 상세의 3단 선택 · `도착 N · 미도착 N` 한 줄 · `HOST_UI.status` |
 | **되살림** | `SeatingInput.exclude` · `makeSeating(…, exclude)` · 뺄 사람 고르기 화면 (이번엔 **접힌 목록이 아니라 제 걸음**이다) |
-| **남김** | `players.attendance` 칸 — 읽지도 쓰지도 않는다. `DROP COLUMN` 은 옛 회차의 표를 건드리는 일이고, 남은 값은 개인정보도 아니다 (ADR-42 가 `contact_share` 에 한 것과 같다) |
+| **남김** | `players.attendance` 칸 — 읽지도 쓰지도 않는다. `DROP COLUMN` 은 옛 회차의 표를 건드리는 일이고, 남은 값은 개인정보도 아니다 (ADR-42 가 `contact_share` 에 한 것과 같다). **2.0.0 에서 `CREATE TABLE` 에서만 뺐다** — 새 회차에는 안 생기고, 옛 표는 그대로다 |
 | **안 바뀜** | `buildSeating` 은 그대로 순수 함수다. 명단이 짧아질 뿐이다 (`SEATING.md`) · `자리 비우기`(`unseat`) — **이미 짜인 라운드**를 고치는 길이라 짜는 때와 다른 일이다 |
 
 ### 대가
@@ -2948,6 +2952,10 @@ ADR-34 가 **보류**로 남겨뒀던 것이다 (`보류한 것` 표: *커플 �
 
 **DB 의 `seatings.final` 칸은 남긴다.** `DROP COLUMN` 은 옛 회차의 표를 건드리는 일이고,
 `NOT NULL DEFAULT 0` 이라 안 적어도 들어간다. `contact_share`·`attendance` 와 같은 자리다.
+
+> **후기 (2.0.0)** — `CREATE TABLE` 에서는 뺐다. **새로 만드는 회차에는 안 생긴다.**
+> `DROP COLUMN` 은 여전히 하지 않는다 — 이미 그 칸을 가진 표는 그대로 두고,
+> 읽는 코드가 없으니 있든 없든 같다.
 
 **대가 — 나이차가 큰 쌍은 알고리즘이 못 붙인다**
 
