@@ -7,6 +7,7 @@
  */
 import { ACT, NOTICE, POKE } from "../../shared/copy.ts";
 import type { ParticipantState, PokeRound } from "../../shared/types.ts";
+import { voteClosed } from "../../shared/phase.ts";
 
 /**
  * 받은 줄은 **라운드마다 따로 쌓인다** (ADR-46 후기).
@@ -50,12 +51,40 @@ export interface Notice {
 /** 최근 3분 안의 변화만 배너로 띄운다. 그보다 오래된 건 알림 탭에만 (UI.md) */
 export const BANNER_WINDOW = 3 * 60_000;
 
-export function noticesOf(state: ParticipantState): Notice[] {
-  const { fired, config, phase } = state.event;
+/**
+ * `now` 를 받는 이유는 **매력 투표 마감 때문**이다 (ADR-55).
+ * 단계 셋은 `fired` 에 시각이 찍혀 있어 지금이 언제든 상관없는데,
+ * 마감은 예약대로 닫히는 쪽이 **시각과 지금을 견줘야** 알 수 있다.
+ *
+ * ⚠️ **`Date.now()` 를 여기서 부르지 마라** (CLAUDE.md 3번). 폰 시계를 바꿔
+ * 마감을 먼저 넘길 수 있다 — 부르는 쪽이 서버 보정된 `now()` 를 넘긴다.
+ */
+export function noticesOf(state: ParticipantState, now: number): Notice[] {
+  const { fired, config, phase, schedule } = state.event;
   const list: Notice[] = [];
 
   if (fired.prevote) {
     list.push({ key: "prevote", ...NOTICE.prevote(config.maxPre), at: fired.prevote, order: fired.prevote, bannerable: true, tab: "home" });
+  }
+  /*
+   * 매력 투표 마감 (ADR-55). **닫는 길이 둘이라 시각도 둘이다** (ADR-39 후기) —
+   * 운영자가 앞당겨 닫았으면 `fired.voteEnd`, 예약대로면 `schedule.voteEndAt` 이다.
+   * 실제로 닫힌 순간을 쓴다.
+   *
+   * ⚠️ **`fired.prevote` 를 함께 본다.** 투표가 열린 적도 없는데 지나간 예약 시각만으로
+   * `마감됐어요` 가 뜨면, 아무 일도 없었던 회차에 없던 일이 적힌다.
+   */
+  const closedAt = fired.voteEnd ?? schedule.voteEndAt;
+  if (fired.prevote && closedAt && voteClosed(schedule, fired, now)) {
+    /*
+     * **목적지는 참가자 탭이다.** 단계 알림 셋은 홈을 가리키는데 이것만 다르다 —
+     * `tab` 은 *소식 그 자체가 있는 화면*이고, 마감이 실제로 보이는 곳은 거기다.
+     * 콕 버튼이 잠기고 `매력 투표가 마감됐어요` 가 명단 위에 선다.
+     *
+     * 홈으로 두면 **참가자 탭에서 같은 문장이 두 줄 연달아** 뜬다. 배너는
+     * `tab !== banner.tab` 일 때만 뜨므로, 목적지가 그 화면이면 저절로 안 뜬다.
+     */
+    list.push({ key: "voteEnd", ...NOTICE.voteEnd, at: closedAt, order: closedAt, bannerable: true, tab: "people" });
   }
   if (fired.party) {
     list.push({ key: "party", ...NOTICE.party(config.maxParty), at: fired.party, order: fired.party, bannerable: true, tab: "home" });

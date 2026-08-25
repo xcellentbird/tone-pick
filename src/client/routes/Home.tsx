@@ -186,11 +186,13 @@ export default function Home({
 }
 
 /**
- * 저장된 게 아니라 `fired` 에서 매번 파생된다 (ADR-4).
- * 그래서 읽음 플래그도 알림 테이블도 없다 — 단계가 바뀌면 목록이 그 자리에서 따라간다.
+ * 저장된 게 아니라 **회차 상태에서 매번 파생된다** (ADR-4) — `fired` 만이 아니다.
+ * 매력 투표 마감 소식은 `schedule.voteEndAt` 과 **지금 시각**으로 판정한다 (ADR-55) —
+ * 예약대로 닫히는 마감은 아무도 밀어주지 않아서 찍힌 시각이 없다.
+ * 그래서 읽음 플래그도 알림 테이블도 없다 — 상태가 바뀌면 목록이 그 자리에서 따라간다.
  */
 function News({ state }: { state: ParticipantState }) {
-  const list = noticesOf(state);
+  const list = noticesOf(state, now());
   if (list.length === 0) return null;
 
   return (
