@@ -75,7 +75,7 @@ POST /api/host/events/:id/phase      { to: Phase } → EventMeta
 |---|---|
 | `code` 를 지정했는데 이미 쓰는 코드 | `409 { error: "code_taken", message: HOST.pin.codeTaken }` |
 | `code` 생략 | 서버가 생성. 기존 코드와 겹치지 않을 때까지 다시 뽑는다 |
-| 일정이 시간 순이 아님 | `400 { error: "schedule_order" }` |
+| 발표가 파티보다 앞 | `400 { error: "bad_request" }` (ADR-43). **그 밖의 순서는 검사하지 않는다** (ADR-36) |
 | 언제나 | 만드는 순간 `phase: "reg"`, `fired.reg` 기록 (ADR-38). `regOpenAt` 은 그 시각의 **기록**이다 |
 | 같은 `requestId` 로 재요청 | 새로 만들지 않고 **같은 회차**를 200 으로 돌려준다 (S-B7) |
 
@@ -107,7 +107,8 @@ DELETE /api/host/events/:id/invites/:phone                     → Invite[]
 - `invites` 는 `HostState` 에만 실린다. 참가자 응답에는 절대 없다
 
 - 토큰이 없거나 틀리면 `404 { error: "not_found", message: ENTRY.notFound }`
-- `phase: "prep"` → `canRegister: false`, `message: ENTRY.notOpenYet(...)` (되돌린 회차에서만 본다)
+- `phase: "prep"` → `canRegister: false`, `message: ENTRY.notOpenYetUnknown` (되돌린 회차에서만 본다).
+  **시각은 싣지 않는다** (ADR-38) — `regOpenAt` 은 늘 지나간 시각이라 곧 열릴 것처럼 말하게 된다
 - `phase: "done"` → `canRegister: false`, `message: ENTRY.finished`
 - **응답에 입장 코드·PIN·참가자 개인정보·콕 기록이 없다** (S-C2). `PublicEvent` 타입 밖의 필드를 넣지 마라
 
@@ -146,7 +147,7 @@ POST /api/__test__/now   { at: number }   → { now: number }
 | `forbidden` | 403 |
 | `not_found` | 404 |
 | `code_taken` | 409 |
-| `schedule_order` · `bad_request` | 400 |
+| `bad_request` | 400 |
 
 ---
 

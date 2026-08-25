@@ -482,12 +482,13 @@ if (draft.status === 200) {
 const published = await host(`/host/events/${eventId}/seating/publish`, { method: "POST" });
 console.log(`  발송 ${ms(published.took)} (소켓 ${opened}개로 퍼짐)`);
 
-// ⑥ 발표 — 브로드캐스트 도달 분포
-console.log("\n⑤ 발표");
+// ⑥ 파티 시작 — 브로드캐스트 도달 분포
+// 발표(`done`)는 보내지 않는다. 되돌릴 수 없어서(ADR-50) 뒤따르는 ⑦·⑧ 의 콕 쓰기가 막힌다
+console.log("\n⑥ 파티 시작");
 mark();
-const done = await host(`/host/events/${eventId}/phase`, { method: "POST", body: { to: "party" } });
+const started = await host(`/host/events/${eventId}/phase`, { method: "POST", body: { to: "party" } });
 await new Promise((r) => setTimeout(r, 3000));
-console.log(`  전환 ${ms(done.took)}`);
+console.log(`  전환 ${ms(started.took)}`);
 const hits = arrive.by.phase ?? [];
 report("단계 알림", hits, `${hits.length}/${opened} 도달${spread(hits)}`);
 

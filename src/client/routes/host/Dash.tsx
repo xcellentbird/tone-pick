@@ -118,8 +118,9 @@ export default function Dash() {
 
     const facts = [...copy.facts];
     /*
-     * 예약을 앞당기는 것이면 얼마나 이른지 한 줄 붙는다. 둘뿐이다 —
-     * 매력 투표 **시작**(ADR-36)과 **마감**(ADR-39 후기). 파티 시작·발표는 비교할 예약이 없다.
+     * 예약을 앞당기는 것이면 얼마나 이른지 한 줄 붙는다. 여기서 비교하는 건 둘이다 —
+     * 매력 투표 **시작**(ADR-38 이 등록 시작을 걷어내 하나가 됐다)과 **마감**(ADR-39 후기).
+     * 파티 시작에는 예약이 없고(ADR-14), 발표는 `revealAt` 이 있지만 이 버튼으로 앞당기지 않는다.
      */
     const scheduled = to === "prevote" ? meta.schedule.prevoteAt : to === "voteEnd" ? meta.schedule.voteEndAt : undefined;
     if (scheduled) {

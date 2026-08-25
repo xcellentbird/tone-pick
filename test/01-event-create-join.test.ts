@@ -416,9 +416,10 @@ describe("C. 입장 코드", () => {
     expect(back.status).toBe(200);
     // When  코드로 조회한다
     const res = await api<PublicEvent>(await linkTo(ev.body.id));
-    // Then  등록 불가이고 ENTRY.notOpenYet 형태의 안내가 온다
+    // Then  등록 불가이고, **시각은 말하지 않는다** (ADR-38 — regOpenAt 은 늘 지나간 시각이다)
     expect(res.body.canRegister).toBe(false);
-    expect(res.body.message).toMatch(/부터 등록이 열려요\.$/);
+    expect(res.body.message).toBe(ENTRY.notOpenYetUnknown);
+    expect(res.body.message).not.toMatch(/부터 등록이 열려요/);
   });
 
   it("S-C5 종료된 회차는 닫혔다고 알려준다", async () => {

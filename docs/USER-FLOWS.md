@@ -31,10 +31,11 @@ flowchart LR
     reg3["3 나를 소개"]
     nickTaken{"닉네임 중복"}
 
-    subgraph tabs ["참가자 화면 · 하단 탭 3개"]
+    subgraph tabs ["참가자 화면 · 하단 탭 4개"]
         home["홈 : 할 일 · 내 자리 · 소식"]
         people["참가자 : 목록 · 이성만 또는 전체"]
         me["내 정보 : 프로필 · 결과"]
+        fun["재미 : 운세 · 미션 (매력 투표부터)"]
     end
 
     profile["프로필 시트"]
@@ -219,9 +220,9 @@ stateDiagram-v2
 
     [*] --> reg: 회차 생성 (ADR-38)
     prep --> reg: 예약 알람 또는 수동 (옛 회차·되돌린 회차)
-    reg --> prevote: 수동
-    prevote --> party: 예약 알람 또는 수동
-    party --> done: 예약 알람 또는 수동
+    reg --> prevote: 예약 알람 또는 수동 (prevoteAt)
+    prevote --> party: 수동 — 운영자가 누른다 (ADR-14)
+    party --> done: 예약 알람 또는 수동 (revealAt · 파티가 시작된 뒤에만 울린다)
     done --> [*]: 운영자가 회차를 지울 때까지 (ADR-36)
 ```
 
@@ -282,11 +283,7 @@ flowchart LR
     warn["확인창에 시작하자마자 마감 경고"]
     sPre["사전 투표"]
     sParty["파티 진행"]
-    qReveal{"발표 시각을 넣었나"}
-    autoDone["예약 알람으로 자동 발표"]
-    manualDone["수동 발표만"]
-    gCount["참가자 상단에 발표까지 카운트다운"]
-    gSoon["참가자 상단에 곧 발표해요"]
+    autoDone["revealAt 알람으로 자동 발표 · 운영자가 먼저 눌러도 된다"]
 
     qSame{"콕 대상이 모두에게인가"}
     gAll["목록이 전체로 열림 · 동성도 찌를 수 있음"]
@@ -299,12 +296,8 @@ flowchart LR
     qClosed -->|"지났음"| warn
     warn -->|"그래도 시작"| sParty
     qClosed -->|"안 지남"| sPre
-    sPre -->|"마감 알람"| sParty
-    sParty --> qReveal
-    qReveal -->|"있음"| autoDone
-    qReveal -->|"없음"| manualDone
-    autoDone --> gCount
-    manualDone --> gSoon
+    sPre -->|"마감은 판정일 뿐 (ADR-39) · 파티 시작은 운영자가 누른다"| sParty
+    sParty --> autoDone
 
     create --> qSame
     qSame -->|"모두에게"| gAll
@@ -314,10 +307,13 @@ flowchart LR
 
     style warn fill:#FFCDC2,stroke:#FF7556
     style gAll fill:#DCCCFF,stroke:#874FFF
-    style gCount fill:#C2E5FF,stroke:#3DADFF
+    style autoDone fill:#CDF4D3,stroke:#66D575
 ```
 
-- **생성 위저드는 매력 투표 시작 하나만 받는다** (ADR-38). 등록은 만드는 순간 열린다
+- **생성 위저드는 등록 시작을 묻지 않는다** (ADR-38) — 만드는 순간 열린다.
+  받는 건 매력 투표 시작 · 마감 · 파티 시작 · 커플 발표 넷이고, 그중 **알람이 울리는 건 첫째와 넷째**다
+- **참가자 카운트다운은 발표를 세지 않는다** (ADR-43). 시각은 있지만 파티 중에 보이면
+  남은 시간을 재며 서두르게 된다 — 이 앱이 만들려는 자리가 아니다
 - **배정은 발표 전까지 닫히지 않는다** (ADR-28). 라운드 횟수에도 제한이 없다 —
   못 붙은 쌍은 운영자가 자리 탭의 💔 를 보고 맞교환으로 붙인다 (ADR-51)
 - 동성 콕을 열어도 **자리 배정의 남녀 정원은 그대로다.** 콕은 가중치로만 들어간다

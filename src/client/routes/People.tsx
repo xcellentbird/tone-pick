@@ -5,7 +5,9 @@
  * 전문은 프로필 시트에서 본다.
  *
  * 콕은 확인을 거친다 — 예산이 줄고 상대에게 알림이 간다 (ADR-6).
- * 되돌리기는 지금 화면에 두지 않는다. 그래서 확인창이 "되돌릴 수 없다"고 분명히 말한다.
+ * **되돌리기는 행이 아니라 그 확인창 안에 있다** (ADR-34) — 행에 버튼을 하나 더 두면
+ * 가린 동안 그 버튼이 "이 사람을 골랐다" 를 그대로 흘린다. 닫아둔 회차에서는
+ * 창이 "되돌릴 수 없다" 고 분명히 말한다 (`POKE.confirm.note`).
  */
 import { useRef, useState } from "react";
 import { ACT, BTN, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
