@@ -827,6 +827,34 @@ describe("운영자 콘솔", () => {
     expect(pill.textContent, "고쳤는데 기본 정보에 점이 없다").toContain(HOST_UI.settings.dirty);
   });
 
+  /**
+   * ★ **콕 설정 묶음에도 설명 줄이 없다** (ADR-54 후기 2).
+   *
+   * 토글 다섯 중 셋에 곁설명이 붙어 **켜고 끄는 자리가 읽는 자리**가 됐다.
+   * 위저드에서 걷고 여기 남겼다가 그것마저 걷었다 — 두 화면 다 없다.
+   *
+   * ⚠️ 다만 `frozen` 은 남아야 한다. **설명이 아니라 상태**라, 굳은 칸이 왜 안 눌리는지는
+   * 말해줘야 한다 — 같은 자리에 그려지므로 함께 지우기 쉽다.
+   */
+  it("★ 콕 설정에 설명 줄은 없고, 굳음 표시는 남는다", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/settings");
+    fireEvent.click(await screen.findByText(HOST_UI.settings.rules));
+
+    expect(
+      [...document.querySelectorAll(".tiny.dim")].map((e) => e.textContent),
+      "콕 설정에 설명 줄이 남아 있다",
+    ).toEqual([]);
+    cleanup();
+
+    // 굳으면 그 자리에 `frozen` 이 선다 — 설명을 걷으면서 함께 사라지면 안 된다.
+    // 굳는 기준은 `rulesLocked(fired)` 다 (ADR-35) — 콕이 오갈 수 있게 된 시점부터
+    stubFetch(hostState({ phase: "party", fired: { reg: Date.now() - 2 * HOUR, party: Date.now() - HOUR } }));
+    renderConsole("/host/e1/settings");
+    fireEvent.click(await screen.findByText(HOST_UI.settings.rules));
+    expect(screen.getAllByText(HOST_UI.frozen).length, "굳음 표시까지 사라졌다").toBeGreaterThan(0);
+  });
+
   it("★ 콕이 오가기 시작하면 규칙 넷과 일정이 잠긴다 (ADR-35)", async () => {
     /*
      * 잠긴 줄을 **지우지 않는다** — 지금 어느 규칙으로 돌아가는 중인지는
