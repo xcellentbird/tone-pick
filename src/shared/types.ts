@@ -409,8 +409,8 @@ export type ErrorCode =
   | "code_taken"
   | "bad_request"
   // 슬라이스 02~05 에서 늘어난 것
-  | "not_invited"    // 403 · 초대 명단에 없는 번호다
-  | "too_many"       // 429 · 번호를 너무 여러 번 넣었다
+  | "not_invited"    // 403 · 명단의 어느 줄도 이 토큰이 아니다 (ADR-32)
+  | "too_many"       // 429 · 이 회차의 문을 너무 여러 번 두드렸다
   | "nick_taken"     // 409 · 회차 안에서 닉네임이 겹쳤다
   | "closed"         // 409 · 지금 단계에서는 할 수 없다
   | "no_budget"      // 409 · 이번 라운드 콕을 다 썼다
