@@ -2372,23 +2372,89 @@ describe("탭 역할 분담", () => {
     expect(timeOf(stage), "단계 알림에서 시각이 사라졌다").not.toBe("");
   });
 
+  /** 매칭 하나. 배너가 어느 탭을 가리키는지 재는 데만 쓴다 */
+  const matchedPoke: MyPokeState = {
+    ...POKE_STATE,
+    matches: [
+      {
+        player: { id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["가", "나", "다"] },
+        realName: "이실명",
+      },
+    ],
+  };
+
+  /**
+   * ★ **누구인지는 홈에서 바로 안다** (ADR-53).
+   *
+   * 지금까지 홈에는 `서로 찌른 상대 N명` 숫자만 있고 이름은 탭을 옮겨야 나왔다 —
+   * 발표 순간 가장 먼저 궁금한 것이 *누구야* 인데 그걸 한 번 더 눌러야 알았다.
+   *
+   * ⚠️ **카드를 홈에 그리는 게 아니다.** 프로필·같은 테이블·💘 배지는 참가자 탭 것이다 (ADR-18).
+   */
+  it("★ 매칭 상대의 이름이 홈에 뜬다", async () => {
+    const revealed = {
+      event: { ...participantState().event, phase: "done" as const, fired: { reg: 1, prevote: 2, done: Date.now() } },
+      poke: matchedPoke,
+    };
+    renderTab("home", revealed);
+
+    await screen.findByText(HOME.matched(1));
+    expect(screen.getByText("이실명"), "홈에 매칭 상대 이름이 없다").toBeTruthy();
+    // 카드까지 옮겨오지 않는다 — 그건 참가자 탭 것이다
+    expect(screen.queryByText(REVEAL.matchBadge), "홈에 매칭 배지가 딸려왔다").toBeNull();
+  });
+
   it("★ 발표 배너는 결과가 있는 탭에는 뜨지 않는다 — 서로를 가리키면 안 된다", async () => {
     /*
      * 배너가 "홈으로 가라" 하고 홈 카드가 "참가자 탭으로 가라" 하면 두 화면이 서로를 가리킨다.
-     * 결과는 참가자 탭에 있으므로 (ADR-18) 거기서는 배너를 띄우지 않는다.
+     *
+     * **결과가 있는 탭이 사람마다 다르다** (ADR-53) — 매칭이 있으면 참가자 탭,
+     * 없으면 홈이다. 배너는 그 탭에서만 안 뜬다.
      */
     const revealed = {
       event: { ...participantState().event, phase: "done" as const, fired: { reg: 1, prevote: 2, done: Date.now() } },
     };
 
-    renderTab("people", revealed);
+    // 매칭이 있는 사람 — 결과는 참가자 탭이라 거기서는 안 뜬다
+    renderTab("people", { ...revealed, poke: matchedPoke });
     await screen.findByText(PEOPLE.everyone);
-    expect(screen.queryByText(NOTICE.done.title)).toBeNull();
+    expect(screen.queryByText(NOTICE.done.title), "결과가 있는 탭에 배너가 떴다").toBeNull();
     cleanup();
 
     // 결과를 볼 수 없는 탭에서는 그대로 뜬다 — 알림을 없앤 게 아니라 자리를 가린 것이다
+    renderTab("me", { ...revealed, poke: matchedPoke });
+    await screen.findByText(NOTICE.done.title);
+  });
+
+  /**
+   * ★ **매칭이 없으면 참가자 탭으로 보내지 않는다** (ADR-53).
+   *
+   * 가서 할 일이 **💘 없는 것을 훑는 일**이 된다 — 이 앱이 없애려던 경험 그대로다.
+   * 그 사람의 답은 홈 카드에 문장으로 다 있고, 배너도 홈을 가리켜야 한다.
+   */
+  it("★ 매칭이 없으면 발표 안내가 참가자 탭을 가리키지 않는다", async () => {
+    const revealed = {
+      event: { ...participantState().event, phase: "done" as const, fired: { reg: 1, prevote: 2, done: Date.now() } },
+    };
+
+    /*
+     * **참가자 탭에서도 배너가 뜬다** — 이 사람의 결과는 거기 없기 때문이다.
+     * 매칭이 있었다면(위 테스트) 안 떴을 자리다. 눌러서 갈 곳은 홈이다.
+     */
+    renderTab("people", revealed);
+    await screen.findByText(NOTICE.done.title);
+
+    /*
+     * 몸글은 없다 — `참가자 탭에서 확인해보세요` 가 이 사람에게는 **없는 것을 훑으라는 말**이고,
+     * 홈이 조심스럽게 한 말을 소식 목록에서 한 번 더 하지도 않는다.
+     */
+    expect(screen.queryByText(NOTICE.done.body), "매칭도 없는데 참가자 탭으로 보낸다").toBeNull();
+    cleanup();
+
+    // 내 정보 탭에서도 마찬가지다. 알림을 없앤 게 아니라 길만 바꿨다
     renderTab("me", revealed);
     await screen.findByText(NOTICE.done.title);
+    expect(screen.queryByText(NOTICE.done.body)).toBeNull();
   });
 
   it("★ 콕을 다 쓰면 할 수 없는 일을 시키지 않는다 — 0 도 들이대지 않는다", async () => {
