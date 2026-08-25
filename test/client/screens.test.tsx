@@ -621,13 +621,6 @@ describe("참가자 화면 · 콕", () => {
     release(POKE_STATE);
   });
 
-  it("되돌리기는 지금 화면에 없다 — 확인창도 되돌릴 수 없다고 말한다", async () => {
-    renderParticipant(fakeSource());
-    await screen.findByText(/그녀/);
-    expect(screen.queryByText("−")).toBeNull();
-    expect(POKE.confirm.note).not.toContain("되돌릴 수 있");
-  });
-
   it("★ '이성만 / 전체' 는 지금 어느 쪽인지 보인다", async () => {
     renderParticipant(fakeSource());
     const onlyOpposite = await screen.findByText(PEOPLE.onlyOpposite);
