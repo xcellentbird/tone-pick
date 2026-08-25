@@ -17,8 +17,6 @@ import { signInMaster, api, freshEvent, join, master, setPhase } from "./helpers
 
 beforeAll(signInMaster);
 
-/** 참석 상태를 찍는다 (ADR-33). 자리 배정에서 빠지는 유일한 조건이 `left` 다 (ADR-41) */
-
 // ─────────────────────────────────────────── 자리가 보이는 때 (슬라이스 12)
 
 /**
@@ -84,23 +82,8 @@ describe("자리는 발행해야 보인다", () => {
   });
 });
 
-// ─────────────────────────────────────────── 앉힌 자리 고치기 (슬라이스 11)
+// ─────────────────────────────────────────── 무엇이 매칭인가
 
-/**
- * 발행한 라운드는 손댈 수 없는 것이었다. 유일한 수단이 새 라운드 발행이라,
- * 한 명이 늦게 왔다고 **전원이 자리를 옮기고 전원이 확인 화면을 다시 받았다.**
- *
- * 이제 초안이든 발행된 것이든 같은 조작 셋을 받는다 — 맞교환 · 앉히기 · 자리 비우기.
- */
-
-// ─────────────────────────────────────────── 앉힌 자리 고치기 (슬라이스 11)
-
-/**
- * 발행한 라운드는 손댈 수 없는 것이었다. 유일한 수단이 새 라운드 발행이라,
- * 한 명이 늦게 왔다고 **전원이 자리를 옮기고 전원이 확인 화면을 다시 받았다.**
- *
- * 이제 초안이든 발행된 것이든 같은 조작 셋을 받는다 — 맞교환 · 앉히기 · 자리 비우기.
- */
 describe("무엇이 매칭인가 (ADR-34)", () => {
   /**
    * **매칭은 파티 콕만 센다.** 매력 투표는 프로필만 보고 고른 것이라
@@ -160,6 +143,15 @@ describe("무엇이 매칭인가 (ADR-34)", () => {
     expect(await mutualOf(ev.id)).toHaveLength(1);
   });
 });
+
+// ─────────────────────────────────────────── 앉힌 자리 고치기 (슬라이스 11)
+
+/**
+ * 발행한 라운드는 손댈 수 없는 것이었다. 유일한 수단이 새 라운드 발행이라,
+ * 한 명이 늦게 왔다고 **전원이 자리를 옮기고 전원이 확인 화면을 다시 받았다.**
+ *
+ * 이제 초안이든 발행된 것이든 같은 조작 셋을 받는다 — 맞교환 · 앉히기 · 자리 비우기.
+ */
 describe("앉힌 자리 고치기", () => {
   type Round = { round: number; seats: Array<{ playerId: string; table: number }>; acks: string[] };
   const seatOp = (id: string, op: string, body: Record<string, unknown>) =>
@@ -175,7 +167,6 @@ describe("앉힌 자리 고치기", () => {
     const ev = await freshEvent();
     const ids: string[] = [];
     for (let i = 0; i < 6; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
-    await setPhase(ev.id, "party");
     await setPhase(ev.id, "party");
     await api(`/api/host/events/${ev.id}/seating`, {
       method: "POST", cookie: master, body: { tableCount: 2 },
@@ -308,7 +299,6 @@ describe("앉힌 자리 고치기", () => {
     await setPhase(ev.id, "party");
     await api("/api/poke", { method: "POST", cookie: a.cookie, body: { toId: b.id } });
     await api("/api/poke", { method: "POST", cookie: b.cookie, body: { toId: a.id } });
-    await setPhase(ev.id, "party");
     await api(`/api/host/events/${ev.id}/seating`, {
       method: "POST", cookie: master, body: { tableCount: 1 },
     });

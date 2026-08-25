@@ -116,7 +116,6 @@ hostRoutes.post("/events", async (c) => {
   const reserved = await registry(c.env).reserve({
     code: body.code,
     requestId: String(body.requestId),
-    now,
   });
   if (!reserved.ok) return apiError(c, "code_taken", HOST.pin.codeTaken);
 

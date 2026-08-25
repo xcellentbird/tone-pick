@@ -74,13 +74,11 @@ CREATE TABLE IF NOT EXISTS players (
   mbti       TEXT NOT NULL,
   charms     TEXT NOT NULL,          -- JSON string[3]
   created_at INTEGER NOT NULL,
-  attendance TEXT,                   -- 안 쓴다 (ADR-45 가 ADR-33 을 되돌렸다). **지우지 마라** — 아래 셋이 같은 이유다
-  contact_share TEXT,                -- 안 쓴다 (ADR-42 가 ADR-37 을 되돌렸다). 읽지도 쓰지도 않는다.
-                                     -- ⚠️ **안 쓰는 칸 셋을 2.0.0 에서도 지우지 않았다.**
-                                     -- DROP COLUMN 은 **살아 있는 회차의 표를 건드리는 일**이고,
-                                     -- 얻는 것이 없다 — 아무도 읽지 않으므로 비용이 0 이다.
-                                     -- 남은 값도 개인정보가 아니다 (참·거짓 · 라운드 표시 · 참석 여부).
-                                     -- 호환성을 안 봐도 되는 판이라고 해서 지울 이유가 생기지는 않는다
+                                     -- 여기 있던 attendance(ADR-45)·contact_share(ADR-42) 는 2.0.0 에서 뺐다.
+                                     -- ⚠️ 뺀 것은 이 CREATE 문뿐이다 — 새로 만드는 회차에 안 생길 뿐,
+                                     -- 이미 그 칸을 가진 옛 표는 건드리지 않는다. DROP COLUMN 은 하지 않는다:
+                                     -- 살아 있는 회차의 표를 건드리는 일인데 아무도 안 읽으므로 얻는 것이 없다.
+                                     -- 읽는 코드가 없으니 있든 없든 같다 — SELECT * 의 결과를 칸 이름으로만 쓴다
   token      TEXT                    -- 등록할 때 초대 명단에서 복사해 온다 (ADR-32).
                                      -- 명단에서 지워져도 자기 링크로 계속 들어오게 하는 값이다
 );
@@ -121,11 +119,10 @@ CREATE TABLE IF NOT EXISTS votes (
   choice    TEXT NOT NULL CHECK (choice IN ('a','b')),
   PRIMARY KEY (ann_id, player_id)   -- 한 사람 한 표. 다시 고르면 옮겨간다
 );
-CREATE INDEX IF NOT EXISTS votes_ann ON votes(ann_id);
 CREATE TABLE IF NOT EXISTS seatings (
   round        INTEGER PRIMARY KEY,
   table_count  INTEGER NOT NULL,
-  final        INTEGER NOT NULL DEFAULT 0,   -- 안 쓴다 (ADR-51 이 ADR-23 을 걷어냈다). **지우지 마라** (players 의 둘과 같은 이유)
+                                    -- 여기 있던 final(ADR-51 이 ADR-23 을 걷어냈다) 도 뺐다. players 의 둘과 같은 자리다
   status       TEXT NOT NULL DEFAULT 'draft',
   seats        TEXT NOT NULL,        -- JSON Seat[]
   acks         TEXT NOT NULL DEFAULT '[]',
@@ -139,7 +136,6 @@ type Fail =
   | "not_invited"
   | "too_many"
   | "conflict"
-  | "forbidden"
   | "bad_request"
   | "nick_taken"
   | "closed"
@@ -180,8 +176,6 @@ export class EventDO extends DurableObject {
         // 보냄 표시를 걷었다 (ADR-32 후기). 안 읽는 칸을 들고 다니면 다음 사람이 쓰이는 줄 안다
         "ALTER TABLE invites DROP COLUMN sent_at",
         "ALTER TABLE players ADD COLUMN token TEXT",
-        "ALTER TABLE players ADD COLUMN attendance TEXT",
-        "ALTER TABLE players ADD COLUMN contact_share TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token)",
         "CREATE INDEX IF NOT EXISTS players_token ON players(token)",
       ]) {
@@ -235,7 +229,6 @@ export class EventDO extends DurableObject {
       code: meta.code,
       phase: meta.phase,
       playerCount: this.playerCount(),
-      createdAt: meta.createdAt,
     });
   }
 
@@ -421,12 +414,12 @@ export class EventDO extends DurableObject {
 
   // ─────────────────────────── 초대 명단
   //
-  // 파티에 들어오는 문은 **운영자가 미리 넣어둔 전화번호**다 (ADR-15).
-  // 코드 여섯 자리는 옮겨 적을 수 있지만 남의 번호로는 들어올 수 없다.
-
-  async listInvites(): Promise<Result<Invite[]>> {
-    return ok(this.invites());
-  }
+  // 파티에 들어오는 문은 **명단 한 줄마다 생기는 토큰**이다 (ADR-32).
+  // 번호는 명단을 만드는 재료일 뿐이고, 참가자는 번호를 치지 않는다 —
+  // 같은 파티에 오는 사람들은 서로 번호를 아는 사이라 번호가 열쇠가 못 됐다.
+  //
+  // 목록을 읽는 RPC 는 없다. 운영자 화면은 `hostState()` 가 함께 내려주는 것을 쓰고,
+  // 더하기·빼기가 각자 바뀐 명단을 돌려준다.
 
   /**
    * 명단에 **더한다**. 한 명이든 붙여넣은 백 명이든 같은 문이다.
@@ -527,12 +520,6 @@ export class EventDO extends DurableObject {
     const clean = String(token ?? "").trim();
     if (!clean) return ok(null);
     const row = this.rows<{ id: string }>("SELECT id FROM players WHERE token = ?", clean)[0];
-    return ok(row?.id ?? null);
-  }
-
-  /** 번호로 그 사람을 찾는다. 입장 확인을 통과한 뒤 세션을 만들 때만 쓴다 */
-  async playerIdByPhone(phone: string): Promise<Result<string | null>> {
-    const row = this.rows<{ id: string }>("SELECT id FROM players WHERE phone = ?", normalizePhone(phone))[0];
     return ok(row?.id ?? null);
   }
 
@@ -888,8 +875,6 @@ export class EventDO extends DurableObject {
     const here = new Set(players.map((p) => p.id));
     const pokes = this.pokes().filter((k) => here.has(k.fromId) && here.has(k.toId));
 
-    /** 참석 상태. **운영자 응답에만 실린다** (ADR-33) */
-
     const sent: Record<PokeRound, Record<string, number>> = { pre: {}, party: {} };
     /*
      * **라운드마다 따로 센다** (ADR-46). 합치면 현황 탭의 `콕 TOP` 에 매력 투표 표가 얹혀서,
@@ -905,18 +890,11 @@ export class EventDO extends DurableObject {
       received.party[p.id] = 0;
     }
     const pokeCount: Record<PokeRound, number> = { pre: 0, party: 0 };
-    const pairs = new Set<string>();
-    const when = new Map<string, Set<PokeRound>>();
     for (const k of pokes) {
       sent[k.round][k.fromId] = (sent[k.round][k.fromId] ?? 0) + 1;
       received[k.round][k.toId] = (received[k.round][k.toId] ?? 0) + 1;
       usedBy[k.round][k.fromId] = (usedBy[k.round][k.fromId] ?? 0) + 1;
       pokeCount[k.round]++;
-      pairs.add(`${k.fromId}>${k.toId}`);
-      // 어느 라운드에 찔렀는지. 매칭이 **어떻게 이루어졌는가**를 가르는 데만 쓴다
-      const key = `${k.fromId}>${k.toId}`;
-      if (!when.has(key)) when.set(key, new Set());
-      when.get(key)!.add(k.round);
     }
     const pokeUsedMax: Record<PokeRound, number> = {
       pre: Math.max(0, ...Object.values(usedBy.pre)),
@@ -1075,17 +1053,6 @@ export class EventDO extends DurableObject {
   // ─────────────────────────── 오늘의 연애운 (ADR-20)
 
   /**
-   * 저장된 운세를 준다. 없으면 null — 만드는 건 Worker 가 한다.
-   *
-   * LLM 호출을 여기서 하지 않는 이유: DO 는 요청을 한 줄로 처리한다.
-   * 응답을 1~3초 기다리는 동안 그 회차의 모든 요청이 뒤에 선다.
-   */
-  async fortuneOf(playerId: string): Promise<Result<Fortune | null>> {
-    const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
-    return ok(row ? readFortune(JSON.parse(row.json)) : null);
-  }
-
-  /**
    * 처음 저장한 것만 남는다. 두 번 눌러 두 번 만들어졌더라도 **먼저 온 하나**가 오늘의 운세다 —
    * 열 때마다 달라지면 그 순간 전부 거짓말이 된다.
    */
@@ -1231,7 +1198,7 @@ export class EventDO extends DurableObject {
 
   /**
    * 자리 없는 사람을 이 라운드에 **끼워 넣는다.** 옮기는 게 아니라 더하는 것이라
-   * 아무도 자리를 잃지 않는다 — 커플 자리의 쌍도 그대로다 (ADR-23).
+   * 아무도 자리를 잃지 않는다 — 운영자가 손으로 붙여둔 쌍도 그대로다.
    *
    * **테이블은 서버가 고른다.** 운영자가 고르게 하면 그게 곧 SEATING.md 가 금지한
    * 단일 이동 API 다 — 조작 한 번에 성비 불변식이 깨진다.
@@ -1296,9 +1263,9 @@ export class EventDO extends DurableObject {
    * 나이차·재회·콕 보너스는 보지 않는다 — 운영자가 "그냥 다시 섞어줘" 라고 할 때 쓰는 손잡이다.
    * 다시 계산하고 싶으면 자리 재배정을 누르면 된다.
    *
-   * **커플 자리에서는 이어진 쌍이 움직이지 않는다** (ADR-23).
-   * 그 배정의 목적이 쌍을 같은 테이블에 앉히는 것인데, 섞기가 그걸 흩어놓으면
-   * 버튼 하나로 그 라운드가 무의미해진다. 붙어 앉은 쌍은 자리를 지키고 나머지만 섞인다.
+   * **붙어 앉은 쌍은 움직이지 않는다** (ADR-49). 라운드를 가리지 않는다 —
+   * 커플 자리 라운드가 없어진 뒤로는(ADR-51) 쌍을 붙이는 일이 운영자의 손에 있고,
+   * 섞기가 그걸 흩어놓으면 버튼 하나로 그 손이 헛일이 된다. 쌍은 자리를 지키고 나머지만 섞인다.
    */
   async shuffleSeating(): Promise<Result<SeatingRound>> {
     if (!(await this.seatsOpen())) return fail("closed");
@@ -1721,9 +1688,9 @@ export class EventDO extends DurableObject {
 
   private writeSeating(s: SeatingRound) {
     /*
-     * **`final` 칸은 쓰지 않는다** (ADR-51). 칸은 남겨둔다 — `DROP COLUMN` 은 옛 회차의
-     * 표를 건드리는 일이고, `NOT NULL DEFAULT 0` 이라 안 적어도 들어간다.
-     * `contact_share`·`attendance` 와 같은 자리다.
+     * **칸을 골라 적는다.** 옛 회차의 표에는 걷어낸 `final` 이 아직 있는데(ADR-51),
+     * `NOT NULL DEFAULT 0` 이라 안 적어도 들어간다. `INSERT` 가 칸을 나열하는 것이 그 방어다 —
+     * `VALUES` 만 늘어놓으면 표마다 칸 수가 달라서 옛 회차에서만 터진다.
      */
     this.ctx.storage.sql.exec(
       `INSERT INTO seatings (round, table_count, status, seats, acks, created_at, published_at)

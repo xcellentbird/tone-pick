@@ -67,7 +67,7 @@ export default function Seats() {
   }
   // 두 번째 라운드에서는 같은 테이블 수를 다시 고르는 일이 흔하다. 지난번 값에서 시작한다
   const lastTableCount =
-    state.seatings.at(-1)?.tableCount ?? Math.max(1, Math.round(state.players.length / 6)) ?? 1;
+    state.seatings.at(-1)?.tableCount ?? Math.max(1, Math.round(state.players.length / 6));
 
   const base = `/host/events/${state.meta.id}/seating`;
   const draft = state.seatings.find((s) => s.status === "draft");
