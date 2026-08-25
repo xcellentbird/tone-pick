@@ -11,6 +11,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { SCHEDULE_STEP_MIN, formatCountdown, snapSchedule, toLocalInput } from "../../src/shared/time.ts";
+import { DEFAULTS } from "../../src/shared/constants.ts";
 import { HOST_UI } from "../../src/shared/copy.ts";
 import HostWizard from "../../src/client/routes/host/HostWizard.tsx";
 
@@ -68,16 +69,15 @@ describe("위저드", () => {
   it("★ 시각 입력이 30분 단위로 열린다", async () => {
     // 라우트 정의가 있어야 :step 이 실제로 넘어온다
     render(<RouterProvider router={step2()} />);
-    await screen.findByText(HOST_UI.fields.partyAt);
+    await screen.findByText(HOST_UI.fields.prevoteAt);
 
     /*
-     * 등록 시작 칸은 없어졌다 (ADR-38) — 남은 시각 입력은 넷이다:
-     * 파티 일시 · 매력 투표 시작 · 매력 투표 마감 (ADR-39) · 커플 발표 (ADR-43).
-     * 등록 시작 자리에는 "등록은 회차를 만들면 바로 열려요" 한 줄이 대신 선다.
+     * **2스텝에 남은 것은 예약 셋이다** (ADR-54) —
+     * 매력 투표 시작 · 마감 (ADR-39) · 커플 발표 (ADR-43).
+     * 파티 시작은 예약이 아니라 1스텝(기본 정보)으로 갔고, 등록 시작은 묻지 않는다 (ADR-38).
      */
     const inputs = document.querySelectorAll('input[type="datetime-local"]');
-    expect(inputs.length).toBe(4);
-    expect(screen.getByText(HOST_UI.regOpensNow)).toBeTruthy();
+    expect(inputs.length).toBe(3);
     for (const input of inputs) {
       expect(input.getAttribute("step")).toBe(String(SCHEDULE_STEP_MIN * 60));
       // 기본값도 맞아 있어야 한다 — 분 자리가 00 이나 30
@@ -98,21 +98,28 @@ describe("위저드", () => {
      * ⚠️ 그냥 `waitFor` 로 값만 재면 **반영되기 전에** 통과한다 (그때는 코드 기본값이라 멀쩡하다).
      * 반영을 먼저 기다린 뒤에 재야 이 테스트가 무언가를 지킨다.
      */
-    stubDefaults({ prevoteBeforeH: 48, revealAfterH: undefined });
+    /*
+     * `voteEndBeforeH` 를 코드 기본값(1)과 **다르게** 준다 — 그 칸이 움직이는 것이
+     * 곧 "응답이 반영됐다" 는 신호다. 파티 시작은 이제 1스텝이라 여기서 못 재므로,
+     * **2스텝 안의 두 칸 사이**로 잰다.
+     *
+     * 마감 → 발표 사이는 `voteEndBeforeH + revealAfterH` 다. 반영되면 5+3 시간이어야 하고,
+     * `revealAfterH` 가 `NaN` 이 되면 이 값이 `NaN` 이라 여기서 걸린다.
+     */
+    stubDefaults({ voteEndBeforeH: 5, revealAfterH: undefined });
     render(<RouterProvider router={step2()} />);
-    await screen.findByText(HOST_UI.fields.partyAt);
+    await screen.findByText(HOST_UI.fields.prevoteAt);
 
     // **인덱스가 아니라 id 로 잡는다** — 칸 순서는 바뀔 수 있고, 이 테스트가 재는 건 순서가 아니다
     const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value;
-    // 매력 투표 시작이 파티 48시간 전으로 바뀌면 응답이 반영된 것이다
     await waitFor(() =>
-      expect(new Date(val("party")).getTime() - new Date(val("prevote")).getTime()).toBe(
-        48 * 60 * 60 * 1000,
+      expect(new Date(val("reveal")).getTime() - new Date(val("voteEnd")).getTime()).toBe(
+        (5 + DEFAULTS.revealAfterH) * 60 * 60 * 1000,
       ),
     );
 
     const inputs = document.querySelectorAll('input[type="datetime-local"]');
-    expect(inputs.length).toBe(4);
+    expect(inputs.length).toBe(3);
     for (const [i, input] of [...inputs].entries()) {
       expect((input as HTMLInputElement).value, `${i}번 칸이 비었다`).not.toBe("");
     }
@@ -133,12 +140,17 @@ describe("위저드", () => {
    * 목록 아래에 떠 있으면 어느 칸 이야기인지 알 수 없고, 넷 다 저절로 넘어가는 줄로 읽으면
    * 운영자가 아무것도 안 눌러서 파티가 영영 안 열린다.
    */
-  it("★ 2스텝은 시각만, 시간 순으로 세운다", async () => {
+  it("★ 2스텝은 예약만, 시간 순으로 세운다", async () => {
     render(<RouterProvider router={step2()} />);
-    await screen.findByText(HOST_UI.fields.partyAt);
+    await screen.findByText(HOST_UI.fields.prevoteAt);
 
+    /*
+     * ⚠️ **파티 시작이 여기 있으면 안 된다** (ADR-54). 그것만 예약이 아니라(ADR-14)
+     * 예약 목록에 끼어 있으면 셋 다 저절로 넘어가는 줄로 읽히고,
+     * 그러면 운영자가 아무것도 안 눌러서 파티가 영영 안 열린다.
+     */
     const ids = [...document.querySelectorAll('input[type="datetime-local"]')].map((i) => i.id);
-    expect(ids).toEqual(["prevote", "voteEnd", "party", "reveal"]);
+    expect(ids, "2스텝에 예약 아닌 칸이 있다").toEqual(["prevote", "voteEnd", "reveal"]);
 
     // 값도 그 순서대로 흘러야 한다 — 라벨만 시간 순이고 기본값이 뒤엉키면 소용없다
     const ms = ids.map((id) => new Date((document.getElementById(id) as HTMLInputElement).value).getTime());
@@ -146,8 +158,22 @@ describe("위저드", () => {
 
     // 시각이 아닌 칸은 여기 없다 — 장소는 1스텝으로 갔다
     expect(screen.queryByLabelText(HOST_UI.fields.place), "장소가 2스텝에 남아 있다").toBeNull();
-    // 파티 시작만 예약이 아니라는 걸 그 칸에서 말한다
-    expect(screen.getByText(HOST_UI.fields.partyHint)).toBeTruthy();
+  });
+
+  /**
+   * ★ **파티 시작은 1스텝이다** (ADR-54).
+   *
+   * 예약이 아니라 운영자가 누르는 것이고(ADR-14), 나머지 일정 기본값이 여기서
+   * 거꾸로 계산되는 **기준점**이라 가장 먼저 정한다.
+   */
+  it("★ 파티 시작은 기본 정보 스텝에 있다", async () => {
+    render(<RouterProvider router={stepAt(1)} />);
+    await screen.findByLabelText(HOST_UI.fields.name);
+
+    const party = document.getElementById("party") as HTMLInputElement | null;
+    expect(party, "1스텝에 파티 시작이 없다").toBeTruthy();
+    expect(party!.type).toBe("datetime-local");
+    expect(party!.value, "파티 시작이 빈 채로 뜬다").not.toBe("");
   });
 
   it("★ 3스텝에서 고른 규칙이 만들기 요청에 그대로 실린다", async () => {
