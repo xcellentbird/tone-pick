@@ -9,7 +9,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import type { Defaults } from "../shared/types.ts";
-import { DEFAULTS, withDefaults } from "../shared/constants.ts";
+import { DEFAULTS, LIMITS, withDefaults } from "../shared/constants.ts";
 import { genCode, randomHex } from "./auth.ts";
 
 export interface EventIndexEntry {
@@ -96,6 +96,8 @@ export class RegistryDO extends DurableObject {
       maxParty: next.maxParty,
       // 빈 장소는 그대로 둔다 — "회차마다 다른 곳에서 연다" 는 뜻이다 (ADR-38)
       place: next.place ?? "",
+      // 빈 문구는 그대로 둔다 — 닉네임 칸에 아무 안내도 안 붙인다는 뜻이다 (ADR-59)
+      nickHint: (next.nickHint ?? "").slice(0, LIMITS.nickHintMax),
       prevoteBeforeH: next.prevoteBeforeH,
       voteEndBeforeH: next.voteEndBeforeH,
       revealAfterH: next.revealAfterH,
