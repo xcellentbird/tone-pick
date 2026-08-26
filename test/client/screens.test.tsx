@@ -2252,6 +2252,47 @@ describe("내 정보 고치기", () => {
     }
   });
 
+  /** 등록 중이면서 **셀 시각이 있는** 회차. 기본 일정에는 `prevoteAt` 이 없다 */
+  const regUntil = (prevoteAt: number) => ({
+    event: { ...participantState().event, phase: "reg" as const, schedule: { prevoteAt } },
+  });
+
+  /**
+   * ★ **언제까지 고칠 수 있는지를 숫자로 말한다.**
+   *
+   * 오래 그 자리였던 `사람들이 보기 전까지 다듬을 수 있어요` 는 맞는 말이면서
+   * 정작 **언제까지인지를 안 말한다.** 읽고 나도 지금 서둘러야 하는지 모른다.
+   *
+   * 세는 시각은 **잠그는 조건과 같은 값**이어야 한다 (`prevoteAt`). 갈라지면
+   * 화면이 "아직 30분 남았다" 고 하는 동안 폼이 잠기거나, 그 반대가 된다.
+   */
+  it("★ 언제까지 고칠 수 있는지를 숫자로 말한다", async () => {
+    renderMe(regUntil(Date.now() + 3600_000));
+    await screen.findByText(ME.edit);
+
+    expect(screen.getByText(ME.editLeft), "언제까지인지 말하는 줄이 없다").toBeTruthy();
+    // 하루 안으로 들어왔으니 초까지 센다 — 홈 탭과 같은 규칙이다
+    expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/), "숫자가 없다").toBeTruthy();
+    // 숫자가 답을 했으니 옛 문구는 자리를 비운다 — 같은 것을 두 번 말하지 않는다
+    expect(screen.queryByText(ME.editHint), "문구와 숫자가 같이 떠 있다").toBeNull();
+  });
+
+  /**
+   * ★ **셀 시각이 없어도 빈 자리로 두지 않는다.**
+   *
+   * 일정이 비어 있을 수 있고, `prevoteAt` 이 지났는데 아직 `reg` 인 순간도 있다.
+   * 지나간 시각을 세면 음수가 뜨고, 사람은 그 숫자를 **자기 시계가 틀린 걸로** 읽는다
+   * (홈 탭의 `nextMark` 와 같은 자리). 그때는 문구가 대신 선다 —
+   * 버튼만 남으면 언제까지인지 물을 데가 없어진다.
+   */
+  it("★ 지나간 시각은 세지 않고 문구가 대신 선다", async () => {
+    renderMe(regUntil(Date.now() - 60_000));
+    await screen.findByText(ME.edit);
+
+    expect(screen.getByText(ME.editHint), "버튼만 남고 아무 말도 없다").toBeTruthy();
+    expect(screen.queryByText(ME.editLeft), "지나간 시각을 세고 있다").toBeNull();
+  });
+
   it("★ 사전 투표가 열린 뒤에는 왜 못 고치는지 말한다", async () => {
     // 버튼만 조용히 사라지면 "내 화면만 이상한가" 가 된다
     renderMe();

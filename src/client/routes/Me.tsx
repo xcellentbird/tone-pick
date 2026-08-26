@@ -20,9 +20,12 @@ import { useEffect, useState } from "react";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, UNIT } from "../../shared/copy.ts";
 import type { MyProfile, ParticipantState } from "../../shared/types.ts";
 import { LIMITS, normalizeInstagram } from "../../shared/constants.ts";
+import { TICK_WINDOW, formatCountdown, formatDayHour } from "../../shared/time.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { draftOf, toInput, validateProfile } from "../lib/profileForm.ts";
+import { now } from "../lib/serverTime.ts";
+import { useTicker } from "../lib/useLoad.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
 
 interface Props {
@@ -38,6 +41,18 @@ export default function Me({ state, source, reload, editing, onEdit }: Props) {
   const { me, event } = state;
   // 사전 투표가 열리면 사람들이 이 정보를 보고 콕을 찌른다. 그 뒤로는 굳는다 (ADR-31)
   const canEdit = event.phase === "reg";
+  /*
+   * **언제까지 고칠 수 있나.** 잠기는 순간이 곧 매력 투표가 열리는 순간이라
+   * 마감은 `prevoteAt` 하나다 — 잠그는 조건과 세는 시각이 갈리면 둘 중 하나가 거짓말이 된다.
+   *
+   * 남는 시간은 **서버 시각**에서 뺀다 (`now()`). 폰 시계를 당겨도 마감이 밀리지 않는다.
+   * 예약 시각이 지났는데 아직 `reg` 인 회차가 있다 — 지나간 시각을 세면 음수가 뜨고,
+   * 사람은 그 숫자를 자기 시계가 틀린 걸로 읽는다 (`Home` 의 `nextMark` 와 같은 자리).
+   * 그때는 세지 않고 문구가 대신 선다.
+   */
+  const until = event.schedule.prevoteAt ? event.schedule.prevoteAt - now() : 0;
+  // 하루 넘게 남았으면 1초마다 다시 그릴 이유가 없다 — 그때는 `1일 2시간` 이라 초가 안 보인다
+  useTicker(canEdit && until > 0 && until <= TICK_WINDOW);
 
   /**
    * 잠긴 뒤에 편집 주소가 열려 있으면 안 된다 — 링크를 눌러서든 새로고침으로든
@@ -60,14 +75,25 @@ export default function Me({ state, source, reload, editing, onEdit }: Props) {
       {editing && canEdit ? (
         <EditForm me={me} source={source} reload={reload} done={() => onEdit(false)} />
       ) : (
-        <Saved me={me} canEdit={canEdit} edit={() => onEdit(true)} />
+        <Saved me={me} canEdit={canEdit} until={until} edit={() => onEdit(true)} />
       )}
     </div>
   );
 }
 
 /** 저장된 내 정보. 기본 정보와 매력을 나눠 그리되 고치는 버튼은 그 아래 하나뿐이다 */
-function Saved({ me, canEdit, edit }: { me: MyProfile; canEdit: boolean; edit: () => void }) {
+function Saved({
+  me,
+  canEdit,
+  until,
+  edit,
+}: {
+  me: MyProfile;
+  canEdit: boolean;
+  /** 고치기 마감까지 남은 밀리초. 0 이하면 셀 시각이 없다는 뜻이다 */
+  until: number;
+  edit: () => void;
+}) {
   return (
     <>
       {/*
@@ -94,10 +120,24 @@ function Saved({ me, canEdit, edit }: { me: MyProfile; canEdit: boolean; edit: (
       {/* 잠긴 뒤에 버튼만 사라지면 "내 화면만 이상한가" 가 된다 — 왜 못 고치는지 말한다 */}
       {canEdit ? (
         <div className="stack">
+          {/*
+            마감이 버튼 **위**인 이유는 읽는 순서다 — *얼마 남았나* 를 보고 누른다.
+            아래에 적으면 이미 누르기로 정한 뒤에 읽는 줄이 된다.
+
+            셀 시각이 없을 때만 문구가 그 자리에 선다. **빈 자리로 두지 마라** —
+            버튼만 남으면 언제까지인지 물을 데가 없어진다. 가운데 정렬은 두 모양이 같다.
+          */}
+          {until > 0 ? (
+            <p className="editLeft tiny">
+              <span className="dim">{ME.editLeft}</span>
+              <b>{until <= TICK_WINDOW ? formatCountdown(until) : formatDayHour(until)}</b>
+            </p>
+          ) : (
+            <p className="tiny dim center">{ME.editHint}</p>
+          )}
           <button className="btn block" onClick={edit}>
             {ME.edit}
           </button>
-          <p className="tiny dim">{ME.editHint}</p>
         </div>
       ) : (
         <p className="tiny dim">{ME.locked}</p>
