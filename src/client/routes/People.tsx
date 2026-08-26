@@ -16,6 +16,7 @@ import type { Tab } from "./Participant.tsx";
 import { canPoke } from "../../shared/phase.ts";
 import { afterPoke } from "../../shared/poke.ts";
 import { useCovered } from "../lib/covered.ts";
+import { tap } from "../lib/pulse.ts";
 import { rosterOpen, toPublic } from "../../shared/types.ts";
 import { ApiError } from "../lib/api.ts";
 import { now } from "../lib/serverTime.ts";
@@ -93,6 +94,8 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
   /** 되돌리기. **확인창을 붙이지 않는다** — 되돌리는 것 자체가 되돌리기다 */
   async function undo(target: PublicPlayer) {
     if (sending.current) return;
+    // 몇 번 눌렸는지만 센다 (ADR-56). **누구에게였는지는 담지 않는다** — 인자가 없어 담을 수도 없다
+    tap("poke_undo");
     sending.current = true;
     const before = state.poke;
     try {
@@ -163,6 +166,8 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
         ...(already > 0 && canUndo ? { second: { label: POKE.undo.btn, run: () => undo(target) } } : {}),
       },
       async () => {
+        // 확인창을 통과한 것만 센다 (ADR-56). 창을 열었다 닫은 건 콕이 아니다
+        tap("poke");
         /*
          * **누른 즉시 바뀐다** (슬라이스 17). 예전에는 왕복을 두 번 —
          * 보내고, 화면 전체를 다시 읽고 — 기다린 뒤에야 버튼이 바뀌었다.
@@ -275,7 +280,10 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
             type="button"
             className="coverToggle"
             aria-pressed={covered}
-            onClick={() => setCovered(!covered)}
+            onClick={() => {
+              tap("cover");
+              setCovered(!covered);
+            }}
           >
             {covered ? PEOPLE.uncover : PEOPLE.cover}
           </button>

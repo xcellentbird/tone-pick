@@ -1,5 +1,6 @@
 import type { ClientEvent, ServerEvent } from "../../shared/types.ts";
 import { tabRef } from "./session.ts";
+import { ws as pulseWs } from "./pulse.ts";
 
 /**
  * 폴링이 아니라 WebSocket 인 이유는 실시간성보다 비용이다.
@@ -38,6 +39,8 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
     ws = new WebSocket(`${proto}://${location.host}/ws/${code}${ref ? `?ref=${ref}` : ""}`);
 
     ws.onopen = () => {
+      // 다시 붙은 것과 처음 붙은 것을 갈라 센다 (ADR-56) — 파티장 와이파이가 여기서만 보인다
+      pulseWs(opened ? "retry" : "open");
       retry = 0;
       lastSeen = Date.now();
       // 처음이 아니라면 끊겨 있던 동안 놓친 게 있다. 화면을 한 번 따라잡게 한다
@@ -58,6 +61,7 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
 
     ws.onclose = () => {
       if (closed) return;
+      pulseWs("drop");
       // 파티장 와이파이는 끊긴다. 지수 백오프로 조용히 재연결한다.
       timer = setTimeout(open, Math.min(30_000, 1000 * 2 ** retry++));
     };
