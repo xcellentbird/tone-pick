@@ -17,6 +17,7 @@ import type {
 } from "../../shared/types.ts";
 import { HOST, HOST_UI } from "../../shared/copy.ts";
 import { LIMITS } from "../../shared/constants.ts";
+import { pulse, type SeatingKey } from "../metrics.ts";
 import { PHASE_ORDER } from "../../shared/phase.ts";
 import { HOST_COOKIE, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
 import {
@@ -288,6 +289,16 @@ hostRoutes.delete("/events/:id/announcements/:aid", async (c) => {
 
 // ─────────────────────────────────── 자리
 
+/**
+ * 자리 조작 한 건 센다 (ADR-58). **성공한 것만** — 실패는 `timed()` 가 상태 코드로 이미 말한다.
+ *
+ * 운영자가 손으로 고친 횟수가 곧 *알고리즘이 놓친 곳*이다.
+ * ⚠️ 누구를 옮겼는지·어느 자리인지는 넘기지 않는다. 넘길 자리가 없다.
+ */
+const markSeat = (c: Ctx, key: SeatingKey, response: Response | null) => {
+  if (!response) pulse(c.env, { kind: "seating", key });
+};
+
 hostRoutes.post("/events/:id/seating", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
@@ -303,6 +314,7 @@ hostRoutes.post("/events/:id/seating", async (c) => {
     ),
     seatingMessage,
   );
+  markSeat(c, "draft", response);
   return response ?? c.json(value);
 });
 
@@ -318,6 +330,7 @@ hostRoutes.post("/events/:id/seating/swap", async (c) => {
   const body = await json<{ a?: string; b?: string; round?: number }>(c);
   if (!body.a || !body.b) return apiError(c, "bad_request");
   const { value, response } = unwrap(c, await gate.stub.swapSeats(body.a, body.b, body.round));
+  markSeat(c, "swap", response);
   return response ?? c.json(value);
 });
 
@@ -328,6 +341,7 @@ hostRoutes.post("/events/:id/seating/seat", async (c) => {
   const body = await json<{ playerId?: string; round?: number }>(c);
   if (!body.playerId) return apiError(c, "bad_request");
   const { value, response } = unwrap(c, await gate.stub.seatPlayer(body.playerId, body.round));
+  markSeat(c, "seat", response);
   return response ?? c.json(value);
 });
 
@@ -338,6 +352,7 @@ hostRoutes.post("/events/:id/seating/unseat", async (c) => {
   const body = await json<{ playerId?: string; round?: number }>(c);
   if (!body.playerId) return apiError(c, "bad_request");
   const { value, response } = unwrap(c, await gate.stub.unseatPlayer(body.playerId, body.round));
+  markSeat(c, "unseat", response);
   return response ?? c.json(value);
 });
 
@@ -346,6 +361,7 @@ hostRoutes.post("/events/:id/seating/shuffle", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const { value, response } = unwrap(c, await gate.stub.shuffleSeating());
+  markSeat(c, "shuffle", response);
   return response ?? c.json(value);
 });
 
@@ -353,6 +369,7 @@ hostRoutes.delete("/events/:id/seating", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const { response } = unwrap(c, await gate.stub.discardSeating());
+  markSeat(c, "discard", response);
   return response ?? c.json({ ok: true });
 });
 
@@ -360,6 +377,7 @@ hostRoutes.post("/events/:id/seating/publish", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const { value, response } = unwrap(c, await gate.stub.publishSeating(serverNow()));
+  markSeat(c, "publish", response);
   return response ?? c.json(value);
 });
 
