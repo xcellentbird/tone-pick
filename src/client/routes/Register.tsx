@@ -33,6 +33,8 @@ export default function Register() {
   const [busy, setBusy] = useState(false);
   const at = Math.min(3, Math.max(1, Number(step) || 1));
   const [checking, setChecking] = useState(true);
+  /** 닉네임 칸에 붙일 운영자 문구 (ADR-59). 회차를 확인하는 그 요청이 함께 준다 */
+  const [nickHint, setNickHint] = useState("");
 
   /*
    * **이미 등록을 마쳤으면 폼을 보여주지 않는다.**
@@ -48,13 +50,14 @@ export default function Register() {
    */
   useEffect(() => {
     let alive = true;
-    api<{ registered?: boolean; code?: string }>(
+    api<{ registered?: boolean; code?: string; nickHint?: string }>(
       `/events/by-id/${id}?t=${encodeURIComponent(token)}`,
     )
       .then((room) => {
         if (!alive) return;
         // 이 토큰의 주인이 이미 등록했다. 자기 화면은 세션이 아는 코드로 간다
         if (room.registered) return void enterHome();
+        setNickHint(room.nickHint ?? "");
         setChecking(false);
       })
       .catch(() => alive && setChecking(false));
@@ -184,6 +187,8 @@ export default function Register() {
                 onChange={(e) => set("nickname", e.target.value)}
                 {...invalid("nickname")}
               />
+              {/* 운영자가 회차마다 정하는 문구 (ADR-59). **없으면 줄 자체가 없다** — 빈 자리를 남기지 않는다 */}
+              {nickHint && <span className="tiny dim">{nickHint}</span>}
               {err("nickname")}
             </div>
             <div className="field">

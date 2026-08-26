@@ -315,6 +315,71 @@ describe("B. 회차 생성", () => {
     expect(after.body.length).toBe(before.body.length + 1);
   });
 
+  /** 기본값은 통째로 검사한다 — 일부만 보내면 막힌다. 읽어서 한 칸만 갈아끼운다 */
+  async function setNickHint(nickHint: string) {
+    const now = await api<Record<string, unknown>>("/api/host/defaults", { cookie: master });
+    const res = await api("/api/host/defaults", {
+      method: "PUT",
+      cookie: master,
+      body: { ...now.body, nickHint },
+    });
+    expect(res.status, "기본값 저장이 막혔다").toBe(200);
+  }
+
+  /**
+   * ★ **닉네임 안내 문구는 기본값에서 물려받는다** (ADR-59).
+   *
+   * 위저드가 이 칸을 묻지 않는다 — 회차마다 바뀌는 값이 아니라 **그 운영자의 파티 성격**에
+   * 붙는 값이라서다. 장소·안내문이 기본값 화면에 있는 이유가 그대로 적용된다.
+   * 위저드에 칸을 되살리면 매 회차 같은 문장을 다시 마주하게 된다.
+   */
+  it("★ 닉네임 안내 문구를 기본값에서 물려받고, 참가자에게 나간다", async () => {
+    await setNickHint("파티에서 불릴 이름으로");
+
+    // Given 위저드는 이 값을 보내지 않는다 — 서버가 기본값에서 집어온다
+    const ev = await createEvent(master);
+    expect(ev.status).toBe(200);
+    expect(ev.body.nickHint, "회차가 기본값을 못 물려받았다").toBe("파티에서 불릴 이름으로");
+
+    // Then 등록 폼이 읽는 회차 조회에 실린다. 안 실리면 화면에 뜰 수가 없다
+    const room = await api<PublicEvent>(await linkTo(ev.body.id));
+    expect(room.status, "회차 조회가 막혔다").toBe(200);
+    expect(room.body.nickHint, "참가자 응답에 안 실렸다").toBe("파티에서 불릴 이름으로");
+  });
+
+  /**
+   * ★ **비우면 아예 안 나간다.** 빈 문자열을 내려보내면 등록 폼에 빈 줄이 생긴다 —
+   * 화면에서 걸러도 되지만, 응답에 없는 편이 화면이 실수할 자리를 없앤다.
+   */
+  it("★ 문구가 없으면 응답에 칸도 없다", async () => {
+    await setNickHint("");
+    const ev = await createEvent(master);
+    const room = await api<PublicEvent>(await linkTo(ev.body.id));
+    expect(room.body.nickHint).toBeUndefined();
+  });
+
+  /**
+   * ★ **회차마다 고칠 수 있고, 그때 기본값은 안 바뀐다** (ADR-59).
+   *
+   * 첫 참가자가 이상하게 적는 걸 보고 바로 고치고 싶어지는 값이라 등록 중에도 열려 있다.
+   * 그 한 번이 다음 회차까지 바꿔버리면 **고치는 것이 무서운 값**이 된다.
+   */
+  it("★ 회차에서 고쳐도 기본값은 그대로다", async () => {
+    await setNickHint("기본 문구");
+    const ev = await createEvent(master);
+
+    const patched = await api<EventMeta>(`/api/host/events/${ev.body.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { name: ev.body.name, nickHint: "이 회차만 다른 문구" },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.nickHint).toBe("이 회차만 다른 문구");
+
+    const defaults = await api<{ nickHint: string }>("/api/host/defaults", { cookie: master });
+    expect(defaults.body.nickHint).toBe("기본 문구");
+  });
+
   it("S-B9 기본값 되돌리기는 기존 회차를 건드리지 않는다", async () => {
     // Given 기본값을 바꾸고 회차를 만들었다
     await api("/api/host/defaults", {

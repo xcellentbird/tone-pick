@@ -1658,6 +1658,52 @@ describe("참가 링크", () => {
     expect(screen.queryByText("참가자 화면")).toBeNull();
   });
 
+  /** 회차 조회가 답할 값을 정해서 등록 폼 1스텝을 띄운다 */
+  function renderForm(room: Record<string, unknown>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true, registered: false, ...room }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    const router = createMemoryRouter([{ path: "/j/:id/:token/register/:step", element: <Register /> }], {
+      initialEntries: ["/j/e1/tok123/register/1"],
+    });
+    return render(<RouterProvider router={router} />);
+  }
+
+  /**
+   * ★ **운영자가 적은 문구가 닉네임 칸에 뜬다** (ADR-59).
+   *
+   * 서버가 실어 보내도 화면이 안 그리면 이 기능은 없는 것이다.
+   * 운영자는 기본값 화면에서 한 번 적고 **참가자 화면에서 확인할 길이 없다** —
+   * 그래서 여기가 끊기면 아무도 모르는 채로 남는다.
+   */
+  it("★ 회차가 정한 닉네임 안내 문구가 폼에 뜬다", async () => {
+    renderForm({ nickHint: "파티에서 불릴 이름으로" });
+    expect(await screen.findByText("파티에서 불릴 이름으로")).toBeTruthy();
+  });
+
+  /**
+   * ★ **앱이 얹는 고정 줄은 없다** (ADR-59). 운영자가 안 적었으면 칸 밑은 비어 있다.
+   *
+   * *다른 참가자 모두에게 보여요* 같은 설명을 나란히 두지 마라 —
+   * 닉네임이라는 말이 이미 그걸 뜻해서 아무도 궁금해하지 않고,
+   * 그러면 운영자가 적어 넣은 한 줄이 두 줄 중 하나가 되어 묻힌다.
+   */
+  it("★ 문구가 없으면 닉네임 칸 밑에 아무 줄도 없다", async () => {
+    const { container } = renderForm({});
+    await screen.findByText(SCREEN_TITLE.register);
+
+    const nick = container.querySelector("#nickname")!;
+    const hints = nick.parentElement!.querySelectorAll(".tiny");
+    expect(hints.length, "닉네임 칸 밑에 설명이 붙어 있다").toBe(0);
+  });
+
   it("★ 등록을 마친 뒤 뒤로 가도 등록 폼이 다시 뜨지 않는다", async () => {
     /*
      * 완료할 때 `replace` 로 갈아끼우는 건 **마지막 스텝 한 칸뿐**이다.

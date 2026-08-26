@@ -140,6 +140,21 @@ export default function HostDefaults() {
         </div>
 
         {/*
+          닉네임 칸의 문구 (ADR-59). **회차마다 다시 쓰지 않는다** — 장소·안내문과 같은 자리다.
+          그 운영자의 파티가 어떤 자리인지에 붙지, 8월 회차와 9월 회차가 다르지 않다.
+        */}
+        <div className="field">
+          <label htmlFor="nickHint">{HOST_UI.fields.nickHint}</label>
+          <input
+            id="nickHint"
+            value={form.nickHint}
+            maxLength={LIMITS.nickHintMax}
+            onChange={(e) => set("nickHint", e.target.value)}
+          />
+          <span className="tiny dim">{HOST_UI.fields.nickHintDefaultHint}</span>
+        </div>
+
+        {/*
           안내문 문구 (ADR-32). **여기 하나만 둔다** — 회차마다 다시 쓰지 않는다.
           회차마다 달라지는 장소·일시·링크는 치환 자리가 채운다.
         */}

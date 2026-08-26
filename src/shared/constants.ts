@@ -25,6 +25,13 @@ export const DEFAULTS: Defaults = {
    * "이때 끝난다" 가 아니다.
    */
   revealAfterH: 3,
+  /**
+   * 닉네임 칸의 운영자 문구 (ADR-59). **비워둔 채로 시작한다** —
+   * 여기에 무엇을 적을지는 그 파티의 성격이라 앱이 정할 일이 아니다.
+   * 우리가 채운 문장이 붙으면 운영자가 **자기가 고른 건지 구분하지 못한다.**
+   * 비어 있으면 지금과 똑같은 화면이라 옛 회차도 달라지지 않는다.
+   */
+  nickHint: "",
   inviteTemplate: INVITE_TEMPLATE,
 };
 
@@ -46,6 +53,8 @@ export function withDefaults(saved: Partial<Defaults> | null | undefined): Defau
     maxParty: num(saved?.maxParty, DEFAULTS.maxParty),
     // 장소는 **비워두는 것도 뜻이 있다** — 회차마다 다른 곳에서 연다는 뜻이다
     place: text(saved?.place, DEFAULTS.place),
+    // 닉네임 문구도 **비워두는 것에 뜻이 있다** — 안내 없이 칸만 두겠다는 뜻이다
+    nickHint: typeof saved?.nickHint === "string" ? saved.nickHint : DEFAULTS.nickHint,
     prevoteBeforeH: num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH),
     voteEndBeforeH: num(saved?.voteEndBeforeH, DEFAULTS.voteEndBeforeH),
     revealAfterH: num(saved?.revealAfterH, DEFAULTS.revealAfterH),
@@ -73,6 +82,8 @@ export const LIMITS = {
   inviteMax: 150,
   /** 장소 상한. 안내문에 한 줄로 들어가는 값이라 한 줄이 견디는 크기까지만 */
   placeMax: 60,
+  /** 닉네임 칸 문구. 한 줄로 읽히는 길이다 — 길면 폼이 설명서가 된다 */
+  nickHintMax: 40,
   /** 안내문 문구 상한. 문자 한 통에 들어가는 크기를 훌쩍 넘기지 않게 (ADR-32) */
   inviteTemplateMax: 500,
   /** 테이블당 인원이 이 범위를 벗어나면 운영자에게 경고 */
