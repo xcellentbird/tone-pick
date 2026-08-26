@@ -123,7 +123,7 @@ export function Overlays({ children }: { children: ReactNode }) {
             <div className="row">
               {pending.copy.second ? (
                 <button
-                  className="btn wide ghost"
+                  className="btn wide undo"
                   onClick={() => {
                     const run = pending.copy.second!.run;
                     close();
