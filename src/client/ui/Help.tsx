@@ -79,7 +79,17 @@ export default function Help({ state }: { state: ParticipantState }) {
            * 알림이 꺼진 회차에서는 아예 알 길이 없었다 — 받은 수가 화면에 없으므로
            * 참가자는 *아무도 나를 안 골랐다* 로 읽었다.
            */
-          { q: qa.undo.q, a: qa.undo.a(undoPre, undoParty) },
+          /*
+           * **되돌리기는 막힌 회차에서만 뜬다** — `sameGender` 와 같은 규칙이다.
+           * 기본값이 *된다* 라서 대부분의 회차에서 답이 `네.` 하나인데, 그건 아무도 안 묻는
+           * 답이다. 되돌릴 수 있는 회차에서는 **고르는 자리에 버튼이 이미 서 있다.**
+           * 값어치는 **못 무르는 회차**에 있다 — 무를 수 있는 줄 알고 누르는 걸 막는다.
+           *
+           * ⚠️ **알림은 반대라 늘 뜬다.** 기본값이 *안 알림* 이라 기본 회차에서
+           * `알려주지 않아요` 가 뜨고, 그게 ADR-52 가 지키려던 경우다 —
+           * 끈 라운드는 받은 수 자체가 안 내려가서 *아무도 나를 안 골랐다* 로 읽힌다.
+           */
+          ...(undoPre && undoParty ? [] : [{ q: qa.undo.q, a: qa.undo.a(undoPre, undoParty) }]),
           { q: qa.notify.q, a: qa.notify.a(notifyPre, notifyParty) },
           ...(sameGenderOk ? [] : [{ q: qa.sameGender.q, a: qa.sameGender.a }]),
           { q: qa.result.q, a: qa.result.a },

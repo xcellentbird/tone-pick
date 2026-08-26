@@ -691,6 +691,20 @@ describe("참가자 화면 · 콕", () => {
 
 // ─────────────────────────────────────────── 자리
 
+/**
+ * 참가자에게 보이는 도움말 문구 **전부**. 회차 설정으로 갈리는 답은 양쪽을 다 편다 —
+ * 규칙을 한쪽 회차에서만 지키면 지킨 게 아니다.
+ */
+function helpTexts(): string[] {
+  const q = HELP.qa;
+  return [
+    ...HELP.steps.map((v) => v.body),
+    q.prevote.a, q.poke.a, q.secret.a, q.host.a, q.sameGender.a, q.result.a, q.ages.a,
+    q.count.a(1, 2), q.count.a(3, 5),
+    ...[true, false].flatMap((x) => [true, false].flatMap((y) => [q.undo.a(x, y), q.notify.a(x, y)])),
+  ];
+}
+
 describe("파티 룰 도움말", () => {
   /**
    * 이 화면의 값어치는 **운영자가 가리킬 곳이 생기는 것**이다 —
@@ -778,6 +792,19 @@ describe("파티 룰 도움말", () => {
     }
   });
 
+  /**
+   * ★ **횟수를 물으면 언제 새로 받는지까지 답한다.**
+   *
+   * 한동안 `파티가 시작될 때 새로 받고` 가 **콕 문답 안에** 있었다. 횟수를 물은 사람이
+   * 다른 칸까지 읽어야 알 수 있었고, 안 읽으면 매력 투표에 쓴 것이 콕에서도 빠지는 줄 안다 —
+   * 그러면 아껴 쓰다가 파티가 끝난다.
+   */
+  it("★ 횟수 문답이 언제 새로 받는지까지 답한다", async () => {
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.count.a(3, 3));
+    expect(HELP.qa.count.a(3, 3)).toContain("파티가 시작되면");
+  });
+
   it("★ 매력 투표와 콕 찌르기를 가르는 문답이 있다", async () => {
     // 단계 그림만으로는 "둘이 뭐가 다른가" 가 안 풀린다. 바로 아래에서 풀어준다
     renderParticipant(fakeSource(), undefined, () => {}, "home", true);
@@ -804,14 +831,19 @@ describe("파티 룰 도움말", () => {
    * 고를 이유는 전하되, 상대의 선택을 되짚는 문장은 주지 않는다.
    */
   it("★ 도움말이 '서로 고르면 같은 테이블' 이라고 말하지 않는다", async () => {
-    for (const [where, text] of [
-      ["매력 투표", HELP.qa.prevote.a],
-      ["콕 찌르기", HELP.qa.poke.a],
-    ] as const) {
+    /*
+     * **줄 이름이 아니라 `테이블` 이라는 낱말에 건다.** 어느 칸이 자리를 말하는지는
+     * 문구를 고치며 옮겨 다닌다 — 줄 이름으로 매어두면 그 줄에서 자리 문장을 빼는 순간
+     * 규칙이 아니라 문자열 검사가 되고, 새로 자리를 말하기 시작한 줄은 못 잡는다.
+     */
+    const said = helpTexts().filter((t) => t.includes("테이블"));
+    // 자리 이야기가 어딘가에는 있어야 한다 — 투표를 왜 하는지가 거기서 나온다 (ADR-52)
+    expect(said.length, "자리를 말하는 줄이 하나도 없다").toBeGreaterThan(0);
+    for (const text of said) {
       // 자리를 말하는 줄에는 **내가** 가 있어야 한다. 주어가 없으면 양쪽으로 읽힌다
-      expect(text, `${where}: ${text}`).toContain("내가");
-      expect(text, `${where}: ${text}`).not.toContain("서로 고른");
-      expect(text, `${where}: ${text}`).not.toContain("서로 찌른 사람과 같은");
+      expect(text, text).toContain("내가");
+      expect(text, text).not.toContain("서로 고른");
+      expect(text, text).not.toContain("서로 찌른 사람과 같은");
     }
   });
 
@@ -853,9 +885,15 @@ describe("파티 룰 도움말", () => {
       await screen.findByText(HELP.title);
     };
 
-    // 기본 회차 — 되돌릴 수 있고, 알림은 꺼져 있다
+    /*
+     * 기본 회차 — 되돌릴 수 있고, 알림은 꺼져 있다.
+     *
+     * **되돌리기 줄은 아예 없다.** 답이 `네.` 하나뿐이라 아무도 안 묻는 답이고,
+     * 되돌릴 수 있는 회차에서는 고르는 자리에 버튼이 이미 서 있다 (`sameGender` 와 같은 규칙).
+     * 알림은 반대다 — 기본이 *안 알림* 이라 이 회차에서 말해줄 것이 있다.
+     */
     await open({ maxPre: 3, maxParty: 3 });
-    expect(screen.getByText(HELP.qa.undo.a(true, true))).toBeTruthy();
+    expect(screen.queryByText(HELP.qa.undo.a(true, true))).toBeNull();
     expect(screen.getByText(HELP.qa.notify.a(false, false))).toBeTruthy();
     cleanup();
 
