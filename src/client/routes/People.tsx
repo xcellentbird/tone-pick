@@ -137,6 +137,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       return confirm(
         {
           btn: POKE.undo.btn,
+          undo: true,
           title: POKE.confirm.spentTitle(round),
           note: POKE.confirm.spentNote,
           // 되돌리면 **늘어난다.** 화살표 방향이 반대인 것이 이 창이 하는 일이다
