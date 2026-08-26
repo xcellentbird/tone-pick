@@ -25,9 +25,23 @@ const TIMEOUT_MS = 12000;
  */
 const MAX_TOKENS = 3000;
 
+/**
+ * 설정에서 읽는 temperature (ADR-60). **읽을 수 없으면 `undefined`** — 그러면 아예 안 보낸다.
+ *
+ * 오타 하나로 그 회차의 운세가 전부 규칙 문구가 되는 길을 막는다.
+ * 범위는 제공자가 받는 만큼만 — 벗어난 값은 400 이 되고, 400 은 조용한 실패다.
+ */
+function temperatureOf(env: Env): number | undefined {
+  const raw = env.LLM_TEMPERATURE;
+  if (!raw) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 2 ? n : undefined;
+}
+
 export async function makeFortune(env: Env, input: FortuneInput, now: number): Promise<FortuneDraft> {
   const key = env.OPENAI_API_KEY;
   if (!key) return fallbackFortune(input, now, FORTUNE.fallback);
+  const temp = temperatureOf(env);
 
   try {
     const res = await fetch(`${env.LLM_BASE_URL || "https://api.openai.com/v1"}/chat/completions`, {
@@ -41,6 +55,12 @@ export async function makeFortune(env: Env, input: FortuneInput, now: number): P
           { role: "user", content: FORTUNE.prompt.user(input) },
         ],
         max_completion_tokens: MAX_TOKENS,
+        /*
+         * **운세 쪽에만 붙인다** (ADR-60). 여기서 필요한 건 수렴이 아니라 발산이다 —
+         * 마흔 명의 재료가 거의 같아서, 잘 고를수록 다 같은 답에 도착한다.
+         * 미션은 반대다. 지켜야 할 제약이 열 개라 흔들리면 손해다.
+         */
+        ...(temp !== undefined ? { temperature: temp } : {}),
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -96,6 +116,20 @@ export async function makeMission(env: Env, input: MissionInput): Promise<Missio
           { role: "user", content: MISSION.prompt.user(input) },
         ],
         max_completion_tokens: MAX_TOKENS,
+        /*
+         * **미션에만 추론을 올린다** (ADR-60). 이쪽은 동시에 만족시켜야 할 제약이 열 개다 —
+         * 언제가 문장에 있을 것 · 눈에 보이는 동작일 것 · 마음가짐이 아닐 것 ·
+         * 실패해도 티가 안 날 것 · 매력을 자랑이 아니라 자리 열기로 쓸 것 · 운세를 안 베낄 것.
+         * 제약 만족은 더 생각할수록 나아진다.
+         *
+         * 운세에는 올리지 않는다. 거기서 필요한 건 **갈라지는 것**이고,
+         * 추론은 수렴한다 — 같은 재료에 같은 제약이면 다 같은 정답에 도착한다.
+         *
+         * **`max_completion_tokens` 에 추론 토큰이 함께 들어간다.** 3000 은 세 문단짜리
+         * 운세를 위한 값이라 두 칸짜리 미션에는 넉넉하지만, 이 값을 줄일 때는
+         * 잘린 JSON 이 조용히 규칙 문구가 되는 길(위 주석)이 여기서도 열린다는 걸 기억하라.
+         */
+        reasoning_effort: "high",
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });

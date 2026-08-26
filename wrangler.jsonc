@@ -96,6 +96,8 @@
         "MASTER_PIN": "0000",
         "SESSION_SECRET": "qa-not-a-secret",
         // 오늘의 연애운. 키(OPENAI_API_KEY)는 시크릿으로만 넣는다 — 여기 적으면 그대로 공개된다
+        // temperature 실험은 여기서 한다 — "LLM_TEMPERATURE": "1.1" (ADR-60).
+        // 없으면 아예 안 보낸다. 프로덕션에 값을 옮기기 전에 QA 에서 먼저 재본다
         "LLM_MODEL": "gpt-5.6-luna"
       },
       "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "tone_pick_ops_qa" }],
