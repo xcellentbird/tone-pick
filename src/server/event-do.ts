@@ -1119,16 +1119,22 @@ export class EventDO extends DurableObject {
 
     const published = this.seatings().filter((s) => s.status === "published");
     const round = (published.at(-1)?.round ?? 0) + 1;
-    const { mutual, oneWay, votes } = this.pairs();
-
+    /*
+     * **라운드를 갈라서 준다** (ADR-56). 매력 투표는 프로필만 보고 고른 것이고
+     * 콕은 만나본 뒤에 고른 것이라, 자리에서 같은 무게로 세면 안 된다.
+     * 상한도 함께 준다 — 콕을 1회로 연 회차와 5회로 연 회차가 같은 자에 있어야 한다.
+     */
     const seats = buildSeating({
       players,
       tableCount,
       round,
       history: published.map((s) => s.seats),
-      mutual,
-      votes,
-      oneWay,
+      votes: this.sentBy("pre"),
+      pokes: this.sentBy("party"),
+      maxVote: meta.config.maxPre,
+      maxPoke: meta.config.maxParty,
+      // 누를 때마다 다른 초안이 나온다. 같은 씨앗이면 같은 자리다 — 순수 함수를 지킨다
+      seed: now,
     });
 
     const draft: SeatingRound = {
@@ -1603,6 +1609,22 @@ export class EventDO extends DurableObject {
    * 나오기 때문이다. 예전에는 상호 쌍에만 있었고, 그래서 한 사람에게 세 번 투표한 것과
    * 한 번 투표한 것이 자리에서는 똑같았다.
    */
+  /**
+   * 그 라운드에 **누가 누구에게 몇 번** 보냈나. `"보낸이>받는이"` → 횟수.
+   *
+   * 자리 배정은 방향이 있는 값을 쓴다 (ADR-56) — 콕은 익명이라 받은 쪽은
+   * 누가 찔렀는지 모르고, 그래서 같이 앉아도 그 사람의 만족이 아니다.
+   */
+  private sentBy(round: PokeRound): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const k of this.pokes()) {
+      if (k.round !== round) continue;
+      const key = `${k.fromId}>${k.toId}`;
+      out[key] = (out[key] ?? 0) + 1;
+    }
+    return out;
+  }
+
   private pairs(only?: PokeRound) {
     const sent = new Map<string, number>();
     for (const k of this.pokes()) {
