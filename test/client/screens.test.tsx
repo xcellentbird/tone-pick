@@ -691,6 +691,20 @@ describe("참가자 화면 · 콕", () => {
 
 // ─────────────────────────────────────────── 자리
 
+/**
+ * 참가자에게 보이는 도움말 문구 **전부**. 회차 설정으로 갈리는 답은 양쪽을 다 편다 —
+ * 규칙을 한쪽 회차에서만 지키면 지킨 게 아니다.
+ */
+function helpTexts(): string[] {
+  const q = HELP.qa;
+  return [
+    ...HELP.steps.map((v) => v.body),
+    q.prevote.a, q.poke.a, q.host.a, q.sameGender.a, q.result.a,
+    q.secret.a(true), q.secret.a(false),
+    q.count.a(1, 2), q.count.a(3, 5),
+  ];
+}
+
 describe("파티 룰 도움말", () => {
   /**
    * 이 화면의 값어치는 **운영자가 가리킬 곳이 생기는 것**이다 —
@@ -778,6 +792,19 @@ describe("파티 룰 도움말", () => {
     }
   });
 
+  /**
+   * ★ **횟수를 물으면 언제 새로 받는지까지 답한다.**
+   *
+   * 한동안 `파티가 시작될 때 새로 받고` 가 **콕 문답 안에** 있었다. 횟수를 물은 사람이
+   * 다른 칸까지 읽어야 알 수 있었고, 안 읽으면 매력 투표에 쓴 것이 콕에서도 빠지는 줄 안다 —
+   * 그러면 아껴 쓰다가 파티가 끝난다.
+   */
+  it("★ 횟수 문답이 언제 새로 받는지까지 답한다", async () => {
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.count.a(3, 3));
+    expect(HELP.qa.count.a(3, 3)).toContain("파티가 시작되면");
+  });
+
   it("★ 매력 투표와 콕 찌르기를 가르는 문답이 있다", async () => {
     // 단계 그림만으로는 "둘이 뭐가 다른가" 가 안 풀린다. 바로 아래에서 풀어준다
     renderParticipant(fakeSource(), undefined, () => {}, "home", true);
@@ -804,14 +831,19 @@ describe("파티 룰 도움말", () => {
    * 고를 이유는 전하되, 상대의 선택을 되짚는 문장은 주지 않는다.
    */
   it("★ 도움말이 '서로 고르면 같은 테이블' 이라고 말하지 않는다", async () => {
-    for (const [where, text] of [
-      ["매력 투표", HELP.qa.prevote.a],
-      ["콕 찌르기", HELP.qa.poke.a],
-    ] as const) {
+    /*
+     * **줄 이름이 아니라 `테이블` 이라는 낱말에 건다.** 어느 칸이 자리를 말하는지는
+     * 문구를 고치며 옮겨 다닌다 — 줄 이름으로 매어두면 그 줄에서 자리 문장을 빼는 순간
+     * 규칙이 아니라 문자열 검사가 되고, 새로 자리를 말하기 시작한 줄은 못 잡는다.
+     */
+    const said = helpTexts().filter((t) => t.includes("테이블"));
+    // 자리 이야기가 어딘가에는 있어야 한다 — 투표를 왜 하는지가 거기서 나온다 (ADR-52)
+    expect(said.length, "자리를 말하는 줄이 하나도 없다").toBeGreaterThan(0);
+    for (const text of said) {
       // 자리를 말하는 줄에는 **내가** 가 있어야 한다. 주어가 없으면 양쪽으로 읽힌다
-      expect(text, `${where}: ${text}`).toContain("내가");
-      expect(text, `${where}: ${text}`).not.toContain("서로 고른");
-      expect(text, `${where}: ${text}`).not.toContain("서로 찌른 사람과 같은");
+      expect(text, text).toContain("내가");
+      expect(text, text).not.toContain("서로 고른");
+      expect(text, text).not.toContain("서로 찌른 사람과 같은");
     }
   });
 
@@ -826,7 +858,8 @@ describe("파티 룰 도움말", () => {
     const all = [
       ...HELP.steps.map((v) => v.body),
       HELP.qa.result.a,
-      HELP.qa.secret.a,
+      HELP.qa.secret.a(true),
+      HELP.qa.secret.a(false),
       HELP.qa.host.a,
     ];
     for (const text of all) {
@@ -838,14 +871,15 @@ describe("파티 룰 도움말", () => {
   });
 
   /**
-   * ★ **되돌리기와 알림은 회차 설정이 답을 바꾼다** (ADR-34·43 → ADR-52).
+   * ★ **알림이 켜진 회차에서는 `아니요` 만으로 답이 안 된다.**
    *
-   * 기본값이 서로 반대다 — 되돌리기는 **없으면 되고**, 알림은 **없으면 안 알린다.**
-   * 못 무르는 회차에서 그 사실을 말하지 않으면 무를 수 있는 줄 알고 누르고,
-   * 알림이 꺼진 회차에서 말하지 않으면 **아무도 나를 안 골랐다**로 읽는다 —
-   * 그 라운드는 받은 수가 화면 어디에도 없기 때문이다 (`visibleReceived`).
+   * 내가 고르면 상대 홈에 `누군가 나에게 투표했어요` 가 뜬다 — 누구인지는 몰라도
+   * **누군가 골랐다는 건 안다.** 그걸 안 적으면 이 줄이 그 회차에서 거짓이 된다.
+   *
+   * 그래서 `누군가 나를 고르면 알 수 있나요?` 를 따로 두지 않고 이 답에 한 문장으로 붙인다.
+   * **하나라도 켜져 있으면** 켠 쪽으로 말한다 — 덜 알리는 것보다 더 알리는 쪽이 안전하다.
    */
-  it("★ 되돌리기·알림 설명이 회차 설정을 따라간다", async () => {
+  it("★ 알림이 켜진 회차에서는 상대가 알게 된다는 것을 말한다", async () => {
     const open = async (config: ParticipantState["event"]["config"]) => {
       const state = participantState();
       state.event.config = config;
@@ -853,22 +887,21 @@ describe("파티 룰 도움말", () => {
       await screen.findByText(HELP.title);
     };
 
-    // 기본 회차 — 되돌릴 수 있고, 알림은 꺼져 있다
+    // 기본 회차 — 알림이 꺼져 있다. 상대는 아무것도 모른다
     await open({ maxPre: 3, maxParty: 3 });
-    expect(screen.getByText(HELP.qa.undo.a(true, true))).toBeTruthy();
-    expect(screen.getByText(HELP.qa.notify.a(false, false))).toBeTruthy();
+    expect(screen.getByText(HELP.qa.secret.a(false))).toBeTruthy();
     cleanup();
 
-    // 못 무르고 둘 다 알리는 회차 — 네 줄이 전부 반대로 간다
-    await open({ maxPre: 3, maxParty: 3, allowUndoPre: false, allowUndo: false, preNotify: true, pokeNotify: true });
-    expect(screen.getByText(HELP.qa.undo.a(false, false))).toBeTruthy();
-    expect(screen.getByText(HELP.qa.notify.a(true, true))).toBeTruthy();
+    // 한 라운드만 켜도 켠 쪽으로 말한다 — 그 라운드에서는 실제로 알림이 간다
+    await open({ maxPre: 3, maxParty: 3, preNotify: true });
+    expect(screen.getByText(HELP.qa.secret.a(true))).toBeTruthy();
     cleanup();
 
-    // 라운드마다 갈린 회차 — 한 줄이 두 라운드를 함께 말한다
-    await open({ maxPre: 3, maxParty: 3, allowUndo: false, preNotify: true });
-    expect(screen.getByText(HELP.qa.undo.a(true, false))).toBeTruthy();
-    expect(screen.getByText(HELP.qa.notify.a(true, false))).toBeTruthy();
+    await open({ maxPre: 3, maxParty: 3, pokeNotify: true });
+    expect(screen.getByText(HELP.qa.secret.a(true))).toBeTruthy();
+    // 켠 쪽 문장만 **알림이 간다**고 말한다. 끈 쪽에 그 말이 있으면 거짓이다
+    expect(HELP.qa.secret.a(true)).toContain("알림");
+    expect(HELP.qa.secret.a(false)).not.toContain("알림");
   });
 
   it("★ 동성에게 못 찌르는 회차에서만 그 줄이 보인다", async () => {
@@ -901,7 +934,15 @@ describe("파티 룰 도움말", () => {
      */
     renderParticipant(fakeSource(), undefined, () => {}, "home", true);
     await screen.findByText(HELP.qa.host.a);
-    expect(HELP.qa.host.a).toContain("서로 콕 찌른");
+    /*
+     * **낱말이 아니라 두 가지가 적혀 있는지를 본다.** 이 줄이 지켜야 하는 건 둘이다 —
+     *   ① 매칭된 쌍은 운영자가 본다 (발표를 누르는 게 사람이라 그럴 수밖에 없다)
+     *   ② 받은 수도 보인다 (현황 탭의 콕 순위, ADR-30)
+     * 하나라도 빠지면 운영자 화면이 이 줄을 거짓으로 만든다. 문장은 고쳐 쓸 수 있어도
+     * 이 둘은 남아야 하므로, 한 문구에 못박지 않는다.
+     */
+    expect(HELP.qa.host.a).toMatch(/매칭|서로 콕 찌른/);
+    expect(HELP.qa.host.a).toMatch(/몇 번|받았는지/);
   });
 
   it("★ 맨 아래에 닫기가 있다 — 끝까지 읽은 자리에서 닫힌다", async () => {
@@ -2209,6 +2250,47 @@ describe("내 정보 고치기", () => {
     for (const gone of ["가린 정보 보기", "다시 가리기"]) {
       expect(screen.queryByText(gone), `${gone} 버튼이 남아 있다`).toBeNull();
     }
+  });
+
+  /** 등록 중이면서 **셀 시각이 있는** 회차. 기본 일정에는 `prevoteAt` 이 없다 */
+  const regUntil = (prevoteAt: number) => ({
+    event: { ...participantState().event, phase: "reg" as const, schedule: { prevoteAt } },
+  });
+
+  /**
+   * ★ **언제까지 고칠 수 있는지를 숫자로 말한다.**
+   *
+   * 오래 그 자리였던 `사람들이 보기 전까지 다듬을 수 있어요` 는 맞는 말이면서
+   * 정작 **언제까지인지를 안 말한다.** 읽고 나도 지금 서둘러야 하는지 모른다.
+   *
+   * 세는 시각은 **잠그는 조건과 같은 값**이어야 한다 (`prevoteAt`). 갈라지면
+   * 화면이 "아직 30분 남았다" 고 하는 동안 폼이 잠기거나, 그 반대가 된다.
+   */
+  it("★ 언제까지 고칠 수 있는지를 숫자로 말한다", async () => {
+    renderMe(regUntil(Date.now() + 3600_000));
+    await screen.findByText(ME.edit);
+
+    expect(screen.getByText(ME.editLeft), "언제까지인지 말하는 줄이 없다").toBeTruthy();
+    // 하루 안으로 들어왔으니 초까지 센다 — 홈 탭과 같은 규칙이다
+    expect(screen.getByText(/^\d{2}:\d{2}:\d{2}$/), "숫자가 없다").toBeTruthy();
+    // 숫자가 답을 했으니 옛 문구는 자리를 비운다 — 같은 것을 두 번 말하지 않는다
+    expect(screen.queryByText(ME.editHint), "문구와 숫자가 같이 떠 있다").toBeNull();
+  });
+
+  /**
+   * ★ **셀 시각이 없어도 빈 자리로 두지 않는다.**
+   *
+   * 일정이 비어 있을 수 있고, `prevoteAt` 이 지났는데 아직 `reg` 인 순간도 있다.
+   * 지나간 시각을 세면 음수가 뜨고, 사람은 그 숫자를 **자기 시계가 틀린 걸로** 읽는다
+   * (홈 탭의 `nextMark` 와 같은 자리). 그때는 문구가 대신 선다 —
+   * 버튼만 남으면 언제까지인지 물을 데가 없어진다.
+   */
+  it("★ 지나간 시각은 세지 않고 문구가 대신 선다", async () => {
+    renderMe(regUntil(Date.now() - 60_000));
+    await screen.findByText(ME.edit);
+
+    expect(screen.getByText(ME.editHint), "버튼만 남고 아무 말도 없다").toBeTruthy();
+    expect(screen.queryByText(ME.editLeft), "지나간 시각을 세고 있다").toBeNull();
   });
 
   it("★ 사전 투표가 열린 뒤에는 왜 못 고치는지 말한다", async () => {

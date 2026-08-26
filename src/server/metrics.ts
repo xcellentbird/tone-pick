@@ -67,7 +67,33 @@ export type Pulse =
   /** 소켓이 열렸나 끊겼나 다시 붙었나. 파티장 와이파이가 여기서만 보인다 */
   | { kind: "ws"; key: string; who: Who }
   /** 한 번 머문 길이. **버킷만** 담는다 — 원값은 부르는 쪽에서 이미 버렸다 */
-  | { kind: "stay"; bucket: string; who: Who };
+  | { kind: "stay"; bucket: string; who: Who }
+  /**
+   * 운영자가 자리를 손본 조작 (ADR-58). **알고리즘이 어디서 틀렸나를 여기서 읽는다** —
+   * 사람이 손으로 고쳤다는 건 계산이 놓쳤다는 뜻이다.
+   *
+   * `draft` 와 `publish` 의 비가 *초안을 몇 번 다시 뽑았나*,
+   * `swap` 과 `publish` 의 비가 *한 배정에 몇 번 손댔나* 다.
+   *
+   * ⚠️ **누구를 옮겼는지는 담지 않는다.** 자리 번호도, 참가자도, 라운드도 없다 —
+   * 조작의 종류 하나뿐이다. 이 목록에 사람을 가리키는 값을 더하지 마라.
+   */
+  | { kind: "seating"; key: SeatingKey };
+
+/**
+ * 자리를 손보는 조작. **서버가 만드는 값이라 허용 목록이 아니라 타입으로 막는다** —
+ * `pulse.ts` 의 목록은 *화면이 보낸 문자열*을 거르는 자리고, 여기는 그 통로가 아니다.
+ */
+export const SEATING_KEYS = [
+  "draft",    // 배정을 눌러 초안이 나왔다
+  "swap",     // 두 사람을 맞바꿨다
+  "seat",     // 자리 없는 사람을 앉혔다
+  "unseat",   // 이 라운드에서 뺐다
+  "shuffle",  // 사람만 다시 섞었다
+  "discard",  // 초안을 버렸다
+  "publish",  // 발행했다
+] as const;
+export type SeatingKey = (typeof SEATING_KEYS)[number];
 
 /** 참가자 쪽인가 운영자 쪽인가. **범주지 신원이 아니다** — 두 화면은 쓰임새가 아예 다르다 */
 export type Who = "player" | "host";
@@ -83,7 +109,9 @@ export function pulse(env: Env, p: Pulse): void {
         ? [[p.kind, p.route, p.outcome], [1, p.ms]]
         : p.kind === "stay"
           ? [[p.kind, p.bucket, p.who], [1]]
-          : [[p.kind, p.key, p.who], [1]];
+          : p.kind === "seating"
+            ? [[p.kind, p.key], [1]]   // `who` 를 두지 않는다 — 운영자만 하는 일이라 물을 것이 없다
+            : [[p.kind, p.key, p.who], [1]];
     env.METRICS?.writeDataPoint({ blobs: b, doubles: d });
   } catch {
     /* 위와 같다. 지표가 요청을 깨뜨리지 않는다 */

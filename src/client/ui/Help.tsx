@@ -32,14 +32,13 @@ export default function Help({ state }: { state: ParticipantState }) {
    */
   const sameGenderOk = config.allowSameGender !== false;
   /*
-   * 되돌리기와 알림은 **라운드마다 따로다** (ADR-34·43). 기본값이 서로 반대라 헷갈리기 쉽다 —
-   * 되돌리기는 **없으면 된다**(`!== false`), 알림은 **없으면 안 알린다**(`!!`).
-   * 판정을 `People.tsx`·`visibleReceived` 와 같은 모양으로 둔다. 한쪽만 바뀌면 설명이 거짓이 된다.
+   * 알림은 **라운드마다 따로다** (ADR-43) — 없으면 안 알린다(`!!`).
+   * 판정을 `visibleReceived` 와 같은 모양으로 둔다. 한쪽만 바뀌면 설명이 거짓이 된다.
+   *
+   * **하나라도 켜져 있으면 켠 쪽으로 말한다.** 넷으로 갈라 쓰면 그 답이 문단이 되고,
+   * 덜 알리는 것보다 **더 알리는 쪽이 안전하다** — 상대가 알게 되는 걸 안 알리면 그게 거짓이다.
    */
-  const undoPre = config.allowUndoPre !== false;
-  const undoParty = config.allowUndo !== false;
-  const notifyPre = !!config.preNotify;
-  const notifyParty = !!config.pokeNotify;
+  const notify = !!config.preNotify || !!config.pokeNotify;
 
   return (
     <div className="stack">
@@ -67,7 +66,7 @@ export default function Help({ state }: { state: ParticipantState }) {
            */
           { q: qa.prevote.q, a: qa.prevote.a },
           { q: qa.poke.q, a: qa.poke.a },
-          { q: qa.secret.q, a: qa.secret.a },
+          { q: qa.secret.q, a: qa.secret.a(notify) },
           /*
            * 익명 걱정은 **상대 다음이 운영자**다. 둘을 떨어뜨리면 앞 줄을 읽고 생긴 질문이
            * 몇 줄 뒤에 답을 만나거나, 못 만난 채로 화면을 닫는다.
@@ -75,15 +74,12 @@ export default function Help({ state }: { state: ParticipantState }) {
           { q: qa.host.q, a: qa.host.a },
           { q: qa.count.q, a: qa.count.a(config.maxPre, config.maxParty) },
           /*
-           * **회차 설정이 답을 바꾸는 둘** (ADR-52). 그전에는 눌러봐야 알거나,
-           * 알림이 꺼진 회차에서는 아예 알 길이 없었다 — 받은 수가 화면에 없으므로
-           * 참가자는 *아무도 나를 안 골랐다* 로 읽었다.
+           * **회차 설정으로 갈리는 칸은 이 하나만 남긴다.** 못 고르는 상대가 있다는 건
+           * 눌러봐야 알던 것이라(`POKE.blocked.sameGender` 토스트) 미리 말할 값어치가 있다.
+           * 되돌리기와 알림은 걷었다 — 하나는 버튼이 이미 답하고, 하나는 위 `상대가 아나요` 가 답한다.
            */
-          { q: qa.undo.q, a: qa.undo.a(undoPre, undoParty) },
-          { q: qa.notify.q, a: qa.notify.a(notifyPre, notifyParty) },
           ...(sameGenderOk ? [] : [{ q: qa.sameGender.q, a: qa.sameGender.a }]),
           { q: qa.result.q, a: qa.result.a },
-          { q: qa.ages.q, a: qa.ages.a },
         ].map((item) => (
           <div className="helpQa" key={item.q}>
             <div className="q">{item.q}</div>
