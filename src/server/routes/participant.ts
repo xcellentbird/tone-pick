@@ -14,8 +14,9 @@ import { ENTRY, FORTUNE, ME } from "../../shared/copy.ts";
 import { canOpenFortune, canOpenMission } from "../../shared/phase.ts";
 import { fortuneInput, missionInput, validBirth } from "../../shared/fortune.ts";
 import { makeFortune, makeMission } from "../fortune.ts";
-import { count } from "../metrics.ts";
+import { count, pulse } from "../metrics.ts";
 import { todayIn } from "../../shared/time.ts";
+import { PULSE_MAX, allowedKey, stayBucket, type PulseEvent } from "../../shared/pulse.ts";
 import {
   INVITE_COOKIE,
   PLAYER_COOKIE,
@@ -33,16 +34,19 @@ import {
   ipHash,
   isSecure,
   playerScope,
+  pulseWho,
   registry,
   serverNow,
   sessionRef,
   unwrap,
   type Ctx,
-  type Env,
-} from "../http.ts";
+  type Env, timed,} from "../http.ts";
 import { enterMessage, pokeMessage, registerMessage } from "../messages.ts";
 
 export const participantRoutes = new Hono<{ Bindings: Env }>();
+
+/** 응답 시간을 잰다 (ADR-56). 담기는 건 라우트 **패턴**이라 회차 아이디도 토큰도 안 실린다 */
+participantRoutes.use("*", timed("api"));
 
 /**
  * 참가 링크가 여는 화면. 회차 이름과 단계만 준다 — **입장 코드는 주지 않는다**.
@@ -138,6 +142,37 @@ participantRoutes.post("/events/:id/enter", async (c) => {
     sessionTtl(scope),
   );
   return c.json({ ...result, ref } satisfies EnterResult);
+});
+
+/**
+ * 화면이 보내는 집계 비콘 (ADR-56).
+ *
+ * **여기서 신원을 기록하지 않는다.** 세션을 보는 이유는 하나 —
+ * 아무나 두드리는 문으로 두지 않으려는 것이다. 통과한 뒤에는
+ * `player` / `host` 라는 **범주**만 남고, 누구였는지는 이 함수를 나가는 순간 사라진다.
+ *
+ * ⚠️ 키는 `shared/pulse.ts` 의 허용 목록을 통과해야 담긴다. 화면이 보낸 문자열을
+ * 그대로 담으면 언젠가 닉네임이 든 변수가 그 자리에 들어간다 — 목록이 그 자리를 없앤다.
+ *
+ * 실패해도 아무 말 안 하고 204 다. 비콘이 오류를 돌려주면 화면이 그걸 처리해야 하는데,
+ * **지표 때문에 화면이 할 일이 생기는 건 본말이 뒤바뀐 것이다.**
+ */
+participantRoutes.post("/pulse", async (c) => {
+  const who = await pulseWho(c);
+  if (!who) return c.body(null, 204);
+
+  const body = (await c.req.json().catch(() => ({}))) as { events?: PulseEvent[] };
+  const events = Array.isArray(body.events) ? body.events.slice(0, PULSE_MAX) : [];
+  for (const e of events) {
+    if (e?.kind === "stay") {
+      pulse(c.env, { kind: "stay", bucket: stayBucket(Number(e.ms)), who });
+      continue;
+    }
+    if (!e || (e.kind !== "nav" && e.kind !== "tap" && e.kind !== "ws")) continue;
+    if (!allowedKey(e.kind, e.key)) continue;
+    pulse(c.env, { kind: e.kind, key: e.key!, who });
+  }
+  return c.body(null, 204);
 });
 
 /**

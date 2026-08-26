@@ -29,11 +29,13 @@ import {
   serverNow,
   unwrap,
   type Ctx,
-  type Env,
-} from "../http.ts";
+  type Env, timed,} from "../http.ts";
 import { seatingMessage, settingsMessage } from "../messages.ts";
 
 export const hostRoutes = new Hono<{ Bindings: Env }>();
+
+/** 응답 시간을 잰다 (ADR-56). 담기는 건 라우트 **패턴**이라 회차 아이디가 안 실린다 */
+hostRoutes.use("*", timed("host"));
 
 // ─────────────────────────────────── 인증
 
