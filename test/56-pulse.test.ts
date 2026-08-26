@@ -11,7 +11,7 @@
  *   ③ 원값을 담기 — 초 단위 체류 시간은 그 자체로 한 사람의 습관이다
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import { pulse, type Pulse } from "../src/server/metrics.ts";
+import { SEATING_KEYS, pulse, type Pulse } from "../src/server/metrics.ts";
 import { NAV_KEYS, PULSE_MAX, TAP_KEYS, WS_KEYS, allowedKey, msBucket, stayBucket } from "../src/shared/pulse.ts";
 import { api, freshEvent, join, signInMaster } from "./helpers/party.ts";
 
@@ -43,6 +43,7 @@ describe("집계 지표는 사람을 가리키지 않는다", () => {
       { kind: "tap", key: "poke", who: "player" },
       { kind: "ws", key: "drop", who: "player" },
       { kind: "stay", bucket: "<5m", who: "host" },
+      { kind: "seating", key: "swap" },
     ];
     for (const p of all) pulse(s.env, p);
 
@@ -94,6 +95,45 @@ describe("집계 지표는 사람을 가리키지 않는다", () => {
     expect(msBucket(900)).toBe("<1s");
     expect(msBucket(2_000)).toBe("<3s");
     expect(msBucket(9_000)).toBe(">3s");
+  });
+});
+
+describe("자리 조작 지표 (ADR-58)", () => {
+  /**
+   * ★ **누구를 옮겼는지 담지 않는다.**
+   *
+   * 이 지표를 넣은 이유는 *운영자가 손으로 고친 횟수 = 알고리즘이 놓친 곳* 이라서다.
+   * 그 신호에 필요한 건 **조작의 종류 하나**뿐인데, 자리를 다루는 코드에는
+   * 참가자 아이디와 자리 번호가 손에 잡히는 곳에 있다 — 그래서 한 줄 미끄러지기 쉽다.
+   *
+   * 담기는 것은 `["seating", 종류]` 둘뿐이고 그 이상이 오면 이 줄이 깨진다.
+   */
+  it("★ 자리 지표에는 사람도 자리도 라운드도 없다", () => {
+    const s = spy();
+    for (const key of SEATING_KEYS) pulse(s.env, { kind: "seating", key });
+
+    expect(s.wrote).toHaveLength(SEATING_KEYS.length);
+    s.wrote.forEach((w, i) => {
+      expect(w.blobs).toEqual(["seating", SEATING_KEYS[i]]);
+      expect(w.doubles).toEqual([1]);
+      expect(w.indexes).toBeUndefined();
+    });
+  });
+
+  /**
+   * ★ **`who` 를 두지 않는다.** 자리를 손보는 건 운영자만 하는 일이라 물을 것이 없고,
+   * 칸이 없으면 언젠가 거기에 참가자 쪽 값이 들어갈 자리도 없다.
+   */
+  it("★ 자리 지표는 칸이 둘뿐이다", () => {
+    const s = spy();
+    pulse(s.env, { kind: "seating", key: "publish" });
+    expect(s.wrote[0].blobs).toHaveLength(2);
+  });
+
+  /** ★ 이름 자체에 사람이 없다 — 고정된 영문 낱말뿐이다 */
+  it("★ 조작 이름이 전부 고정된 낱말이다", () => {
+    for (const key of SEATING_KEYS) expect(key).toMatch(/^[a-z_]+$/);
+    expect(new Set(SEATING_KEYS).size).toBe(SEATING_KEYS.length);
   });
 });
 
