@@ -15,6 +15,8 @@ import { now } from "../lib/serverTime.ts";
 import { sessionSource, type ParticipantSource } from "../lib/participant.ts";
 import { useLoad, useTicker } from "../lib/useLoad.ts";
 import { ApiError } from "../lib/api.ts";
+import { nav, startPulse } from "../lib/pulse.ts";
+import type { NavKey } from "../../shared/pulse.ts";
 import { Overlays, useOverlay } from "../ui/Overlays.tsx";
 import People from "./People.tsx";
 import Me from "./Me.tsx";
@@ -124,6 +126,17 @@ export default function Participant() {
   const seatOpen = location.pathname.endsWith("/seat");
   // 도움말도 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md)
   const helpOpen = location.pathname.endsWith("/help");
+
+  /*
+   * 어느 화면까지 왔나를 **집계로만** 남긴다 (ADR-56).
+   *
+   * 여기 한 곳에서 보는 이유는 화면 상태가 전부 주소에 있기 때문이다 (ROUTES.md) —
+   * 탭마다 흩어 놓으면 새 탭이 생길 때 빠뜨리고, 빠뜨린 걸 아무도 모른다.
+   * ⚠️ **주소를 그대로 보내지 마라.** `/e/:code` 의 코드가 실린다 — 화면 **이름**만 보낸다.
+   */
+  const screen: NavKey = helpOpen ? "help" : seatOpen ? "seat" : profileId ? "profile" : tab;
+  useEffect(() => nav(screen), [screen]);
+  useEffect(() => startPulse(), []);
 
   return (
     <ParticipantView

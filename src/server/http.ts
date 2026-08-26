@@ -3,6 +3,8 @@
  *
  * 여기 있는 건 전부 "인증과 라우팅"이다. 상태를 바꾸는 코드는 한 줄도 두지 않는다.
  */
+import type { MiddlewareHandler } from "hono";
+import { pulse, type Who } from "./metrics.ts";
 import type { Context } from "hono";
 import type { ApiErrorBody, AuthScope, ErrorCode } from "../shared/types.ts";
 import {
@@ -183,4 +185,55 @@ export function isMaster(scope: AuthScope | null): scope is { kind: "master" } {
 
 export function isSecure(c: Ctx): boolean {
   return new URL(c.req.url).protocol === "https:";
+}
+
+/**
+ * 응답 시간을 잰다 (ADR-56). 두 라우터가 각자 맨 위에 붙인다.
+ *
+ * ⚠️ **원본 경로를 담지 마라.** 거기에는 회차 아이디(`/events/abc123/state`)와
+ * 참가 토큰(`?t=…`)이 그대로 있다. 담는 건 `routePath` — **Hono 에 등록된 패턴**이라
+ * 자리마다 `:id` 가 들어가 있고 실제 값이 아니다.
+ *
+ * 그래도 한 겹 더 본다: 패턴에 `:` 도 `*` 도 없고 아는 낱말도 아니면 `other` 로 떨어뜨린다.
+ * 라우팅이 바뀌어 원본이 새어 나오는 날에도 지표에는 안 담기게 하려는 것이다.
+ */
+export function timed(app: string): MiddlewareHandler<{ Bindings: Env }> {
+  return async (c, next) => {
+    const started = Date.now();
+    await next();
+    const route = safeRoute(c.req.routePath);
+    pulse(c.env, {
+      kind: "api",
+      route: `${app}${route}`,
+      outcome: String(c.res.status),
+      ms: Date.now() - started,
+    });
+  };
+}
+
+/**
+ * 패턴만 통과시킨다. 값이 박힌 경로는 `other` 다 —
+ * **못 알아보는 것은 담지 않는다**가 여기서도 같은 규칙이다.
+ */
+function safeRoute(path: string | undefined): string {
+  if (!path) return "/other";
+  // 등록된 패턴은 `/`, 영문 소문자, `-`, `_`, `:이름`, `*` 로만 이루어진다
+  return /^[/a-z_*:-]*$/.test(path) ? path : "/other";
+}
+
+/**
+ * 집계 비콘을 받아도 되는 사람인가, 그리고 **어느 쪽 화면인가** (ADR-56).
+ *
+ * 세션을 보는 이유는 하나다 — 아무나 두드리는 문으로 두지 않으려는 것.
+ * 돌려주는 건 `player` / `host` 라는 **범주**뿐이고, 누구였는지는 여기서 끝난다.
+ * ⚠️ **playerId 나 eventId 를 돌려주게 고치지 마라.** 그 순간 이 함수가 지키던 것이 사라진다.
+ */
+export async function pulseWho(c: Ctx): Promise<Who | null> {
+  if (await playerScope(c)) return "player";
+  const host = await readSession(
+    readCookie(c.req.header("cookie") ?? null, HOST_COOKIE),
+    c.env.SESSION_SECRET,
+    serverNow(),
+  );
+  return isMaster(host) ? "host" : null;
 }
