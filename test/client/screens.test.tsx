@@ -699,9 +699,9 @@ function helpTexts(): string[] {
   const q = HELP.qa;
   return [
     ...HELP.steps.map((v) => v.body),
-    q.prevote.a, q.poke.a, q.secret.a, q.host.a, q.sameGender.a, q.result.a, q.ages.a,
+    q.prevote.a, q.poke.a, q.host.a, q.sameGender.a, q.result.a,
+    q.secret.a(true), q.secret.a(false),
     q.count.a(1, 2), q.count.a(3, 5),
-    ...[true, false].flatMap((x) => [true, false].flatMap((y) => [q.undo.a(x, y), q.notify.a(x, y)])),
   ];
 }
 
@@ -858,7 +858,8 @@ describe("파티 룰 도움말", () => {
     const all = [
       ...HELP.steps.map((v) => v.body),
       HELP.qa.result.a,
-      HELP.qa.secret.a,
+      HELP.qa.secret.a(true),
+      HELP.qa.secret.a(false),
       HELP.qa.host.a,
     ];
     for (const text of all) {
@@ -870,14 +871,15 @@ describe("파티 룰 도움말", () => {
   });
 
   /**
-   * ★ **되돌리기와 알림은 회차 설정이 답을 바꾼다** (ADR-34·43 → ADR-52).
+   * ★ **알림이 켜진 회차에서는 `아니요` 만으로 답이 안 된다.**
    *
-   * 기본값이 서로 반대다 — 되돌리기는 **없으면 되고**, 알림은 **없으면 안 알린다.**
-   * 못 무르는 회차에서 그 사실을 말하지 않으면 무를 수 있는 줄 알고 누르고,
-   * 알림이 꺼진 회차에서 말하지 않으면 **아무도 나를 안 골랐다**로 읽는다 —
-   * 그 라운드는 받은 수가 화면 어디에도 없기 때문이다 (`visibleReceived`).
+   * 내가 고르면 상대 홈에 `누군가 나에게 투표했어요` 가 뜬다 — 누구인지는 몰라도
+   * **누군가 골랐다는 건 안다.** 그걸 안 적으면 이 줄이 그 회차에서 거짓이 된다.
+   *
+   * 그래서 `누군가 나를 고르면 알 수 있나요?` 를 따로 두지 않고 이 답에 한 문장으로 붙인다.
+   * **하나라도 켜져 있으면** 켠 쪽으로 말한다 — 덜 알리는 것보다 더 알리는 쪽이 안전하다.
    */
-  it("★ 되돌리기·알림 설명이 회차 설정을 따라간다", async () => {
+  it("★ 알림이 켜진 회차에서는 상대가 알게 된다는 것을 말한다", async () => {
     const open = async (config: ParticipantState["event"]["config"]) => {
       const state = participantState();
       state.event.config = config;
@@ -885,28 +887,21 @@ describe("파티 룰 도움말", () => {
       await screen.findByText(HELP.title);
     };
 
-    /*
-     * 기본 회차 — 되돌릴 수 있고, 알림은 꺼져 있다.
-     *
-     * **되돌리기 줄은 아예 없다.** 답이 `네.` 하나뿐이라 아무도 안 묻는 답이고,
-     * 되돌릴 수 있는 회차에서는 고르는 자리에 버튼이 이미 서 있다 (`sameGender` 와 같은 규칙).
-     * 알림은 반대다 — 기본이 *안 알림* 이라 이 회차에서 말해줄 것이 있다.
-     */
+    // 기본 회차 — 알림이 꺼져 있다. 상대는 아무것도 모른다
     await open({ maxPre: 3, maxParty: 3 });
-    expect(screen.queryByText(HELP.qa.undo.a(true, true))).toBeNull();
-    expect(screen.getByText(HELP.qa.notify.a(false, false))).toBeTruthy();
+    expect(screen.getByText(HELP.qa.secret.a(false))).toBeTruthy();
     cleanup();
 
-    // 못 무르고 둘 다 알리는 회차 — 네 줄이 전부 반대로 간다
-    await open({ maxPre: 3, maxParty: 3, allowUndoPre: false, allowUndo: false, preNotify: true, pokeNotify: true });
-    expect(screen.getByText(HELP.qa.undo.a(false, false))).toBeTruthy();
-    expect(screen.getByText(HELP.qa.notify.a(true, true))).toBeTruthy();
+    // 한 라운드만 켜도 켠 쪽으로 말한다 — 그 라운드에서는 실제로 알림이 간다
+    await open({ maxPre: 3, maxParty: 3, preNotify: true });
+    expect(screen.getByText(HELP.qa.secret.a(true))).toBeTruthy();
     cleanup();
 
-    // 라운드마다 갈린 회차 — 한 줄이 두 라운드를 함께 말한다
-    await open({ maxPre: 3, maxParty: 3, allowUndo: false, preNotify: true });
-    expect(screen.getByText(HELP.qa.undo.a(true, false))).toBeTruthy();
-    expect(screen.getByText(HELP.qa.notify.a(true, false))).toBeTruthy();
+    await open({ maxPre: 3, maxParty: 3, pokeNotify: true });
+    expect(screen.getByText(HELP.qa.secret.a(true))).toBeTruthy();
+    // 켠 쪽 문장만 **알림이 간다**고 말한다. 끈 쪽에 그 말이 있으면 거짓이다
+    expect(HELP.qa.secret.a(true)).toContain("알림");
+    expect(HELP.qa.secret.a(false)).not.toContain("알림");
   });
 
   it("★ 동성에게 못 찌르는 회차에서만 그 줄이 보인다", async () => {
@@ -939,7 +934,15 @@ describe("파티 룰 도움말", () => {
      */
     renderParticipant(fakeSource(), undefined, () => {}, "home", true);
     await screen.findByText(HELP.qa.host.a);
-    expect(HELP.qa.host.a).toContain("서로 콕 찌른");
+    /*
+     * **낱말이 아니라 두 가지가 적혀 있는지를 본다.** 이 줄이 지켜야 하는 건 둘이다 —
+     *   ① 매칭된 쌍은 운영자가 본다 (발표를 누르는 게 사람이라 그럴 수밖에 없다)
+     *   ② 받은 수도 보인다 (현황 탭의 콕 순위, ADR-30)
+     * 하나라도 빠지면 운영자 화면이 이 줄을 거짓으로 만든다. 문장은 고쳐 쓸 수 있어도
+     * 이 둘은 남아야 하므로, 한 문구에 못박지 않는다.
+     */
+    expect(HELP.qa.host.a).toMatch(/매칭|서로 콕 찌른/);
+    expect(HELP.qa.host.a).toMatch(/몇 번|받았는지/);
   });
 
   it("★ 맨 아래에 닫기가 있다 — 끝까지 읽은 자리에서 닫힌다", async () => {
