@@ -2,6 +2,11 @@
 
 시나리오: `01-event-create-join.md` · 테스트: `test/01-event-create-join.test.ts`
 
+> **⚠️ 이 표면은 그 뒤로 두 번 바뀌었다.** 등록 시작 예약이 없어졌고(ADR-38),
+> 참가자가 코드를 치던 길이 사람마다 다른 링크로 바뀌었다(ADR-32 · 슬라이스 13).
+> 아래 표면은 **그 두 가지를 반영해 고쳐 적은 것**이다. 지금 계약의 원본은 타입(`src/shared/types.ts`)과
+> 규칙 테스트다 — 어긋나면 그쪽이 맞다.
+
 **여기 적힌 것만 계약이다.** 내부 구조 — 클래스를 쓸지, 함수로 갈지, DO 안을 어떻게 나눌지 —
 는 구현자가 정한다. 테스트도 이 표면에만 붙어 있다.
 
@@ -35,7 +40,8 @@ PUT  /api/host/defaults         Defaults → Defaults
 POST /api/host/defaults/reset                    → Defaults
 ```
 
-- `Defaults` 는 `{ maxPre, maxParty, regOpenBeforeD, prevoteBeforeH }` — 일정은 **파티 일시에서 거꾸로** 잰다
+- `Defaults` 는 `{ maxPre, maxParty, place, prevoteBeforeH, voteEndBeforeH, inviteTemplate }` — 일정은 **파티 일시에서 거꾸로** 잰다.
+  `regOpenBeforeD` 는 없어졌다 (ADR-38) — 등록은 회차를 만드는 순간 열린다
 - **운영자 PIN 은 여기서 바꾸지 않는다.** 배포 시크릿 `MASTER_PIN` 하나가 유일한 출처다
 - 저장된 옛 모양은 읽을 때 지금 모양으로 맞춘다 (`withDefaults`). 없는 항목은 기본값으로 채운다
 - `reset` 은 **콕 횟수와 일정 오프셋만** 되돌린다. 운영자 PIN·기존 회차는 그대로 (S-B9)
@@ -48,15 +54,20 @@ POST /api/host/defaults/reset                    → Defaults
 GET  /api/host/events                → EventSummary[]
 POST /api/host/events                CreateEventInput → EventMeta
 GET  /api/host/events/:id            → EventMeta
-PUT  /api/host/events/:id/schedule   { partyAt?, regOpenAt?, prevoteAt? } → EventMeta
+PUT  /api/host/events/:id/schedule   { partyAt?, prevoteAt?, voteEndAt?, revealAt? } → EventMeta
 POST /api/host/events/:id/phase      { to: Phase } → EventMeta
 ```
 
 `phase` 전환은 수동 진행이다. 전환하면 `fired[to]` 에 **실제 전환 시각**이 기록되고,
 그 단계의 예약은 다시 울리지 않는다. 예약 값 자체는 지우지 않는다 — 기록으로 남는다.
 
-예약이 걸리는 전환은 `reg` 와 `prevote` **둘뿐**이다. 사전 투표 마감(`party`)·발표(`done`)는
-운영자가 누를 때만 일어난다 (ADR-14). `partyAt` 은 전환을 울리지 않는 기준점이다.
+예약이 걸리는 전환은 `prevote` 와 `done` **둘뿐**이다 (ADR-38·43). 등록은 회차를 만드는 순간
+열리고, **파티 시작은 운영자가 누른다** (ADR-14). `partyAt` 은 전환을 울리지 않는 기준점이다.
+`revealAt` 은 **파티가 시작된 뒤에만** 울린다 (ADR-43) — 아무도 안 온 자리에서 발표가 뜨면
+콕이 열린 적도 없어 매칭 0 으로 끝난 것이 된다.
+
+`voteEndAt` 은 **전환이 아니라 판정이다** (ADR-39). 단계는 `prevote` 그대로고 알람도 울리지 않는다 —
+매력 투표만 닫히고, 그 시각과 파티 일시 사이가 첫 자리를 짜는 시간이다.
 
 ### 생성 규칙
 
@@ -64,9 +75,8 @@ POST /api/host/events/:id/phase      { to: Phase } → EventMeta
 |---|---|
 | `code` 를 지정했는데 이미 쓰는 코드 | `409 { error: "code_taken", message: HOST.pin.codeTaken }` |
 | `code` 생략 | 서버가 생성. 기존 코드와 겹치지 않을 때까지 다시 뽑는다 |
-| `prevoteAt <= regOpenAt` | `400 { error: "schedule_order" }` |
-| `regOpenAt: "now"` | 그 자리에서 `phase: "reg"`, `fired.reg` 기록 |
-| 예약 | `phase: "prep"`, `fired` 비어 있음 |
+| 발표가 파티보다 앞 | `400 { error: "bad_request" }` (ADR-43). **그 밖의 순서는 검사하지 않는다** (ADR-36) |
+| 언제나 | 만드는 순간 `phase: "reg"`, `fired.reg` 기록 (ADR-38). `regOpenAt` 은 그 시각의 **기록**이다 |
 | 같은 `requestId` 로 재요청 | 새로 만들지 않고 **같은 회차**를 200 으로 돌려준다 (S-B7) |
 
 ---
@@ -74,28 +84,31 @@ POST /api/host/events/:id/phase      { to: Phase } → EventMeta
 ## 회차 미리보기 (인증 없음)
 
 ```
-GET /api/events/by-id/:id       → PublicEvent | 404     참가 링크가 여는 화면
-GET /api/events/by-code/:code   → PublicEvent | 404     코드만 아는 사람의 입장
+GET /api/events/by-id/:id?t=<토큰>   → PublicEvent | 404     참가 링크가 여는 화면
 ```
 
-**두 응답 모두 입장 코드를 담지 않는다** (S-C2b). 참가 링크는 `/j/<회차id>` 이고,
-문을 여는 건 **초대 명단의 전화번호**다 (ADR-15).
+**코드로 회차를 찾던 길(`by-code`)은 닫혔다** (ADR-32). 참가 링크는 `/j/<회차id>/<토큰>` 이고,
+**링크가 곧 신원이다** — 회차 아이디만으로는 이름도 일정도 열리지 않는다.
+응답에 입장 코드를 담지 않는 것은 그대로다 (S-C2b).
 
 ```
-POST /api/events/:id/enter   { phone }  → { registered, code? }   인증 없음
+POST /api/events/:id/enter   { token }  → { registered, ref, code? }   인증 없음
 POST /api/register           RegisterInput → RegisterResult        초대 쿠키 필요
 POST   /api/host/events/:id/invites       { phones: string[] } → Invite[]   더하기만
 DELETE /api/host/events/:id/invites/:phone                     → Invite[]
 ```
 
-- 명단에 없으면 `403 not_invited`, 너무 여러 번이면 `429 too_many`. **문구는 하나뿐이다**
-- 통과하면 서명한 초대 쿠키가 나간다. 이미 등록한 사람에게는 참가자 세션이 곧바로 나간다
+- 토큰이 명단에 없으면 `403 not_invited`, 너무 여러 번이면 `429 too_many`. **문구는 하나뿐이다** —
+  "초대되지 않았어요" 와 "그런 회차가 없어요" 를 갈라주면 그 구분이 곧 "이 사람이 이 파티에 있나" 의 답이 된다
+- 통과하면 서명한 초대 쿠키가 나간다. **번호는 서버가 토큰에서 꺼낸다** (ADR-31).
+  쿠키는 탭마다 갈린다 — 응답의 `ref` 가 어느 쿠키를 읽을지 고르는 이름표다 (ADR-44)
+- 이미 등록한 사람에게는 참가자 세션이 곧바로 나간다
 - `RegisterInput` 에 **전화번호가 없다.** 폼에서 받으면 명단에 없는 번호로 바꿔 낼 수 있다
 - `invites` 는 `HostState` 에만 실린다. 참가자 응답에는 절대 없다
 
-- 코드는 **대소문자를 가리지 않는다** (서버에서 대문자로 정규화)
-- 없으면 `404 { error: "not_found", message: ENTRY.notFound }`
-- `phase: "prep"` → `canRegister: false`, `message: ENTRY.notOpenYet(...)`
+- 토큰이 없거나 틀리면 `404 { error: "not_found", message: ENTRY.notFound }`
+- `phase: "prep"` → `canRegister: false`, `message: ENTRY.notOpenYetUnknown` (되돌린 회차에서만 본다).
+  **시각은 싣지 않는다** (ADR-38) — `regOpenAt` 은 늘 지나간 시각이라 곧 열릴 것처럼 말하게 된다
 - `phase: "done"` → `canRegister: false`, `message: ENTRY.finished`
 - **응답에 입장 코드·PIN·참가자 개인정보·콕 기록이 없다** (S-C2). `PublicEvent` 타입 밖의 필드를 넣지 마라
 
@@ -134,7 +147,7 @@ POST /api/__test__/now   { at: number }   → { now: number }
 | `forbidden` | 403 |
 | `not_found` | 404 |
 | `code_taken` | 409 |
-| `schedule_order` · `bad_request` | 400 |
+| `bad_request` | 400 |
 
 ---
 

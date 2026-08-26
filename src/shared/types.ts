@@ -22,16 +22,26 @@ export interface Player {
   gender: Gender;
   phone: string;             // 운영자 전용 · 재접속 키
   /**
-   * 운영자 전용 + 발표 후 서로 찌른 상대에게 (ADR-19).
-   * **필수다** — 매칭되면 서로에게 공개되는 연락 수단이라 없으면 매칭이 반쪽이 된다.
-   * (한동안 선택이었다. 필수가 되기 전에 등록한 행이 남아 있었기 때문인데,
-   * 그 자료는 1.0.0 기준선에서 사라졌다.)
+   * **운영자 전용이다** (ADR-42). 참가자 응답에는 어느 단계에서도, 매칭됐어도 나가지 않는다.
+   *
+   * 받는 이유는 **운영자가 사람을 확인하기 위해서**다 — 명단의 번호와 실제로 온 사람이
+   * 같은지 보는 자리. 한동안 "매칭되면 서로에게 공개되는 연락 수단" 이었는데
+   * 그 쓰임이 없어졌다 (ADR-42). **등록 화면 문구도 함께 바뀌었다** — 받을 때 한 약속이 먼저다.
    */
   instagram: string;
   mbti: string;              // "ENFP"
   charms: [string, string, string];
   createdAt: number;
 }
+
+/**
+ * **본인에게만** 내려가는 내 정보 (ADR-47). 남에게 가는 건 `PublicPlayer` 다.
+ *
+ * 전화번호가 없다는 것이 곧 방어다 — `phone` 을 여기 **다시 넣지 마라.**
+ * 인스타는 남는다: 고치는 폼이 그 값을 칸에 다시 채워야 하고, 그 칸이 없으면
+ * 오타를 낸 사람이 영영 못 고친다. 다만 **읽기 화면에는 그리지 않는다.**
+ */
+export type MyProfile = Omit<Player, "phone">;
 
 /**
  * 참가자에게 내려가는 형태. 이 타입 밖의 필드를 참가자 응답에 넣지 말 것.
@@ -54,10 +64,22 @@ export function rosterOpen(phase: Phase): boolean {
   return phase !== "prep" && phase !== "reg";
 }
 
-export function toPublic(p: Player, phase: Phase): PublicPlayer {
+export function toPublic(p: MyProfile, phase: Phase): PublicPlayer {
   const { id, nickname, gender, charms } = p;
   const base = { id, nickname, gender, charms };
   return phase === "prevote" ? base : { ...base, age: p.age, mbti: p.mbti };
+}
+
+/**
+ * 본인에게 내려가는 내 정보 (ADR-47). `toPublic` 과 같은 규율이다 —
+ * **빼는 게 아니라 고른다.** `Player` 에 칸이 하나 늘어도 저절로 참가자에게 흘러가지 않는다.
+ *
+ * 반환 타입이 `Omit<Player, "phone">` 이라, 칸을 늘리고 여기 안 적으면 **빌드가 깨진다.**
+ * 그때 하는 일은 한 줄 더 적는 게 아니라 *이 값이 본인에게 가도 되나* 를 정하는 것이다.
+ */
+export function toMe(p: Player): MyProfile {
+  const { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt } = p;
+  return { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt };
 }
 
 // ─────────────────────────── 콕
@@ -73,23 +95,43 @@ export interface Poke {
 /**
  * 발표 후, **서로 찌른 쌍에게만** 만들어진다.
  *
- * 연락처가 참가자에게 나가는 **유일한 통로**다 (ADR-19). 조건이 셋 다 맞아야 한다.
- *   ① 발표 단계일 것  ② 서로 찔렀을 것  ③ 그 상대의 것일 것
- * 한쪽만 찌른 상대의 연락처는 발표 뒤에도 끝까지 나가지 않는다.
+ * **연락처는 여기 없다** (ADR-42). 전화번호도 인스타도 참가자에게는 어느 경우에도 나가지 않는다 —
+ * 매칭된 쌍에게도. 앱이 하는 일은 *서로 마음이 맞았다는 것과 그게 누구인지*를 알려주는 데까지고,
+ * 연락은 그 자리에서 두 사람이 직접 한다.
+ *
+ * ⚠️ **여기에 `phone`·`instagram` 을 다시 넣지 마라.** 이 타입에 자리가 없는 것이 곧 방어다 —
+ * 전에는 조건 넷을 지켜야 하는 통로(`contact`)가 있었고, 그 조건이 하나라도 새면 유출이었다.
+ * 지금은 **새어나갈 필드 자체가 없다.**
+ *
+ * `realName` 은 연락 수단이 아니라 **신원**이다. 서로 찌른 쌍이 파티장에서 서로를 찾으려면
+ * 닉네임만으로는 모자라서 남긴다. 한쪽만 찌른 상대에게는 발표 뒤에도 끝까지 나가지 않는다.
  */
 export interface MatchInfo {
   player: PublicPlayer;
   /** 마지막으로 발행된 자리에서 같은 테이블이면 그 번호 */
   sameTable?: number;
-  /** 서로 찌른 상대에게만. 등록할 때 이 공개를 미리 알린다 */
-  contact: { realName: string; phone: string; instagram?: string };
+  /** 서로 찌른 상대의 실명. **연락 수단이 아니다** — 전화·인스타는 여기에도 없다 (ADR-42) */
+  realName: string;
 }
 
 /** 참가자 본인에게만 내려가는 요약. 누가 찔렀는지는 발표 전까지 절대 포함하지 않는다. */
 export interface MyPokeState {
   budget: Record<PokeRound, { max: number; used: number }>;
-  sentTo: Record<string, number>;   // playerId -> 내가 보낸 횟수 (라운드 합계)
-  receivedCount: number;            // 받은 횟수만. 발신자는 익명
+  /**
+   * playerId -> **이번 라운드에** 내가 보낸 횟수 (ADR-34).
+   *
+   * 라운드를 합치지 마라. 매력 투표에서 고른 사람이 파티가 시작되자마자
+   * 콕을 이미 찌른 것처럼 보이고, 되돌리기는 지울 것이 없는 채로 뜬다.
+   */
+  sentTo: Record<string, number>;
+  /**
+   * **라운드마다 따로** 받은 횟수 (ADR-46 후기). 발신자는 어느 쪽도 익명이다.
+   *
+   * 한동안 한 수로 합쳤다 — 가르면 *어느 단계에서 받았나* 가 드러나기 때문이었다.
+   * 대신 소식 줄이 매력 투표에서도 `콕` 이라고 불렀고, 참가자가 찌른 적 없는 콕을 받은 것이 됐다.
+   * **겪는 일과 화면이 갈리는 쪽을 더 나쁘게 봤다** — 대가는 ADR-46 후기에 적었다.
+   */
+  received: Record<PokeRound, number>;
   matches: MatchInfo[];             // 발표 후에만 채워진다
 }
 
@@ -103,7 +145,6 @@ export interface Seat {
 export interface SeatingRound {
   round: number;
   tableCount: number;       // 라운드마다 다를 수 있으므로 함께 저장 (ADR-5)
-  final: boolean;
   status: "draft" | "published";
   seats: Seat[];
   acks: string[];           // 자리 이동을 확인한 playerId
@@ -114,10 +155,11 @@ export interface SeatingRound {
 // ─────────────────────────── 회차
 
 /**
- * 예약할 수 있는 시각은 **앞의 두 개뿐**이다.
+ * 알람이 울리는 시각은 **`prevoteAt` 과 `revealAt` 둘뿐**이다 (ADR-38·43).
  *
- * 사전 투표 마감 · 파티 시작 · 발표는 예약하지 않는다. 현장에서 사람이 다 모였는지,
- * 이야기가 무르익었는지 보고 운영자가 누른다 — 시각을 미리 박아두면 그 판단을 못 한다.
+ * **파티 시작은 운영자가 누른다** (ADR-14) — 사람이 다 모였는지, 이야기가 무르익었는지는
+ * 시계가 모른다. `voteEndAt` 은 시각이 있지만 **전환이 아니라 판정이라** 알람이 없다 (ADR-39).
+ * `regOpenAt` 은 회차를 만든 시각의 기록이다 (ADR-38).
  *
  * `partyAt` 은 전환을 울리지 않는다. 등록·사전 투표 시작의 기준점이고,
  * 참가자 화면 카운트다운이 향하는 곳이다.
@@ -126,10 +168,44 @@ export interface EventSchedule {
   partyAt?: number;
   regOpenAt?: number;
   prevoteAt?: number;
+  /**
+   * 매력 투표가 닫히는 시각 (ADR-39). 기본은 파티 **1시간 전**.
+   *
+   * **전환이 아니라 판정이다.** 알람이 울리지 않고 `phase` 도 그대로 `prevote` 다 —
+   * `canPoke()` 가 서버 시각과 견줘 답한다. 그건 지금도 그대로다.
+   *
+   * 운영자가 이 시각을 **앞당길 수 있다** (ADR-39 후기) — 그때 실제로 닫힌 시각은
+   * `fired.voteEnd` 에 남고, **여기 적힌 예약은 기록으로 그대로 둔다.**
+   * 덮어쓰면 "예약은 20시였는데 19시에 닫았다" 를 말할 수 없게 된다.
+   *
+   * 시각으로 못 박은 이유는 **현장이 아니라 준비가 이 시각을 쓰기** 때문이다.
+   * 마감돼야 자리를 짤 수 있고, 짜는 데 시간이 걸린다 (ADR-14 예외).
+   */
+  voteEndAt?: number;
+  /**
+   * 커플 발표가 예약된 시각 (ADR-43). 기본은 파티 **3시간 뒤**.
+   *
+   * ⚠️ **파티가 시작된 뒤에만 울린다** (`dueTransition`). ADR-14 가 막은 건
+   * *현장이 시계를 따라가는 것*인데, 그중에서도 가장 나쁜 건 **아무도 안 온 자리에서
+   * 발표가 뜨는 것**이다. 운영자가 `파티 시작` 을 누르기 전에는 이 시각이 지나도 아무 일이 없다 —
+   * 시계가 혼자 파티를 끝내지 못한다.
+   *
+   * 운영자는 언제든 먼저 누를 수 있고(그러면 `fired.done` 이 서서 예약은 울리지 않는다),
+   * 파티가 길어지면 **발표 전까지** 이 시각을 미룰 수 있다 (`schedLocked`).
+   */
+  revealAt?: number;
 }
 
 /** 실제로 전환이 일어난 시각. 예약은 여기가 비어 있을 때만 한 번 울린다. (ADR-2) */
 export interface FiredMap {
+  /**
+   * 매력 투표가 **실제로 닫힌 시각** (ADR-39 후기). 운영자가 마감을 앞당겼을 때만 찬다.
+   *
+   * **단계 전환이 아니다** — 이게 차도 `phase` 는 `prevote` 그대로고, 나이·MBTI(ADR-21)도
+   * 파티 콕도 열리지 않는다. 여기 있는 이유는 `fired` 가 *예약과 실제를 가르는 자리*이기 때문이다.
+   * `dueTransition` 은 이 값을 보지 않는다.
+   */
+  voteEnd?: number;
   reg?: number;
   prevote?: number;
   party?: number;
@@ -147,28 +223,47 @@ export interface EventConfig {
    * 회차마다 정한다. 파티 성격이 회차마다 다르기 때문이다.
    */
   allowSameGender?: boolean;
+  /** 파티 콕을 되돌릴 수 있나 (ADR-34). **없으면 된다** — 잘못 누른 것을 못 무르게 할 이유가 없다 */
+  allowUndo?: boolean;
+  /** 매력 투표를 되돌릴 수 있나 (ADR-34). **없으면 된다**. 라운드마다 따로 정한다 */
+  allowUndoPre?: boolean;
   /**
-   * 사전 콕 찌르기가 열릴 때 참가자에게 소식으로 알릴 것인가.
+   * **매력 투표**를 받으면 참가자에게 알릴 것인가 (ADR-43). **없으면 알리지 않는다.**
    *
-   * **없으면 보냄**이다 — 기본값과 같으면 적지 않는다 (`allowSameGender` 와 같은 규칙).
-   * 끄면 소식 줄도 배너도 만들지 않는다. **단계는 그대로 열린다** —
-   * 알림을 안 보내는 것과 화면을 안 고치는 것은 다른 일이다 (ADR-26).
-   * 조용히 열고 운영자가 직접 말하는 회차를 위한 것이다.
+   * 라운드마다 따로 정한다 — 되돌리기(`allowUndoPre`·`allowUndo`)와 같은 꼴이다.
+   * 한동안 `pokeNotify` 하나가 두 라운드를 다 덮었는데, 그 둘은 성격이 다르다:
+   * 매력 투표는 **프로필만 보고** 고른 것이고 며칠에 걸쳐 쌓인다.
+   * 그 숫자가 실시간으로 보이면 파티 전에 이미 순위가 생긴다.
+   *
+   * ⚠️ **끄면 `receivedCount` 에서도 빠져야 한다.** 화면에서 감추는 걸로는 부족하다 —
+   * 그 숫자 하나가 곧 "지금까지 몇 명이 나를 골랐나" 다 (`visibleReceived`).
    */
-  prevoteNotice?: boolean;
+  preNotify?: boolean;
   /**
-   * 파티가 끝나고 며칠 뒤에 이 회차를 파기할 것인가 (1~14).
+   * **파티 콕**을 받으면 참가자에게 알릴 것인가 (ADR-34). **없으면 알리지 않는다.**
    *
-   * **없으면 `RETENTION_DAYS`** — 기본값과 같으면 적지 않는다 (allowSameGender 와 같은 규칙).
-   * 파기 Cron 이 이 값을 읽는다. 등록 화면에는 이 숫자가 나가지 않는다 —
-   * 그 자리에서 답할 것은 "이 번호가 누구에게 보이나" 하나다.
+   * 첫 회차에서 받은 콕 0회가 11명(30%)이었다 — 알림이 있으면 그 쏠림이 실시간으로 체감되고,
+   * 그건 다음 파티에 안 나오는 이유가 된다. 켜는 회차에서만 켠다.
+   *
+   * **알림은 파생값이다** (`noticesOf`). 콕을 되돌리면 그 줄이 저절로 사라져,
+   * 받지 않았던 상태로 돌아간다 — 지울 메시지가 애초에 저장돼 있지 않다.
    */
-  retentionDays?: number;
+  pokeNotify?: boolean;
 }
 
 export interface EventMeta {
   id: string;
   name: string;
+  /**
+   * 파티 장소. **안내문 템플릿에만 쓰인다** (ADR-32) — 참가자 응답에는 싣지 않는다.
+   * 지금 운영이 그렇다: 장소는 운영자가 1:1 로 알린다.
+   */
+  place?: string;
+  /**
+   * 닉네임 칸의 운영자 문구 (ADR-59). 기본값에서 물려받고 회차마다 고칠 수 있다.
+   * **장소와 달리 참가자에게 나간다** — 등록 폼에 뜨는 것이 이 값의 존재 이유다.
+   */
+  nickHint?: string;
   code: string;      // 6자리 입장 코드 (회차 간 유일)
   phase: Phase;
   fired: FiredMap;
@@ -177,10 +272,33 @@ export interface EventMeta {
   createdAt: number;
 }
 
-/** 새 회차의 일정 기본값. 둘 다 **파티 일시에서 거꾸로** 잰다 */
+/**
+ * 새 회차의 기본값.
+ *
+ * **등록 시작은 여기 없다** (ADR-38) — 회차를 만드는 순간 열린다.
+ * 남은 예약은 매력 투표 시작 하나뿐이고, 그것도 **파티 일시에서 거꾸로** 잰다.
+ */
 export interface Defaults extends EventConfig {
-  regOpenBeforeD: number;   // 파티 N일 전에 등록 시작
-  prevoteBeforeH: number;   // 파티 N시간 전에 사전 투표 시작
+  /** 파티 장소. 늘 같은 곳에서 여는 모임이라 여기 둔다 — 회차마다 고칠 수 있다 (ADR-38) */
+  place: string;
+  /**
+   * 닉네임 칸에 붙일 문구 (ADR-59). **회차마다 바뀌는 값이 아니라 여기 둔다** —
+   * 그 운영자의 파티가 어떤 자리인지에 붙지, 8월 회차와 9월 회차가 다르지 않다.
+   * 장소와 안내문이 여기 있는 이유가 그대로 적용된다.
+   */
+  nickHint: string;
+  prevoteBeforeH: number;   // 파티 N시간 전에 매력 투표 시작
+  voteEndBeforeH: number;   // 파티 N시간 전에 매력 투표 마감 (ADR-39)
+  /**
+   * 파티 N시간 **뒤**에 커플 발표 (ADR-43). 다른 일정과 방향이 반대인 유일한 값이다 —
+   * 나머지는 파티 일시에서 거꾸로 재고 이것만 앞으로 잰다.
+   */
+  revealAfterH: number;
+  /**
+   * 참가자에게 보낼 안내문 (ADR-32). `{장소}` `{일시}` `{링크}` 를 회차가 채운다.
+   * **회차마다 다시 쓰지 않는다** — 회차별 덮어쓰기는 만들지 않았다.
+   */
+  inviteTemplate: string;
 }
 
 // ─────────────────────────── API
@@ -196,8 +314,14 @@ export interface Defaults extends EventConfig {
  */
 export type AuthScope =
   | { kind: "player"; eventId: string; playerId: string }
-  /** 명단 확인을 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다 */
-  | { kind: "invited"; eventId: string; phone: string }
+  /**
+   * 링크를 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다.
+   *
+   * **전화번호를 담지 마라** (ADR-32). 세션은 서명만 하고 암호화하지 않아서,
+   * 개발자 도구를 여는 참가자에게 페이로드가 그대로 읽힌다. 번호는 회차 DO 안에서만 푼다 —
+   * 참가자가 번호를 치지 않기로 했으면 번호가 브라우저에 남을 이유도 없다.
+   */
+  | { kind: "invited"; eventId: string; token: string }
   | { kind: "master" };
 
 // ─────────────────────────── 실시간 (WebSocket)
@@ -209,7 +333,7 @@ export type ServerEvent =
    * 등록 중에는 몇 명인지가 그대로 새어 나간다. 받는 쪽은 어차피 다시 읽는다 (ADR-26).
    */
   | { type: "roster" }
-  | { type: "poke"; receivedCount: number }          // 익명. 발신자 정보 없음
+  | { type: "poke"; received: Record<PokeRound, number> }   // 익명. 발신자 정보 없음
   /**
    * 자리가 확정됐다. **테이블 번호는 싣지 않는다** — 전원에게 나가는 신호라
    * 남의 자리가 개발자 도구에 보이게 된다. 받은 쪽은 다시 읽어 자기 자리를 가져간다.
@@ -238,13 +362,21 @@ export type ClientEvent =
 /** 회차 생성 입력 */
 export interface CreateEventInput {
   name: string;
+  /** 파티 장소. 안내문에만 쓰인다 (ADR-32) */
+  place?: string;
   /** 생략하면 서버가 만든다. 직접 넘겼는데 이미 쓰는 코드면 거부한다 */
   code?: string;
-  /** 파티 일시. 나머지 일정이 여기서 거꾸로 계산된다 */
+  /** 파티 일시. 매력 투표 시작이 여기서 거꾸로 계산된다 */
   partyAt: number;
-  /** "now" 는 '지금 바로'. datetime-local 이 초를 버리는 문제를 피하려고 시각이 아니라 리터럴로 받는다 */
-  regOpenAt: number | "now";
+  /**
+   * **등록 시작은 받지 않는다** (ADR-38). 회차를 만드는 순간 열린다 —
+   * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열 이유가 없었다.
+   */
   prevoteAt: number;
+  /** 매력 투표 마감 (ADR-39). 기본은 파티 1시간 전 */
+  voteEndAt: number;
+  /** 커플 발표 (ADR-43). 기본은 파티 3시간 **뒤**. `partyAt` 보다 뒤여야 한다 */
+  revealAt: number;
   config: EventConfig;
   /** 멱등키. 같은 값으로 두 번 오면 같은 회차를 돌려준다 */
   requestId: string;
@@ -257,14 +389,14 @@ export interface EventSummary {
   code: string;
   phase: Phase;
   playerCount: number;
-  createdAt: number;
 }
 
 /**
  * 회차 미리보기 — **인증 없이** 누구나 받는다. 여기에 비밀을 넣지 마라.
  *
- * 입장 코드는 절대 넣지 않는다. 참가 링크를 받은 사람이 코드를 **입력해야** 들어오는 구조라,
- * 이 응답에 코드가 실리면 그 문이 그대로 열린다.
+ * **토큰이 있어야 열린다** (ADR-32). 회차 아이디만으로 이름·일정이 열리면
+ * 링크를 사람마다 다르게 만든 의미가 없다 — 아이디는 링크에 그대로 보이는 값이다.
+ * 입장 코드도 절대 넣지 않는다. 코드는 등록을 마친 사람의 화면 주소(`/e/:code`)를 가리킨다.
  */
 export interface PublicEvent {
   id: string;
@@ -273,10 +405,22 @@ export interface PublicEvent {
   /** 파티 일시. 링크를 받은 사람이 "그 파티가 맞나"를 확인하는 값이다 */
   partyAt?: number;
   canRegister: boolean;
-  /** 등록 화면의 "N일 뒤에 지워져요" 약속이 읽는 값. 회차 설정을 따른다 */
-  retentionDays: number;
   /** 등록할 수 없을 때의 안내. copy.ts 의 ENTRY.* 를 쓴다 */
   message?: string;
+  /**
+   * 닉네임 칸에 붙일 운영자 문구 (ADR-59). **없으면 안 붙는다** — 빈 줄을 남기지 않는다.
+   *
+   * ⚠️ **앱이 얹는 고정 줄은 없다.** *다른 참가자 모두에게 보여요* 같은 설명을
+   * 나란히 두지 마라 — 닉네임이라는 말이 이미 그걸 뜻해서 아무도 궁금해하지 않고,
+   * 그러면 운영자가 적어 넣은 한 줄이 두 줄 중 하나가 되어 묻힌다.
+   */
+  nickHint?: string;
+  /**
+   * 이 링크의 주인이 이미 등록했나. **자기 자신에 대한 답이라 새어 나갈 게 없다** —
+   * 토큰을 가진 사람에게만 이 응답이 열린다 (ADR-32).
+   * 화면이 `등록하기` 와 `다시 입장하기` 를 가르는 데 쓴다.
+   */
+  registered?: boolean;
 }
 
 export type ErrorCode =
@@ -284,15 +428,15 @@ export type ErrorCode =
   | "forbidden"
   | "not_found"
   | "code_taken"
-  | "schedule_order"
   | "bad_request"
   // 슬라이스 02~05 에서 늘어난 것
-  | "not_invited"    // 403 · 초대 명단에 없는 번호다
-  | "too_many"       // 429 · 번호를 너무 여러 번 넣었다
+  | "not_invited"    // 403 · 명단의 어느 줄도 이 토큰이 아니다 (ADR-32)
+  | "too_many"       // 429 · 이 회차의 문을 너무 여러 번 두드렸다
   | "nick_taken"     // 409 · 회차 안에서 닉네임이 겹쳤다
   | "closed"         // 409 · 지금 단계에서는 할 수 없다
   | "no_budget"      // 409 · 이번 라운드 콕을 다 썼다
   | "same_gender"    // 409 · 이성에게만 찌를 수 있다
+  | "locked"         // 409 · 콕이 오가기 시작해 굳은 설정이다 (ADR-35)
   | "conflict";      // 409 · 그 밖의 충돌
 
 export interface ApiErrorBody {
@@ -311,6 +455,14 @@ export interface ApiErrorBody {
  */
 export interface EventPatch {
   name?: string;
+  /** 장소는 오타가 나기 쉬운 값이라 고칠 길을 함께 둔다 (ADR-32) */
+  place?: string;
+  /**
+   * 닉네임 칸의 문구 (ADR-59). **등록이 열린 뒤에도 고칠 수 있어야 한다** —
+   * 첫 참가자가 이상하게 적는 걸 보고 바로 고치고 싶어지는 값이다.
+   * 콕이 오가도 굳지 않는다 (`rulesLocked` 대상이 아니다)
+   */
+  nickHint?: string;
   config?: EventConfig;
 }
 
@@ -327,7 +479,7 @@ export interface RegisterInput {
   realName: string;
   age: number;
   gender: Gender;
-  /** 필수. 매칭되면 서로에게 공개되는 연락 수단이라 (ADR-19) 없이는 매칭이 반쪽이 된다 */
+  /** 필수. **운영자가 사람을 확인하는 자리다** (ADR-42) — 참가자에게는 나가지 않는다 */
   instagram: string;
   mbti: string;
   charms: [string, string, string];
@@ -337,6 +489,11 @@ export interface RegisterInput {
 export interface Invite {
   phone: string;
   addedAt: number;
+  /**
+   * 이 사람의 참가 링크(`/j/<회차id>/<토큰>`). **번호를 넣는 순간 생긴다** (ADR-32).
+   * 운영자 응답에만 실린다 — 참가자에게 남의 토큰이 가면 그 사람이 될 수 있다.
+   */
+  token: string;
   /** 이미 등록한 사람이면 그 닉네임. 운영자가 누가 왔는지 명단에서 바로 본다 */
   nickname?: string;
 }
@@ -347,7 +504,19 @@ export interface EnterResult {
   registered: boolean;
   /** 등록을 마친 사람에게만. 자기 화면 주소(`/e/:code`)로 가는 데 쓴다 */
   code?: string;
+  /**
+   * 이 탭이 쓸 세션 이름표 (ADR-44). **비밀이 아니다** —
+   * 쿠키 여럿 중 어느 것을 읽을지 고르는 값일 뿐이라, 이것만으로는 아무 문도 열리지 않는다.
+   * 증명은 끝까지 HttpOnly 쿠키 안에 있다.
+   */
+  ref: string;
 }
+
+/**
+ * 회차 DO 가 내리는 입장 판정. **이름표는 여기 없다** —
+ * 세션은 Worker 의 일이고, DO 는 쿠키도 탭도 모른다 (설계 경계).
+ */
+export type EntryOutcome = Omit<EnterResult, "ref">;
 
 /**
  * 참가자에게 내려가는 회차 상태.
@@ -375,13 +544,11 @@ export interface PublicEventState {
 export interface MySeat {
   round: number;
   table: number;
-  final: boolean;
   mates: number;
   men: number;
   acked: boolean;
 }
 
-/** 참가자 화면 한 벌. 이 타입이 참가자 응답의 유일한 형태다 */
 // ─────────────────────────── 운영자가 보내는 알림 (슬라이스 14)
 
 export type PollChoice = "a" | "b";
@@ -435,9 +602,18 @@ export interface AnnounceInput {
   poll?: { a: string; b: string };
 }
 
+/** 참가자 화면 한 벌. 이 타입이 참가자 응답의 유일한 형태다 */
 export interface ParticipantState {
   event: PublicEventState;
-  me: Player;              // 본인이 입력한 값이므로 본인에게는 그대로 보여준다
+  /**
+   * 본인이 **낸** 값이라 본인에게는 그대로 보여준다.
+   *
+   * ⚠️ **전화번호만 빠진다** (ADR-47). 그것 하나는 참가자가 낸 값이 아니라
+   * 초대 명단에서 온 값이고(ADR-32 — 참가자는 번호를 치지 않는다),
+   * 내 정보 탭이 답하는 질문은 *내가 낸 것이 무엇인가* 다.
+   * **`Player` 로 되돌리지 마라** — 화면에서 감추는 것과 응답에 없는 것은 다르다.
+   */
+  me: MyProfile;
   roster: PublicPlayer[];
   poke: MyPokeState;
   seat?: MySeat;
@@ -458,15 +634,26 @@ export interface HostState {
   meta: EventMeta;
   players: Player[];
   /**
-   * playerId -> 보낸 콕 / 받은 콕.
+   * playerId -> 보낸 횟수. **라운드마다 따로 센다** (ADR-46 과 같은 이유).
    *
-   * 받은 콕은 **현황 탭의 순위**에서만 쓴다 (ADR-30).
-   * 참가자 탭의 개인 행에는 넣지 않는다 — 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
+   * 합치면 `보낸 콕 N회` 가 매력 투표 표까지 세게 되고, 그 사람이 콕을 한 번도 안 찔렀는데
+   * 찌른 것으로 적힌다 — 두 라운드는 쓰임이 다르다 (ADR-34).
+   * 참가자에게 가는 수(`receivedCount`)와 달리 **운영자 화면이라 갈라도 새지 않는다.**
    */
-  sent: Record<string, number>;
-  received: Record<string, number>;
-  /** 사전 투표에서 받은 콕 순위 (내림차순) */
-  prevoteRank: Array<{ id: string; count: number }>;
+  sent: Record<PokeRound, Record<string, number>>;
+  /**
+   * 받은 수를 **라운드마다 따로** 센다 (ADR-46).
+   *
+   * ⚠️ **받은 콕은 현황 탭의 순위에서만 쓴다** (ADR-30). 참가자 탭의 개인 행에는 넣지 마라 —
+   * 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
+   *
+   * 합쳐 세면 현황 탭의 `콕 TOP` 에 매력 투표 표가 얹혀서, 운영자가
+   * *이 사람이 파티에서 몇 번 받았나* 를 못 읽는다 — 그 둘은 쓰임이 다르다 (ADR-34).
+   * 매력 투표는 프로필만 보고 고른 것이고, 콕은 만나보고 고른 것이다.
+   *
+   * ⚠️ **다시 합치지 마라.** 합계가 필요하면 쓰는 쪽에서 더한다.
+   */
+  received: Record<PokeRound, Record<string, number>>;
   mutual: Array<[string, string]>;
   pokeCount: Record<PokeRound, number>;
   /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다 */
@@ -478,16 +665,15 @@ export interface HostState {
   announcements: HostAnnouncement[];
 }
 
-/** 자리 초안 생성 입력. 테이블 수는 설정이 아니라 이 요청의 값이다 (ADR-5) */
+/**
+ * 자리 초안 생성 입력. 테이블 수는 설정이 아니라 이 요청의 값이다 (ADR-5).
+ */
 export interface SeatingInput {
   tableCount: number;
-  final: boolean;
   /**
-   * **이번 라운드에서만** 뺄 사람. 참가자에게 붙는 상태가 아니라 이 요청의 값이다 —
-   * 노쇼는 다음 라운드에 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다.
-   *
-   * 뺀 사람은 자리가 없다. 배정한 뒤 한 명씩 빼는 길(`unseat`)과 결과는 같지만,
-   * **자리 배치가 처음부터 온 사람만으로 짜인다** — 그게 이 값이 있는 이유다.
+   * 이번 라운드에서 뺄 사람 (ADR-45). **이 요청에만 있고 저장되지 않는다** —
+   * 사람에게 붙는 상태로 만들면 시간이 지나 틀리고, 틀린 상태가 다음 라운드에서
+   * 사람을 조용히 빠뜨린다 (FLOWS.md). 다음 배정은 전원으로 다시 시작한다.
    */
-  exclude?: string[];
+  exclude: string[];
 }

@@ -9,13 +9,12 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import type { Defaults } from "../shared/types.ts";
-import { DEFAULTS, withDefaults } from "../shared/constants.ts";
+import { DEFAULTS, LIMITS, withDefaults } from "../shared/constants.ts";
 import { genCode, randomHex } from "./auth.ts";
 
 export interface EventIndexEntry {
   id: string;
   code: string;
-  createdAt: number;
 }
 
 interface Snapshot {
@@ -29,7 +28,6 @@ interface Snapshot {
 export interface ReserveInput {
   code?: string;
   requestId: string;
-  now: number;
 }
 
 export type ReserveResult =
@@ -96,14 +94,21 @@ export class RegistryDO extends DurableObject {
     snap.defaults = {
       maxPre: next.maxPre,
       maxParty: next.maxParty,
-      regOpenBeforeD: next.regOpenBeforeD,
+      // 빈 장소는 그대로 둔다 — "회차마다 다른 곳에서 연다" 는 뜻이다 (ADR-38)
+      place: next.place ?? "",
+      // 빈 문구는 그대로 둔다 — 닉네임 칸에 아무 안내도 안 붙인다는 뜻이다 (ADR-59)
+      nickHint: (next.nickHint ?? "").slice(0, LIMITS.nickHintMax),
       prevoteBeforeH: next.prevoteBeforeH,
+      voteEndBeforeH: next.voteEndBeforeH,
+      revealAfterH: next.revealAfterH,
+      // 빈 문구를 저장하면 안내문이 링크 없이 나간다. 비면 기본 문구로 되돌린다
+      inviteTemplate: next.inviteTemplate?.trim() ? next.inviteTemplate : DEFAULTS.inviteTemplate,
     };
     await this.save(snap);
     return snap.defaults;
   }
 
-  /** 콕 횟수와 일정 오프셋만 되돌린다. 이미 만든 회차는 건드리지 않는다 (S-B9) */
+  /** 기본값만 되돌린다. 이미 만든 회차는 건드리지 않는다 (S-B9) */
   async resetDefaults(): Promise<Defaults> {
     const snap = await this.load();
     snap.defaults = DEFAULTS;
@@ -147,7 +152,7 @@ export class RegistryDO extends DurableObject {
     }
 
     const id = randomHex(8);
-    snap.events.push({ id, code, createdAt: input.now });
+    snap.events.push({ id, code });
     snap.requests[input.requestId] = id;
     await this.save(snap);
     return { ok: true, id, code, reused: false };

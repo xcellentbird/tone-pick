@@ -1,7 +1,13 @@
 /**
  * 내 정보 탭.
  *
- * 실명과 전화번호는 기본으로 가린다 — 파티장에서 어깨너머로 보인다.
+ * **전화번호와 인스타는 여기 없다** (ADR-47). 이 탭이 답하는 질문이 *내가 낸 것이 무엇인가* 인데
+ * 번호는 참가자가 낸 값이 아니고(초대 명단에서 온다 — ADR-32), 인스타는 운영자 확인용이라
+ * 남에게도 나에게도 보여줄 자리가 아니다. 실명은 그대로 보여준다 — 내가 적은 값이다.
+ *
+ * 그래서 **가리기 토글도 없다.** 가릴 것이 없어진 토글은 아무 일도 안 하면서
+ * "여기 감춘 게 있다" 고 말한다. ⚠️ 참가자 탭의 어깨너머 가리기(`PEOPLE.cover`, 슬라이스 16)는
+ * **다른 기능이다** — 그건 콕 버튼을 덮는 것이고 그대로 있다.
  *
  * **결과는 여기 없다.** 서로 찌른 사람도, 익명으로 남은 콕도 참가자 탭에서 본다 (ADR-18) —
  * 같은 것을 두 곳에 두면 어느 쪽이 맞는지 눈이 한 번 더 확인하게 된다.
@@ -12,11 +18,14 @@
  */
 import { useEffect, useState } from "react";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, UNIT } from "../../shared/copy.ts";
-import type { ParticipantState, Player } from "../../shared/types.ts";
+import type { MyProfile, ParticipantState } from "../../shared/types.ts";
 import { LIMITS, normalizeInstagram } from "../../shared/constants.ts";
+import { TICK_WINDOW, formatCountdown, formatDayHour } from "../../shared/time.ts";
 import { ApiError } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { draftOf, toInput, validateProfile } from "../lib/profileForm.ts";
+import { now } from "../lib/serverTime.ts";
+import { useTicker } from "../lib/useLoad.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
 
 interface Props {
@@ -32,6 +41,18 @@ export default function Me({ state, source, reload, editing, onEdit }: Props) {
   const { me, event } = state;
   // 사전 투표가 열리면 사람들이 이 정보를 보고 콕을 찌른다. 그 뒤로는 굳는다 (ADR-31)
   const canEdit = event.phase === "reg";
+  /*
+   * **언제까지 고칠 수 있나.** 잠기는 순간이 곧 매력 투표가 열리는 순간이라
+   * 마감은 `prevoteAt` 하나다 — 잠그는 조건과 세는 시각이 갈리면 둘 중 하나가 거짓말이 된다.
+   *
+   * 남는 시간은 **서버 시각**에서 뺀다 (`now()`). 폰 시계를 당겨도 마감이 밀리지 않는다.
+   * 예약 시각이 지났는데 아직 `reg` 인 회차가 있다 — 지나간 시각을 세면 음수가 뜨고,
+   * 사람은 그 숫자를 자기 시계가 틀린 걸로 읽는다 (`Home` 의 `nextMark` 와 같은 자리).
+   * 그때는 세지 않고 문구가 대신 선다.
+   */
+  const until = event.schedule.prevoteAt ? event.schedule.prevoteAt - now() : 0;
+  // 하루 넘게 남았으면 1초마다 다시 그릴 이유가 없다 — 그때는 `1일 2시간` 이라 초가 안 보인다
+  useTicker(canEdit && until > 0 && until <= TICK_WINDOW);
 
   /**
    * 잠긴 뒤에 편집 주소가 열려 있으면 안 된다 — 링크를 눌러서든 새로고침으로든
@@ -54,30 +75,37 @@ export default function Me({ state, source, reload, editing, onEdit }: Props) {
       {editing && canEdit ? (
         <EditForm me={me} source={source} reload={reload} done={() => onEdit(false)} />
       ) : (
-        <Saved me={me} canEdit={canEdit} edit={() => onEdit(true)} />
+        <Saved me={me} canEdit={canEdit} until={until} edit={() => onEdit(true)} />
       )}
     </div>
   );
 }
 
 /** 저장된 내 정보. 기본 정보와 매력을 나눠 그리되 고치는 버튼은 그 아래 하나뿐이다 */
-function Saved({ me, canEdit, edit }: { me: Player; canEdit: boolean; edit: () => void }) {
-  const [shown, setShown] = useState(false);
-
+function Saved({
+  me,
+  canEdit,
+  until,
+  edit,
+}: {
+  me: MyProfile;
+  canEdit: boolean;
+  /** 고치기 마감까지 남은 밀리초. 0 이하면 셀 시각이 없다는 뜻이다 */
+  until: number;
+  edit: () => void;
+}) {
   return (
     <>
+      {/*
+        전화번호·인스타 줄을 여기 되살리지 마라 (ADR-47). 번호는 응답에 아예 없고,
+        인스타는 **고치는 폼에만** 있다 — 값을 되보여주는 자리가 아니라 고치는 칸이라서다.
+      */}
       <div className="card stack">
         <Row label={ME.labels.nickname} value={me.nickname} />
         <Row label={ME.labels.age} value={UNIT.age(me.age)} />
         <Row label={ME.labels.gender} value={GENDER[me.gender]} />
         <Row label={ME.labels.mbti} value={me.mbti} />
-        <Row label={ME.labels.realName} value={shown ? me.realName : ME.hidden} />
-        <Row label={ME.labels.phone} value={shown ? me.phone : ME.hidden} />
-        {me.instagram && <Row label={ME.labels.instagram} value={shown ? me.instagram : ME.hidden} />}
-        <button className="btn ghost" onClick={() => setShown((v) => !v)}>
-          {shown ? ME.hide : ME.show}
-        </button>
-        <p className="tiny dim">{ME.hideNote}</p>
+        <Row label={ME.labels.realName} value={me.realName} />
       </div>
 
       <div className="card stack">
@@ -92,10 +120,24 @@ function Saved({ me, canEdit, edit }: { me: Player; canEdit: boolean; edit: () =
       {/* 잠긴 뒤에 버튼만 사라지면 "내 화면만 이상한가" 가 된다 — 왜 못 고치는지 말한다 */}
       {canEdit ? (
         <div className="stack">
+          {/*
+            마감이 버튼 **위**인 이유는 읽는 순서다 — *얼마 남았나* 를 보고 누른다.
+            아래에 적으면 이미 누르기로 정한 뒤에 읽는 줄이 된다.
+
+            셀 시각이 없을 때만 문구가 그 자리에 선다. **빈 자리로 두지 마라** —
+            버튼만 남으면 언제까지인지 물을 데가 없어진다. 가운데 정렬은 두 모양이 같다.
+          */}
+          {until > 0 ? (
+            <p className="editLeft tiny">
+              <span className="dim">{ME.editLeft}</span>
+              <b>{until <= TICK_WINDOW ? formatCountdown(until) : formatDayHour(until)}</b>
+            </p>
+          ) : (
+            <p className="tiny dim center">{ME.editHint}</p>
+          )}
           <button className="btn block" onClick={edit}>
             {ME.edit}
           </button>
-          <p className="tiny dim">{ME.editHint}</p>
         </div>
       ) : (
         <p className="tiny dim">{ME.locked}</p>
@@ -116,7 +158,7 @@ function EditForm({
   reload,
   done,
 }: {
-  me: Player;
+  me: MyProfile;
   source: ParticipantSource;
   reload: () => void;
   done: () => void;
@@ -233,12 +275,10 @@ function EditForm({
             onChange={(e) => set("instagram", e.target.value)}
             {...invalid("instagram")}
           />
+          {/* 등록 화면과 **같은 말**이어야 한다 — 두 화면이 다르게 말하면 둘 다 못 믿는다 */}
+          <p className="tiny dim">{REGISTER.instaWhy}</p>
           {err("instagram")}
         </div>
-
-        {/* 전화번호는 파티의 문이라 고칠 수 없다 (ADR-15). 칸이 아니라 사실로 보여준다 */}
-        <Row label={ME.labels.phone} value={me.phone} />
-        <p className="tiny dim">{ME.phoneFixed}</p>
       </div>
 
       <div className="card stack">

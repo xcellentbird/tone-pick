@@ -1,4 +1,6 @@
 import type { ClientEvent, ServerEvent } from "../../shared/types.ts";
+import { tabRef } from "./session.ts";
+import { ws as pulseWs } from "./pulse.ts";
 
 /**
  * 폴링이 아니라 WebSocket 인 이유는 실시간성보다 비용이다.
@@ -26,9 +28,19 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
   let beat: ReturnType<typeof setInterval>;
 
   function open() {
-    ws = new WebSocket(`${proto}://${location.host}/ws/${code}`);
+    /*
+     * **이름표는 붙일 때마다 다시 읽는다.** 이 탭이 등록을 마치면 이름표가 생기는데,
+     * 연결 함수가 만들어질 때 한 번 읽고 말면 그 뒤 재연결이 계속 옛 세션으로 붙는다.
+     *
+     * 브라우저 WebSocket 은 헤더를 못 실어서 여기만 쿼리다. 이름표는 비밀이 아니라
+     * 주소에 실려도 되고, 증명은 여전히 쿠키다 (ADR-44).
+     */
+    const ref = tabRef();
+    ws = new WebSocket(`${proto}://${location.host}/ws/${code}${ref ? `?ref=${ref}` : ""}`);
 
     ws.onopen = () => {
+      // 다시 붙은 것과 처음 붙은 것을 갈라 센다 (ADR-56) — 파티장 와이파이가 여기서만 보인다
+      pulseWs(opened ? "retry" : "open");
       retry = 0;
       lastSeen = Date.now();
       // 처음이 아니라면 끊겨 있던 동안 놓친 게 있다. 화면을 한 번 따라잡게 한다
@@ -49,6 +61,7 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
 
     ws.onclose = () => {
       if (closed) return;
+      pulseWs("drop");
       // 파티장 와이파이는 끊긴다. 지수 백오프로 조용히 재연결한다.
       timer = setTimeout(open, Math.min(30_000, 1000 * 2 ** retry++));
     };
@@ -95,10 +108,12 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
   document.addEventListener("visibilitychange", onVisible);
   window.addEventListener("pageshow", onShow);
 
+  /*
+   * **닫는 길만 준다.** 소켓으로 보내는 것은 안쪽의 `ping` 하나뿐이고,
+   * 참가자가 하는 일(콕·자리 확인)은 전부 HTTP 다 — 실시간은 "다시 읽어라" 신호로만 쓴다 (ADR-26).
+   * `send` 를 내주면 부분 갱신을 그리로 하고 싶어지고, 그때 화면과 서버가 조용히 어긋난다.
+   */
   return {
-    send(msg: ClientEvent) {
-      ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify(msg));
-    },
     close() {
       closed = true;
       clearTimeout(timer);

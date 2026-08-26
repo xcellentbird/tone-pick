@@ -2,8 +2,12 @@
  * 회차 기본 설정. 새 회차를 만들 때 위저드가 채워 넣는 값이다.
  *
  * 일정 기본값은 **파티 일시에서 거꾸로** 잰다 — 운영자가 실제로 아는 건 "언제 모이나" 하나뿐이다.
+ * 등록 시작은 여기 없다 (ADR-38). 회차를 만드는 순간 열리므로 미리 정할 것이 없다.
  *
- * 되돌리기는 **콕 횟수와 일정 오프셋만** 되돌린다. 이미 만든 회차는 그대로다 —
+ * **장소가 여기 있는 이유**는 늘 같은 곳에서 여는 모임이기 때문이다 —
+ * 회차마다 다시 적는 값이면 회차 만들기 화면에만 있어야 맞다. 회차에서 고치면 그 회차만 바뀐다.
+ *
+ * 되돌리기는 여기 적힌 것만 되돌린다. 이미 만든 회차는 그대로다 —
  * 확인창에서 그 사실을 숫자와 함께 보여준다.
  *
  * 운영자 PIN 은 여기서 바꾸지 않는다. 배포 시크릿(`MASTER_PIN`) 하나가 유일한 출처다 —
@@ -58,8 +62,11 @@ export default function HostDefaults() {
         facts: [
           [HOST_UI.fields.maxPre, `${UNIT.times(form!.maxPre)} → ${UNIT.times(DEFAULTS.maxPre)}`],
           [HOST_UI.fields.maxParty, `${UNIT.times(form!.maxParty)} → ${UNIT.times(DEFAULTS.maxParty)}`],
-          [HOST_UI.fields.regOpenAt, `${form!.regOpenBeforeD}d → ${DEFAULTS.regOpenBeforeD}d`],
           [HOST_UI.fields.prevoteAt, `${form!.prevoteBeforeH}h → ${DEFAULTS.prevoteBeforeH}h`],
+          [HOST_UI.fields.voteEndAt, `${form!.voteEndBeforeH}h → ${DEFAULTS.voteEndBeforeH}h`],
+          [HOST_UI.fields.revealAt, `${form!.revealAfterH}h → ${DEFAULTS.revealAfterH}h`],
+          // 빈 값도 뜻이 있다 — 회차마다 다른 곳에서 연다는 뜻이라 '—' 로 보여준다
+          [HOST_UI.fields.place, `${form!.place || "—"} → ${DEFAULTS.place || "—"}`],
         ],
       },
       async () => {
@@ -95,19 +102,73 @@ export default function HostDefaults() {
           onChange={(v) => set("maxParty", v)}
         />
         <Num
-          label={HOST_UI.fields.regOpenBeforeD}
-          value={form.regOpenBeforeD}
-          min={0}
-          max={60}
-          onChange={(v) => set("regOpenBeforeD", v)}
-        />
-        <Num
           label={HOST_UI.fields.prevoteBeforeH}
           value={form.prevoteBeforeH}
           min={0}
           max={720}
           onChange={(v) => set("prevoteBeforeH", v)}
         />
+        {/* 이 값과 0 사이가 자리를 짜는 시간이다 (ADR-39). 짧게 잡으면 운영자가 쫓긴다 */}
+        <Num
+          label={HOST_UI.fields.voteEndBeforeH}
+          value={form.voteEndBeforeH}
+          min={0}
+          max={720}
+          onChange={(v) => set("voteEndBeforeH", v)}
+        />
+        {/* 유일하게 파티 **뒤**를 재는 값이다 (ADR-43). 0 이면 시작과 동시에 발표라 막는다 */}
+        <Num
+          label={HOST_UI.fields.revealAfterH}
+          value={form.revealAfterH}
+          min={1}
+          max={24}
+          onChange={(v) => set("revealAfterH", v)}
+        />
+        {/* 등록 시작 오프셋은 없다 (ADR-38) — 회차를 만들면 곧바로 열린다 */}
+        <p className="tiny dim">{HOST_UI.regOpensNow}</p>
+
+        {/* 늘 같은 곳에서 여는 모임이면 여기 한 번 적어둔다. 회차마다 고칠 수 있다 */}
+        <div className="field">
+          <label htmlFor="dplace">{HOST_UI.fields.place}</label>
+          <input
+            id="dplace"
+            value={form.place}
+            maxLength={LIMITS.placeMax}
+            onChange={(e) => set("place", e.target.value)}
+          />
+          <span className="tiny dim">{HOST_UI.fields.placeDefaultHint}</span>
+        </div>
+
+        {/*
+          닉네임 칸의 문구 (ADR-59). **회차마다 다시 쓰지 않는다** — 장소·안내문과 같은 자리다.
+          그 운영자의 파티가 어떤 자리인지에 붙지, 8월 회차와 9월 회차가 다르지 않다.
+        */}
+        <div className="field">
+          <label htmlFor="nickHint">{HOST_UI.fields.nickHint}</label>
+          <input
+            id="nickHint"
+            value={form.nickHint}
+            maxLength={LIMITS.nickHintMax}
+            onChange={(e) => set("nickHint", e.target.value)}
+          />
+          <span className="tiny dim">{HOST_UI.fields.nickHintDefaultHint}</span>
+        </div>
+
+        {/*
+          안내문 문구 (ADR-32). **여기 하나만 둔다** — 회차마다 다시 쓰지 않는다.
+          회차마다 달라지는 장소·일시·링크는 치환 자리가 채운다.
+        */}
+        <div className="field">
+          <label htmlFor="inviteTemplate">{HOST_UI.invite.templateTitle}</label>
+          <textarea
+            id="inviteTemplate"
+            rows={5}
+            value={form.inviteTemplate}
+            maxLength={LIMITS.inviteTemplateMax}
+            onChange={(e) => set("inviteTemplate", e.target.value)}
+          />
+          <span className="tiny dim">{HOST_UI.invite.templateHint}</span>
+        </div>
 
         {error && <p className="err danger">{error}</p>}
 
@@ -118,6 +179,73 @@ export default function HostDefaults() {
           {HOST.defaults.resetTitle}
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 켜고 끄는 설정 한 줄. **셋 중 하나가 늘 눌려 있는** 선택 줄과 같은 모양이다 —
+ * 스위치로 두면 지금 어느 쪽인지 색으로만 말하게 된다.
+ *
+ * `on` 쪽 라벨을 왼쪽에 둘지 오른쪽에 둘지는 부르는 쪽이 정한다 —
+ * 기본값이 왼쪽에 오는 게 읽기 편하다.
+ */
+/** 되돌리기 선택지. 기본(할 수 있음)이 왼쪽이다 */
+export const UNDO_OPTIONS = [
+  { on: true, label: HOST_UI.fields.undoOn },
+  { on: false, label: HOST_UI.fields.undoOff },
+] as const;
+
+/** 알림 선택지. 기본(안 보냄)이 왼쪽이다 */
+export const NOTIFY_OPTIONS = [
+  { on: false, label: HOST_UI.fields.pokeNotifyOff },
+  { on: true, label: HOST_UI.fields.pokeNotifyOn },
+] as const;
+
+/** 콕 대상 선택지. 기본(모두에게)이 오른쪽이다 — 좁히는 쪽을 먼저 읽는 줄이라 그대로 둔다 */
+export const TARGET_OPTIONS = [
+  { on: false, label: HOST_UI.fields.pokeTargetOpposite },
+  { on: true, label: HOST_UI.fields.pokeTargetAll },
+] as const;
+
+export function Toggle({
+  label,
+  value,
+  options,
+  note,
+  locked,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  /** `[왼쪽, 오른쪽]`. 각각 그 자리의 값과 글자 */
+  options: readonly [{ on: boolean; label: string }, { on: boolean; label: string }];
+  note?: string;
+  /**
+   * 굳어서 못 고치는 줄 (ADR-35). **숨기지 않고 잠근다** —
+   * 지금 어느 쪽으로 돌아가고 있는지는 파티 중에 가장 자주 확인하는 값이다.
+   */
+  locked?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="field">
+      <label>{label}</label>
+      <div className="choice">
+        {options.map((opt) => (
+          <button
+            key={opt.label}
+            type="button"
+            aria-pressed={value === opt.on}
+            disabled={locked}
+            onClick={() => onChange(opt.on)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      {/* 잠긴 이유가 먼저다. 고를 수 없는 줄에 고르는 근거를 남겨두면 읽는 순서가 어긋난다 */}
+      {locked ? <span className="tiny dim">{HOST_UI.frozen}</span> : note && <span className="tiny dim">{note}</span>}
     </div>
   );
 }

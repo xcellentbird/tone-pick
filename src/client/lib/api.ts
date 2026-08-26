@@ -1,5 +1,6 @@
 import { FAIL } from "../../shared/copy.ts";
 import { syncFromResponse } from "./serverTime.ts";
+import { tabRef } from "./session.ts";
 
 /**
  * 서버는 자료를 그대로 돌려주고, 서버 시각은 `x-server-time` 헤더로만 싣는다.
@@ -37,8 +38,12 @@ export class ApiError extends Error {
   }
 }
 
+/** 서버가 어느 세션을 읽을지 고르는 헤더. `src/server/auth.ts` 의 `REF_HEADER` 와 같은 값이다 */
+const REF_HEADER = "x-tp-ref";
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
+  const ref = tabRef();
   try {
     res = await fetch(`/api${path}`, {
       credentials: "include", // 세션은 HttpOnly 쿠키. 전화번호를 URL 에 노출하지 않는다
@@ -51,7 +56,16 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
        * 들어가고, 시간 제한만 없어질 뿐 요청은 그대로 나간다.
        */
       signal: AbortSignal.timeout?.(timeoutFor(path)),
-      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+      /*
+       * **이 탭이 누구인지 서버에 알린다** (ADR-44). 이름표는 비밀이 아니다 —
+       * 브라우저가 들고 있는 여러 참가자 쿠키 중 어느 것을 읽을지 고를 뿐이고,
+       * 증명은 그 쿠키 안에 있다. 이름표가 없으면 서버가 기본 세션을 읽는다.
+       */
+      headers: {
+        "content-type": "application/json",
+        ...(ref ? { [REF_HEADER]: ref } : {}),
+        ...(init?.headers ?? {}),
+      },
     });
   } catch {
     /*

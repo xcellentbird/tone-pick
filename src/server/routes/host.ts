@@ -16,7 +16,8 @@ import type {
   SeatingInput,
 } from "../../shared/types.ts";
 import { HOST, HOST_UI } from "../../shared/copy.ts";
-import { LIMITS, RETENTION_DAYS } from "../../shared/constants.ts";
+import { LIMITS } from "../../shared/constants.ts";
+import { pulse, type SeatingKey } from "../metrics.ts";
 import { PHASE_ORDER } from "../../shared/phase.ts";
 import { HOST_COOKIE, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
 import {
@@ -29,11 +30,13 @@ import {
   serverNow,
   unwrap,
   type Ctx,
-  type Env,
-} from "../http.ts";
-import { pokeLimitMessage, seatingMessage } from "../messages.ts";
+  type Env, timed,} from "../http.ts";
+import { seatingMessage, settingsMessage } from "../messages.ts";
 
 export const hostRoutes = new Hono<{ Bindings: Env }>();
+
+/** 응답 시간을 잰다 (ADR-56). 담기는 건 라우트 **패턴**이라 회차 아이디가 안 실린다 */
+hostRoutes.use("*", timed("host"));
 
 // ─────────────────────────────────── 인증
 
@@ -65,8 +68,13 @@ hostRoutes.put("/defaults", async (c) => {
     await registry(c.env).putDefaults({
       maxPre: body.maxPre,
       maxParty: body.maxParty,
-      regOpenBeforeD: body.regOpenBeforeD,
+      place: String(body.place ?? "").trim().slice(0, LIMITS.placeMax),
+      // 앞뒤 공백만 턴다. 안쪽 줄바꿈은 막지 않는다 — 한 줄로 쓰라고 강제할 이유가 없다
+      nickHint: String(body.nickHint ?? "").trim().slice(0, LIMITS.nickHintMax),
       prevoteBeforeH: body.prevoteBeforeH,
+      voteEndBeforeH: body.voteEndBeforeH,
+      revealAfterH: body.revealAfterH,
+      inviteTemplate: String(body.inviteTemplate ?? "").slice(0, LIMITS.inviteTemplateMax),
     }),
   );
 });
@@ -98,42 +106,51 @@ hostRoutes.post("/events", async (c) => {
   if (!body.name?.trim() || !body.requestId) return apiError(c, "bad_request");
   if (!validConfig(body.config)) return apiError(c, "bad_request");
 
-  // 'now' 는 시각이 아니라 리터럴로 받는다 — datetime-local 이 초를 버리기 때문 (UI.md)
-  const openNow = body.regOpenAt === "now";
-  const regOpenAt = openNow ? now : Number(body.regOpenAt);
+  /*
+   * **등록은 만드는 순간 열린다** (ADR-38). 시각을 받지 않으므로 순서를 검증할 두 시각도 없다.
+   * 매력 투표 시작이 이미 지났더라도 회차는 만들어진다 — 그때는 둘이 곧바로 이어서 열린다.
+   */
   const partyAt = Number(body.partyAt);
   const prevoteAt = Number(body.prevoteAt);
-  if (![regOpenAt, partyAt, prevoteAt].every(Number.isFinite)) return apiError(c, "bad_request");
-  // 순서 검증은 **운영자가 고른 두 시각** 사이에서만 한다.
-  // '지금 바로'는 고른 시각이 아니라 버튼이라서, 사전 투표 시작이 이미 지났더라도 회차는 만들어진다 —
-  // 그때는 등록과 사전 투표가 곧바로 이어서 열린다.
-  if (!openNow && prevoteAt <= regOpenAt) return apiError(c, "schedule_order");
+  const voteEndAt = Number(body.voteEndAt);
+  const revealAt = Number(body.revealAt);
+  if (![partyAt, prevoteAt, voteEndAt, revealAt].every(Number.isFinite)) return apiError(c, "bad_request");
+  // 발표가 파티보다 앞이면 파티가 시작되자마자 끝난다 (ADR-43)
+  if (revealAt <= partyAt) return apiError(c, "bad_request");
 
   const reserved = await registry(c.env).reserve({
     code: body.code,
     requestId: String(body.requestId),
-    now,
   });
   if (!reserved.ok) return apiError(c, "code_taken", HOST.pin.codeTaken);
 
+  const place = String(body.place ?? "").trim().slice(0, LIMITS.placeMax);
+  /*
+   * **닉네임 안내 문구는 기본값에서 물려받는다** (ADR-59). 위저드가 묻지 않는다 —
+   * 회차마다 바뀌는 값이 아니라 그 운영자의 파티 성격에 붙는 값이라서다.
+   * 고칠 일이 생기면 설정 탭에서 그 회차만 고친다.
+   */
+  const { nickHint } = await registry(c.env).getDefaults();
   const meta = await eventStub(c.env, reserved.id).init({
     id: reserved.id,
     name: body.name.trim(),
+    ...(place ? { place } : {}),
+    ...(nickHint ? { nickHint } : {}),
     code: reserved.code,
-    phase: openNow ? "reg" : "prep",
-    fired: openNow ? { reg: now } : {},
-    schedule: { partyAt, regOpenAt, prevoteAt },
-    // 좁혔을 때만 적는다. 기본값을 굳이 써 넣으면 설정의 모양이 회차마다 달라진다.
-    // **위저드가 고른 값은 여기서 버려지면 안 된다** — 파기 일수를 7일로 골라 놓고
-    // 3일 뒤에 사라지는 회차가 되면, 참가자에게 한 약속이 조용히 어긋난다
+    // 만드는 순간 등록이 열린다. 시각은 **기록으로** 남긴다 — 지나간 예약을 지우지 않는 것과 같다
+    phase: "reg",
+    fired: { reg: now },
+    schedule: { partyAt, regOpenAt: now, prevoteAt, voteEndAt, revealAt },
+    // 좁혔을 때만 적는다. 기본값을 굳이 써 넣으면 설정의 모양이 회차마다 달라진다
     config: {
       maxPre: body.config.maxPre,
       maxParty: body.config.maxParty,
       ...(body.config.allowSameGender === false ? { allowSameGender: false } : {}),
-      ...(body.config.prevoteNotice === false ? { prevoteNotice: false } : {}),
-      ...(body.config.retentionDays !== undefined && body.config.retentionDays !== RETENTION_DAYS
-        ? { retentionDays: body.config.retentionDays }
-        : {}),
+      // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
+      ...(body.config.allowUndo === false ? { allowUndo: false } : {}),
+      ...(body.config.allowUndoPre === false ? { allowUndoPre: false } : {}),
+      ...(body.config.preNotify === true ? { preNotify: true } : {}),
+      ...(body.config.pokeNotify === true ? { pokeNotify: true } : {}),
     },
     createdAt: now,
   });
@@ -157,8 +174,10 @@ hostRoutes.get("/events/:id/state", async (c) => {
 });
 
 /**
- * 이름·콕 횟수. **입장 코드는 바꾸지 않는다** (ADR-22) —
+ * 이름·장소·콕 횟수. **입장 코드는 바꾸지 않는다** (ADR-22) —
  * 이미 나간 링크와 안내가 어긋나고 되돌릴 방법이 없다. 코드를 보내와도 무시한다.
+ *
+ * 콕 대상·되돌리기·알림은 콕이 오가기 시작하면 굳는다 (ADR-35). DO 가 거절한다.
  */
 hostRoutes.put("/events/:id", async (c) => {
   const gate = await openEvent(c);
@@ -168,8 +187,11 @@ hostRoutes.put("/events/:id", async (c) => {
 
   const { value, response } = unwrap(
     c,
-    await gate.stub.patchMeta({ name: body.name, config: body.config }, serverNow()),
-    pokeLimitMessage,
+    await gate.stub.patchMeta(
+      { name: body.name, place: body.place, nickHint: body.nickHint, config: body.config },
+      serverNow(),
+    ),
+    settingsMessage,
   );
   return response ?? c.json(value);
 });
@@ -178,7 +200,7 @@ hostRoutes.put("/events/:id/schedule", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const body = await json<EventSchedule>(c);
-  const { value, response } = unwrap(c, await gate.stub.setSchedule(body, serverNow()));
+  const { value, response } = unwrap(c, await gate.stub.setSchedule(body, serverNow()), settingsMessage);
   return response ?? c.json(value);
 });
 
@@ -191,6 +213,18 @@ hostRoutes.post("/events/:id/phase", async (c) => {
   return response ?? c.json(value);
 });
 
+/**
+ * 매력 투표를 지금 마감한다 (ADR-39 후기). **단계는 넘어가지 않는다** —
+ * 표만 닫히고 나이·MBTI 도 파티 콕도 `파티 시작` 이 연다.
+ * 시각은 **서버가 찍는다.** 운영자 폰이 빠르면 아직 열려 있는 걸 닫힌 것으로 만든다.
+ */
+hostRoutes.post("/events/:id/vote-end", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { value, response } = unwrap(c, await gate.stub.closeVote(serverNow()));
+  return response ?? c.json(value);
+});
+
 hostRoutes.delete("/events/:id", async (c) => {
   if (!isMaster(await hostScope(c))) return denied(c);
   const id = c.req.param("id");
@@ -199,7 +233,7 @@ hostRoutes.delete("/events/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-// ─────────────────────────────────── 입장 명단 (ADR-15)
+// ─────────────────────────────────── 초대 명단 (ADR-15)
 
 /** 명단에 더한다. 통째로 갈아치우는 길은 두지 않는다 — 실수 한 번이 파티를 날린다 */
 hostRoutes.post("/events/:id/invites", async (c) => {
@@ -267,6 +301,16 @@ hostRoutes.delete("/events/:id/announcements/:aid", async (c) => {
 
 // ─────────────────────────────────── 자리
 
+/**
+ * 자리 조작 한 건 센다 (ADR-58). **성공한 것만** — 실패는 `timed()` 가 상태 코드로 이미 말한다.
+ *
+ * 운영자가 손으로 고친 횟수가 곧 *알고리즘이 놓친 곳*이다.
+ * ⚠️ 누구를 옮겼는지·어느 자리인지는 넘기지 않는다. 넘길 자리가 없다.
+ */
+const markSeat = (c: Ctx, key: SeatingKey, response: Response | null) => {
+  if (!response) pulse(c.env, { kind: "seating", key });
+};
+
 hostRoutes.post("/events/:id/seating", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
@@ -276,12 +320,13 @@ hostRoutes.post("/events/:id/seating", async (c) => {
     c,
     await gate.stub.makeSeating(
       Number(body.tableCount),
-      !!body.final,
-      serverNow(),
+      // 바깥에서 온 목록이다. 문자열만 통과시켜 DO 가 이상한 값을 만나지 않게 한다
       Array.isArray(body.exclude) ? body.exclude.map(String) : [],
+      serverNow(),
     ),
     seatingMessage,
   );
+  markSeat(c, "draft", response);
   return response ?? c.json(value);
 });
 
@@ -297,6 +342,7 @@ hostRoutes.post("/events/:id/seating/swap", async (c) => {
   const body = await json<{ a?: string; b?: string; round?: number }>(c);
   if (!body.a || !body.b) return apiError(c, "bad_request");
   const { value, response } = unwrap(c, await gate.stub.swapSeats(body.a, body.b, body.round));
+  markSeat(c, "swap", response);
   return response ?? c.json(value);
 });
 
@@ -307,6 +353,7 @@ hostRoutes.post("/events/:id/seating/seat", async (c) => {
   const body = await json<{ playerId?: string; round?: number }>(c);
   if (!body.playerId) return apiError(c, "bad_request");
   const { value, response } = unwrap(c, await gate.stub.seatPlayer(body.playerId, body.round));
+  markSeat(c, "seat", response);
   return response ?? c.json(value);
 });
 
@@ -317,6 +364,7 @@ hostRoutes.post("/events/:id/seating/unseat", async (c) => {
   const body = await json<{ playerId?: string; round?: number }>(c);
   if (!body.playerId) return apiError(c, "bad_request");
   const { value, response } = unwrap(c, await gate.stub.unseatPlayer(body.playerId, body.round));
+  markSeat(c, "unseat", response);
   return response ?? c.json(value);
 });
 
@@ -325,6 +373,7 @@ hostRoutes.post("/events/:id/seating/shuffle", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const { value, response } = unwrap(c, await gate.stub.shuffleSeating());
+  markSeat(c, "shuffle", response);
   return response ?? c.json(value);
 });
 
@@ -332,6 +381,7 @@ hostRoutes.delete("/events/:id/seating", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const { response } = unwrap(c, await gate.stub.discardSeating());
+  markSeat(c, "discard", response);
   return response ?? c.json({ ok: true });
 });
 
@@ -339,6 +389,7 @@ hostRoutes.post("/events/:id/seating/publish", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const { value, response } = unwrap(c, await gate.stub.publishSeating(serverNow()));
+  markSeat(c, "publish", response);
   return response ?? c.json(value);
 });
 
@@ -364,15 +415,14 @@ async function json<T>(c: Ctx): Promise<T> {
 
 function validConfig(config: EventConfig | undefined): boolean {
   if (!config) return false;
-  const { maxPre, maxParty, retentionDays } = config;
-  if (retentionDays !== undefined) {
-    if (
-      !Number.isInteger(retentionDays) ||
-      retentionDays < LIMITS.retentionDays.min ||
-      retentionDays > LIMITS.retentionDays.max
-    ) {
-      return false;
-    }
+  const { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify } = config;
+  /*
+   * 없으면 기본값이다. 있으면 불리언이어야 한다 — `"true"` 라는 글자가 들어오면 안 된다.
+   * **굳는 규칙 다섯이 다 여기 있어야 한다** (ADR-35). 하나가 빠지면 그 값만
+   * 이상한 것이 들어와도 조용히 기본값으로 접히고, 운영자는 고른 대로 저장된 줄 안다.
+   */
+  for (const flag of [allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify]) {
+    if (flag !== undefined && typeof flag !== "boolean") return false;
   }
   return (
     Number.isInteger(maxPre) &&
@@ -385,13 +435,20 @@ function validConfig(config: EventConfig | undefined): boolean {
 }
 
 function validDefaults(d: Defaults): boolean {
+  /*
+   * 등록 시작 오프셋은 사라졌다 (ADR-38) — 회차를 만드는 순간 열린다.
+   * 그래서 "사전 투표가 등록보다 먼저 열리면 안 된다" 는 순서 검사도 함께 없앴다.
+   * 매력 투표가 회차를 만드는 시점보다 앞이면 등록과 곧바로 이어 열릴 뿐, 어긋나지 않는다.
+   */
   return (
     validConfig(d) &&
-    Number.isFinite(d.regOpenBeforeD) &&
-    d.regOpenBeforeD >= 0 &&
+    (d.place === undefined || typeof d.place === "string") &&
     Number.isFinite(d.prevoteBeforeH) &&
     d.prevoteBeforeH >= 0 &&
-    // 사전 투표가 등록보다 먼저 열리는 기본값을 저장하면, 위저더가 채우는 일정이 매번 순서 위반으로 실패한다
-    d.prevoteBeforeH < d.regOpenBeforeD * 24
+    Number.isFinite(d.voteEndBeforeH) &&
+    d.voteEndBeforeH >= 0 &&
+    // 발표만 파티 **뒤**를 잰다 (ADR-43). 0 이면 파티 시작과 동시에 발표라 뜻이 없다
+    Number.isFinite(d.revealAfterH) &&
+    d.revealAfterH > 0
   );
 }

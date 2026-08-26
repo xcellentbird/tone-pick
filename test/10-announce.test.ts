@@ -12,6 +12,7 @@ import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { hangulSeq } from "../src/shared/copy.ts";
 import type {
+  Invite,
   EventMeta,
   HostState,
   ParticipantState,
@@ -27,6 +28,17 @@ interface Res<T> {
   status: number;
   body: T;
   cookie: string | null;
+}
+
+/**
+ * 세션 쿠키는 **두 벌** 나간다 (ADR-44) — `tp_play_<이름표>` 와 이름표 없는 `tp_play`.
+ * 테스트는 이름표를 보내지 않으므로 **기본 쿠키**를 집는다. 탭이 갈리는 경우는
+ * `x-tp-ref` 를 직접 실어 따로 확인한다 (`test/44-tab-sessions.test.ts`).
+ */
+function baseCookie(res: Response): string | null {
+  const all = res.headers.getSetCookie?.() ?? [];
+  const one = all.map((c) => c.split(";")[0]).find((c) => /^tp_(host|play|inv)=./.test(c));
+  return one ?? res.headers.get("set-cookie")?.split(";")[0] ?? null;
 }
 
 async function api<T = unknown>(
@@ -45,8 +57,7 @@ async function api<T = unknown>(
   } catch {
     body = { raw: text };
   }
-  const set = res.headers.get("set-cookie");
-  return { status: res.status, body: body as T, cookie: set ? set.split(";")[0] : null };
+  return { status: res.status, body: body as T, cookie: baseCookie(res) };
 }
 
 let master: string | null = null;
@@ -64,10 +75,10 @@ async function freshEvent(): Promise<EventMeta> {
     cookie: master,
     body: {
       name: `알림${seq}회차`,
-      pin: String(4000 + seq),
-      regOpenAt: "now",
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
+      voteEndAt: Date.now() + 3 * 24 * HOUR - HOUR,
+      revealAt: Date.now() + 3 * 24 * HOUR + 3 * HOUR,
       config: { maxPre: 2, maxParty: 3 },
       requestId: `a-${seq}-${Date.now()}`,
     },
@@ -79,8 +90,14 @@ async function freshEvent(): Promise<EventMeta> {
 /** 명단에 넣고 → 입장하고 → 등록한다. 실제 참가자가 지나는 길 그대로다 */
 async function join(ev: EventMeta): Promise<{ cookie: string | null; id: string }> {
   const phone = `0102000${String(1000 + ++phoneSeq)}`;
-  await api(`/api/host/events/${ev.id}/invites`, { method: "POST", cookie: master, body: { phones: [phone] } });
-  const gate = await api(`/api/events/${ev.id}/enter`, { method: "POST", body: { phone } });
+  // 번호를 넣으면 그 줄에 토큰이 생기고, 문을 여는 건 그 토큰이다 (ADR-32)
+  const added = await api<Invite[]>(`/api/host/events/${ev.id}/invites`, {
+    method: "POST",
+    cookie: master,
+    body: { phones: [phone] },
+  });
+  const token = added.body.find((i) => i.phone === phone)!.token;
+  const gate = await api(`/api/events/${ev.id}/enter`, { method: "POST", body: { token } });
   expect(gate.status, JSON.stringify(gate.body)).toBe(200);
   const input: RegisterInput = {
     nickname: `투표${hangulSeq(phoneSeq)}`,

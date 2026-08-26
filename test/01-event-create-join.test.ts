@@ -11,7 +11,6 @@
 import { SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ENTRY, HOST } from "../src/shared/copy.ts";
-import { RETENTION_DAYS } from "../src/shared/constants.ts";
 import type { CreateEventInput, EventMeta, EventSummary, PublicEvent } from "../src/shared/types.ts";
 
 const MASTER_PIN = "1234";
@@ -47,14 +46,23 @@ async function api<T = unknown>(
   } catch {
     body = { raw: text };
   }
-  const set = res.headers.get("set-cookie");
   const st = res.headers.get("x-server-time");
   return {
     status: res.status,
     body: body as T,
-    cookie: set ? set.split(";")[0] : null,
+    cookie: baseCookie(res),
     serverTime: st ? Number(st) : null,
   };
+}
+
+/**
+ * 세션 쿠키는 **두 벌** 나간다 (ADR-44) — `tp_play_<이름표>` 와 이름표 없는 `tp_play`.
+ * 테스트는 이름표를 보내지 않으므로 **기본 쿠키**를 집는다.
+ */
+function baseCookie(res: Response): string | null {
+  const all = res.headers.getSetCookie?.() ?? [];
+  const one = all.map((c) => c.split(";")[0]).find((c) => /^tp_(host|play|inv)=./.test(c));
+  return one ?? res.headers.get("set-cookie")?.split(";")[0] ?? null;
 }
 
 /** 운영자 PIN 으로 로그인하고 세션 쿠키를 돌려준다. PIN 은 하나뿐이다 (ADR-12) */
@@ -74,8 +82,9 @@ function draft(over: Partial<CreateEventInput> = {}): CreateEventInput {
   return {
     name: `${seq}회차 솔로 파티`,
     partyAt: now + 7 * DAY,
-    regOpenAt: now + HOUR,
     prevoteAt: now + 25 * HOUR,
+    voteEndAt: now + 7 * DAY - HOUR,
+    revealAt: now + 7 * DAY + 3 * HOUR,
     config: { maxPre: 3, maxParty: 3 },
     requestId: `req-${seq}-${now}`,
     ...over,
@@ -90,6 +99,23 @@ async function createEvent(cookie: string | null, over: Partial<CreateEventInput
 async function travelTo(at: number) {
   const res = await api("/api/__test__/now", { method: "POST", body: { at } });
   expect(res.status, "테스트 전용 시간 이동 라우트가 필요합니다 (docs/scenarios/01-surface.md)").toBe(200);
+}
+
+let inviteSeq = 0;
+
+/**
+ * 참가 링크 주소. **회차 정보 조회도 토큰을 요구한다** (ADR-32) —
+ * 아이디만으로 열리면 토큰을 만든 의미가 없다.
+ */
+async function linkTo(eventId: string): Promise<string> {
+  const phone = `0108000${String(1000 + ++inviteSeq)}`;
+  const added = await api<Array<{ phone: string; token: string }>>(`/api/host/events/${eventId}/invites`, {
+    method: "POST",
+    cookie: master,
+    body: { phones: [phone] },
+  });
+  const token = added.body.find((i) => i.phone === phone)!.token;
+  return `/api/events/by-id/${eventId}?t=${token}`;
 }
 
 let master: string | null = null;
@@ -173,17 +199,17 @@ describe("A. 운영자 인증", () => {
 
 describe("B. 회차 생성", () => {
   it("S-B1 기본 설정을 물려받는다", async () => {
-    // Given 기본값이 { maxPre:1, maxParty:2, regOpenBeforeD:6, prevoteBeforeH:20 } 다
-    const res = await api<{ maxPre: number; maxParty: number; regOpenBeforeD: number; prevoteBeforeH: number }>(
+    // Given 기본값이 { maxPre:1, maxParty:2, place:"", prevoteBeforeH:20 } 다
+    const res = await api<{ maxPre: number; maxParty: number; place: string; prevoteBeforeH: number }>(
       "/api/host/defaults",
       { cookie: master },
     );
-    // Then  위저드가 채워 넣을 값을 그대로 돌려준다 — 등록은 파티 6일 전에 연다
+    // Then  위저드가 채워 넣을 값을 그대로 돌려준다 — 예약이 남은 건 매력 투표 시작뿐이다 (ADR-38)
     expect(res.status).toBe(200);
     expect(res.body.maxPre).toBe(1);
     expect(res.body.maxParty).toBe(2);
-    expect(res.body.regOpenBeforeD).toBe(6);
     expect(res.body.prevoteBeforeH).toBe(20);
+    expect(res.body.place).toBe("");
   });
 
   it("S-B2 ★ 회차를 만들 때 회차 PIN 을 받지 않는다", async () => {
@@ -193,8 +219,15 @@ describe("B. 회차 생성", () => {
     // Then  회차는 만들어지되, 그 번호로는 아무 문도 열리지 않는다
     expect(res.status).toBe(200);
     expect((await login("5678", res.body.id)).status).toBe(401);
-    // And   응답에 PIN 이 남지 않는다
-    expect(JSON.stringify(res.body)).not.toContain("5678");
+    /*
+     * And   응답에 PIN 이 남지 않는다.
+     *
+     * **문자열 검색으로 재지 않는다** — 네 자리는 시각에 우연히 들어간다.
+     * 실제로 `createdAt: 1787` + `5678` + `14288` 로 깨진 적이 있다.
+     * 재려는 것은 "그 값이 어딘가에 있나" 가 아니라 **"PIN 칸이 없나"** 다.
+     */
+    expect(Object.keys(res.body)).not.toContain("pin");
+    expect(Object.keys(res.body.config ?? {})).not.toContain("pin");
   });
 
   it("S-B3 ★ 입장 코드는 회차 사이에서 유일하다", async () => {
@@ -214,47 +247,53 @@ describe("B. 회차 생성", () => {
     expect((dup.body as unknown as { error: string }).error).toBe("code_taken");
   });
 
-  it("S-B4 '지금 바로' 로 만들면 그 자리에서 등록이 열린다", async () => {
-    // When  등록 시작을 "now" 로 두고 생성한다
-    const res = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
+  it("S-B4 ★ 회차를 만들면 그 자리에서 등록이 열린다", async () => {
+    /*
+     * 등록 시작은 묻지도 예약하지도 않는다 (ADR-38).
+     * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열어 지킬 것이 없었다.
+     */
+    const res = await createEvent(master, { prevoteAt: Date.now() + 24 * HOUR });
     // Then  phase 는 "reg" 이고 fired.reg 가 채워져 있다
     expect(res.status).toBe(200);
     expect(res.body.phase).toBe("reg");
     expect(res.body.fired.reg).toBeGreaterThan(0);
-    // And   그 코드로 즉시 입장할 수 있다
-    const pub = await api<PublicEvent>(`/api/events/by-id/${res.body.id}`);
+    // And   시각은 기록으로 남는다 — 지나간 예약을 지우지 않는 것과 같다
+    expect(res.body.schedule.regOpenAt).toBeGreaterThan(0);
+    // And   링크로 즉시 입장할 수 있다
+    const pub = await api<PublicEvent>(await linkTo(res.body.id));
     expect(pub.body.canRegister).toBe(true);
   });
 
   it("S-B5 ★ 예약은 한 번만 울린다", async () => {
-    // Given 등록 시작을 1시간 뒤로 예약한다
+    // Given 남은 예약은 매력 투표 시작 하나뿐이다 (ADR-38). 1시간 뒤로 잡는다
     const at = Date.now() + HOUR;
-    const res = await createEvent(master, { regOpenAt: at, prevoteAt: at + 24 * HOUR });
-    // Then  phase 는 "prep" 이고 fired.reg 는 비어 있다
-    expect(res.body.phase).toBe("prep");
-    expect(res.body.fired.reg).toBeUndefined();
+    const res = await createEvent(master, { prevoteAt: at });
+    // Then  phase 는 "reg" 이고 fired.prevote 는 비어 있다
+    expect(res.body.phase).toBe("reg");
+    expect(res.body.fired.prevote).toBeUndefined();
 
     // When  서버 시각이 예약 시각을 지난다
     await travelTo(at + 60_000);
     const after = await api<EventMeta>(`/api/host/events/${res.body.id}`, { cookie: master });
-    // Then  phase 가 "reg" 로 바뀌고 전환 시각이 기록된다
-    expect(after.body.phase).toBe("reg");
-    const firedAt = after.body.fired.reg;
+    // Then  phase 가 "prevote" 로 바뀌고 전환 시각이 기록된다
+    expect(after.body.phase).toBe("prevote");
+    const firedAt = after.body.fired.prevote;
     expect(firedAt).toBeGreaterThan(0);
 
-    // And   한 번 더 조회해도 fired.reg 는 덮어써지지 않는다
+    // And   한 번 더 조회해도 fired.prevote 는 덮어써지지 않는다
     await travelTo(at + 120_000);
     const again = await api<EventMeta>(`/api/host/events/${res.body.id}`, { cookie: master });
-    expect(again.body.fired.reg).toBe(firedAt);
+    expect(again.body.fired.prevote).toBe(firedAt);
   });
 
-  it("S-B6 일정 순서가 뒤집히면 거부한다", async () => {
-    // Given 등록 시작이 사전 투표 시작보다 뒤다
-    const now = Date.now();
-    const res = await createEvent(master, { regOpenAt: now + 2 * HOUR, prevoteAt: now + HOUR });
-    // Then  거부된다
-    expect(res.status).toBe(400);
-    expect((res.body as unknown as { error: string }).error).toBe("schedule_order");
+  it("S-B6 ★ 매력 투표 시각이 이미 지났어도 회차는 만들어진다", async () => {
+    /*
+     * 견줄 두 시각이 없어졌으므로 순서 검사도 없앴다 (ADR-38).
+     * 지난 시각을 넣으면 등록과 매력 투표가 곧바로 이어 열릴 뿐, 어긋나지 않는다.
+     */
+    const res = await createEvent(master, { prevoteAt: Date.now() - HOUR });
+    expect(res.status).toBe(200);
+    expect(res.body.schedule.prevoteAt).toBeLessThan(Date.now());
   });
 
   it("S-B7 ★ 같은 요청이 두 번 와도 회차는 하나만 생긴다", async () => {
@@ -276,12 +315,77 @@ describe("B. 회차 생성", () => {
     expect(after.body.length).toBe(before.body.length + 1);
   });
 
+  /** 기본값은 통째로 검사한다 — 일부만 보내면 막힌다. 읽어서 한 칸만 갈아끼운다 */
+  async function setNickHint(nickHint: string) {
+    const now = await api<Record<string, unknown>>("/api/host/defaults", { cookie: master });
+    const res = await api("/api/host/defaults", {
+      method: "PUT",
+      cookie: master,
+      body: { ...now.body, nickHint },
+    });
+    expect(res.status, "기본값 저장이 막혔다").toBe(200);
+  }
+
+  /**
+   * ★ **닉네임 안내 문구는 기본값에서 물려받는다** (ADR-59).
+   *
+   * 위저드가 이 칸을 묻지 않는다 — 회차마다 바뀌는 값이 아니라 **그 운영자의 파티 성격**에
+   * 붙는 값이라서다. 장소·안내문이 기본값 화면에 있는 이유가 그대로 적용된다.
+   * 위저드에 칸을 되살리면 매 회차 같은 문장을 다시 마주하게 된다.
+   */
+  it("★ 닉네임 안내 문구를 기본값에서 물려받고, 참가자에게 나간다", async () => {
+    await setNickHint("파티에서 불릴 이름으로");
+
+    // Given 위저드는 이 값을 보내지 않는다 — 서버가 기본값에서 집어온다
+    const ev = await createEvent(master);
+    expect(ev.status).toBe(200);
+    expect(ev.body.nickHint, "회차가 기본값을 못 물려받았다").toBe("파티에서 불릴 이름으로");
+
+    // Then 등록 폼이 읽는 회차 조회에 실린다. 안 실리면 화면에 뜰 수가 없다
+    const room = await api<PublicEvent>(await linkTo(ev.body.id));
+    expect(room.status, "회차 조회가 막혔다").toBe(200);
+    expect(room.body.nickHint, "참가자 응답에 안 실렸다").toBe("파티에서 불릴 이름으로");
+  });
+
+  /**
+   * ★ **비우면 아예 안 나간다.** 빈 문자열을 내려보내면 등록 폼에 빈 줄이 생긴다 —
+   * 화면에서 걸러도 되지만, 응답에 없는 편이 화면이 실수할 자리를 없앤다.
+   */
+  it("★ 문구가 없으면 응답에 칸도 없다", async () => {
+    await setNickHint("");
+    const ev = await createEvent(master);
+    const room = await api<PublicEvent>(await linkTo(ev.body.id));
+    expect(room.body.nickHint).toBeUndefined();
+  });
+
+  /**
+   * ★ **회차마다 고칠 수 있고, 그때 기본값은 안 바뀐다** (ADR-59).
+   *
+   * 첫 참가자가 이상하게 적는 걸 보고 바로 고치고 싶어지는 값이라 등록 중에도 열려 있다.
+   * 그 한 번이 다음 회차까지 바꿔버리면 **고치는 것이 무서운 값**이 된다.
+   */
+  it("★ 회차에서 고쳐도 기본값은 그대로다", async () => {
+    await setNickHint("기본 문구");
+    const ev = await createEvent(master);
+
+    const patched = await api<EventMeta>(`/api/host/events/${ev.body.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { name: ev.body.name, nickHint: "이 회차만 다른 문구" },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.nickHint).toBe("이 회차만 다른 문구");
+
+    const defaults = await api<{ nickHint: string }>("/api/host/defaults", { cookie: master });
+    expect(defaults.body.nickHint).toBe("기본 문구");
+  });
+
   it("S-B9 기본값 되돌리기는 기존 회차를 건드리지 않는다", async () => {
     // Given 기본값을 바꾸고 회차를 만들었다
     await api("/api/host/defaults", {
       method: "PUT",
       cookie: master,
-      body: { maxPre: 5, maxParty: 9, regOpenBeforeD: 3, prevoteBeforeH: 48 },
+      body: { maxPre: 5, maxParty: 9, place: "테스트 장소", prevoteBeforeH: 48 },
     });
     const ev = await createEvent(master, { config: { maxPre: 5, maxParty: 9 } });
     expect(ev.status).toBe(200);
@@ -305,63 +409,6 @@ describe("B. 회차 생성", () => {
     const kept = await api<EventMeta>(`/api/host/events/${ev.body.id}`, { cookie: master });
     expect(kept.body.config).toEqual({ maxPre: 5, maxParty: 9 });
   });
-
-  /**
-   * 만들 때 고른 설정은 **버려지지 않는다.**
-   *
-   * 파기 대기 일수는 참가자에게 한 약속이다 — 등록 화면이 이 숫자를 읽는다.
-   * 7일로 골라 놓은 회차가 조용히 3일짜리가 되면, 그 사실은 회차가 사라진 뒤에야 드러난다.
-   * 콕 대상도 같다. 등록이 열린 뒤에 고치면 이미 명단을 훑은 사람의 전제가 바뀐다.
-   */
-  it("★ 만들 때 고른 콕 대상·파기 대기 일수가 그대로 저장된다", async () => {
-    const ev = await createEvent(master, {
-      config: { maxPre: 3, maxParty: 3, allowSameGender: false, retentionDays: 7 },
-    });
-    expect(ev.status).toBe(200);
-
-    const got = await api<EventMeta>(`/api/host/events/${ev.body.id}`, { cookie: master });
-    expect(got.body.config.allowSameGender).toBe(false);
-    expect(got.body.config.retentionDays).toBe(7);
-  });
-
-  /**
-   * 알림을 꺼둔 채로 만든 회차는 **꺼진 채로 남는다.**
-   *
-   * 사전 콕 찌르기가 열리는 건 회차를 만들고 며칠 뒤다. 그 사이에 값이 조용히 기본값으로
-   * 돌아가면, 조용히 열려던 회차가 참가자 전원에게 말을 건다 — 되돌릴 수 없는 종류의 어긋남이다.
-   */
-  it("★ 만들 때 꺼둔 사전 콕 찌르기 알림이 그대로 남는다", async () => {
-    const off = await createEvent(master, {
-      config: { maxPre: 3, maxParty: 3, prevoteNotice: false },
-    });
-    expect(off.status).toBe(200);
-    const got = await api<EventMeta>(`/api/host/events/${off.body.id}`, { cookie: master });
-    expect(got.body.config.prevoteNotice).toBe(false);
-
-    // 다른 설정을 저장해도 꺼진 채로 남는다 — 알림이 딸려 다시 켜지면 안 된다
-    const patched = await api<EventMeta>(`/api/host/events/${off.body.id}`, {
-      method: "PUT",
-      cookie: master,
-      body: { config: { maxPre: 4, maxParty: 4 } },
-    });
-    expect(patched.status).toBe(200);
-    expect(patched.body.config.prevoteNotice).toBe(false);
-  });
-
-  it("기본값과 같으면 적지 않는다 — 설정 모양이 회차마다 달라지지 않게", async () => {
-    const ev = await createEvent(master, {
-      config: { maxPre: 3, maxParty: 3, allowSameGender: true, prevoteNotice: true, retentionDays: RETENTION_DAYS },
-    });
-    const got = await api<EventMeta>(`/api/host/events/${ev.body.id}`, { cookie: master });
-    expect(got.body.config).toEqual({ maxPre: 3, maxParty: 3 });
-  });
-
-  it("파기 대기 일수가 범위 밖이면 회차를 만들지 않는다", async () => {
-    for (const retentionDays of [0, 15, 1.5]) {
-      const res = await createEvent(master, { config: { maxPre: 3, maxParty: 3, retentionDays } });
-      expect(res.status, `retentionDays=${retentionDays}`).toBe(400);
-    }
-  });
 });
 
 // ─────────────────────────────────────────── C. 입장 코드
@@ -369,9 +416,9 @@ describe("B. 회차 생성", () => {
 describe("C. 입장 코드", () => {
   it("S-C1 유효한 코드로 회차를 찾는다", async () => {
     // Given 등록 중인 회차가 있다
-    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
+    const ev = await createEvent(master, { prevoteAt: Date.now() + 24 * HOUR });
     // When  코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
+    const res = await api<PublicEvent>(await linkTo(ev.body.id));
     // Then  200 이고 이름과 phase 를 받는다
     expect(res.status).toBe(200);
     expect(res.body.name).toBe(ev.body.name);
@@ -380,9 +427,9 @@ describe("C. 입장 코드", () => {
 
   it("S-C2 ★ 코드 조회 응답에 비밀이 없다", async () => {
     // Given 등록 중인 회차가 있다
-    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
+    const ev = await createEvent(master, { prevoteAt: Date.now() + 24 * HOUR });
     // When  인증 없이 코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
+    const res = await api<PublicEvent>(await linkTo(ev.body.id));
     // 빈 응답이면 "비밀이 없다"가 저절로 참이 된다. 먼저 진짜 응답인지 확인한다
     expect(res.status).toBe(200);
     expect(res.body.name).toBe(ev.body.name);
@@ -398,11 +445,11 @@ describe("C. 입장 코드", () => {
   });
 
   it("S-C2b ★ 참가 링크 응답에 입장 코드가 없다", async () => {
-    // Given 등록 중인 회차가 있다. 참가 링크는 회차 아이디만 담는다 (ADR-13)
-    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
+    // Given 등록 중인 회차가 있다. 참가 링크는 회차 아이디 + 그 사람의 토큰이다 (ADR-32)
+    const ev = await createEvent(master, { prevoteAt: Date.now() + 24 * HOUR });
 
     // When  링크를 받은 사람이 인증 없이 그 회차를 연다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
+    const res = await api<PublicEvent>(await linkTo(ev.body.id));
     expect(res.status).toBe(200);
     expect(res.body.name).toBe(ev.body.name);
 
@@ -417,26 +464,32 @@ describe("C. 입장 코드", () => {
      * 64비트 링크가 그대로 나왔다. 링크의 강도가 코드까지 내려가 있던 셈이다.
      * 이제 문은 참가 링크 하나뿐이다 (ADR-13·15).
      */
-    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + 24 * HOUR });
+    const ev = await createEvent(master, { prevoteAt: Date.now() + 24 * HOUR });
     // 실재하는 회차의 **진짜 코드**로도 찾을 수 없다 — 코드가 틀려서가 아니라 길이 없어서다
     expect((await api(`/api/events/by-code/${ev.body.code}`)).status).toBe(404);
   });
 
   it("S-C4 준비 중인 회차는 등록을 막고 안내한다", async () => {
-    // Given 준비 중이고 등록 시작이 예약돼 있다
-    const at = Date.now() + 5 * HOUR;
-    const ev = await createEvent(master, { regOpenAt: at, prevoteAt: at + 24 * HOUR });
-    expect(ev.body.phase).toBe("prep");
+    /*
+     * 새 회차는 등록이 열린 채로 태어난다 (ADR-38) — 준비 단계는 **운영자가 물렸을 때**와
+     * 그 전에 만들어진 옛 회차에만 남는다. 그 길이 여전히 안내를 내놓는지 본다.
+     */
+    const ev = await createEvent(master, { prevoteAt: Date.now() + 24 * HOUR });
+    const back = await api(`/api/host/events/${ev.body.id}/phase`, {
+      method: "POST", cookie: master, body: { to: "prep" },
+    });
+    expect(back.status).toBe(200);
     // When  코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
-    // Then  등록 불가이고 ENTRY.notOpenYet 형태의 안내가 온다
+    const res = await api<PublicEvent>(await linkTo(ev.body.id));
+    // Then  등록 불가이고, **시각은 말하지 않는다** (ADR-38 — regOpenAt 은 늘 지나간 시각이다)
     expect(res.body.canRegister).toBe(false);
-    expect(res.body.message).toMatch(/부터 등록이 열려요\.$/);
+    expect(res.body.message).toBe(ENTRY.notOpenYetUnknown);
+    expect(res.body.message).not.toMatch(/부터 등록이 열려요/);
   });
 
   it("S-C5 종료된 회차는 닫혔다고 알려준다", async () => {
     // Given 발표까지 끝난 회차가 있다
-    const ev = await createEvent(master, { regOpenAt: "now", prevoteAt: Date.now() + HOUR });
+    const ev = await createEvent(master, { prevoteAt: Date.now() + HOUR });
     const done = await api(`/api/host/events/${ev.body.id}/phase`, {
       method: "POST",
       cookie: master,
@@ -444,7 +497,7 @@ describe("C. 입장 코드", () => {
     });
     expect(done.status).toBe(200);
     // When  코드로 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`);
+    const res = await api<PublicEvent>(await linkTo(ev.body.id));
     // Then  등록 불가이고 메시지는 ENTRY.finished 다
     expect(res.body.canRegister).toBe(false);
     expect(res.body.message).toBe(ENTRY.finished);
@@ -463,18 +516,17 @@ describe("D. 서버 시각", () => {
   });
 
   it("S-D2 ★ 클라이언트가 주장하는 시각으로는 단계가 바뀌지 않는다", async () => {
-    // Given 등록 시작이 5시간 뒤로 예약돼 있다
+    // Given 매력 투표 시작이 5시간 뒤로 예약돼 있다 (ADR-38 이후 남은 예약은 이것뿐이다)
     const at = Date.now() + 5 * HOUR;
-    const ev = await createEvent(master, { regOpenAt: at, prevoteAt: at + 24 * HOUR });
-    expect(ev.body.phase).toBe("prep");
+    const ev = await createEvent(master, { prevoteAt: at });
+    expect(ev.body.phase).toBe("reg");
 
     // When  클라이언트가 자기 시각을 미래로 주장하며 조회한다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.body.id}`, {
+    const res = await api<PublicEvent>(await linkTo(ev.body.id), {
       headers: { "x-client-now": String(at + 10 * HOUR), date: new Date(at + 10 * HOUR).toUTCString() },
     });
 
-    // Then  phase 는 여전히 "prep" 이다
-    expect(res.body.phase).toBe("prep");
-    expect(res.body.canRegister).toBe(false);
+    // Then  phase 는 여전히 "reg" 다 — 폰 시계로는 매력 투표를 앞당길 수 없다
+    expect(res.body.phase).toBe("reg");
   });
 });

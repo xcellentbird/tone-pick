@@ -7,16 +7,17 @@
 import { ENTRY, HOST, HOST_UI, POKE, REGISTER } from "../shared/copy.ts";
 
 export function pokeMessage(error: string, detail?: number): string | undefined {
-  if (error === "closed") return POKE.blocked.closed;
+  // 서버는 라운드를 모른다. 중립 문구를 쓴다 (ADR-34)
+  if (error === "closed") return POKE.blocked.anyClosed;
   if (error === "same_gender") return POKE.blocked.sameGender;
-  if (error === "no_budget") return POKE.blocked.noBudget(detail ?? 0);
+  if (error === "no_budget") return POKE.blocked.anyNoBudget(detail ?? 0);
   return undefined;
 }
 
 /**
- * 명단에 없는 번호에는 **왜 없는지 말하지 않는다.**
+ * 명단에 없는 토큰에는 **왜 없는지 말하지 않는다** (ADR-32).
  * "초대되지 않았습니다" 와 "그런 회차가 없습니다" 를 구분해 주면
- * 그 자체가 "이 파티에 이 번호가 있나"를 알려주는 창구가 된다.
+ * 그 자체가 "이 사람이 이 파티에 있나"를 알려주는 창구가 된다.
  */
 export function enterMessage(error: string): string | undefined {
   if (error === "not_invited") return ENTRY.notInvited;
@@ -29,9 +30,16 @@ export function registerMessage(nickname: string) {
     error === "nick_taken" ? REGISTER.err.nickTaken(nickname) : undefined;
 }
 
-/** 이미 쓴 횟수보다 낮게 내리려 할 때. `detail` 은 지금 가장 많이 쓴 횟수다 */
-export function pokeLimitMessage(error: string, detail?: number): string | undefined {
-  return error === "conflict" ? HOST_UI.pokeFloor(detail ?? 0) : undefined;
+/**
+ * 설정·일정 저장이 막혔을 때.
+ *
+ * `conflict` — 이미 쓴 횟수보다 낮게 내리려 했다. `detail` 은 지금 가장 많이 쓴 횟수다
+ * `locked`   — 콕이 오가기 시작해 굳은 항목이다 (ADR-35)
+ */
+export function settingsMessage(error: string, detail?: number): string | undefined {
+  if (error === "conflict") return HOST_UI.pokeFloor(detail ?? 0);
+  if (error === "locked") return HOST_UI.frozen;
+  return undefined;
 }
 
 /** 발표가 끝나면 자리를 더 바꾸지 않는다. 그 밖에는 막을 일이 없다 */
