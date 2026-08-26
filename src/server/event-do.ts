@@ -1120,7 +1120,7 @@ export class EventDO extends DurableObject {
     const published = this.seatings().filter((s) => s.status === "published");
     const round = (published.at(-1)?.round ?? 0) + 1;
     /*
-     * **라운드를 갈라서 준다** (ADR-56). 매력 투표는 프로필만 보고 고른 것이고
+     * **라운드를 갈라서 준다** (ADR-57). 매력 투표는 프로필만 보고 고른 것이고
      * 콕은 만나본 뒤에 고른 것이라, 자리에서 같은 무게로 세면 안 된다.
      * 상한도 함께 준다 — 콕을 1회로 연 회차와 5회로 연 회차가 같은 자에 있어야 한다.
      */
@@ -1612,7 +1612,7 @@ export class EventDO extends DurableObject {
   /**
    * 그 라운드에 **누가 누구에게 몇 번** 보냈나. `"보낸이>받는이"` → 횟수.
    *
-   * 자리 배정은 방향이 있는 값을 쓴다 (ADR-56) — 콕은 익명이라 받은 쪽은
+   * 자리 배정은 방향이 있는 값을 쓴다 (ADR-57) — 콕은 익명이라 받은 쪽은
    * 누가 찔렀는지 모르고, 그래서 같이 앉아도 그 사람의 만족이 아니다.
    */
   private sentBy(round: PokeRound): Record<string, number> {
