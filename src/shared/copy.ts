@@ -1119,6 +1119,12 @@ export interface ActionCopy {
   btn: string;
   title: string;
   danger?: boolean;
+  /**
+   * **실행 버튼이 되돌리는 일일 때** 표시한다 (다 쓴 뒤 열리는 콕 창처럼).
+   * 되돌리기는 어느 자리에 서든 같은 색이어야 한다 — 옆에 설 때는 보조,
+   * 혼자 설 때는 보라로 보이면 같은 말이 두 얼굴이 된다.
+   */
+  undo?: boolean;
   facts: Fact[];
 }
 

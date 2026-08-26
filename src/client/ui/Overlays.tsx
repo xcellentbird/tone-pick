@@ -116,12 +116,15 @@ export function Overlays({ children }: { children: ReactNode }) {
             </div>
             {pending.copy.note && <p className="small dim pre">{pending.copy.note}</p>}
             {/*
-              **되돌리기와 실행이 나란히 온다.** 둘은 같은 축의 반대 방향이라
-              (한 번 더 / 한 번 물리기) 붙어 있어야 무엇을 고르는 자리인지 읽힌다.
-              취소는 아무것도 하지 않고 닫는 것이라 성격이 달라서 아래 줄로 내린다.
+              **윗줄은 하는 일, 아랫줄은 취소다.**
+              되돌리기와 실행은 같은 축의 반대 방향이라(한 번 더 / 한 번 물리기)
+              붙어 있어야 무엇을 고르는 자리인지 읽힌다. 취소는 아무것도 하지 않고
+              닫는 것이라 성격이 다르다 — **되돌리기가 있든 없든 늘 아래 한 줄**이다.
+              한때 되돌리기가 없을 때만 취소가 윗줄로 올라왔는데, 같은 창인데도
+              **누를 자리가 옮겨 다녔다.**
             */}
             <div className="row">
-              {pending.copy.second ? (
+              {pending.copy.second && (
                 <button
                   className="btn wide undo"
                   onClick={() => {
@@ -132,23 +135,18 @@ export function Overlays({ children }: { children: ReactNode }) {
                 >
                   {pending.copy.second.label}
                 </button>
-              ) : (
-                <button className="btn wide ghost" onClick={close}>
-                  {BTN.cancel}
-                </button>
               )}
+              {/* 되돌리기가 실행 자리에 오는 창도 있다 (다 쓴 뒤) — 그때도 색은 되돌리기다 */}
               <button
-                className={`btn wide ${pending.copy.danger ? "gold" : "primary"}`}
+                className={`btn wide ${pending.copy.undo ? "undo" : pending.copy.danger ? "gold" : "primary"}`}
                 onClick={accept}
               >
                 {pending.copy.btn}
               </button>
             </div>
-            {pending.copy.second && (
-              <button className="btn ghost block" onClick={close}>
-                {BTN.cancel}
-              </button>
-            )}
+            <button className="btn ghost block" onClick={close}>
+              {BTN.cancel}
+            </button>
           </>
         )}
       </Sheet>
