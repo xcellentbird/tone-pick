@@ -43,6 +43,7 @@ export default function Settings() {
 
   const [name, setName] = useState(meta.name);
   const [place, setPlace] = useState("");
+  const [nickHint, setNickHint] = useState("");
   const [maxPre, setMaxPre] = useState(meta.config.maxPre);
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
   const [allowSameGender, setAllowSameGender] = useState(meta.config.allowSameGender !== false);
@@ -69,6 +70,7 @@ export default function Settings() {
     setPreNotify(meta.config.preNotify === true);
     setPokeNotify(meta.config.pokeNotify === true);
     setPlace(meta.place ?? "");
+    setNickHint(meta.nickHint ?? "");
     setSchedule(meta.schedule);
   }, [meta]);
 
@@ -94,6 +96,7 @@ export default function Settings() {
     };
     changed("identity", HOST_UI.fields.name, meta.name, name);
     changed("identity", HOST_UI.fields.place, meta.place ?? "—", place || "—");
+    changed("identity", HOST_UI.fields.nickHint, meta.nickHint ?? "—", nickHint || "—");
     changed("rules", HOST_UI.fields.maxPre, UNIT.times(meta.config.maxPre), UNIT.times(maxPre));
     changed("rules", HOST_UI.fields.maxParty, UNIT.times(meta.config.maxParty), UNIT.times(maxParty));
     changed(
@@ -134,6 +137,7 @@ export default function Settings() {
       await put<EventMeta>(`/host/events/${meta.id}`, {
         name,
         place,
+        nickHint,
         config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
@@ -204,6 +208,21 @@ export default function Settings() {
             <label htmlFor="splace">{HOST_UI.fields.place}</label>
             <input id="splace" value={place} onChange={(e) => setPlace(e.target.value)} />
             <span className="tiny dim">{HOST_UI.fields.placeHint}</span>
+          </div>
+          {/*
+            닉네임 칸의 문구 (ADR-59). **등록이 열린 뒤에도 고칠 수 있다** —
+            첫 참가자가 이상하게 적는 걸 보고 바로 고치고 싶어지는 값이다.
+            기본값 화면에 적어둔 것이 새 회차로 넘어오고, 여기서 이 회차만 바뀐다.
+          */}
+          <div className="field">
+            <label htmlFor="snick">{HOST_UI.fields.nickHint}</label>
+            <input
+              id="snick"
+              value={nickHint}
+              maxLength={LIMITS.nickHintMax}
+              onChange={(e) => setNickHint(e.target.value)}
+            />
+            <span className="tiny dim">{HOST_UI.fields.nickHintEventHint}</span>
           </div>
           {/*
             **파티 시작이 여기 있다** (ADR-54) — 위저드 1스텝과 같은 자리다.

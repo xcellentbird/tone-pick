@@ -259,6 +259,11 @@ export interface EventMeta {
    * 지금 운영이 그렇다: 장소는 운영자가 1:1 로 알린다.
    */
   place?: string;
+  /**
+   * 닉네임 칸의 운영자 문구 (ADR-59). 기본값에서 물려받고 회차마다 고칠 수 있다.
+   * **장소와 달리 참가자에게 나간다** — 등록 폼에 뜨는 것이 이 값의 존재 이유다.
+   */
+  nickHint?: string;
   code: string;      // 6자리 입장 코드 (회차 간 유일)
   phase: Phase;
   fired: FiredMap;
@@ -276,6 +281,12 @@ export interface EventMeta {
 export interface Defaults extends EventConfig {
   /** 파티 장소. 늘 같은 곳에서 여는 모임이라 여기 둔다 — 회차마다 고칠 수 있다 (ADR-38) */
   place: string;
+  /**
+   * 닉네임 칸에 붙일 문구 (ADR-59). **회차마다 바뀌는 값이 아니라 여기 둔다** —
+   * 그 운영자의 파티가 어떤 자리인지에 붙지, 8월 회차와 9월 회차가 다르지 않다.
+   * 장소와 안내문이 여기 있는 이유가 그대로 적용된다.
+   */
+  nickHint: string;
   prevoteBeforeH: number;   // 파티 N시간 전에 매력 투표 시작
   voteEndBeforeH: number;   // 파티 N시간 전에 매력 투표 마감 (ADR-39)
   /**
@@ -397,6 +408,14 @@ export interface PublicEvent {
   /** 등록할 수 없을 때의 안내. copy.ts 의 ENTRY.* 를 쓴다 */
   message?: string;
   /**
+   * 닉네임 칸에 붙일 운영자 문구 (ADR-59). **없으면 안 붙는다** — 빈 줄을 남기지 않는다.
+   *
+   * ⚠️ **앱이 얹는 고정 줄은 없다.** *다른 참가자 모두에게 보여요* 같은 설명을
+   * 나란히 두지 마라 — 닉네임이라는 말이 이미 그걸 뜻해서 아무도 궁금해하지 않고,
+   * 그러면 운영자가 적어 넣은 한 줄이 두 줄 중 하나가 되어 묻힌다.
+   */
+  nickHint?: string;
+  /**
    * 이 링크의 주인이 이미 등록했나. **자기 자신에 대한 답이라 새어 나갈 게 없다** —
    * 토큰을 가진 사람에게만 이 응답이 열린다 (ADR-32).
    * 화면이 `등록하기` 와 `다시 입장하기` 를 가르는 데 쓴다.
@@ -438,6 +457,12 @@ export interface EventPatch {
   name?: string;
   /** 장소는 오타가 나기 쉬운 값이라 고칠 길을 함께 둔다 (ADR-32) */
   place?: string;
+  /**
+   * 닉네임 칸의 문구 (ADR-59). **등록이 열린 뒤에도 고칠 수 있어야 한다** —
+   * 첫 참가자가 이상하게 적는 걸 보고 바로 고치고 싶어지는 값이다.
+   * 콕이 오가도 굳지 않는다 (`rulesLocked` 대상이 아니다)
+   */
+  nickHint?: string;
   config?: EventConfig;
 }
 

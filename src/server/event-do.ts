@@ -244,6 +244,8 @@ export class EventDO extends DurableObject {
       name: meta.name,
       phase: meta.phase,
       ...(meta.schedule.partyAt ? { partyAt: meta.schedule.partyAt } : {}),
+      // 등록 폼의 닉네임 칸에 붙는다 (ADR-59). 없으면 안 싣는다 — 빈 줄을 남기지 않는다
+      ...(meta.nickHint ? { nickHint: meta.nickHint } : {}),
     };
     /*
      * **시각을 말하지 않는다** (ADR-38). 등록은 회차를 만드는 순간 열리므로 `regOpenAt` 은
@@ -340,7 +342,7 @@ export class EventDO extends DurableObject {
   }
 
   async patchMeta(
-    patch: { name?: string; place?: string; config?: EventConfig },
+    patch: { name?: string; place?: string; nickHint?: string; config?: EventConfig },
     now: number,
   ): Promise<Result<EventMeta>> {
     const meta = await this.touch(now);
@@ -354,6 +356,12 @@ export class EventDO extends DurableObject {
       const place = patch.place.trim();
       if (place) meta.place = place;
       else delete meta.place;
+    }
+    // 닉네임 문구도 지울 수 있다 — 비우면 칸 밑에 아무 줄도 안 붙는다 (ADR-59)
+    if (patch.nickHint !== undefined) {
+      const hint = patch.nickHint.trim().slice(0, LIMITS.nickHintMax);
+      if (hint) meta.nickHint = hint;
+      else delete meta.nickHint;
     }
     if (patch.config) {
       const { maxPre, maxParty } = patch.config;

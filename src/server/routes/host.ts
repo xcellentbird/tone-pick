@@ -69,6 +69,8 @@ hostRoutes.put("/defaults", async (c) => {
       maxPre: body.maxPre,
       maxParty: body.maxParty,
       place: String(body.place ?? "").trim().slice(0, LIMITS.placeMax),
+      // 앞뒤 공백만 턴다. 안쪽 줄바꿈은 막지 않는다 — 한 줄로 쓰라고 강제할 이유가 없다
+      nickHint: String(body.nickHint ?? "").trim().slice(0, LIMITS.nickHintMax),
       prevoteBeforeH: body.prevoteBeforeH,
       voteEndBeforeH: body.voteEndBeforeH,
       revealAfterH: body.revealAfterH,
@@ -123,10 +125,17 @@ hostRoutes.post("/events", async (c) => {
   if (!reserved.ok) return apiError(c, "code_taken", HOST.pin.codeTaken);
 
   const place = String(body.place ?? "").trim().slice(0, LIMITS.placeMax);
+  /*
+   * **닉네임 안내 문구는 기본값에서 물려받는다** (ADR-59). 위저드가 묻지 않는다 —
+   * 회차마다 바뀌는 값이 아니라 그 운영자의 파티 성격에 붙는 값이라서다.
+   * 고칠 일이 생기면 설정 탭에서 그 회차만 고친다.
+   */
+  const { nickHint } = await registry(c.env).getDefaults();
   const meta = await eventStub(c.env, reserved.id).init({
     id: reserved.id,
     name: body.name.trim(),
     ...(place ? { place } : {}),
+    ...(nickHint ? { nickHint } : {}),
     code: reserved.code,
     // 만드는 순간 등록이 열린다. 시각은 **기록으로** 남긴다 — 지나간 예약을 지우지 않는 것과 같다
     phase: "reg",
@@ -178,7 +187,10 @@ hostRoutes.put("/events/:id", async (c) => {
 
   const { value, response } = unwrap(
     c,
-    await gate.stub.patchMeta({ name: body.name, place: body.place, config: body.config }, serverNow()),
+    await gate.stub.patchMeta(
+      { name: body.name, place: body.place, nickHint: body.nickHint, config: body.config },
+      serverNow(),
+    ),
     settingsMessage,
   );
   return response ?? c.json(value);
