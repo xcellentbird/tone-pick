@@ -85,7 +85,7 @@ export default function Players() {
    */
   function copyNote(): Promise<boolean> {
     /*
-     * **성공은 버튼이 말한다** (ADR-64) — 여기서 토스트를 띄우면 아래 명단을 덮는다.
+     * **성공은 버튼이 말한다** (ADR-65) — 여기서 토스트를 띄우면 아래 명단을 덮는다.
      * 실패만 토스트로 남긴다. 복사가 막히는 브라우저가 있고(권한·구버전),
      * 그건 **드물고 그냥 넘어가면 안 되는 일**이라 덮어서라도 말해야 한다.
      */
@@ -128,7 +128,7 @@ export default function Players() {
       },
       async () => {
         await del(`/host/events/${state.meta.id}/invites/${i.phone}`);
-        // 토스트를 띄우지 않는다 (ADR-64) — 행이 사라지고 머리 숫자가 내린다. 화면이 이미 말했다
+        // 토스트를 띄우지 않는다 (ADR-65) — 행이 사라지고 머리 숫자가 내린다. 화면이 이미 말했다
         reload();
       },
     );
@@ -297,7 +297,7 @@ export default function Players() {
           onRemove={askRemove}
           onEditTemplate={() => navigate("/host/defaults")}
           /*
-           * **토스트를 띄우지 않는다** (ADR-64) — 행이 생기고 머리 숫자가 오른다.
+           * **토스트를 띄우지 않는다** (ADR-65) — 행이 생기고 머리 숫자가 오른다.
            * 아무 변화가 없는 경우(이미 있던 번호)만 폼이 그 자리에서 말한다.
            */
           onDone={reload}
@@ -335,7 +335,7 @@ function Invites({
   /** 안내문 문구를 고치러 간다. 운영자 기본값에 하나만 둔다 (ADR-32) */
   onEditTemplate: () => void;
   /** 안내문을 복사한다. 전원이 같은 글이라 명단 머리에서 한 번이다 */
-  /** 복사 성공 여부를 돌려준다 — 버튼이 그걸 보고 스스로 말한다 (ADR-64) */
+  /** 복사 성공 여부를 돌려준다 — 버튼이 그걸 보고 스스로 말한다 (ADR-65) */
   onCopyNote: () => Promise<boolean>;
   /** 그 사람의 링크만 복사한다. 사람마다 다른 건 이것뿐이다 */
   onCopyLink: (i: Invite) => Promise<boolean>;
@@ -355,7 +355,7 @@ function Invites({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /**
-   * 방금 복사한 버튼. **클립보드는 눈에 안 보여서 무언가는 말해야 한다** (ADR-64).
+   * 방금 복사한 버튼. **클립보드는 눈에 안 보여서 무언가는 말해야 한다** (ADR-65).
    * 아래에 띄우면 명단을 덮으므로 **누른 그 버튼**이 잠깐 바뀐다 —
    * 덮지 않고, 복사 버튼이 둘이라 어느 것인지도 함께 말해준다.
    */
@@ -381,7 +381,7 @@ function Invites({
       /*
        * 명단은 더하기만 한다 — 서버가 전체를 돌려주므로 길이가 줄지 않는다.
        * 안 늘었다면 **이미 있던 번호**다. 그때는 화면에 아무 변화가 없어서,
-       * 말해주지 않으면 넣은 줄 알고 넘어간다 (ADR-64).
+       * 말해주지 않으면 넣은 줄 알고 넘어간다 (ADR-65).
        */
       if (next.length <= invites.length) setError(HOST_UI.invites.already);
       onDone();
