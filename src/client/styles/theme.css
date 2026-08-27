@@ -42,8 +42,8 @@
    * **아주 옅게** 둔다 — 진하면 목록을 길게 스크롤할 때 카드 대비가 흔들린다.
    */
   --aurora:
-    radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 60%);
+    radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 62%),
+    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--plum) 9%, transparent), transparent 60%);
   --card: #1e1922;
   --card-2: #28212d;
   --line: #362d3c;
@@ -77,6 +77,18 @@
    * 뜻이 다르다: 성별이 아니라 마음이 오간 일을 말한다.
    */
   --heart: #ff4d8d;
+  /*
+   * **공기의 바닥 빛** (ADR-61 후기 2). 주 색(254°)과 콕(338°) 사이의 자두빛 — 296°.
+   *
+   * 금빛(42°)이 한동안 이 자리였는데, 그건 자정 보라의 **분할보색**이라 어울리는 게 아니라
+   * 부딪혔다. 따뜻하게 만들려다 조화를 깬 것이다. 자정 보라와 어울리는 따뜻함은
+   * **보색 쪽이 아니라 유사색의 따뜻한 끝**(자두~장밋빛)에 있다.
+   *
+   * **새 색을 고르지 않고 있는 둘을 섞는다** — 주 색이나 콕이 바뀌어도 이 색은 저절로
+   * 그 계열 안에 남는다. 뜻으로도 맞다: 고르는 마음과 오간 마음 사이의 색이다.
+   */
+  --plum: color-mix(in srgb, var(--accent) 60%, var(--heart));
+
   /* 순위 바 — 하트(콕)에서 주 색(매칭)으로. 받은 콕이 쌓여 매칭으로 향한다는 걸 색으로도 */
   --meter: linear-gradient(90deg, var(--heart), var(--accent));
 
@@ -284,22 +296,26 @@ button {
    *    앞으로 나아간 자리에서 뒤로 물러난 것처럼 보인다. 한동안 9% 로 그랬다.
    */
   --aurora:
-    radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 60%);
+    radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 62%),
+    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--plum) 9%, transparent), transparent 60%);
 }
 
 .screen[data-phase="prevote"] {
   /* 고르는 밤 — 주 색이 짙어진다. 매력 투표는 이 색의 시간이다 */
   --aurora:
-    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 64%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 60%);
+    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--accent) 17%, transparent), transparent 64%),
+    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--plum) 12%, transparent), transparent 60%);
 }
 
 .screen[data-phase="party"] {
-  /* 불이 켜진다 — 금빛. 화면에서 가장 따뜻한 순간이다 */
+  /*
+   * 불이 켜진다 — **금빛은 이 한 단계에만 나온다.**
+   * 자정 보라의 분할보색이라 계속 깔면 부딪히는데, 한 번만 나오면 그때 뜻이 산다.
+   * 자두빛을 아래 깔아 보라 계열에 안긴다.
+   */
   --aurora:
-    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--gold) 16%, transparent), transparent 64%),
-    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%);
+    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--gold) 13%, transparent), transparent 64%),
+    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--plum) 17%, transparent), transparent 60%);
 }
 
 .screen[data-phase="done"] {
@@ -308,11 +324,11 @@ button {
    *
    * ⚠️ **분홍을 13% 위로 올려서 밝히지 마라.** 매칭 색(338°)은 여자 색(334°)과 4° 차이라
    *    짙어지면 성별 색과 섞여 보인다 (ADR-61). 밝혀야 하면 **금빛 쪽을 올린다** —
-   *    한동안 금빛이 9% 라 발표가 파티의 절반 밝기였다.
+   *    한동안 금빛이 9% 라 발표가 파티의 절반 밝기였다. 지금은 자두빛 쪽을 올린다.
    */
   --aurora:
     radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--heart) 13%, transparent), transparent 64%),
-    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--gold) 14%, transparent), transparent 60%);
+    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--plum) 16%, transparent), transparent 60%);
 }
 
 .screen > header {
