@@ -199,8 +199,12 @@ qa 에는 붙이지 마라: feature PR 이 전부 qa 로 오므로 매 PR 이 �
 
 무료 플랜은 요청당 CPU 10ms다. 자리 배정 로컬 서치만 주의하면 된다.
 
-`node scripts/fortune-spread.mjs <QA주소>` 는 마흔 명분 운세를 뽑아 **서로 얼마나 닮았는지**
-잰다 (ADR-60). `LLM_TEMPERATURE` 를 정하는 자리다 — 값을 바꿔 배포하고 다시 돌려 견준다.
+`node scripts/fortune-spread.mjs <QA주소> --temp <값>` 은 마흔 명분 운세를 뽑아
+**서로 얼마나 닮았는지** 잰다 (ADR-60). `LLM_TEMPERATURE` 를 정하는 자리다.
+서버가 그 값을 읽으므로 **온도마다 배포가 한 번씩** 필요하지만 PR 은 필요 없다 —
+`npx wrangler deploy --env qa --var LLM_TEMPERATURE:1.2`.
+판을 모아 `--compare a.json b.json` 하면 온도별 비교표가 나온다.
+**규칙문구가 0% 인 줄만 후보다** — 섞이면 유사도가 오히려 올라가서(열다섯 가지뿐) 두 값이 섞인다.
 한 번 부른 것은 파일로 남으니 재는 법만 고칠 때는 `--from` 을 쓴다.
 
 **부하 리허설·실험은 QA 에서 한다.** 프로덕션 DO 에 가짜 100명을 넣었다 지우지 마라.

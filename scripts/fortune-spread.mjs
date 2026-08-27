@@ -1,8 +1,20 @@
 /**
  * 운세가 사람마다 얼마나 갈리는가.  마흔 명분을 뽑아 서로 얼마나 닮았는지 잰다.
  *
- *   MASTER_PIN=**** node scripts/fortune-spread.mjs https://tone-pick-qa.<계정>.workers.dev
- *   node scripts/fortune-spread.mjs --from run-1756...json      # 안 부르고 다시 재기만
+ *   MASTER_PIN=**** node scripts/fortune-spread.mjs https://tone-pick-qa.<계정>.workers.dev --temp 1.2
+ *   node scripts/fortune-spread.mjs --from fortune-run-....json          # 안 부르고 다시 재기만
+ *   node scripts/fortune-spread.mjs --compare a.json b.json c.json       # 온도를 고르는 표
+ *
+ * **온도 스윕** — 서버가 `LLM_TEMPERATURE` 를 읽으므로 값마다 배포가 한 번씩 필요하다.
+ * PR 은 필요 없다:
+ *
+ *   npx wrangler deploy --env qa --var LLM_TEMPERATURE:0.8
+ *   MASTER_PIN=0000 node scripts/fortune-spread.mjs <QA주소> --temp 0.8
+ *   npx wrangler deploy --env qa --var LLM_TEMPERATURE:1.2
+ *   MASTER_PIN=0000 node scripts/fortune-spread.mjs <QA주소> --temp 1.2
+ *   node scripts/fortune-spread.mjs --compare fortune-run-t*.json
+ *
+ * 기준선은 **값을 안 넣은 판**이다 (`--temp 기본`) — 그게 지금 프로덕션이 쓰는 것이다.
  *
  * **왜 재는가** — ADR-60 이 "갈라지는 축을 코드가 준다" 고 정했다. 프롬프트로
  * "다양하게 쓰세요" 라고 부탁하는 것과 다른 이유가 **세어볼 수 있다**는 것이었다.
@@ -26,6 +38,15 @@ const arg = (name, fallback) => {
 };
 
 const FROM = arg("--from", null);
+/**
+ * 이 판이 **어느 온도로 뽑힌 것인지**. 서버가 쓰는 값이라 스크립트는 알 수 없어서 받아 적는다 —
+ * 배포할 때 넣은 값을 그대로 쓴다. 안 적으면 나중에 비교표에서 어느 줄이 뭔지 알 수 없다.
+ */
+const TEMP = arg("--temp", null);
+/** 저장해 둔 판 여럿을 나란히 놓는다 — 온도를 고르는 자리 */
+const COMPARE = process.argv.includes("--compare")
+  ? process.argv.slice(process.argv.indexOf("--compare") + 1).filter((a) => a.endsWith(".json"))
+  : null;
 const BASE = process.argv[2]?.startsWith("http") ? process.argv[2].replace(/\/$/, "") : null;
 const PEOPLE = Number(arg("--n", 40));
 const PIN = process.env.MASTER_PIN;
@@ -67,7 +88,7 @@ const paras = (body) => body.split(/\n\s*\n/).map((t) => t.trim()).filter(Boolea
  * `사수자리의 활기와` 같은 것이 여기서 잡힌다. 유사도 평균은 낮아도
  * 이런 토막이 있으면 나란히 놓고 본 사람은 바로 알아챈다.
  */
-function shared(texts, n = 8, least = 3) {
+function shared(texts, n = 8, least = 3, limit = 50) {
   const flats = texts.map((t) => t.replace(/\s+/g, ""));
   const countOf = (g) => flats.reduce((c, f) => c + (f.includes(g) ? 1 : 0), 0);
 
@@ -94,7 +115,7 @@ function shared(texts, n = 8, least = 3) {
     const whole = host.slice(s, e);
     if (kept.some(([g]) => g.includes(whole))) continue;
     kept.push([whole, c]);
-    if (kept.length >= 8) break;
+    if (kept.length >= limit) break;
   }
   return kept;
 }
@@ -102,89 +123,151 @@ function shared(texts, n = 8, least = 3) {
 const pct = (n) => `${(n * 100).toFixed(1)}%`;
 const avg = (xs) => xs.reduce((a, b) => a + b, 0) / (xs.length || 1);
 
-function analyse(run) {
+/**
+ * 한 판을 숫자로 만든다. **보고서와 비교표가 같은 함수를 본다** —
+ * 따로 세면 한쪽만 고쳐져 두 화면이 다른 말을 하게 된다.
+ */
+function measure(run) {
   const ok = run.filter((r) => r.fortune?.body);
-  console.log(`\n${"─".repeat(64)}`);
-  console.log(`운세 ${ok.length}/${run.length}건`);
-  if (!ok.length) return void console.log("잰 것이 없습니다.");
+  if (!ok.length) return null;
 
-  /*
-   * **규칙 문구가 섞이면 나머지 숫자가 거짓말이 된다.** 열다섯 가지뿐이라
-   * (headline 5 × body 3) 그것들끼리는 유사도 1.0 이고, 그게 평균을 끌어올린다.
-   */
-  const ruled = ok.filter((r) => r.fortune.fallback).length;
-  if (ruled) {
-    console.log(`\n⚠️  규칙 문구 ${ruled}건 (${pct(ruled / ok.length)}) — LLM 이 답하지 않았습니다.`);
-    console.log("    키·모델 이름·타임아웃을 먼저 보세요. 이 상태의 유사도는 의미가 없습니다.");
-  }
-
-  /* 참가자는 headline 과 본문을 함께 본다. 본문만 재면 머리글이 다른데 1.000 으로 찍힌다 */
   const bodies = ok.map((r) => r.fortune.body);
+  /* 참가자는 headline 과 본문을 함께 본다. 본문만 재면 머리글이 다른데 1.000 으로 찍힌다 */
   const whole = ok.map((r) => `${r.fortune.headline}\n${r.fortune.body}`);
 
-  // ── ADR-60 이 프롬프트에 못 박은 것들이 지켜졌나
-  const counts = bodies.map((b) => paras(b).length);
-  const three = counts.filter((n) => n === 3).length;
-  const hedges = bodies.map((b) => (b.match(HEDGE) ?? []).length);
-  const once = hedges.filter((n) => n <= 1).length;
-  const lens = bodies.map((b) => b.replace(/\s+/g, "").length);
-
-  console.log("\n■ 프롬프트 규칙 (ADR-60)");
-  console.log(`  문단 3개      ${three}/${ok.length} (${pct(three / ok.length)}) · 실제 ${[...new Set(counts)].sort().join("·")}문단`);
-  console.log(`  여지 ≤1회     ${once}/${ok.length} (${pct(once / ok.length)}) · 평균 ${avg(hedges).toFixed(2)}회 · 최대 ${Math.max(...hedges)}회`);
-  console.log(`  길이          평균 ${Math.round(avg(lens))}자 · 최대 ${Math.max(...lens)}자 (고치기 전 화면은 ~700자)`);
-
-  // ── 서로 얼마나 닮았나
   const grams = whole.map(trigrams);
   const pairs = [];
   for (let i = 0; i < grams.length; i++)
     for (let j = i + 1; j < grams.length; j++) pairs.push([jaccard(grams[i], grams[j]), i, j]);
   pairs.sort((a, b) => b[0] - a[0]);
   const scores = pairs.map((p) => p[0]);
-  const mid = scores.slice().sort((a, b) => a - b)[Math.floor(scores.length / 2)];
+
+  const counts = bodies.map((b) => paras(b).length);
+  const hedges = bodies.map((b) => (b.match(HEDGE) ?? []).length);
+  const missions = ok.filter((r) => r.mission?.mission);
+
+  return {
+    n: ok.length,
+    asked: run.length,
+    ruled: ok.filter((r) => r.fortune.fallback).length,
+    threePara: counts.filter((n) => n === 3).length,
+    paraKinds: [...new Set(counts)].sort(),
+    hedgeOnce: hedges.filter((n) => n <= 1).length,
+    hedgeAvg: avg(hedges),
+    hedgeMax: Math.max(...hedges),
+    lenAvg: avg(bodies.map((b) => b.replace(/\s+/g, "").length)),
+    lenMax: Math.max(...bodies.map((b) => b.replace(/\s+/g, "").length)),
+    simAvg: avg(scores),
+    simMid: scores.slice().sort((a, b) => a - b)[Math.floor(scores.length / 2)],
+    simMax: scores[0],
+    simMin: scores.at(-1),
+    close: scores.filter((s) => s >= 0.3).length,
+    totalPairs: scores.length,
+    pairs,
+    /* 상한은 **표시용**이다. 비교표가 보는 건 개수와 최다 인원이라 여기서 자르면 안 된다 */
+    stock: shared(whole),
+    ok,
+    missions,
+  };
+}
+
+function analyse(run, label) {
+  const m = measure(run);
+  console.log(`\n${"─".repeat(64)}`);
+  console.log(`운세 ${m ? m.n : 0}/${run.length}건${label ? ` · temperature ${label}` : ""}`);
+  if (!m) return void console.log("잰 것이 없습니다.");
+
+  /*
+   * **규칙 문구가 섞이면 나머지 숫자가 거짓말이 된다.** 열다섯 가지뿐이라
+   * (headline 5 × body 3) 그것들끼리는 유사도 1.0 이고, 그게 평균을 끌어올린다.
+   */
+  if (m.ruled) {
+    console.log(`\n⚠️  규칙 문구 ${m.ruled}건 (${pct(m.ruled / m.n)}) — LLM 이 답하지 않았습니다.`);
+    console.log("    키·모델 이름·타임아웃을 먼저 보세요. 이 상태의 유사도는 의미가 없습니다.");
+  }
+
+  console.log("\n■ 프롬프트 규칙 (ADR-60)");
+  console.log(`  문단 3개      ${m.threePara}/${m.n} (${pct(m.threePara / m.n)}) · 실제 ${m.paraKinds.join("·")}문단`);
+  console.log(`  여지 ≤1회     ${m.hedgeOnce}/${m.n} (${pct(m.hedgeOnce / m.n)}) · 평균 ${m.hedgeAvg.toFixed(2)}회 · 최대 ${m.hedgeMax}회`);
+  console.log(`  길이          평균 ${Math.round(m.lenAvg)}자 · 최대 ${m.lenMax}자 (고치기 전 화면은 ~700자)`);
 
   /*
    * **숫자만으로는 못 읽는다.** 이 앱의 실제 글로 눈금을 잡아뒀다 —
    *   0.04~0.09  규칙 문구 중 **서로 다른** 본문끼리 (사람이 보기에 완전히 다른 글)
    *   0.56       뼈대는 같고 명사만 바꾼 글 (사람이 보면 바로 "같은 틀" 이라고 안다)
    *   1.00       같은 글
-   * **0.3 을 넘는 쌍이 눈에 띄게 많으면 나란히 놓고 본 참가자가 알아챈다.**
    */
   console.log("\n■ 서로 얼마나 닮았나 (글자 3-gram 자카드 · 낮을수록 갈린다)");
   console.log("  눈금 · 다른 글 0.04~0.09 · 틀만 같은 글 0.56 · 같은 글 1.00");
-  console.log(`  평균 ${scores.length ? avg(scores).toFixed(3) : "-"} · 중앙 ${mid?.toFixed(3)} · 최대 ${scores[0]?.toFixed(3)} · 최소 ${scores.at(-1)?.toFixed(3)}`);
-  console.log(`  0.30 이상인 쌍 ${scores.filter((s) => s >= 0.3).length} / ${scores.length}`);
+  console.log(`  평균 ${m.simAvg.toFixed(3)} · 중앙 ${m.simMid?.toFixed(3)} · 최대 ${m.simMax?.toFixed(3)} · 최소 ${m.simMin?.toFixed(3)}`);
+  console.log(`  0.30 이상인 쌍 ${m.close} / ${m.totalPairs}`);
   console.log("\n  가장 닮은 쌍");
-  for (const [s, i, j] of pairs.slice(0, 3)) {
-    console.log(`   ${s.toFixed(3)}  ${ok[i].who} × ${ok[j].who}`);
-    console.log(`          "${ok[i].fortune.headline}"  /  "${ok[j].fortune.headline}"`);
+  for (const [s, i, j] of m.pairs.slice(0, 3)) {
+    console.log(`   ${s.toFixed(3)}  ${m.ok[i].who} × ${m.ok[j].who}`);
+    console.log(`          "${m.ok[i].fortune.headline}"  /  "${m.ok[j].fortune.headline}"`);
   }
 
-  const stock = shared(whole);
-  console.log("\n■ 판박이 문구 (여러 사람 글에 똑같이 나오는 8자 이상)");
-  if (!stock.length) console.log("  없음");
-  for (const [gram, c] of stock) console.log(`  ${String(c).padStart(3)}명  …${gram}…`);
+  console.log(`\n■ 판박이 문구 ${m.stock.length}개 (여러 사람 글에 똑같이 나오는 8자 이상)`);
+  if (!m.stock.length) console.log("  없음");
+  for (const [gram, c] of m.stock.slice(0, 8)) console.log(`  ${String(c).padStart(3)}명  …${gram}…`);
+  if (m.stock.length > 8) console.log(`  … 외 ${m.stock.length - 8}개`);
 
-  // ── 미션
-  const missions = ok.filter((r) => r.mission?.mission);
-  if (missions.length) {
-    const when = missions.filter((r) => /때|직후|직전|하고 나|되면/.test(r.mission.mission)).length;
+  if (m.missions.length) {
+    const when = m.missions.filter((r) => /때|직후|직전|하고 나|되면/.test(r.mission.mission)).length;
     /* 매력 어절이 미션에 실제로 나오나. ADR-60 이 "쓰라는 말이 없었다" 고 고친 자리다 */
-    const usesCharm = missions.filter((r) =>
+    const usesCharm = m.missions.filter((r) =>
       r.charms.some((c) => c.split(/\s+/).some((w) => w.length >= 2 && r.mission.mission.includes(w))),
     ).length;
     /* lead 가 운세를 유의어로 옮겨 적나. ADR-60 이 본문 전달을 끊은 이유다 */
-    const echo = missions
-      .filter((r) => r.mission.lead)
-      .map((r) => jaccard(trigrams(r.mission.lead), trigrams(r.fortune.headline)));
+    const echo = m.missions.filter((r) => r.mission.lead).map((r) => jaccard(trigrams(r.mission.lead), trigrams(r.fortune.headline)));
 
-    console.log(`\n■ 미션 ${missions.length}건`);
-    console.log(`  '언제' 가 있다  ${when}/${missions.length} (${pct(when / missions.length)})`);
-    console.log(`  본인 매력을 쓴다 ${usesCharm}/${missions.length} (${pct(usesCharm / missions.length)})`);
+    console.log(`\n■ 미션 ${m.missions.length}건`);
+    console.log(`  '언제' 가 있다  ${when}/${m.missions.length} (${pct(when / m.missions.length)})`);
+    console.log(`  본인 매력을 쓴다 ${usesCharm}/${m.missions.length} (${pct(usesCharm / m.missions.length)})`);
     if (echo.length)
       console.log(`  lead↔headline 겹침 평균 ${avg(echo).toFixed(3)} · 최대 ${Math.max(...echo).toFixed(3)} (낮아야 안 베낀 것)`);
   }
   console.log(`${"─".repeat(64)}\n`);
+}
+
+/**
+ * **온도를 고르는 표.** 여러 판을 나란히 놓는다.
+ *
+ * 온도를 올리면 글이 갈리지만(유사도↓) **규칙을 덜 지키고 JSON 이 깨진다**(규칙문구↑).
+ * 그 둘이 만나는 무릎을 눈으로 찾는 자리다 — 한 판만 보고는 못 고른다.
+ */
+function compare(files) {
+  const rows = files.map((f) => {
+    const raw = JSON.parse(readFileSync(f, "utf8"));
+    const run = Array.isArray(raw) ? raw : raw.run;
+    return { label: (Array.isArray(raw) ? null : raw.temperature) ?? "?", file: f, m: measure(run) };
+  }).filter((r) => r.m);
+  if (!rows.length) return void console.log("읽을 판이 없습니다.");
+
+  /* 터미널에서 한글·한자는 **두 칸**을 먹는다. 글자 수로 맞추면 머리글과 값이 어긋난다 */
+  const wide = (t) => [...String(t)].reduce((n, ch) => n + (/[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(ch) ? 2 : 1), 0);
+  const col = (t, w) => " ".repeat(Math.max(0, w - wide(t))) + t;
+  const lead = (t, w) => t + " ".repeat(Math.max(0, w - wide(t)));
+  console.log(`\n${"─".repeat(74)}`);
+  console.log("온도별 비교 — 갈라짐(유사도↓)과 규칙 지킴이 맞바뀐다\n");
+  console.log(
+    `  ${lead("온도", 10)}${col("인원", 6)}${col("규칙문구", 10)}${col("문단3", 8)}${col("여지≤1", 9)}` +
+      `${col("유사도", 9)}${col("0.3이상", 10)}${col("판박이", 8)}${col("최다", 7)}`,
+  );
+  for (const { label, m } of rows) {
+    /* 판박이는 **몇 개인지**와 **가장 많은 것이 몇 명에게 나왔는지**를 함께 본다 */
+    const most = m.stock.length ? Math.max(...m.stock.map(([, c]) => c)) : 0;
+    console.log(
+      `  ${lead(label, 10)}${col(m.n, 6)}${col(pct(m.ruled / m.n), 10)}${col(pct(m.threePara / m.n), 8)}` +
+        `${col(pct(m.hedgeOnce / m.n), 9)}${col(m.simAvg.toFixed(3), 9)}${col(`${m.close}/${m.totalPairs}`, 10)}` +
+        `${col(m.stock.length, 8)}${col(most ? `${most}명` : "-", 7)}`,
+    );
+  }
+  console.log("\n  고르는 법 — **규칙문구가 0% 인 줄만 후보다.** 그중에서 유사도와 `0.3이상` 이 낮고");
+  console.log("  문단3·여지≤1 이 높게 남는 것을 고른다.");
+  console.log("  ⚠️ 규칙문구가 섞인 줄은 유사도가 **낮든 높든 못 쓴다.** 규칙 문구는 열다섯 가지뿐이라");
+  console.log("  섞이면 유사도가 오히려 **올라간다**(같은 글이 여럿 생긴다) — 두 가지가 섞인 값이다.");
+  console.log(`${"─".repeat(74)}\n`);
 }
 
 // ─────────────────────────────────────────── 뽑는 법
@@ -288,8 +371,9 @@ async function collect() {
     });
   });
 
-  const file = `fortune-run-${stamp}.json`;
-  writeFileSync(file, JSON.stringify(run, null, 2));
+  const file = `fortune-run-${TEMP ? `t${TEMP}-` : ""}${stamp}.json`;
+  /* 온도를 파일 안에 함께 남긴다 — 파일 이름만 믿으면 옮겨 적다 뒤바뀐다 */
+  writeFileSync(file, JSON.stringify({ temperature: TEMP, at: stamp, run }, null, 2));
   console.log(`\n원본을 ${file} 에 남겼습니다 — 재는 법을 고치면 \`--from ${file}\` 으로 다시 부르지 않고 잽니다.`);
   console.log(`회차 ${eventId} 는 QA 에 남아 있습니다. 다 봤으면 운영자 콘솔에서 지우세요.`);
   return run;
@@ -325,4 +409,12 @@ function exit(why) {
   process.exit(1);
 }
 
-analyse(FROM ? JSON.parse(readFileSync(FROM, "utf8")) : await collect());
+if (COMPARE?.length) {
+  compare(COMPARE);
+} else if (FROM) {
+  /* 옛 판은 배열로 저장됐다. 읽는 자리를 하나로 둔다 — 저장된 자료는 코드보다 오래 산다 */
+  const raw = JSON.parse(readFileSync(FROM, "utf8"));
+  analyse(Array.isArray(raw) ? raw : raw.run, Array.isArray(raw) ? null : raw.temperature);
+} else {
+  analyse(await collect(), TEMP);
+}
