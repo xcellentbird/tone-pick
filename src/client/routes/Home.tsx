@@ -109,7 +109,7 @@ export default function Home({
       )}
 
       <div className="card stack">
-        <h2 style={{ margin: 0, fontSize: 18 }}>{todo.title}</h2>
+        <h2 className="cardTitle">{todo.title}</h2>
         <p className="dim small pre" style={{ margin: 0 }}>
           {todo.body}
         </p>
@@ -173,7 +173,7 @@ export default function Home({
       {seat ? (
         <button className="card stack seatCard" onClick={onSeat}>
           <div className="kicker">{SEAT.sectionTitle}</div>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>{SEAT.banner(seat.table)}</div>
+          <div className="table">{SEAT.banner(seat.table)}</div>
           <div className="small dim">{SEAT.ack.mates(seat.mates, seat.men)}</div>
         </button>
       ) : (

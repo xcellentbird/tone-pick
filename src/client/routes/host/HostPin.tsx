@@ -48,7 +48,7 @@ export default function HostPin() {
             autoComplete="off"
             maxLength={8}
             type="password"
-            style={{ letterSpacing: "0.4em", fontSize: 22, textAlign: "center" }}
+            className="pinInput"
           />
           {error && <span className="err">{error}</span>}
         </div>

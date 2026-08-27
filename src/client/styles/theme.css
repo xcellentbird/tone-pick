@@ -122,7 +122,45 @@ html, body, #root {
   height: 100dvh;
   background: var(--bg);
   color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif;
+  /*
+   * **웹폰트를 싣지 않는다.** 이 앱이 열리는 자리는 파티장 와이파이이고, 한글 웹폰트는
+   * 서브셋으로 줄여도 100KB 를 넘는다. `index.html` 이 "번들이 안 붙었을 때" 를 그렇게까지
+   * 챙겨놓고 그 앞에 폰트를 한 겹 더 세우는 건 앞뒤가 안 맞는다.
+   *
+   * 그래서 **기기가 이미 가진 것**만 적는다 — iOS·macOS 는 `-apple-system`(SF Pro)이 잡고
+   * 한글은 Apple SD Gothic Neo 로 넘어간다. 안드로이드는 `sans-serif`(Roboto)가 잡고
+   * 한글은 Noto Sans CJK KR 이다. 윈도우(운영자 콘솔)에 `Segoe UI` 를 적는 이유는,
+   * 없으면 Arial 이 잡히면서 **한글만 맑은 고딕으로 넘어가** 라틴과 굵기가 눈에 띄게 갈려서다.
+   *
+   * ⚠️ **없는 폰트를 적지 마라.** `Pretendard` 가 한동안 여기 있었는데 어디서도 싣지 않아
+   *    한 번도 그려진 적이 없고, `-apple-system` 뒤에 있어서 애플 기기에서는 **닿을 수조차
+   *    없었다.** 스택에 적힌 이름은 읽는 사람에게 "우리는 이걸 쓴다" 는 약속이다 —
+   *    되살릴 거라면 **싣는 코드가 먼저**다.
+   */
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", sans-serif;
+  /*
+   * **줄 간격을 앱이 쥔다.** `normal` 로 두면 기기 폰트의 메트릭이 정하는데 그 값이 제각각이다
+   * (SF Pro ≈1.2 · Apple SD Gothic Neo ≈1.36 · Noto Sans CJK KR ≈1.45) — **같은 화면이
+   * 기기마다 다른 세로 리듬으로 그려진다.** 고정 높이를 쓰는 자리(`--card-h`)가 있어서
+   * 그 차이가 그대로 여백 차이가 된다.
+   *
+   * 1.6 은 한글 본문의 기준이다. 한글은 글자가 네모라 라틴처럼 줄 위아래로 뻗는 획이 없어서
+   * 같은 크기라도 더 빽빽해 보인다 — 라틴 기준(1.4)으로 두면 문단이 덩어리로 읽힌다.
+   *
+   * 한 줄짜리 자리(배지·칩·숫자·아바타)는 저마다 `line-height: 1` 로 빠져나간다.
+   * 그게 있어야 알약 높이가 폰트를 안 따라간다 (`.badge` 참고).
+   */
+  line-height: 1.6;
+  /*
+   * **어절 가운데서 자르지 않는다.** 기본값은 한글을 아무 글자에서나 끊어서
+   * `되기 쉬` / `워져요` 처럼 낱말이 두 줄로 쪼개진다 — 360px 도움말에서 실제로 그랬다.
+   * 재보니 **줄 수는 그대로**였다. 잘리는 자리만 어절 경계로 옮겨간다.
+   *
+   * `anywhere` 를 짝으로 둔다 — 참가자가 쓰는 글(매력 100자)에 공백이 하나도 없으면
+   * `keep-all` 만으로는 칸을 넘어간다. 넘칠 때만 끼어드는 규칙이라 평소에는 보이지 않는다.
+   */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -130,6 +168,14 @@ input, select, textarea {
   font-size: 16px; /* 16px 미만이면 iOS 가 입력 시 자동 확대한다 */
   font-family: inherit;
 }
+/*
+ * **여러 줄 칸만 본문 줄 간격을 받는다.** 매력·안내문처럼 한글 문단을 쓰는 자리라
+ * 화면에 뿌릴 때와 같은 간격으로 보여야 쓰는 사람이 길이를 가늠할 수 있다.
+ *
+ * ⚠️ `input`·`select` 는 `normal` 로 둔다. 한 줄짜리라 넓혀서 얻는 게 없고,
+ *    `min-height: var(--tap)` 를 넘겨 **모든 폼의 칸이 6px 씩 키가 커진다.**
+ */
+textarea { line-height: inherit; }
 
 /*
  * 링크는 **우리 색**이다. 규칙이 없으면 브라우저가 파랑에 밑줄을 그리는데,
@@ -152,6 +198,20 @@ button {
   min-height: var(--tap);
   min-width: var(--tap);
   font-family: inherit;
+  /*
+   * **크기도 물려받는다.** 안 적으면 브라우저 기본값(13.33px)이 남아서, 크기를 따로 정하지
+   * 않은 버튼 안 글자가 주변보다 작게 뜬다. 같은 것을 `<div>` 로 그린 자리와 나란히 놓으면
+   * **16px 대 13.33px** 로 갈렸다 — 소식 배너가 홈에서는 `<div class="banner">` 이고
+   * 참가자 화면에서는 `<button class="banner">` 라 **같은 배너가 두 크기로** 떴다.
+   * 회차 목록·초대 명단 카드에서는 제목이 바로 아래 부제(13px)와 같은 크기가 됐다.
+   */
+  font-size: inherit;
+  /*
+   * **줄 간격도 물려받는다.** 브라우저 기본 규칙이 버튼에 `font` **축약형**을 쓰는데,
+   * 축약형은 안 적은 칸을 초기값으로 되돌린다 — 그래서 `line-height` 가 `normal` 로 남는다.
+   * 크기·글꼴만 물려받게 하면 **버튼 안 글만 줄 간격이 다른 채로** 남는다.
+   */
+  line-height: inherit;
   /*
    * **색도 물려받는다.** 안 적으면 브라우저 기본값(`buttontext` — 검정)이 들어와,
    * 색을 따로 정하지 않은 버튼이 어두운 바탕 위에서 **검은 글씨로 뜬다.**
@@ -288,6 +348,27 @@ button {
 .row.between { justify-content: space-between; }
 .grow { flex: 1; min-width: 0; }
 .dim { color: var(--dim); }
+/*
+ * **이름 줄.** 카드·배너·목록에서 "이게 이 칸의 제목이다" 를 말하는 자리다.
+ * 크기는 물려받고 **굵기만** 정한다 — 자리마다 크기가 다르지만(`.person .name` 15px ·
+ * `.rank .name` 14px) 굵기는 어디서나 같아야 제목으로 읽힌다.
+ * 맨몸 규칙이 없던 동안 배너·회차 목록·초대 명단·프로필 시트의 제목이 굵기 400 으로 떠서
+ * 바로 아래 부제와 구분되지 않았다.
+ */
+.name { font-weight: 700; }
+
+/*
+ * 카드 안 제목. `<h2>` 의 브라우저 기본 크기(24px)는 카드 안에서 너무 크다.
+ *
+ * ⚠️ 아직 `Join.tsx` 의 `<h2>` 는 기본값(24px)으로 남아 있다 — 그 화면은 카드가
+ *    화면 전체를 쓰는 자리라 크기가 달라도 어색하지 않아서 지금은 손대지 않았다.
+ *    합칠 거라면 두 화면을 나란히 놓고 봐야 한다.
+ */
+.cardTitle { margin: 0; font-size: 18px; }
+
+/* 운영자 PIN 칸 — 숫자를 띄엄띄엄 세워 몇 자를 쳤는지 눈으로 세게 한다 */
+.pinInput { font-size: 22px; letter-spacing: 0.4em; text-align: center; }
+
 .small { font-size: 13px; }
 .tiny { font-size: 12px; }
 .center { text-align: center; }
@@ -471,6 +552,11 @@ button {
   color: var(--dim);
   text-decoration: none;
   font-size: 12px;
+  /*
+   * **아이콘도 이름도 한 줄이다** — 본문 줄 간격(1.6)을 받으면 두 줄이 함께 늘어나
+   * 탭바가 54px → 68px 로 커진다. 탭바는 글이 아니라 손잡이다.
+   */
+  line-height: 1;
   background: none;
   border: none;
 }
@@ -1219,6 +1305,8 @@ button {
   color: var(--fg);
   font-family: inherit;
 }
+/* 테이블 번호 — 파티장에서 **멀리서도 읽혀야** 하는 유일한 글자다 */
+.seatCard .table { font-size: 28px; font-weight: 800; }
 
 /*
  * 자리 알림은 화면을 통째로 덮는다. **노치와 홈 인디케이터를 피한다** —
