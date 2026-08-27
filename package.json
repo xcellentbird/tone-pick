@@ -14,8 +14,9 @@
     "check:copy": "node scripts/check-copy.mjs",
     "check:config": "node scripts/check-config.mjs",
     "check:theme": "node scripts/check-theme.mjs",
+    "check:adr": "node scripts/check-adr.mjs",
     "rehearsal": "node scripts/rehearsal.mjs",
-    "check": "npm run typecheck && npm run check:copy && npm run check:config && npm run check:theme",
+    "check": "npm run typecheck && npm run check:copy && npm run check:config && npm run check:theme && npm run check:adr",
     "test": "vitest run",
     "test:watch": "vitest",
     "ops": "node scripts/ops.mjs"

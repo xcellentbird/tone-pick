@@ -159,7 +159,7 @@
 | 한쪽 행동이 반대쪽에 어떻게 보이나 | `docs/FLOWS.md` — 상호 영향·엣지 케이스 |
 | 자리 배정 | `docs/SEATING.md` — 가중식·불변식·테스트 기준 |
 | 이상형 찾기의 얼굴 자료 | `docs/scenarios/19-ideal-type.md` — 자산 계약이 그 안에 있다. 참가자 얼굴은 넣지 않는다 |
-| "왜 이렇게 돼 있지?" | `docs/ADR.md` — **바꾸기 전에 반드시** |
+| "왜 이렇게 돼 있지?" | `docs/ADR.md` — **바꾸기 전에 반드시.** 머리의 목차에서 찾는다 (폐기된 것도 함께 보인다) |
 | 지난 버전에서 뭐가 바뀌었나 | `CHANGELOG.md` — **프로덕션에 나간 것만** 적는다 |
 
 `reference/README.md`에 프로토타입에서 가져올 것과 가져오면 안 되는 것이 정리돼 있다.
@@ -169,7 +169,7 @@
 ```bash
 npm run dev:worker   # Worker + DO (127.0.0.1:8787) — 이걸 먼저 띄운다
 npm run dev          # Vite. /api, /ws 를 8787 로 프록시
-npm run check        # typecheck(클라이언트+Worker+테스트) + 문구·설정·테마 검사. 커밋 전에 이걸 돌린다
+npm run check        # typecheck(클라이언트+Worker+테스트) + 문구·설정·테마·ADR 검사. 커밋 전에 이걸 돌린다
 npm test             # workerd 안의 규칙 테스트 + happy-dom 화면 테스트
 npm run deploy       # 프로덕션. 비밀값 두 개(MASTER_PIN·SESSION_SECRET)만 넣으면 나간다
 npm run deploy:qa    # 연습용. 워커가 달라 회차·참가자 데이터가 완전히 분리된다
