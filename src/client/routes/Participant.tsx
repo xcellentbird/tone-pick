@@ -316,7 +316,16 @@ function Loaded({
       <div className="screen" data-phase={state.event.phase}>
         {/* 스크롤해도 남는 자리다. 여기엔 반복해서 볼 것만 둔다 */}
         <header className="bar">
-          <StatusBar state={state} onHelp={() => onHelp(true)} />
+          <StatusBar
+            state={state}
+            /*
+             * 회차 이름이 홈으로 가는 지름길이다. **홈 탭에서는 주지 않는다** —
+             * 갈 곳이 없는데 눌리면 히스토리에 같은 주소가 한 칸 더 쌓이고,
+             * 뒤로 가기가 "아무 일도 안 일어나는 한 번"이 된다.
+             */
+            onHome={tab === "home" ? undefined : () => onTab("home")}
+            onHelp={() => onHelp(true)}
+          />
         </header>
 
         <div className="body stack">
