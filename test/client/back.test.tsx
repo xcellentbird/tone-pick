@@ -11,7 +11,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { BTN, GENDER, HELP, HOME, MBTI_AXES, ME, REGISTER, SCREEN_TITLE, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
+import { BTN, GENDER, HELP, HOME, MBTI_AXES, ME, REGISTER, SCREEN_TITLE, STATUS, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
 import type { ParticipantState } from "../../src/shared/types.ts";
 import { PARTICIPANT_ROUTES } from "../../src/client/router.tsx";
 import Register from "../../src/client/routes/Register.tsx";
@@ -97,6 +97,44 @@ describe("참가자 화면 · 뒤로 가기", () => {
 
     // 여기서 한 번 더 = 들어오기 전으로 (메모리 라우터에는 그 앞이 없다)
     expect(router.state.historyAction).not.toBe("PUSH");
+  });
+
+  it("★ 상단 회차 이름을 누르면 홈 탭이고, 발자국이 쌓이지 않는다", async () => {
+    /*
+     * 어느 탭에 있든 상단 왼쪽이 홈으로 돌아가는 지름길이다 (`StatusBar.tsx`).
+     *
+     * **하단 홈 탭과 같은 길이어야 한다** — 같은 곳으로 갈 뿐 아니라 히스토리도 같게
+     * 쌓여야 한다. 여기서 `navigate` 를 따로 부르면 갈아끼우는 대신 한 칸 밀게 되고,
+     * 뒤로 가기가 방금 떠난 탭으로 되돌아간다. 그게 "내 발자국 되감기"다.
+     */
+    const router = participantRouter();
+    render(<RouterProvider router={router} />);
+    await screen.findByText(HOME.todo.prevote.title);
+
+    fireEvent.click(tab("people"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF/people"));
+
+    /*
+     * 이 한 줄이 셋을 함께 잰다 — 누를 수 있는 것이고(버튼), 회차 이름이 **여전히**
+     * 낭독기가 읽는 이름이며(`aria-label` 로 덮지 않았다), 그 뒤에 갈 곳이 붙는다.
+     * 이름을 덮으면 "내가 어느 파티에 있나" 를 확인할 자리가 낭독기에게만 사라진다.
+     */
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`${STATE.event.name}.*${STATUS.toHome}`) }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF"));
+
+    // 탭 이동과 같이 **갈아끼운다.** 뒤로 가서 참가자 탭이 나오면 발자국을 되감은 것이다
+    await router.navigate(-1);
+    expect(router.state.location.pathname).toBe("/e/ABCDEF");
+  });
+
+  it("★ 홈 탭에서는 회차 이름이 버튼이 아니다 — 갈 곳이 없으면 누를 것도 없다", async () => {
+    /*
+     * 눌러도 이미 홈이라 아무 일이 없다. 그런 버튼은 고장으로 읽히고,
+     * 눌리면 같은 주소가 히스토리에 한 칸 더 쌓여 뒤로 가기가 헛돈다.
+     */
+    render(<RouterProvider router={participantRouter()} />);
+    await screen.findByText(HOME.todo.prevote.title);
+    expect(screen.getByText(STATE.event.name).closest("button")).toBeNull();
   });
 
   it("★ 프로필 시트는 뒤로 가기로 닫히고 목록이 남는다", async () => {

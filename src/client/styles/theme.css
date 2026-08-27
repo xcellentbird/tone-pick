@@ -1183,6 +1183,30 @@ h1,
 /* 단계는 부제 자리로 내려왔지만 **색은 그대로다** — 글자를 읽기 전에 어디쯤인지 안다 */
 .statusbar .phase { font-size: 13px; font-weight: 800; }
 
+/*
+ * 홈 탭이 아닐 때 이 칸은 **버튼이다** — 누르면 홈으로 간다 (`StatusBar.tsx`).
+ * 보이는 것은 글자 그대로다. 표시를 붙이면 이 줄이 답하는 질문이 둘이 된다.
+ *
+ * 손가락은 44px 을 받아야 하는데(UI.md 모바일 체크리스트) 헤더는 **1px 도 못 준다.**
+ * `.helpBtn` 과 같은 수를 쓴다 — 누르는 크기와 보이는 크기를 나눈다.
+ * 전역 `button { min-height: var(--tap) }` 을 끄고 위아래 패딩으로 탭 영역을 만든 뒤,
+ * 같은 크기의 음수 여백으로 되돌린다. 손가락에는 45px, 줄 높이는 37px 그대로다.
+ *
+ * ⚠️ **`text-align` 과 `color` 를 지우지 마라.** 버튼 기본값은 가운데 정렬에 `buttontext` 라,
+ * 빼면 회차 이름이 헤더 한가운데로 가고 어두운 바탕에 검은 글씨가 된다.
+ */
+.statusbar button.where {
+  min-height: 0;
+  padding: 4px 0;
+  margin: -4px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+/* 눌린 것이 보여야 한다 — 채운 버튼(`.btn`)과 같은 수를 쓴다 */
+.statusbar button.where:active { filter: brightness(1.15); }
+
 /* 단계를 색으로도 기억하게 한다 — 글자를 읽기 전에 어디쯤인지 안다 */
 .statusbar.phase-reg .phase { color: var(--dim); }
 .statusbar.phase-prevote .phase { color: var(--accent); }
