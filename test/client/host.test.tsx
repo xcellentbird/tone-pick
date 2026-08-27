@@ -73,6 +73,14 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
 
 const calls: Array<{ url: string; body: unknown }> = [];
 
+/** 테스트 스텁이 돌려주는 JSON 응답 */
+function json(payload: unknown) {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 function stubFetch(state: ReturnType<typeof hostState>) {
   vi.stubGlobal(
     "fetch",
@@ -511,6 +519,62 @@ describe("운영자 콘솔", () => {
       sheet!.contains(document.activeElement),
       "포커스가 시트 밖으로 떨어졌다 — 트랩이 풀린다",
     ).toBe(true);
+  });
+
+  /**
+   * ★ **화면이 이미 말한 것을 토스트가 또 말하지 않는다** (ADR-64).
+   *
+   * 토스트는 `position: fixed` 로 화면 아래에 떠서 **시트 안 명단을 덮는다.**
+   * 더하면 행이 생기고 머리 숫자가 오른다 — 덮어가며 다시 말할 것이 없다.
+   */
+  it("★ 명단에 더해도 토스트를 띄우지 않는다 — 화면이 이미 말한다", async () => {
+    const st = hostState();
+    st.invites = [];
+    /* 공용 스텁은 POST 에 `{ok:true}` 만 준다. 더하기 왕복은 서버가 **전체 명단**을 돌려줘야 흉내가 된다 */
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        if (url.includes("/invites") && body && "phones" in body) {
+          for (const phone of (body as { phones: string[] }).phones) {
+            st.invites.push({ phone, token: `t${st.invites.length}`, addedAt: 1 });
+          }
+          return json(st.invites);
+        }
+        return json(url.includes("/state") ? st : { ok: true });
+      }),
+    );
+    renderConsole("/host/e1/players/invites");
+
+    const input = await screen.findByLabelText(HOST_UI.invites.addLabel);
+    fireEvent.change(input, { target: { value: "010-5032-7984" } });
+    fireEvent.click(screen.getByText(HOST_UI.invites.addOne));
+
+    // 행이 생기는 것이 곧 알림이다
+    await screen.findByText("010-5032-7984");
+    expect(document.querySelector(".toast"), "명단을 덮는 토스트가 떴다").toBeNull();
+  });
+
+  /**
+   * ★ **클립보드는 눈에 안 보이니 버튼이 스스로 말한다** (ADR-64).
+   *
+   * 여기서까지 토스트를 없애면 눌렀는지조차 알 수 없다 — 운영자의 일이
+   * 복사해서 한 명씩 보내는 것이라 그 신호가 없으면 안 된다.
+   * 누른 자리에서 말하면 명단을 안 덮고, **복사 버튼이 둘이라** 어느 것인지도 말해준다.
+   */
+  it("★ 복사는 버튼이 말한다 — 아래에 띄우지 않는다", async () => {
+    const st = hostState();
+    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    stubFetch(st);
+    stubClipboard();
+    renderConsole("/host/e1/players/invites");
+
+    fireEvent.click(await screen.findByText(HOST_UI.invite.copy));
+
+    await screen.findByText(HOST_UI.invite.copyDone);
+    expect(document.querySelector(".toast"), "명단을 덮는 토스트가 떴다").toBeNull();
+    // 안내문 버튼만 바뀐다 — 행의 링크 버튼은 그대로다
+    expect(screen.getByText(HOST_UI.invite.link)).toBeTruthy();
   });
 
   it("★ 안내문 카드에 미리보기를 두지 않는다 — 고치는 화면이 그 일을 한다", async () => {
