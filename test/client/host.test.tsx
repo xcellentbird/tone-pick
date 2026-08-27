@@ -475,6 +475,44 @@ describe("운영자 콘솔", () => {
     expect(screen.getByText(HOST_UI.invites.title)).toBeTruthy();
   });
 
+  /**
+   * ★ **명단을 열었다고 키보드가 올라오지 않는다** (ADR-63).
+   *
+   * 이 시트를 여는 이유는 대개 **읽으려는 것**이다 — 누가 초대됐고 누가 아직 등록 안 했나.
+   * 그런데 폰에서 열면 키보드가 곧장 올라와 화면 절반을 먹고, 정작 보려던 명단이 그 아래 깔린다.
+   *
+   * 원인은 우리 코드의 `autoFocus` 가 아니다 — 그건 어디에도 없다.
+   * **Radix Dialog 가 열릴 때 첫 포커스 가능한 요소를 잡는다.** 이 시트에서 그게 전화번호 칸이다.
+   * 시트 중에 텍스트 입력을 가진 건 여기 하나뿐이라, 나머지 넷은 첫 요소가 버튼이라 티가 안 났다.
+   */
+  it("★ 명단을 열었다고 전화번호 칸에 커서가 가지 않는다", async () => {
+    const st = hostState();
+    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    stubFetch(st);
+    renderConsole("/host/e1/players/invites");
+
+    const input = await screen.findByLabelText(HOST_UI.invites.addLabel);
+    // 자동 포커스는 마운트 뒤 효과에서 돈다. 한 박자 기다렸다 본다
+    await waitFor(() => expect(screen.getByText(HOST_UI.invite.copy)).toBeTruthy());
+
+    expect(
+      document.activeElement,
+      "전화번호 칸에 커서가 갔다 — 폰에서는 이 순간 키보드가 올라온다",
+    ).not.toBe(input);
+
+    /*
+     * **포커스는 시트 안에 남아 있어야 한다.** `preventDefault()` 만 하면 `body` 로 떨어져서
+     * 포커스 트랩이 풀리고(Tab 이 시트 뒤 목록으로 샌다) 스크린리더가 제목을 못 읽는다.
+     * 키보드를 막으려다 그걸 부수는 고침이 제일 쉽게 나온다.
+     */
+    const sheet = input.closest("[role=dialog]");
+    expect(sheet, "시트를 못 찾았다").toBeTruthy();
+    expect(
+      sheet!.contains(document.activeElement),
+      "포커스가 시트 밖으로 떨어졌다 — 트랩이 풀린다",
+    ).toBe(true);
+  });
+
   it("★ 안내문 카드에 미리보기를 두지 않는다 — 고치는 화면이 그 일을 한다", async () => {
     const st = hostState();
     st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
