@@ -2364,11 +2364,21 @@ describe("내 정보 고치기", () => {
     expect(screen.queryByText(ME.editLeft), "지나간 시각을 세고 있다").toBeNull();
   });
 
-  it("★ 사전 투표가 열린 뒤에는 왜 못 고치는지 말한다", async () => {
-    // 버튼만 조용히 사라지면 "내 화면만 이상한가" 가 된다
+  /**
+   * ★ **잠긴 뒤에는 그 자리가 통째로 빈다.**
+   *
+   * 마감·버튼·문구가 함께 사라진다 — 못 하는 일을 화면에 남겨두지 않는다.
+   * `ME.locked` 는 **서버의 409 응답으로만** 산다 (폼을 열어둔 채 투표가 시작된 사람용).
+   * 그 문구가 이 탭에 다시 서면 여기서 걸린다.
+   */
+  it("★ 잠긴 뒤에는 고치는 자리가 통째로 빈다", async () => {
     renderMe();
-    await screen.findByText(ME.locked);
-    expect(screen.queryByText(ME.edit)).toBeNull();
+    await screen.findByText(ME.labels.charms); // 내 정보 탭은 떴다
+
+    expect(screen.queryByText(ME.edit), "고치기 버튼이 남았다").toBeNull();
+    expect(screen.queryByText(ME.editLeft), "마감이 남았다").toBeNull();
+    expect(screen.queryByText(ME.editHint), "안내가 남았다").toBeNull();
+    expect(screen.queryByText(ME.locked), "서버 409 문구가 화면으로 샜다").toBeNull();
   });
 
   it("★ 뒤로 가기가 곧 취소다 — 탭을 벗어나지 않는다", async () => {
@@ -2390,7 +2400,7 @@ describe("내 정보 고치기", () => {
   it("잠긴 뒤에 편집 주소를 열면 내 정보로 되돌린다", async () => {
     // 링크·새로고침·편집 중 단계 전환 — 고칠 수 없는 폼을 띄우지 않는다
     const { router } = renderMe({}, undefined, "/e/ABCDEF/me/edit");
-    await screen.findByText(ME.locked);
+    await screen.findByText(ME.labels.charms);
     expect(screen.queryByLabelText(ME.labels.nickname)).toBeNull();
     await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF/me"));
   });
