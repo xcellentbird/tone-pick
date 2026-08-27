@@ -89,6 +89,18 @@
    */
   --plum: color-mix(in srgb, var(--accent) 60%, var(--heart));
 
+  /*
+   * **파티의 등불** (ADR-61 후기 3). 금빛을 자두빛에 담근 테라코타 — 10°, 채도 61%.
+   *
+   * 금빛(42°) 그대로는 자정 보라의 **분할보색**이라 파티 단계에서 끝까지 튀었다.
+   * 세기를 낮춰도 색상각이 그대로면 부딪히는 건 그대로다 — 옅은 보색은 그냥 **옅게 부딪힌다.**
+   *
+   * 그래서 색상각 자체를 가족 안으로 끌고 온다. 42° → 10° 는 콕(338°)에서 32° 떨어진
+   * 자리라 `저녁 등불` 로 읽히고, 채도 61% 라 **금빛처럼 노랗게 외치지 않는다.**
+   * 불이 켜진 느낌은 노란색이 아니라 **따뜻한 낮은 채도**에서 온다.
+   */
+  --ember: color-mix(in srgb, var(--gold) 40%, var(--plum));
+
   /* 순위 바 — 하트(콕)에서 주 색(매칭)으로. 받은 콕이 쌓여 매칭으로 향한다는 걸 색으로도 */
   --meter: linear-gradient(90deg, var(--heart), var(--accent));
 
@@ -309,13 +321,15 @@ button {
 
 .screen[data-phase="party"] {
   /*
-   * 불이 켜진다 — **금빛은 이 한 단계에만 나온다.**
-   * 자정 보라의 분할보색이라 계속 깔면 부딪히는데, 한 번만 나오면 그때 뜻이 산다.
-   * 자두빛을 아래 깔아 보라 계열에 안긴다.
+   * 불이 켜진다 — **화면에서 가장 밝은 한 단계.**
+   *
+   * 금빛을 한 번만 쓰면 괜찮을 줄 알았는데 그 한 번에서도 튀었다 (후기 3).
+   * 세기를 낮추는 걸로는 안 된다 — 옅은 보색은 그냥 **옅게 부딪힌다.**
+   * 지금은 `--ember`(금빛을 자두빛에 담근 테라코타)가 그 자리에 선다.
    */
   --aurora:
-    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--gold) 13%, transparent), transparent 64%),
-    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--plum) 17%, transparent), transparent 60%);
+    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--ember) 18%, transparent), transparent 64%),
+    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--plum) 19%, transparent), transparent 60%);
 }
 
 .screen[data-phase="done"] {
@@ -328,7 +342,7 @@ button {
    */
   --aurora:
     radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--heart) 13%, transparent), transparent 64%),
-    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--plum) 16%, transparent), transparent 60%);
+    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--plum) 20%, transparent), transparent 60%);
 }
 
 .screen > header {
