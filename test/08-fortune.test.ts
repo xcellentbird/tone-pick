@@ -141,7 +141,26 @@ describe("오늘의 미션", () => {
     const f = draft();
     const sent = MISSION.prompt.user(missionInput(PLAYER, f));
     expect(sent).toContain(f.headline);
-    expect(sent).toContain(f.body);
+  });
+
+  /**
+   * ★ **운세 본문은 미션 호출에 가지 않는다** (ADR-60).
+   *
+   * 본문을 통째로 주던 시절, `lead` 가 첫 문단을 유의어로 바꿔 옮겨 적었다 —
+   * *"편안한 대화와 작은 공감 속에서 호감의 결이 선명해지는 밤"* 이
+   * *"편안한 말과 작은 공감 속에서 새로운 인연의 결이 또렷해지는 밤"* 으로 돌아왔다.
+   * 프롬프트가 `그대로 옮겨 적지 마세요` 를 두 번 말해도 안 지켜졌다.
+   *
+   * **베낄 것을 안 주는 편이 베끼지 말라고 하는 것보다 세다.**
+   * ADR-20 이 '오늘의 어필' 카드를 걷어내며 배운 것과 같은 자리다 —
+   * "서로를 알게 하려던 것이 서로를 베끼게 만들었다."
+   */
+  it("★ 운세 본문은 미션 호출에 실리지 않는다 — 베낄 것을 안 준다", () => {
+    const f = draft();
+    const sent = MISSION.prompt.user(missionInput(PLAYER, f));
+    expect(sent, "본문이 통째로 실렸다 — lead 가 이걸 베낀다").not.toContain(f.body);
+    // 넓게 받아도 덜어낸다. 부르는 쪽이 `Fortune` 을 통째로 넘겨도 새어 나가지 않아야 한다
+    expect(JSON.stringify(missionInput(PLAYER, f))).not.toContain(f.body);
   });
 
   it("★ 운세 호출은 미션을 만들지 않는다", () => {
@@ -198,6 +217,95 @@ describe("오늘의 미션", () => {
     const m = fallbackMission(missionInput(PLAYER, draft()), MISSION.fallback);
     expect(m.mission.length).toBeGreaterThan(0);
     expect(m.lead.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * 마흔 명이 한 자리에서 화면을 나란히 본다 (ADR-60).
+ *
+ * 발행되는 운세는 일부러 모호하게 쓴다 — 그래야 아무에게나 들어맞는다(Barnum 효과).
+ * 혼자 보는 운세라면 그게 기술인데, **여기서는 옆 사람 것과 같아 보이는 순간 둘 다 힘을 잃는다.**
+ * 그래서 반대로 간다. 아래 셋이 그 반대를 지킨다.
+ */
+describe("서로 달라 보이게 하는 것", () => {
+  /**
+   * ★ **갈라지는 축을 코드가 정해서 준다.**
+   *
+   * 보내는 재료가 거의 같은 게 진짜 원인이었다 — 성별 둘에 별자리·띠뿐이고,
+   * 실명은 "답변에 쓰지 마라" 로 막아둬서 모델이 무시한다. 같은 재료에 같은 제약이면
+   * **잘 쓰는 모델일수록 같은 정답에 도착한다.**
+   *
+   * 프롬프트로 "다양하게 쓰세요" 라고 부탁하는 것과 다르다 — 부탁은 지켜지는지 알 수 없고,
+   * 이건 세어볼 수 있다.
+   */
+  it("★ 사람마다 다른 '오늘의 결' 이 프롬프트에 실린다", () => {
+    const sent = (year: number, month: number, day: number) =>
+      FORTUNE.prompt.user(fortuneInput(PLAYER, TODAY, { year, month, day }));
+
+    const seen = new Set<string>();
+    for (let d = 1; d <= 28; d++) {
+      const line = sent(1996, 3, d).split("\n").find((l) => l.startsWith("오늘의 결"));
+      expect(line, "결이 프롬프트에 없다").toBeTruthy();
+      seen.add(line!);
+    }
+    // 스물여덟 명이 한 줄만 받으면 축이 아니다
+    expect(seen.size, "결이 갈리지 않는다").toBeGreaterThan(5);
+  });
+
+  it("★ 같은 사람에게는 언제나 같은 결이다 — 한 번 연 운세는 바뀌지 않는다", () => {
+    const of = () => FORTUNE.prompt.user(fortuneInput(PLAYER, TODAY, { year: 1996, month: 3, day: 14 }));
+    expect(of()).toBe(of());
+  });
+
+  /**
+   * ★ **여지 표현에 한도를 둔다.**
+   *
+   * `~일 수 있어요` 를 권하던 시절, 한 화면 450자에 그 표현이 **다섯 번** 나왔다.
+   * 서로 다른 주장을 해도 헤지를 통과하면 다 같은 무주장으로 평평해진다 —
+   * 이게 "사람마다 크게 다르지 않다" 의 단일 최대 원인이었다.
+   *
+   * 단정하지 말라는 건 **앞날**에만 남긴다. 오늘의 결을 말하는 건 예언이 아니다.
+   */
+  it("★ 여지 표현은 한 번까지라고 못 박는다", () => {
+    expect(FORTUNE.prompt.system).toContain("최대 한 번");
+    expect(FORTUNE.prompt.system).toContain("단정해서 씁니다");
+  });
+
+  /**
+   * ★ **세 문단으로 못 박는다.** 길이와 특색은 같은 문제다 —
+   * 다섯 문단 동안 이것저것 조금씩 말하면 개인차가 묽어진다.
+   * 무엇을 버리고 무엇을 남겼는지가 곧 그 사람의 결이 된다.
+   *
+   * 출력 토큰 상한으로 줄이지 않는다. 그건 **문장 중간에서 자르는** 일이고,
+   * 잘린 JSON 은 조용히 규칙 문구가 된다 (`server/fortune.ts` 의 그 사고).
+   */
+  it("★ 세 문단이라고 못 박는다 — 토큰 상한으로 자르지 않는다", () => {
+    expect(FORTUNE.prompt.system).toContain("정확히 3문단");
+    expect(FORTUNE.prompt.system).toContain("넷째 문단을 쓰지 마세요");
+  });
+});
+
+describe("미션이 매력을 쓰는 법", () => {
+  /**
+   * ★ **자랑하게 만들지 않는다** (ADR-60).
+   *
+   * 매력 셋은 등록 때 본인이 쓴 것이라 개인차가 가장 큰 재료인데,
+   * 프롬프트에 **쓰라는 말이 한 줄도 없어서** 미션이 매력과 무관하게 나왔다.
+   *
+   * 다만 "매력을 어필하세요" 로 가면 안 된다. 어필에는 성공과 실패가 있고,
+   * 안 통하면 **티가 난다** — 이 앱이 없애려던 경험을 앱이 직접 만드는 일이다.
+   * 대신 그 매력이 저절로 나올 자리를 연다. 상대에게 묻는 모양이라
+   * **안 통해도 그냥 잡담**이고, 통하면 본인 이야기가 저절로 나온다.
+   */
+  it("★ 매력은 자랑이 아니라 자리 열기로 쓴다", () => {
+    expect(MISSION.prompt.system).toContain("자랑하게 만들지 마세요");
+    expect(MISSION.prompt.system).toContain("자리를 열어주세요");
+    // 결과를 목표로 삼지 않는다는 원래 규칙과 같은 자리다
+    expect(MISSION.prompt.system).toContain("결과를 목표로 삼지 마세요");
+  });
+
+  it("★ 매력 셋 중 하나만 고른다 — 셋을 다 담으면 계획표가 된다", () => {
+    expect(MISSION.prompt.system).toContain("하나만");
   });
 });
 
