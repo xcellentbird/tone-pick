@@ -96,7 +96,22 @@
         "MASTER_PIN": "0000",
         "SESSION_SECRET": "qa-not-a-secret",
         // 오늘의 연애운. 키(OPENAI_API_KEY)는 시크릿으로만 넣는다 — 여기 적으면 그대로 공개된다
-        "LLM_MODEL": "gpt-5.6-luna"
+        "LLM_MODEL": "gpt-5.6-luna",
+        /*
+         * temperature 실험 중이다 (ADR-60). **재보려고 넣은 값이지 정해진 값이 아니다.**
+         *
+         * `--var` 대신 여기 적는 이유는 **자동 배포가 덮지 않게** 하려는 것이다 —
+         * git 연동이 푸시마다 QA 를 다시 배포하고 그때 실리는 건 이 파일의 vars 뿐이다.
+         *
+         * 1.5 는 높은 쪽이다. 글은 더 갈리지만 JSON 이 깨지기 쉬워지고,
+         * 깨지면 조용히 **규칙 문구(열다섯 가지뿐)** 로 떨어져 오히려 서로 닮아진다.
+         * `scripts/fortune-spread.mjs` 가 그 둘을 함께 잰다 — 규칙문구 비율부터 본다.
+         *
+         * ⚠️ **프로덕션에는 옮기지 마라, 재기 전에는.** 프로덕션 vars 에는 이 키가 없고,
+         * 없으면 파라미터 자체를 안 보내 제공자 기본값으로 돈다. 그게 지금 참가자가 받는 것이다.
+         * 다 재고 값이 정해지면 그때 옮긴다. 정할 게 없으면 **이 줄을 지운다.**
+         */
+        "LLM_TEMPERATURE": "1.5"
       },
       "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "tone_pick_ops_qa" }],
       "assets": {

@@ -83,7 +83,17 @@ export interface MissionInput {
   nickname: string;
   mbti: string;
   charms: string[];
-  fortune: { headline: string; body: string };
+  /**
+   * **본문은 안 보낸다** (ADR-60). 한 줄만 간다.
+   *
+   * 본문 전체를 넘기던 시절에는 `lead` 가 첫 문단을 유의어로 바꿔 옮겨 적었다 —
+   * *"편안한 대화와 작은 공감 속에서 호감의 결이 선명해지는 밤"* 이
+   * *"편안한 말과 작은 공감 속에서 새로운 인연의 결이 또렷해지는 밤"* 으로 돌아왔다.
+   * 프롬프트가 `그대로 옮겨 적지 마세요` 를 두 번 말해도 안 지켜졌다.
+   * **베낄 것을 안 주는 편이 베끼지 말라고 하는 것보다 세다** —
+   * ADR-20 이 '오늘의 어필' 카드를 걷어내며 배운 것과 같은 자리다.
+   */
+  fortune: { headline: string };
 }
 
 /**
@@ -103,17 +113,22 @@ export function fortuneInput(
   };
 }
 
-/** 미션 호출에 보내는 값을 만든다. 운세를 다 읽은 뒤에 부른다 */
+/**
+ * 미션 호출에 보내는 값을 만든다. 운세를 다 읽은 뒤에 부른다.
+ *
+ * **운세 본문은 받되 보내지 않는다** (ADR-60). 넓게 받는 건 부르는 쪽을 편하게 하려는 것이고,
+ * 덜어내는 것이 이 함수가 하는 일이다 — `fortuneInput` 과 같은 자리다.
+ */
 export function missionInput(
   p: { realName: string; nickname: string; mbti: string; charms: readonly string[] },
-  fortune: { headline: string; body: string },
+  fortune: { headline: string },
 ): MissionInput {
   return {
     realName: p.realName,
     nickname: p.nickname,
     mbti: p.mbti,
     charms: [...p.charms],
-    fortune: { headline: fortune.headline, body: fortune.body },
+    fortune: { headline: fortune.headline },
   };
 }
 
@@ -155,6 +170,23 @@ export function seedOf(s: string): number {
   return Math.abs(h);
 }
 
+/**
+ * **오늘의 결** 번호 (ADR-60). 이름은 `copy.ts` 가 갖는다 — 이 파일에는 한국어를 두지 않는다.
+ *
+ * 운세가 사람마다 안 갈리던 진짜 이유는 **보내는 재료가 거의 같아서**였다 —
+ * 성별 둘에 별자리·띠뿐이고, 실명은 "답변에 쓰지 마라" 로 막아둬서 모델이 무시한다.
+ * 같은 재료에 같은 제약이면 잘 쓰는 모델일수록 **같은 정답에 도착한다.**
+ *
+ * 그래서 갈라지는 축 하나를 **코드가 정해서 준다.** 프롬프트로 "다양하게 쓰세요" 라고
+ * 부탁하는 것과 다르다 — 부탁은 지켜지는지 알 수 없고, 이건 세어볼 수 있다.
+ *
+ * 색과 **다른 자리의 비트**를 쓴다. 같은 비트에서 뽑으면 결과 색이 함께 굴러서
+ * 축이 둘인 척하는 축 하나가 된다.
+ */
+export function toneIndex(seed: number, count: number): number {
+  return (seed >> 5) % count;
+}
+
 const COLORS: FortuneColor[] = ["violet", "gold", "teal", "coral"];
 
 export function pickColor(seed: number): FortuneColor {
@@ -167,7 +199,7 @@ export function pickColor(seed: number): FortuneColor {
  * **실명을 쓰지 않는다.** 저장되는 값이 이름에서 나오면 이름이 간접적으로 남는 셈이다 —
  * 생년월일과 성별이면 사람마다 갈리기에 충분하다.
  */
-function fortuneSeed(input: FortuneInput): number {
+export function fortuneSeed(input: FortuneInput): number {
   const b = input.birth;
   return seedOf(`${b ? `${b.year}-${b.month}-${b.day}` : "?"}:${input.gender}`);
 }

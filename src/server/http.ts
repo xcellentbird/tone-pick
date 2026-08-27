@@ -41,6 +41,14 @@ export interface Env {
   OPENAI_API_KEY?: string;
   LLM_MODEL?: string;
   LLM_BASE_URL?: string;
+  /**
+   * 운세 호출의 temperature (ADR-60). **없으면 아예 안 보낸다** — 제공자 기본값을 쓴다.
+   *
+   * 설정으로 둔 이유는 이게 **재봐야 아는 값**이라서다. QA 에서 값을 바꿔가며
+   * 마흔 명분을 뽑아 서로 얼마나 겹치는지 보고 정한다. 코드에 박아두면 그 실험이 배포가 된다.
+   * 숫자가 아니면 무시한다 — 오타 하나로 그 회차의 운세가 전부 규칙 문구가 되면 안 된다.
+   */
+  LLM_TEMPERATURE?: string;
 }
 
 export type Ctx = Context<{ Bindings: Env }>;

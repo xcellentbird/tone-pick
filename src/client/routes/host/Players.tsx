@@ -83,20 +83,34 @@ export default function Players() {
    * 어디까지 보냈는지는 **표시하지 않는다** (ADR-32 후기). 복사가 곧 발송이 아니고
    * (붙여넣기 전에 마음이 바뀐다), 되돌릴 수 있는 표시는 틀렸을 때 아무도 모른다.
    */
-  function copyNote() {
-    // 복사가 막히는 브라우저가 있다 (권한·구버전). 실패를 성공이라고 말하지 않는다
-    navigator.clipboard
-      ?.writeText(note)
-      .then(() => toast(HOST_UI.copied))
-      .catch(() => toast(HOST_UI.copyFailed));
+  function copyNote(): Promise<boolean> {
+    /*
+     * **성공은 버튼이 말한다** (ADR-65) — 여기서 토스트를 띄우면 아래 명단을 덮는다.
+     * 실패만 토스트로 남긴다. 복사가 막히는 브라우저가 있고(권한·구버전),
+     * 그건 **드물고 그냥 넘어가면 안 되는 일**이라 덮어서라도 말해야 한다.
+     */
+    return (
+      navigator.clipboard
+        ?.writeText(note)
+        .then(() => true)
+        .catch(() => {
+          toast(HOST_UI.copyFailed);
+          return false;
+        }) ?? Promise.resolve(false)
+    );
   }
 
   /** 그 사람의 링크만 복사한다. 사람마다 다른 건 이것뿐이라 행에 붙는다 */
-  function copyLink(i: Invite) {
-    navigator.clipboard
-      ?.writeText(linkFor(i))
-      .then(() => toast(HOST_UI.copiedLink))
-      .catch(() => toast(HOST_UI.copyFailedLink));
+  function copyLink(i: Invite): Promise<boolean> {
+    return (
+      navigator.clipboard
+        ?.writeText(linkFor(i))
+        .then(() => true)
+        .catch(() => {
+          toast(HOST_UI.copyFailedLink);
+          return false;
+        }) ?? Promise.resolve(false)
+    );
   }
 
   /**
@@ -114,7 +128,7 @@ export default function Players() {
       },
       async () => {
         await del(`/host/events/${state.meta.id}/invites/${i.phone}`);
-        toast(HOST_UI.invites.removed);
+        // 토스트를 띄우지 않는다 (ADR-65) — 행이 사라지고 머리 숫자가 내린다. 화면이 이미 말했다
         reload();
       },
     );
@@ -282,11 +296,11 @@ export default function Players() {
           onCopyLink={copyLink}
           onRemove={askRemove}
           onEditTemplate={() => navigate("/host/defaults")}
-          onDone={(added) => {
-            // 명단은 더하기만 한다 — 서버가 전체를 돌려주므로 길이가 줄지 않는다. 빼기는 `askRemove` 가 따로 알린다
-            toast(added > 0 ? HOST_UI.invites.saved : HOST_UI.invites.already);
-            reload();
-          }}
+          /*
+           * **토스트를 띄우지 않는다** (ADR-65) — 행이 생기고 머리 숫자가 오른다.
+           * 아무 변화가 없는 경우(이미 있던 번호)만 폼이 그 자리에서 말한다.
+           */
+          onDone={reload}
         />
       </Sheet>
     </div>
@@ -321,13 +335,14 @@ function Invites({
   /** 안내문 문구를 고치러 간다. 운영자 기본값에 하나만 둔다 (ADR-32) */
   onEditTemplate: () => void;
   /** 안내문을 복사한다. 전원이 같은 글이라 명단 머리에서 한 번이다 */
-  onCopyNote: () => void;
+  /** 복사 성공 여부를 돌려준다 — 버튼이 그걸 보고 스스로 말한다 (ADR-65) */
+  onCopyNote: () => Promise<boolean>;
   /** 그 사람의 링크만 복사한다. 사람마다 다른 건 이것뿐이다 */
-  onCopyLink: (i: Invite) => void;
+  onCopyLink: (i: Invite) => Promise<boolean>;
   /** 명단에서 뺀다. 확인창을 거친다 */
   onRemove: (i: Invite) => void;
   /** 더한 수. 이미 있어서 아무 일도 없었으면 0 */
-  onDone: (added: number) => void;
+  onDone: () => void;
 }) {
   /**
    * **번호를 치는 칸은 이제 여기 하나뿐이다** (ADR-32) — `010` 이 미리 들어가 있고
@@ -339,6 +354,18 @@ function Invites({
   const [one, setOne] = useState(PHONE_SEED);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * 방금 복사한 버튼. **클립보드는 눈에 안 보여서 무언가는 말해야 한다** (ADR-65).
+   * 아래에 띄우면 명단을 덮으므로 **누른 그 버튼**이 잠깐 바뀐다 —
+   * 덮지 않고, 복사 버튼이 둘이라 어느 것인지도 함께 말해준다.
+   */
+  const [copied, setCopied] = useState<string | null>(null);
+  async function flashCopy(key: string, run: () => Promise<boolean>) {
+    if (!(await run())) return;
+    setCopied(key);
+    // 같은 버튼을 다시 눌렀을 때 앞 타이머가 새 표시를 꺼버리지 않게 자기 것만 지운다
+    setTimeout(() => setCopied((c) => (c === key ? null : c)), 2000);
+  }
   const known = new Set(invites.map((i) => i.phone));
 
   const joined = invites.filter((i) => i.nickname).length;
@@ -351,7 +378,13 @@ function Invites({
     try {
       const next = await post<Invite[]>(`/host/events/${eventId}/invites`, { phones });
       clear();
-      onDone(next.length - invites.length);
+      /*
+       * 명단은 더하기만 한다 — 서버가 전체를 돌려주므로 길이가 줄지 않는다.
+       * 안 늘었다면 **이미 있던 번호**다. 그때는 화면에 아무 변화가 없어서,
+       * 말해주지 않으면 넣은 줄 알고 넘어간다 (ADR-65).
+       */
+      if (next.length <= invites.length) setError(HOST_UI.invites.already);
+      onDone();
     } catch (e) {
       setError(e instanceof ApiError ? (e.userMessage ?? HOST_UI.invites.tooMany(LIMITS.inviteMax)) : "");
     } finally {
@@ -379,6 +412,35 @@ function Invites({
         <p className="kicker">{HOST_UI.invites.count(invites.length, joined)}</p>
       )}
 
+      {/*
+        안내문 카드. **버튼 둘이 전부다** — 복사와 고치기.
+        **맨 위에 둔다** — 이 시트에서 가장 자주 하는 일이 안내문을 복사해 보내는 것이다.
+        번호를 더하는 건 대개 한 번(회차를 열 때)이고, 그 뒤로는 계속 복사만 한다.
+        미리보기는 두지 않는다: 고치는 화면이 글을 그대로 띄우고 있어 같은 일을 두 번 한다.
+        안내문 복사는 여기 하나뿐이다 — 전원이 같은 글이라 행마다 둘 이유가 없고,
+        행에 버튼이 늘면 정작 사람마다 다른 링크가 그만큼 눈에 덜 띈다.
+      */}
+      {invites.length > 0 && (
+        <div className="card stack">
+          <div className="row between">
+            <button
+              className="btn ghost compact"
+              type="button"
+              onClick={() => void flashCopy("note", onCopyNote)}
+            >
+              {copied === "note" ? HOST_UI.invite.copyDone : HOST_UI.invite.copy}
+            </button>
+            <button className="btn ghost compact" type="button" onClick={onEditTemplate}>
+              {HOST_UI.invite.editTemplate}
+            </button>
+          </div>
+
+          {/* 장소가 비었다는 건 **접어두지 않는다** — 그대로 보내면 안내문에 자리만 빈다 */}
+          {!hasPlace && <p className="tiny warnText">{HOST_UI.invite.noPlace}</p>}
+        </div>
+      )}
+
+      {/* 더하기는 안내문 아래, 명단 위다. 여기서 넣은 사람이 바로 아래 목록에 나타난다 */}
       <form className="field" onSubmit={addOne}>
         <label htmlFor="oneInvite">{HOST_UI.invites.addLabel}</label>
         <div className="row">
@@ -406,28 +468,6 @@ function Invites({
       {error && <p className="err danger">{error}</p>}
 
       {/*
-        안내문 카드. **버튼 둘이 전부다** — 복사와 고치기.
-        미리보기는 두지 않는다: 고치는 화면이 글을 그대로 띄우고 있어 같은 일을 두 번 한다.
-        안내문 복사는 여기 하나뿐이다 — 전원이 같은 글이라 행마다 둘 이유가 없고,
-        행에 버튼이 늘면 정작 사람마다 다른 링크가 그만큼 눈에 덜 띈다.
-      */}
-      {invites.length > 0 && (
-        <div className="card stack">
-          <div className="row between">
-            <button className="btn ghost compact" type="button" onClick={onCopyNote}>
-              {HOST_UI.invite.copy}
-            </button>
-            <button className="btn ghost compact" type="button" onClick={onEditTemplate}>
-              {HOST_UI.invite.editTemplate}
-            </button>
-          </div>
-
-          {/* 장소가 비었다는 건 **접어두지 않는다** — 그대로 보내면 안내문에 자리만 빈다 */}
-          {!hasPlace && <p className="tiny warnText">{HOST_UI.invite.noPlace}</p>}
-        </div>
-      )}
-
-      {/*
         **아직 등록 안 한 사람들.** 번호가 그 사람의 유일한 이름인 자리라
         한 덩어리로 모여 있어야 어깨너머로 덜 읽힌다.
         여기서 하는 일은 **안내문을 보내는 것**과 **명단에서 빼는 것** 둘뿐이다.
@@ -444,8 +484,11 @@ function Invites({
                 {/* 목록도 입력칸과 같은 모양으로 끊는다 — 다르면 같은 번호가 다르게 읽힌다 */}
                 <span className="grow ellipsis">{formatPhone(i.phone)}</span>
                 {/* 행에 붙는 건 **사람마다 다른 것**뿐이다. 문구는 위에서 한 번 복사한다 */}
-                <button className="btn ghost compact" onClick={() => onCopyLink(i)}>
-                  {HOST_UI.invite.link}
+                <button
+                  className="btn ghost compact"
+                  onClick={() => void flashCopy(i.phone, () => onCopyLink(i))}
+                >
+                  {copied === i.phone ? HOST_UI.invite.copyDone : HOST_UI.invite.link}
                 </button>
                 <button className="btn ghost compact" onClick={() => onRemove(i)}>
                   {HOST_UI.invites.remove}

@@ -73,6 +73,14 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
 
 const calls: Array<{ url: string; body: unknown }> = [];
 
+/** 테스트 스텁이 돌려주는 JSON 응답 */
+function json(payload: unknown) {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 function stubFetch(state: ReturnType<typeof hostState>) {
   vi.stubGlobal(
     "fetch",
@@ -473,6 +481,126 @@ describe("운영자 콘솔", () => {
     await waitFor(() => expect(screen.queryByLabelText(HOST_UI.invites.addLabel)).toBeNull());
     // 탭은 그대로다 — 시트만 닫혔다
     expect(screen.getByText(HOST_UI.invites.title)).toBeTruthy();
+  });
+
+  /**
+   * ★ **명단을 열었다고 키보드가 올라오지 않는다** (ADR-63).
+   *
+   * 이 시트를 여는 이유는 대개 **읽으려는 것**이다 — 누가 초대됐고 누가 아직 등록 안 했나.
+   * 그런데 폰에서 열면 키보드가 곧장 올라와 화면 절반을 먹고, 정작 보려던 명단이 그 아래 깔린다.
+   *
+   * 원인은 우리 코드의 `autoFocus` 가 아니다 — 그건 어디에도 없다.
+   * **Radix Dialog 가 열릴 때 첫 포커스 가능한 요소를 잡는다.** 이 시트에서 그게 전화번호 칸이다.
+   * 시트 중에 텍스트 입력을 가진 건 여기 하나뿐이라, 나머지 넷은 첫 요소가 버튼이라 티가 안 났다.
+   */
+  it("★ 명단을 열었다고 전화번호 칸에 커서가 가지 않는다", async () => {
+    const st = hostState();
+    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    stubFetch(st);
+    renderConsole("/host/e1/players/invites");
+
+    const input = await screen.findByLabelText(HOST_UI.invites.addLabel);
+    // 자동 포커스는 마운트 뒤 효과에서 돈다. 한 박자 기다렸다 본다
+    await waitFor(() => expect(screen.getByText(HOST_UI.invite.copy)).toBeTruthy());
+
+    expect(
+      document.activeElement,
+      "전화번호 칸에 커서가 갔다 — 폰에서는 이 순간 키보드가 올라온다",
+    ).not.toBe(input);
+
+    /*
+     * **포커스는 시트 안에 남아 있어야 한다.** `preventDefault()` 만 하면 `body` 로 떨어져서
+     * 포커스 트랩이 풀리고(Tab 이 시트 뒤 목록으로 샌다) 스크린리더가 제목을 못 읽는다.
+     * 키보드를 막으려다 그걸 부수는 고침이 제일 쉽게 나온다.
+     */
+    const sheet = input.closest("[role=dialog]");
+    expect(sheet, "시트를 못 찾았다").toBeTruthy();
+    expect(
+      sheet!.contains(document.activeElement),
+      "포커스가 시트 밖으로 떨어졌다 — 트랩이 풀린다",
+    ).toBe(true);
+  });
+
+  /**
+   * ★ **화면이 이미 말한 것을 토스트가 또 말하지 않는다** (ADR-65).
+   *
+   * 토스트는 `position: fixed` 로 화면 아래에 떠서 **시트 안 명단을 덮는다.**
+   * 더하면 행이 생기고 머리 숫자가 오른다 — 덮어가며 다시 말할 것이 없다.
+   */
+  it("★ 명단에 더해도 토스트를 띄우지 않는다 — 화면이 이미 말한다", async () => {
+    const st = hostState();
+    st.invites = [];
+    /* 공용 스텁은 POST 에 `{ok:true}` 만 준다. 더하기 왕복은 서버가 **전체 명단**을 돌려줘야 흉내가 된다 */
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        if (url.includes("/invites") && body && "phones" in body) {
+          for (const phone of (body as { phones: string[] }).phones) {
+            st.invites.push({ phone, token: `t${st.invites.length}`, addedAt: 1 });
+          }
+          return json(st.invites);
+        }
+        return json(url.includes("/state") ? st : { ok: true });
+      }),
+    );
+    renderConsole("/host/e1/players/invites");
+
+    const input = await screen.findByLabelText(HOST_UI.invites.addLabel);
+    fireEvent.change(input, { target: { value: "010-5032-7984" } });
+    fireEvent.click(screen.getByText(HOST_UI.invites.addOne));
+
+    // 행이 생기는 것이 곧 알림이다
+    await screen.findByText("010-5032-7984");
+    expect(document.querySelector(".toast"), "명단을 덮는 토스트가 떴다").toBeNull();
+  });
+
+  /**
+   * ★ **클립보드는 눈에 안 보이니 버튼이 스스로 말한다** (ADR-65).
+   *
+   * 여기서까지 토스트를 없애면 눌렀는지조차 알 수 없다 — 운영자의 일이
+   * 복사해서 한 명씩 보내는 것이라 그 신호가 없으면 안 된다.
+   * 누른 자리에서 말하면 명단을 안 덮고, **복사 버튼이 둘이라** 어느 것인지도 말해준다.
+   */
+  it("★ 복사는 버튼이 말한다 — 아래에 띄우지 않는다", async () => {
+    const st = hostState();
+    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    stubFetch(st);
+    stubClipboard();
+    renderConsole("/host/e1/players/invites");
+
+    fireEvent.click(await screen.findByText(HOST_UI.invite.copy));
+
+    await screen.findByText(HOST_UI.invite.copyDone);
+    expect(document.querySelector(".toast"), "명단을 덮는 토스트가 떴다").toBeNull();
+    // 안내문 버튼만 바뀐다 — 행의 링크 버튼은 그대로다
+    expect(screen.getByText(HOST_UI.invite.link)).toBeTruthy();
+  });
+
+  /**
+   * ★ **안내문 → 더하기 → 명단.** 시트 안에서 가장 자주 하는 일이 위에 온다.
+   *
+   * 안내문 복사는 사람을 부를 때마다 하고, 번호 더하기는 대개 회차를 열 때 한 번이다.
+   * 명단은 그 아래에 한 덩어리로 모인다 — 번호가 그 사람의 유일한 이름인 자리라
+   * 흩어 두면 어깨너머로 더 읽힌다.
+   *
+   * DOM 순서로 잠근다. 화면에서 위아래는 **읽는 차례**라 CSS 가 아니라 순서가 정한다.
+   */
+  it("★ 시트 순서는 안내문 → 더하기 → 명단이다", async () => {
+    const st = hostState();
+    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    stubFetch(st);
+    renderConsole("/host/e1/players/invites");
+
+    await screen.findByText(HOST_UI.invite.copy);
+    /* 시트는 포털로 나가서 `container` 밖에 붙는다 (Radix `Dialog.Portal`) */
+    const sheet = document.body.querySelector("[role=dialog]")!;
+    expect(sheet, "시트를 못 찾았다").toBeTruthy();
+    const seen = [...sheet.querySelectorAll("button, input, p")].map((el) =>
+      el.id === "oneInvite" ? "폼" : el.textContent?.includes(HOST_UI.invite.copy) ? "안내문"
+        : el.textContent?.includes(HOST_UI.invites.waitingCount(1)) ? "명단" : null,
+    );
+    expect(seen.filter(Boolean), "안내문 → 폼 → 명단 순서가 아니다").toEqual(["안내문", "폼", "명단"]);
   });
 
   it("★ 안내문 카드에 미리보기를 두지 않는다 — 고치는 화면이 그 일을 한다", async () => {

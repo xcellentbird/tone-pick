@@ -11,13 +11,20 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
     />
-    <meta name="theme-color" content="#12101a" />
+    <meta name="theme-color" content="#131118" />
     <!--
       대체 화면은 **늦게** 나타난다.
 
       HTML 안에 있으니 브라우저가 먼저 그리고, React 가 뜨면서 덮는다 — 그대로 두면
       **정상 경로에서 매번 "화면을 불러오지 못했어요" 가 번쩍인다.** 하얀 화면보다 나쁘다.
       멀쩡히 도는 앱이 매번 실패했다고 말하면, 진짜 실패했을 때 아무도 안 믿는다.
+
+      ⚠️ **색 네 개는 `theme.css` 의 토큰과 손으로 맞춘다.** 여기서는 변수를 못 쓴다 —
+      CSS 파일이 같이 안 붙었을 수 있는 상황을 위한 자리라 인라인이어야 한다.
+      그래서 토큰이 바뀌면 **여기가 조용히 어긋난다.** 실제로 세 개가 다 어긋나 있었다:
+      바탕은 옛 `--bg`(#131316), 버튼 보라(#6d48e5)와 `theme-color`(#12101a)는
+      어느 토큰과도 맞은 적이 없었다.
+      바탕 `--bg` · 글자 `--fg` · 버튼 `--accent` · 흐린 글씨 `--dim`, 그리고 `theme-color` 도 `--bg`.
 
       그래서 6초 뒤에야 보이게 한다. 그 전까지는 어두운 바탕만 — 앱이 자료를 기다릴 때
       그리는 화면(`.screen` 빈 상태)과 같은 모습이라 이질감이 없다.
@@ -45,9 +52,9 @@
       (`check:copy` 는 `src/` 만 훑으므로 이 파일은 검사에 안 걸린다.)
     -->
     <div id="root">
-      <div class="bootFail" style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;background:#131316;color:#f7f7f8;font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;text-align:center">
+      <div class="bootFail" style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;background:#131118;color:#f7f7f8;font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;text-align:center">
         <p style="margin:0;font-size:16px">화면을 불러오지 못했어요</p>
-        <button onclick="location.reload()" style="min-height:44px;padding:0 20px;border:none;border-radius:8px;background:#6d48e5;color:#fff;font-size:16px;font-weight:600;font-family:inherit">새로고침</button>
+        <button onclick="location.reload()" style="min-height:44px;padding:0 20px;border:none;border-radius:8px;background:#9b7cff;color:#fff;font-size:16px;font-weight:600;font-family:inherit">새로고침</button>
         <p style="margin:0;font-size:12px;color:#a8a8b0">새로고침해도 안 되면 운영자에게 이 화면을 보여주세요.</p>
       </div>
     </div>
