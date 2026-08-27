@@ -412,6 +412,35 @@ function Invites({
         <p className="kicker">{HOST_UI.invites.count(invites.length, joined)}</p>
       )}
 
+      {/*
+        안내문 카드. **버튼 둘이 전부다** — 복사와 고치기.
+        **맨 위에 둔다** — 이 시트에서 가장 자주 하는 일이 안내문을 복사해 보내는 것이다.
+        번호를 더하는 건 대개 한 번(회차를 열 때)이고, 그 뒤로는 계속 복사만 한다.
+        미리보기는 두지 않는다: 고치는 화면이 글을 그대로 띄우고 있어 같은 일을 두 번 한다.
+        안내문 복사는 여기 하나뿐이다 — 전원이 같은 글이라 행마다 둘 이유가 없고,
+        행에 버튼이 늘면 정작 사람마다 다른 링크가 그만큼 눈에 덜 띈다.
+      */}
+      {invites.length > 0 && (
+        <div className="card stack">
+          <div className="row between">
+            <button
+              className="btn ghost compact"
+              type="button"
+              onClick={() => void flashCopy("note", onCopyNote)}
+            >
+              {copied === "note" ? HOST_UI.invite.copyDone : HOST_UI.invite.copy}
+            </button>
+            <button className="btn ghost compact" type="button" onClick={onEditTemplate}>
+              {HOST_UI.invite.editTemplate}
+            </button>
+          </div>
+
+          {/* 장소가 비었다는 건 **접어두지 않는다** — 그대로 보내면 안내문에 자리만 빈다 */}
+          {!hasPlace && <p className="tiny warnText">{HOST_UI.invite.noPlace}</p>}
+        </div>
+      )}
+
+      {/* 더하기는 안내문 아래, 명단 위다. 여기서 넣은 사람이 바로 아래 목록에 나타난다 */}
       <form className="field" onSubmit={addOne}>
         <label htmlFor="oneInvite">{HOST_UI.invites.addLabel}</label>
         <div className="row">
@@ -437,32 +466,6 @@ function Invites({
       </form>
 
       {error && <p className="err danger">{error}</p>}
-
-      {/*
-        안내문 카드. **버튼 둘이 전부다** — 복사와 고치기.
-        미리보기는 두지 않는다: 고치는 화면이 글을 그대로 띄우고 있어 같은 일을 두 번 한다.
-        안내문 복사는 여기 하나뿐이다 — 전원이 같은 글이라 행마다 둘 이유가 없고,
-        행에 버튼이 늘면 정작 사람마다 다른 링크가 그만큼 눈에 덜 띈다.
-      */}
-      {invites.length > 0 && (
-        <div className="card stack">
-          <div className="row between">
-            <button
-              className="btn ghost compact"
-              type="button"
-              onClick={() => void flashCopy("note", onCopyNote)}
-            >
-              {copied === "note" ? HOST_UI.invite.copyDone : HOST_UI.invite.copy}
-            </button>
-            <button className="btn ghost compact" type="button" onClick={onEditTemplate}>
-              {HOST_UI.invite.editTemplate}
-            </button>
-          </div>
-
-          {/* 장소가 비었다는 건 **접어두지 않는다** — 그대로 보내면 안내문에 자리만 빈다 */}
-          {!hasPlace && <p className="tiny warnText">{HOST_UI.invite.noPlace}</p>}
-        </div>
-      )}
 
       {/*
         **아직 등록 안 한 사람들.** 번호가 그 사람의 유일한 이름인 자리라

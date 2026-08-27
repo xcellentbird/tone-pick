@@ -577,6 +577,32 @@ describe("운영자 콘솔", () => {
     expect(screen.getByText(HOST_UI.invite.link)).toBeTruthy();
   });
 
+  /**
+   * ★ **안내문 → 더하기 → 명단.** 시트 안에서 가장 자주 하는 일이 위에 온다.
+   *
+   * 안내문 복사는 사람을 부를 때마다 하고, 번호 더하기는 대개 회차를 열 때 한 번이다.
+   * 명단은 그 아래에 한 덩어리로 모인다 — 번호가 그 사람의 유일한 이름인 자리라
+   * 흩어 두면 어깨너머로 더 읽힌다.
+   *
+   * DOM 순서로 잠근다. 화면에서 위아래는 **읽는 차례**라 CSS 가 아니라 순서가 정한다.
+   */
+  it("★ 시트 순서는 안내문 → 더하기 → 명단이다", async () => {
+    const st = hostState();
+    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    stubFetch(st);
+    renderConsole("/host/e1/players/invites");
+
+    await screen.findByText(HOST_UI.invite.copy);
+    /* 시트는 포털로 나가서 `container` 밖에 붙는다 (Radix `Dialog.Portal`) */
+    const sheet = document.body.querySelector("[role=dialog]")!;
+    expect(sheet, "시트를 못 찾았다").toBeTruthy();
+    const seen = [...sheet.querySelectorAll("button, input, p")].map((el) =>
+      el.id === "oneInvite" ? "폼" : el.textContent?.includes(HOST_UI.invite.copy) ? "안내문"
+        : el.textContent?.includes(HOST_UI.invites.waitingCount(1)) ? "명단" : null,
+    );
+    expect(seen.filter(Boolean), "안내문 → 폼 → 명단 순서가 아니다").toEqual(["안내문", "폼", "명단"]);
+  });
+
   it("★ 안내문 카드에 미리보기를 두지 않는다 — 고치는 화면이 그 일을 한다", async () => {
     const st = hostState();
     st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
