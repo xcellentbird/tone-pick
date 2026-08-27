@@ -309,7 +309,11 @@ function Loaded({
   return (
     <Overlays>
       {welcome && <Greeting text={welcome} />}
-      <div className="screen">
+      {/*
+        단계를 화면에 실어 **공기가 단계를 따라가게** 한다 (`theme.css` 의 `.screen[data-phase]`).
+        색을 고르는 일은 전부 거기 있고, 여기서는 지금이 어느 단계인지만 말한다.
+      */}
+      <div className="screen" data-phase={state.event.phase}>
         {/* 스크롤해도 남는 자리다. 여기엔 반복해서 볼 것만 둔다 */}
         <header className="bar">
           <StatusBar state={state} onHelp={() => onHelp(true)} />
