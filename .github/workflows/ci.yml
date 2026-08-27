@@ -3,10 +3,16 @@
 # Cloudflare 빌드는 테스트를 돌리지 않고 그대로 배포한다. 그래서 여기가 유일한 관문이다 —
 # 이 워크플로가 없으면 64개 테스트는 있으나 마나다.
 #
-# 세 가지를 본다.
-#   check  타입(클라이언트·Worker·테스트) + 문구가 copy.ts 밖에 하드코딩됐는지
-#   test   규칙 테스트(workerd 안에서 진짜 DO 로) + 화면 테스트
-#   build  배포될 물건이 실제로 만들어지는지
+# 차선은 둘이다.
+#
+#   check          모든 PR·푸시. 타입 + 문구 + 규칙 테스트 + 빌드. 50초쯤 걸린다
+#   release-guard  **프로덕션으로 가는 길에서만.** 옛 스키마 · 번들 예산
+#
+# 왜 갈랐나 — `check` 는 이미 빠르다(실측 50초: npm ci 6 · check 11 · test 26 · build 3).
+# 여기서 병렬로 더 쪼개면 잡마다 checkout+setup-node+npm ci 9초를 다시 내고 **러너 수요만 는다.**
+# 그런데 이 저장소가 실제로 다친 곳이 러너다 — v2.0.0(#227)·#247·#248 이
+# "러너를 배정하지 못해 필수 검사가 큐에 머물러" bypass 로 머지됐고, 한 번은 74분을 기다렸다.
+# 그래서 잡을 늘리는 방향이 아니라 **늘어날 자리를 프로덕션 길목 하나로 묶는다.** (ADR-66)
 name: CI
 
 on:
@@ -20,6 +26,16 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main, qa]
+
+# 지나간 커밋의 실행을 세워둔다. 세 번 연달아 밀면 세 번 다 끝까지 돌았고, 의미는 마지막 하나뿐이다.
+#
+# ⚠️ **`cancel-in-progress` 를 그냥 true 로 두지 마라.** main·qa 의 push 실행은
+# 기록이자 배포 신호다 — 릴리스를 밀어넣는 중에 다음 머지가 그걸 취소하면
+# 무엇이 프로덕션에 나갔는지 말해주는 초록이 사라진다.
+# `group` 을 ref 로 가르고 **PR 일 때만** 취소한다 (PR 은 `refs/pull/N/merge` 라 서로 안 겹친다).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -36,6 +52,39 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
+
+  # ─────────────────────────────────────────────────────────────
+  # **배포되는 물건**에 대한 검사. main 으로 가는 PR 과 main 푸시에서만 돈다.
+  #
+  #   test:release   옛 모양으로 저장된 회차를 지금 코드로 열어본다
+  #   check:bundle   번들이 조용히 불어나지 않았나
+  #
+  # 둘 다 `npm test` 가 구조적으로 못 잡는 것이다. 앞의 것은 CLAUDE.md 가 적어둔 그대로 —
+  # 테스트 DO 는 언제나 새것이라 옛 표를 만나지 않는다. 실제로 `SCHEMA` 에 토큰 인덱스를
+  # 올려 DO 를 죽여봤더니 **기존 517개가 전부 통과했다.**
+  #
+  # qa 에는 안 붙인다. feature PR 은 전부 qa 로 오므로 여기 붙이면 매 PR 이 러너를
+  # 하나씩 더 잡는다 — 위에 적은 그 사고를 다시 부르는 길이다.
+  # 옛 DO 를 진짜로 만나는 자리는 어차피 QA 배포 뒤이고, 이 잡은 그 앞의 한 겹이다.
+  #
+  # ⚠️ 이 잡은 **필수 검사가 아니다.** 저장소 설정에서 걸지 않는 한 빨개도 머지를 막지 않는다 —
+  # 막고 싶으면 `qa → main` 브랜치 보호에 `release-guard` 를 더해라.
+  # 지금은 사람이 누르는 머지 하나뿐이라(그게 main 의 의식이다) 눈으로 본다.
+  release-guard:
+    if: >-
+      (github.event_name == 'pull_request' && github.base_ref == 'main')
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # test:release → build → check:bundle. 예산은 빌드 결과를 재므로 순서가 곧 뜻이다
+      - run: npm run guard
 
   # ─────────────────────────────────────────────────────────────
   # qa 로 가는 PR 은 CI 만 통과하면 자동으로 들어간다.

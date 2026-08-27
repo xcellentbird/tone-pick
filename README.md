@@ -41,6 +41,7 @@ npm run dev          # Vite (프록시로 /api, /ws 를 8787 로 넘긴다)
 
 npm run check        # 타입 + 문구 검사. 커밋 전에 이걸 돌린다
 npm test             # workerd 안의 규칙 테스트 + 화면 테스트
+npm run guard        # 릴리스 차선. 옛 스키마 + 번들 예산 (main 으로 올리기 전에)
 npm run deploy       # 별도 설정 없이 바로 나간다 (KV 네임스페이스 필요 없음)
 ```
 
@@ -70,6 +71,11 @@ npx wrangler secret put SESSION_SECRET
 
 프로덕션만 사람이 버튼을 누릅니다. QA 는 "일단 올려보는" 자리라 자동으로 들어갑니다 —
 다만 관문(`npm run check` · `npm test` · `npm run build`)은 양쪽 다 지납니다.
+
+`main` 으로 가는 PR 은 여기에 **`release-guard`** 가 하나 더 붙습니다 (`npm run guard`) —
+옛 모양으로 저장된 회차가 지금 코드로 열리는지, 번들이 예산 안인지 봅니다.
+`npm test` 가 구조적으로 못 잡는 둘이라 따로 뒀고, 매 PR 에 붙이지 않는 이유는
+러너를 하나 더 잡기 때문입니다 — 큐가 밀리면 필수 검사가 앉습니다.
 
 `qa` 브랜치는 언제 버려도 되는 브랜치입니다. 오래 굴려 프로덕션과 멀어지면 맞춰주세요.
 
