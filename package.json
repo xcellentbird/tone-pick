@@ -13,8 +13,9 @@
     "deploy:qa": "npm run build:client && wrangler deploy --env qa",
     "check:copy": "node scripts/check-copy.mjs",
     "check:config": "node scripts/check-config.mjs",
+    "check:theme": "node scripts/check-theme.mjs",
     "rehearsal": "node scripts/rehearsal.mjs",
-    "check": "npm run typecheck && npm run check:copy && npm run check:config",
+    "check": "npm run typecheck && npm run check:copy && npm run check:config && npm run check:theme",
     "test": "vitest run",
     "test:watch": "vitest",
     "ops": "node scripts/ops.mjs"
