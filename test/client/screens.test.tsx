@@ -980,6 +980,29 @@ describe("파티 룰 도움말", () => {
   });
 });
 
+describe("참가자 화면 · 단계 공기", () => {
+  /**
+   * ★ **화면이 단계를 실어야 공기가 단계를 따라간다.**
+   *
+   * 색을 고르는 일은 전부 `theme.css` 의 `.screen[data-phase]` 에 있고, 화면이 하는 일은
+   * *지금 어느 단계인가* 를 실어주는 것뿐이다. 그래서 이 속성이 빠지면 **아무것도 안 깨지고**
+   * 공기만 조용히 기본값에 멈춘다 — 리팩터링에 소리 없이 사라지는 종류라 여기서 붙든다.
+   *
+   * 값이 `Phase` 그대로여야 한다. 매핑을 하나 끼우면 CSS 의 선택자와 어긋날 자리가 생긴다.
+   */
+  const phases = ["reg", "prevote", "party", "done"] as const;
+  for (const phase of phases) {
+    it(`★ ${phase} 단계가 화면에 실린다`, async () => {
+      const state = participantState();
+      state.event.phase = phase;
+      renderParticipant(fakeSource({ load: async () => state }), undefined, () => {}, "home");
+      await waitFor(() => {
+        expect(document.querySelector(".screen")?.getAttribute("data-phase")).toBe(phase);
+      });
+    });
+  }
+});
+
 describe("참가자 화면 · 어깨너머 가리기", () => {
   afterEach(() => window.localStorage.clear());
 
