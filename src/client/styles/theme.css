@@ -36,30 +36,30 @@
    * ⚠️ **파랑 쪽으로 기울이지 마라.** 파랑은 남자 색이라(ADR-30) 바탕이 파래지면
    * 아바타 링의 파랑이 배경에 묻힌다. 색이 정보를 나르는 자리를 바탕이 침범하면 안 된다.
    */
-  --bg: #131118;
+  --bg: #151118;
   /*
    * 화면 위아래 모서리에 아주 옅게 번지는 빛. 파티 앱다운 공기를 만든다.
    * **아주 옅게** 둔다 — 진하면 목록을 길게 스크롤할 때 카드 대비가 흔들린다.
    */
   --aurora:
     radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--ok) 9%, transparent), transparent 60%);
-  --card: #1b1922;
-  --card-2: #24212d;
-  --line: #312d3c;
+    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 60%);
+  --card: #1e1922;
+  --card-2: #28212d;
+  --line: #362d3c;
 
   --fg: #f7f7f8;
   --dim: #a8a8b0;
 
   /* 어두운 바탕 위의 글씨·테두리에는 밝은 쪽(5.9:1), 흰 글씨를 얹는 버튼에는 짙은 쪽(5.7:1) */
-  --accent: #9b7cff;
+  --accent: #a98fff;
   --accent-solid: #6d48e5;
   --on-accent: #ffffff;
 
   --gold: #ffb400;   /* 파티 · 축하 */
-  --warn: #fc642d;   /* Arches — 주의 */
-  --danger: #ff5a5f;
-  --ok: #00a699;     /* Babu */
+  --warn: #de805e;   /* 주의 — 채도를 눕혔다 */
+  --danger: #e28386;
+  --ok: #5cbcb4;     /* 좋음 — 채도를 눕혔다 */
 
   --on-gold: #241a00;
 
@@ -276,17 +276,23 @@ button {
  */
 .screen[data-phase="prep"],
 .screen[data-phase="reg"] {
-  /* 아직 아무 일도 일어나지 않았다. 가장 조용한 공기 */
+  /*
+   * 아직 아무 일도 일어나지 않았다. 가장 조용한 공기.
+   *
+   * ⚠️ **기본값(`:root`)보다 옅게 두지 마라.** 등록 화면은 `data-phase` 가 없어서 기본값을
+   *    쓰는데, 여기가 더 옅으면 **등록을 마치고 홈에 온 순간 화면이 식는다** —
+   *    앞으로 나아간 자리에서 뒤로 물러난 것처럼 보인다. 한동안 9% 로 그랬다.
+   */
   --aurora:
-    radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 62%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--ok) 7%, transparent), transparent 60%);
+    radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 60%);
 }
 
 .screen[data-phase="prevote"] {
   /* 고르는 밤 — 주 색이 짙어진다. 매력 투표는 이 색의 시간이다 */
   --aurora:
-    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 64%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--ok) 8%, transparent), transparent 60%);
+    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 64%),
+    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 60%);
 }
 
 .screen[data-phase="party"] {
@@ -297,10 +303,16 @@ button {
 }
 
 .screen[data-phase="done"] {
-  /* 서로였다면 — 매칭 분홍. 딱 한 번만 쓰는 색이라 옅게 둔다 */
+  /*
+   * 서로였다면 — 매칭 분홍. **이야기의 끝이라 등록보다 어두우면 안 된다.**
+   *
+   * ⚠️ **분홍을 13% 위로 올려서 밝히지 마라.** 매칭 색(338°)은 여자 색(334°)과 4° 차이라
+   *    짙어지면 성별 색과 섞여 보인다 (ADR-61). 밝혀야 하면 **금빛 쪽을 올린다** —
+   *    한동안 금빛이 9% 라 발표가 파티의 절반 밝기였다.
+   */
   --aurora:
     radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--heart) 13%, transparent), transparent 64%),
-    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 60%);
+    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--gold) 14%, transparent), transparent 60%);
 }
 
 .screen > header {
