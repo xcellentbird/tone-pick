@@ -162,7 +162,6 @@ export const ENTRY = {
    */
   removed: "참가가 삭제되었어요.\n운영자에게 확인해주세요 — 같은 링크로 다시 들어올 수도 있어요.",
   reenter: "다시 입장하기",
-  partyAt: (when: string) => `파티 ${when}`,
   /**
    * 준비 중인 회차. **시각을 말하지 않는다** (ADR-38).
    *
@@ -1961,7 +1960,6 @@ export function pokeEstimateLabel(pct: number): { label: string; tone: "rare" | 
 /** 독립 화면의 헤더 제목. 탭 화면 제목은 여기 없다 — TABS_PARTICIPANT/TABS_HOST 의 label 이 단일 출처다 */
 export const SCREEN_TITLE = {
   entry: "입장",
-  join: "회차 확인",
   register: "참가자 등록",
   notFound: "찾을 수 없어요",
   hostPin: "운영자 PIN",
