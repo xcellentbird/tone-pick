@@ -100,7 +100,7 @@ export default function Join() {
           낭독기가 `TONE PARTY` 를 한 번 더 읽으면 같은 말이 두 번 난다.
           크기를 박아 두는 건 그림이 늦게 와도 아래 것들이 안 튀게 하기 위해서다.
         */}
-        <img className="joinLogo" src={logo} alt="" aria-hidden width={880} height={620} />
+        <img className="joinLogo" src={logo} alt="" aria-hidden width={640} height={455} />
 
         {found.error && <p className="err danger joinErr">{found.error.userMessage ?? ENTRY.notFound}</p>}
 
