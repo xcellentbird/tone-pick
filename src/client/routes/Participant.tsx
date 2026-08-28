@@ -310,10 +310,10 @@ function Loaded({
     <Overlays>
       {welcome && <Greeting text={welcome} />}
       {/*
-        단계를 화면에 실어 **공기가 단계를 따라가게** 한다 (`theme.css` 의 `.screen[data-phase]`).
-        색을 고르는 일은 전부 거기 있고, 여기서는 지금이 어느 단계인지만 말한다.
+        바탕은 단계를 말하지 않는다 (ADR-67). `data-phase` 를 되살리지 마라 —
+        옆 사람이 화면 색만 보고 이 사람이 어디쯤인지 읽는다.
       */}
-      <div className="screen" data-phase={state.event.phase}>
+      <div className="screen">
         {/* 스크롤해도 남는 자리다. 여기엔 반복해서 볼 것만 둔다 */}
         <header className="bar">
           <StatusBar
