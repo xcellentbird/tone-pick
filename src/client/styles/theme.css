@@ -1143,10 +1143,14 @@ h1,
   width: min(58%, 260px);
   height: auto;
   margin: 7vh 0 0;
-  /* 그림이 늦게 와도 아래 것들이 안 튄다 — 자리를 미리 잡아둔다 */
-  aspect-ratio: 880 / 620;
-  object-fit: contain;
 }
+/*
+ * ⚠️ **`.joinLogo` 에 `aspect-ratio` 를 적지 마라.** 비율은 `<img>` 의 `width`/`height`
+ * 속성이 이미 알려주고, `height: auto` 와 함께 브라우저가 그걸로 **자리를 미리 잡는다.**
+ * CSS 에 또 적으면 숫자가 두 곳이 되고, 로고 파일을 갈아끼울 때 한쪽만 고쳐서
+ * 어긋난 비율로 자리를 잡는다 — 그림이 도착하는 순간 화면이 튄다.
+ * 로고를 바꾸면 고칠 곳은 `Join.tsx` 의 `width`/`height` **한 곳뿐이어야 한다.**
+ */
 
 /* 이름 · 선 · 시각. 셋이 한 덩어리로 바닥 쪽에 선다 */
 .joinMeta {
