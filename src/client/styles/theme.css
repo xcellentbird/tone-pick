@@ -36,21 +36,26 @@
    * 아바타 링의 파랑이 배경에 묻힌다. 색이 정보를 나르는 자리를 바탕이 침범하면 안 된다.
    *
    * ⚠️ **밝기는 넷을 함께 옮긴다** (ADR-61 후기 4). 바탕만 올리면 카드가 바탕에 잠긴다 —
-   *    `--bg`·`--card`·`--card-2`·`--line` 은 지금 명도 9.4 / 12.9 / 16.7 / 22.0% 이고,
+   *    `--bg`·`--card`·`--card-2`·`--line` 은 지금 명도 8.0 / 11.6 / 15.3 / 20.6% 이고,
    *    같은 폭으로 움직여야 층 간격(카드/바탕 1.08)이 유지된다. 색상·채도는 건드리지 않는다.
    *    `--bg` 를 고치면 **`index.html` 의 인라인 색 둘도 함께** — `check:theme` 가 잡는다.
    */
-  --bg: #19141c;
+  --bg: #151118;
   /*
-   * 화면 위아래 모서리에 아주 옅게 번지는 빛. 파티 앱다운 공기를 만든다.
-   * **아주 옅게** 둔다 — 진하면 목록을 길게 스크롤할 때 카드 대비가 흔들린다.
+   * 화면 **위쪽** 모서리에 옅게 번지는 빛. 파티 앱다운 공기를 만든다.
+   * 둘 다 위에 있다 — 아래는 `--bg` 그대로고, 그 대비가 곧 "위가 밝다" 다 (ADR-61 후기 4).
+   *
+   * ⚠️ **더 올리려면 dim 글자를 먼저 보라.** 회차 부제(`3SELD6 · 매력 투표 · 등록 0명`)와
+   *    `✨ 매력 투표 TOP 5` 는 카드가 아니라 **이 빛 위에 바로** 놓인다.
+   *    지금 dim/바탕 5.5:1 이고, 17% 를 넘기면 4.5:1(AA) 아래로 내려간다.
+   *    그리고 `.body` 가 그 아래에서 흐르므로 **진하면 스크롤할 때 카드 대비가 흔들린다.**
    */
   --aurora:
-    radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 62%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--plum) 9%, transparent), transparent 60%);
-  --card: #221c26;
-  --card-2: #2c2431;
-  --line: #3a3040;
+    radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--plum) 11%, transparent), transparent 60%);
+  --card: #1e1922;
+  --card-2: #28212d;
+  --line: #362d3c;
 
   --fg: #f7f7f8;
   --dim: #a8a8b0;
