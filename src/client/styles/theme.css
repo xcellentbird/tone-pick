@@ -89,18 +89,6 @@
    */
   --plum: color-mix(in srgb, var(--accent) 60%, var(--heart));
 
-  /*
-   * **파티의 등불** (ADR-61 후기 3). 금빛을 자두빛에 담근 테라코타 — 10°, 채도 61%.
-   *
-   * 금빛(42°) 그대로는 자정 보라의 **분할보색**이라 파티 단계에서 끝까지 튀었다.
-   * 세기를 낮춰도 색상각이 그대로면 부딪히는 건 그대로다 — 옅은 보색은 그냥 **옅게 부딪힌다.**
-   *
-   * 그래서 색상각 자체를 가족 안으로 끌고 온다. 42° → 10° 는 콕(338°)에서 32° 떨어진
-   * 자리라 `저녁 등불` 로 읽히고, 채도 61% 라 **금빛처럼 노랗게 외치지 않는다.**
-   * 불이 켜진 느낌은 노란색이 아니라 **따뜻한 낮은 채도**에서 온다.
-   */
-  --ember: color-mix(in srgb, var(--gold) 40%, var(--plum));
-
   /* 순위 바 — 하트(콕)에서 주 색(매칭)으로. 받은 콕이 쌓여 매칭으로 향한다는 걸 색으로도 */
   --meter: linear-gradient(90deg, var(--heart), var(--accent));
 
@@ -275,75 +263,18 @@ button {
   /* 오로라는 화면에 고정이다. 목록과 함께 흐르면 스크롤이 어지럽다 */
   background: var(--aurora), var(--bg);
   background-attachment: local, local;
-  /* 단계가 바뀌면 공기도 바뀐다. 갈아끼우듯 튀지 않게 천천히 */
-  transition: background-image 900ms ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .screen { transition: none; }
 }
 
 /*
- * ── 단계마다 공기가 바뀐다 (ADR-61)
+ * ⚠️ **바탕을 단계마다 바꾸지 마라** (ADR-67 이 ADR-61 ② 를 걷어냈다).
  *
- * **새 색을 만들지 않는다.** 이미 뜻이 있는 색을 시간축에 놓을 뿐이다 —
- * 매력 투표는 주 색, 파티는 금빛(축하), 발표는 매칭 분홍. 톤파티의 뼈대가 네 단계인데
- * 지금까지 색은 그걸 한마디도 하지 않았다.
+ * `--aurora` 는 `:root` 에 한 벌만 있고 참가자·운영자·입장 화면이 전부 그것을 쓴다.
+ * 단계별 `--aurora` 와 그 사이를 잇던 900ms 전환을 함께 걷었다 — 전환할 것이 없으면
+ * `prefers-reduced-motion` 으로 꺼줄 것도 없다.
  *
- * ⚠️ **참가자 화면에만 붙는다** (`data-phase`). 운영자는 여러 회차를 한 화면에서 보므로
- *    *지금 어느 단계인가* 라는 질문 자체가 성립하지 않는다. 기본값(`:root --aurora`)은
- *    그대로 둬서 입장·등록·운영자 콘솔의 공기는 하나도 안 바뀐다.
- *
- * ⚠️ **발표의 분홍을 진하게 하지 마라.** 매칭 색(338°)은 여자 색(334°)과 4° 차이다.
- *    바탕이 짙어지면 성별 색과 섞여 보이고, 그건 자리 탭이 색으로 나르는 정보를 흐린다.
- *    매칭은 여전히 글자가 함께 말한다 (`💘 서로 찔렀어요`, ADR-30).
+ * 되살릴 거라면 **ADR-67 을 먼저 읽어라.** 색을 고르는 문제가 아니었다 —
+ * 바탕이 단계를 말하면 **테이블 건너편에서도 그게 읽힌다** (ADR-64 와 같은 누출).
  */
-.screen[data-phase="prep"],
-.screen[data-phase="reg"] {
-  /*
-   * 아직 아무 일도 일어나지 않았다. 가장 조용한 공기.
-   *
-   * ⚠️ **기본값(`:root`)보다 옅게 두지 마라.** 등록 화면은 `data-phase` 가 없어서 기본값을
-   *    쓰는데, 여기가 더 옅으면 **등록을 마치고 홈에 온 순간 화면이 식는다** —
-   *    앞으로 나아간 자리에서 뒤로 물러난 것처럼 보인다. 한동안 9% 로 그랬다.
-   */
-  --aurora:
-    radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 62%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--plum) 9%, transparent), transparent 60%);
-}
-
-.screen[data-phase="prevote"] {
-  /* 고르는 밤 — 주 색이 짙어진다. 매력 투표는 이 색의 시간이다 */
-  --aurora:
-    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--accent) 17%, transparent), transparent 64%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--plum) 12%, transparent), transparent 60%);
-}
-
-.screen[data-phase="party"] {
-  /*
-   * 불이 켜진다 — **화면에서 가장 밝은 한 단계.**
-   *
-   * 금빛을 한 번만 쓰면 괜찮을 줄 알았는데 그 한 번에서도 튀었다 (후기 3).
-   * 세기를 낮추는 걸로는 안 된다 — 옅은 보색은 그냥 **옅게 부딪힌다.**
-   * 지금은 `--ember`(금빛을 자두빛에 담근 테라코타)가 그 자리에 선다.
-   */
-  --aurora:
-    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--ember) 18%, transparent), transparent 64%),
-    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--plum) 19%, transparent), transparent 60%);
-}
-
-.screen[data-phase="done"] {
-  /*
-   * 서로였다면 — 매칭 분홍. **이야기의 끝이라 등록보다 어두우면 안 된다.**
-   *
-   * ⚠️ **분홍을 13% 위로 올려서 밝히지 마라.** 매칭 색(338°)은 여자 색(334°)과 4° 차이라
-   *    짙어지면 성별 색과 섞여 보인다 (ADR-61). 밝혀야 하면 **금빛 쪽을 올린다** —
-   *    한동안 금빛이 9% 라 발표가 파티의 절반 밝기였다. 지금은 자두빛 쪽을 올린다.
-   */
-  --aurora:
-    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--heart) 13%, transparent), transparent 64%),
-    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--plum) 20%, transparent), transparent 60%);
-}
 
 .screen > header {
   display: flex;
