@@ -430,7 +430,7 @@ describe("뿌리 화면", () => {
     const router = createMemoryRouter(
       [
         { path: "/", element: <Entry /> },
-        { path: "/e/:code", element: <div>{SCREEN_TITLE.join}</div> },
+        { path: "/e/:code", element: <div>event</div> },
       ],
       { initialEntries: ["/"] },
     );

@@ -1108,6 +1108,110 @@ h1,
 .mineCell .n { font-size: 15px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
 .mineCell .t { font-size: 10px; color: var(--dim); white-space: nowrap; }
 
+/* ─────────────────────────── 회차 확인 (참가 링크가 여는 화면) */
+
+/*
+ * **앱을 통틀어 로고가 서는 유일한 자리다.** 머리 띠가 없는 것도 이 화면뿐이다 —
+ * 참가자가 앱을 처음 만나는 화면이라, 여기서는 로고가 제목 노릇을 한다.
+ *
+ * 세로 짜임은 셋이다: 로고가 위에 서고, `.joinMeta` 가 `margin-top: auto` 로
+ * 바닥 쪽으로 내려가며, 버튼이 그 아래 붙는다. 가운데의 빈 자리는 **일부러 비운 것**이다 —
+ * 이 화면이 하는 일이 "어느 파티인지 한 번 보여주는 것" 하나라서, 채우면 그 하나가 흐려진다.
+ */
+.screen.join {
+  /*
+   * 로고 뒤의 보랏빛. `--aurora` 와 같은 언어지만 **자리가 다르다** —
+   * 저건 화면 모서리의 공기고 이건 로고를 받치는 빛이라 가운데에 선다.
+   * 로고 자체에는 그림자를 넣지 않는다. 빛은 배경이 내고 그림은 평평하게 둔다.
+   */
+  background:
+    radial-gradient(58% 30% at 50% 22%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%),
+    var(--aurora), var(--bg);
+}
+/*
+ * 버튼 아래를 넉넉히 둔다. **`env()` 를 쓰는 이유는 홈 인디케이터다** —
+ * 아이폰에서 그 막대가 버튼 위에 겹치면 이 화면의 유일한 누를 것이 안 눌린다.
+ */
+.screen.join > .body {
+  padding-bottom: calc(var(--pad) * 2 + env(safe-area-inset-bottom));
+}
+
+.joinBody { display: flex; flex-direction: column; align-items: center; text-align: center; }
+
+.joinLogo {
+  display: block;
+  width: min(58%, 260px);
+  height: auto;
+  margin: 7vh 0 0;
+}
+/*
+ * ⚠️ **`.joinLogo` 에 `aspect-ratio` 를 적지 마라.** 비율은 `<img>` 의 `width`/`height`
+ * 속성이 이미 알려주고, `height: auto` 와 함께 브라우저가 그걸로 **자리를 미리 잡는다.**
+ * CSS 에 또 적으면 숫자가 두 곳이 되고, 로고 파일을 갈아끼울 때 한쪽만 고쳐서
+ * 어긋난 비율로 자리를 잡는다 — 그림이 도착하는 순간 화면이 튄다.
+ * 로고를 바꾸면 고칠 곳은 `Join.tsx` 의 `width`/`height` **한 곳뿐이어야 한다.**
+ */
+
+/* 이름 · 선 · 시각. 셋이 한 덩어리로 바닥 쪽에 선다 */
+.joinMeta {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+/*
+ * 회차 이름. **이 화면의 주인공이다** — 로고는 어느 파티인지, 이 줄은 어느 회차인지 말한다.
+ * 길면 두 줄로 접힌다. **말줄임하지 않는다** — 상단 바(`.statusbar`)와 달리 여기서는
+ * 옆에 자리를 다투는 것이 없고, 잘린 이름은 "그 파티가 맞나" 에 답하지 못한다.
+ */
+.joinName {
+  margin: 0;
+  font-size: clamp(23px, 6.6vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+/*
+ * 단계 · 이름을 한 덩어리로 묶는다. `.joinMeta` 의 간격(14px)은 세 덩어리 사이의 것이고,
+ * 이 둘은 같은 것을 말하므로 더 붙어 있어야 한다.
+ */
+.joinTitle { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+
+/*
+ * 단계. **목업에는 없었지만 되살렸다** — 파티가 이미 시작된 뒤 늦게 링크를 연 사람은
+ * 등록이 발표 전까지 열려 있어서 `등록하기` 만 보게 되고, 파티가 진행 중인 걸 알 길이 없다.
+ * 색은 상단 바와 같은 값을 읽는다 (`--phase`).
+ */
+.joinPhase {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--phase, var(--dim));
+}
+
+/* 이름과 시각 사이의 선. 두 줄이 다른 것을 말한다는 표시 하나뿐이라 아주 옅다 */
+.joinRule {
+  width: min(56%, 210px);
+  height: 1px;
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.joinWhen { margin: 0; font-size: 15px; color: var(--dim); }
+
+/* 등록이 닫혔을 때만 뜬다 (`ENTRY.*`). 시각 바로 아래에 붙어 같은 덩어리로 읽힌다 */
+.joinNote { margin: 2px 0 0; font-size: 14px; color: var(--dim); }
+
+/* 바닥에 붙는 버튼. 이 화면에서는 조금 크다 — 누를 것이 이것 하나뿐이다 */
+.joinGo { margin-top: 22px; min-height: 52px; border-radius: var(--radius); }
+
+.joinErr { margin-top: 12px; }
+
 /* ─────────────────────────── 상태 셀 · 배너 */
 
 /* 화면 맨 위 두 줄 — 회차 이름·단계 · 카운트다운. 스크롤해도 남는다 */
@@ -1177,11 +1281,21 @@ h1,
 /* 눌린 것이 보여야 한다 — 채운 버튼(`.btn`)과 같은 수를 쓴다 */
 .statusbar button.where:active { filter: brightness(1.15); }
 
-/* 단계를 색으로도 기억하게 한다 — 글자를 읽기 전에 어디쯤인지 안다 */
-.statusbar.phase-reg .phase { color: var(--dim); }
-.statusbar.phase-prevote .phase { color: var(--accent); }
-.statusbar.phase-party .phase { color: var(--gold); }
-.statusbar.phase-done .phase { color: var(--ok); }
+/*
+ * 단계를 색으로도 기억하게 한다 — 글자를 읽기 전에 어디쯤인지 안다.
+ *
+ * **색을 정하는 곳은 여기 하나뿐이다.** 상단 바와 회차 확인 화면이 같은 값을 읽는다 —
+ * 두 곳에 베껴 두면 한쪽만 고쳐져 같은 단계가 화면마다 다른 색이 된다.
+ * `phase-*` 를 단 요소가 `--phase` 를 들고, 그 안의 글자가 그걸 쓴다.
+ *
+ * `prep` 에는 색을 주지 않는다 — 참가자가 볼 일이 없는 단계라 기본값(흐린 글씨)으로 둔다.
+ */
+.phase-reg { --phase: var(--dim); }
+.phase-prevote { --phase: var(--accent); }
+.phase-party { --phase: var(--gold); }
+.phase-done { --phase: var(--ok); }
+
+.statusbar .phase { color: var(--phase, var(--dim)); }
 
 /*
  * 홈의 남은 시간. **제 카드다** — 할 일 카드 위에 선다 (`Home.tsx`).
