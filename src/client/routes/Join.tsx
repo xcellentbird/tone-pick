@@ -30,7 +30,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { BTN, ENTRY } from "../../shared/copy.ts";
+import { BTN, ENTRY, PHASE_LABEL } from "../../shared/copy.ts";
 import type { EnterResult, PublicEvent } from "../../shared/types.ts";
 import { formatWhen } from "../../shared/time.ts";
 import { ApiError, api, post } from "../lib/api.ts";
@@ -106,8 +106,16 @@ export default function Join() {
 
         {found.data && (
           <>
-            <div className="joinMeta">
-              <h1 className="joinName">{found.data.name}</h1>
+            <div className={`joinMeta phase-${found.data.phase}`}>
+              <div className="joinTitle">
+                {/*
+                  **단계는 남긴다.** 등록이 발표 전까지 열려 있어서, 파티가 이미 시작된 뒤
+                  늦게 링크를 연 사람도 `등록하기` 만 보게 된다 — 이 줄이 없으면
+                  파티가 진행 중인 걸 알 길이 없다.
+                */}
+                <p className="joinPhase">{PHASE_LABEL[found.data.phase]}</p>
+                <h1 className="joinName">{found.data.name}</h1>
+              </div>
               {/* 이름과 시각을 가르는 선. 글자가 아니라 자리 표시라 낭독기에서는 없다 */}
               <span className="joinRule" aria-hidden />
               {/*

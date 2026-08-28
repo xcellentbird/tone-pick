@@ -1176,6 +1176,25 @@ h1,
   text-wrap: balance;
 }
 
+/*
+ * 단계 · 이름을 한 덩어리로 묶는다. `.joinMeta` 의 간격(14px)은 세 덩어리 사이의 것이고,
+ * 이 둘은 같은 것을 말하므로 더 붙어 있어야 한다.
+ */
+.joinTitle { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+
+/*
+ * 단계. **목업에는 없었지만 되살렸다** — 파티가 이미 시작된 뒤 늦게 링크를 연 사람은
+ * 등록이 발표 전까지 열려 있어서 `등록하기` 만 보게 되고, 파티가 진행 중인 걸 알 길이 없다.
+ * 색은 상단 바와 같은 값을 읽는다 (`--phase`).
+ */
+.joinPhase {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--phase, var(--dim));
+}
+
 /* 이름과 시각 사이의 선. 두 줄이 다른 것을 말한다는 표시 하나뿐이라 아주 옅다 */
 .joinRule {
   width: min(56%, 210px);
@@ -1262,11 +1281,21 @@ h1,
 /* 눌린 것이 보여야 한다 — 채운 버튼(`.btn`)과 같은 수를 쓴다 */
 .statusbar button.where:active { filter: brightness(1.15); }
 
-/* 단계를 색으로도 기억하게 한다 — 글자를 읽기 전에 어디쯤인지 안다 */
-.statusbar.phase-reg .phase { color: var(--dim); }
-.statusbar.phase-prevote .phase { color: var(--accent); }
-.statusbar.phase-party .phase { color: var(--gold); }
-.statusbar.phase-done .phase { color: var(--ok); }
+/*
+ * 단계를 색으로도 기억하게 한다 — 글자를 읽기 전에 어디쯤인지 안다.
+ *
+ * **색을 정하는 곳은 여기 하나뿐이다.** 상단 바와 회차 확인 화면이 같은 값을 읽는다 —
+ * 두 곳에 베껴 두면 한쪽만 고쳐져 같은 단계가 화면마다 다른 색이 된다.
+ * `phase-*` 를 단 요소가 `--phase` 를 들고, 그 안의 글자가 그걸 쓴다.
+ *
+ * `prep` 에는 색을 주지 않는다 — 참가자가 볼 일이 없는 단계라 기본값(흐린 글씨)으로 둔다.
+ */
+.phase-reg { --phase: var(--dim); }
+.phase-prevote { --phase: var(--accent); }
+.phase-party { --phase: var(--gold); }
+.phase-done { --phase: var(--ok); }
+
+.statusbar .phase { color: var(--phase, var(--dim)); }
 
 /*
  * 홈의 남은 시간. **제 카드다** — 할 일 카드 위에 선다 (`Home.tsx`).
