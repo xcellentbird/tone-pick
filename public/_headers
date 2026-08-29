@@ -7,3 +7,11 @@
 # index.html 은 여기 넣지 않는다 — 배포 직후 새 화면을 받아야 하므로 매번 확인하는 게 맞다.
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# 로고는 이름에 해시가 없지만 preload 로 **첫 그림의 조건**이 된 파일이다 (ADR-70).
+# 기본값(max-age=0)이면 두 번째 방문부터도 304 왕복 뒤에야 뜬다 — preload 로 얻은 걸 도로 내준다.
+#
+# 하루는 묻지 않고 쓰고, 그 뒤 일주일은 **일단 그리고 뒤에서 새로 받는다**. 해시가 없으니
+# immutable 은 못 쓴다 — 로고를 바꿨는데 영영 안 바뀌면 그게 더 나쁘다.
+/logo.webp
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
