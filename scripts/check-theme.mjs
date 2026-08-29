@@ -26,6 +26,7 @@ const token = (name) => {
 /* ① index.html 의 인라인 색이 토큰과 같은가 */
 for (const [what, pattern, name] of [
   ["theme-color 메타", /content="(#[0-9a-fA-F]{3,8})"/, "bg"],
+  ["첫 프레임 바탕", /html \{ background: (#[0-9a-fA-F]{3,8})/, "bg"],
   ["대체 화면 바탕", /background:(#[0-9a-fA-F]{3,8});color:/, "bg"],
   ["새로고침 버튼", /background:(#[0-9a-fA-F]{3,8});color:#fff/, "accent"],
   ["대체 화면 글자", /;color:(#[0-9a-fA-F]{3,8});font-family:/, "fg"],
