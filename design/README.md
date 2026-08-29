@@ -6,35 +6,27 @@
 원본을 `src/client/assets/` 에 두면 누가 실수로 `import` 했을 때 1.26 MB 가 그대로
 참가자에게 나간다. (지금은 `check:bundle` 이 잡지만, 애초에 헷갈릴 자리에 두지 않는 게 낫다.)
 
-| 원본 | 나가는 것 |
-|---|---|
-| `TONE_PARTY_LOGO.png` <br> 1536×1024 · 1.26 MB · 알파 있음 | `src/client/assets/logo.webp` <br> 640×455 · 41 KiB |
+| 원본 | 나가는 것 | 어디에 |
+|---|---|---|
+| `TONE_PARTY_LOGO.png` <br> 1536×1024 · 1.26 MB · 알파 있음 | `src/client/assets/logo.webp` <br> 640×455 · 41 KiB | 회차 확인 화면 |
+| ″ | `public/og.jpg` <br> 1200×630 · 36 KiB | 카톡 링크 미리보기 (ADR-68) |
+| ″ | `public/favicon.png` <br> 48×48 · 3 KiB | 브라우저 탭 |
+| ″ | `public/apple-touch-icon.png` <br> 180×180 · 19 KiB | 홈 화면 |
 
 ## 로고를 바꿀 때
 
-원본을 이 폴더에 덮고 아래를 돌린다. **투명 여백을 잘라내는 것이 핵심이다** —
-안 자르면 CSS 가 잡은 폭 안에서 그림이 그만큼 작아 보인다.
+원본을 이 폴더에 덮고 **한 줄만** 돌린다.
 
 ```bash
-node -e "
-const s=require('sharp');
-(async()=>{
-  const src='design/TONE_PARTY_LOGO.png';
-  const {data,info}=await s(src).ensureAlpha().raw().toBuffer({resolveWithObject:true});
-  const {width:W,height:H,channels:C}=info;
-  let x0=W,y0=H,x1=-1,y1=-1;
-  for(let y=0;y<H;y++)for(let x=0;x<W;x++)
-    if(data[(y*W+x)*C+3]>8){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}
-  const w=x1-x0+1,h=y1-y0+1, OW=640, OH=Math.round(h/w*OW);
-  await s(src).extract({left:x0,top:y0,width:w,height:h})
-    .resize(OW,OH,{kernel:'lanczos3'}).webp({quality:80,effort:6})
-    .toFile('src/client/assets/logo.webp');
-  console.log('logo.webp', OW+'x'+OH, '— Join.tsx 의 width/height 를 이 값으로 고쳐라');
-})();"
+node scripts/make-brand-assets.mjs
 ```
 
-**끝나면 `Join.tsx` 의 `<img width height>` 를 새 값으로 고쳐라.** 비율은 거기 한 곳에만
-있고(CSS 에는 없다), 어긋나면 그림이 도착하는 순간 화면이 튄다.
+넷을 한꺼번에 다시 만든다. **자를 자리를 손으로 적지 않는다** — 투명 여백도 `O` 의 위치도
+스크립트가 픽셀에서 다시 찾으므로, 원본이 바뀌어도 같은 규칙으로 나온다.
+
+⚠️ **끝나면 `Join.tsx` 의 `<img width height>` 를 새 값으로 고쳐라.** 비율이 사는 곳은
+거기 한 곳뿐이고(CSS 에는 없다), 어긋나면 그림이 도착하는 순간 화면이 튄다.
+스크립트가 끝에 그 말을 다시 해준다.
 
 `npm run build && npm run check:bundle` 로 예산도 확인한다 — 로고가 커지면 거기서 걸린다.
 
@@ -44,3 +36,18 @@ const s=require('sharp');
 - **q80** — q88·q70 과 나란히 놓고 봤지만 실제 크기에서 구분이 안 됐다.
   q70 은 3 KiB 밖에 안 아끼면서 여유만 줄여서 안 썼다
 - **무손실은 쓰지 마라** — 발바닥의 부드러운 음영 때문에 오히려 **3배**(124 KiB)가 된다
+
+## 아이콘과 미리보기 카드
+
+`node scripts/make-brand-assets.mjs` 하나로 셋을 다시 만든다.
+
+**아이콘은 로고 전체가 아니라 보라색 `O` 와 발끝만 잘라 쓴다.** 로고 전체는 16px 에서
+뭉갠다 — `TONE` 네 글자가 4px 씩 나눠 갖는다.
+
+⚠️ **아이콘 배경을 투명하게 두지 마라.** 발끝이 크림색이라 밝은 탭 배경에서 사라진다.
+바탕(`--bg` = `#151118`)을 채워 어느 탭에서도 같은 대비를 갖게 한다.
+
+**카드는 JPEG 다.** 알파가 필요 없고, PNG 로 뽑으면 214 KiB 인데 JPEG 은 36 KiB 다.
+`og.jpg` 와 `apple-touch-icon.png` 는 참가자가 안 받는 자산이라
+`check:bundle` 의 `NOT_DOWNLOADED` 에 들어가 있다 — 예산에서 빠진다.
+

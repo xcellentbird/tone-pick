@@ -34,6 +34,17 @@ const DIST = join(ROOT, "dist/client");
 const COUNTED = /\.(html|js|css|webp|avif|png|jpe?g|svg|woff2?)$/;
 
 /**
+ * **참가자가 안 받는 것.** 세는 자가 재는 건 "첫 화면까지 받아야 하는 것" 이므로,
+ * 크롤러나 홈 화면만 가져가는 자산까지 넣으면 숫자가 뜻을 잃는다.
+ *
+ *   og.jpg              카톡·슬랙 크롤러만 가져간다. 브라우저는 한 번도 안 받는다
+ *   apple-touch-icon    홈 화면에 추가할 때만 받는다
+ *
+ * `favicon.png` 는 **뺀 목록에 없다** — 브라우저가 첫 화면에서 실제로 받는다.
+ */
+const NOT_DOWNLOADED = /(^|\/)(og\.jpg|apple-touch-icon\.png)$/;
+
+/**
  * 총합 예산(gzip 바이트).
  *
  * 2026-08-28 기준 실측 185.0 KiB (js 135.8 · 로고 41.5 · css 5.5 · html 2.2).
@@ -57,7 +68,7 @@ function walk(dir) {
 
 let files;
 try {
-  files = walk(DIST).filter((f) => COUNTED.test(f));
+  files = walk(DIST).filter((f) => COUNTED.test(f) && !NOT_DOWNLOADED.test(f));
 } catch {
   console.error(`✗ ${relative(ROOT, DIST)} 가 없다. \`npm run build\` 를 먼저 돌려라.`);
   process.exit(1);
