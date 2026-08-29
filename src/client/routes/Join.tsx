@@ -34,6 +34,7 @@ import { BTN, ENTRY, PHASE_LABEL } from "../../shared/copy.ts";
 import type { EnterResult, PublicEvent } from "../../shared/types.ts";
 import { formatWhen } from "../../shared/time.ts";
 import { ApiError, api, post } from "../lib/api.ts";
+import { takeBoot } from "../lib/boot.ts";
 import { setTabRef } from "../lib/session.ts";
 import { useLoad } from "../lib/useLoad.ts";
 import logo from "../assets/logo.webp";
@@ -42,10 +43,14 @@ export default function Join() {
   const { id = "", token = "" } = useParams();
   const navigate = useNavigate();
   // 회차 정보도 토큰이 있어야 열린다 — 아이디만으로 열리면 토큰을 만든 의미가 없다
-  const found = useLoad(
-    () => api<PublicEvent>(`/events/by-id/${id}?t=${encodeURIComponent(token)}`),
-    [id, token],
-  );
+  /*
+   * **`index.html` 이 번들보다 먼저 띄워둔 답을 먼저 본다** (`lib/boot.ts`).
+   * 없으면(새로고침·되불러오기·다른 경로) 평소대로 서버에 묻는다.
+   */
+  const found = useLoad(() => {
+    const path = `/events/by-id/${id}?t=${encodeURIComponent(token)}`;
+    return takeBoot<PublicEvent>(path) ?? api<PublicEvent>(path);
+  }, [id, token]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /** 자동 입장은 한 번뿐이다. 회차 정보가 다시 그려져도 문을 두 번 두드리지 않는다 */
@@ -62,14 +67,19 @@ export default function Join() {
        * 다른 탭이 다른 링크로 들어와도 서로를 덮지 않는다.
        */
       setTabRef(res.ref);
+      /*
+       * **방금 읽은 회차 정보를 함께 넘긴다** — 등록 화면이 같은 요청을 또 하지 않게.
+       * 받는 쪽은 없어도 동작한다(새로고침·직접 진입). 그래서 넘기는 게 최적화이지 계약이 아니다.
+       */
       navigate(res.registered && res.code ? `/e/${res.code}` : `/j/${id}/${token}/register/1`, {
         replace: res.registered,
+        state: found.data ? { room: found.data } : undefined,
       });
     } catch (err) {
       setError(err instanceof ApiError ? (err.userMessage ?? ENTRY.notInvited) : ENTRY.notInvited);
       setBusy(false);
     }
-  }, [id, token, navigate]);
+  }, [id, token, navigate, found.data]);
 
   /*
    * 등록을 마친 사람은 링크를 여는 것만으로 자기 화면으로 간다.

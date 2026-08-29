@@ -11,8 +11,8 @@
  *  · 토글을 눌러도 입력값을 날리지 않는다 (폼 전체를 다시 그리지 않는다)
  *  · MBTI 는 16지선다가 아니라 4문항 토글 — 모르는 사람도 답할 수 있어야 한다
  */
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared/copy.ts";
 import type { ParticipantState, RegisterResult } from "../../shared/types.ts";
 import { LIMITS, normalizeInstagram } from "../../shared/constants.ts";
@@ -20,9 +20,14 @@ import { ApiError, api, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
 import type { ProfileDraft } from "../lib/profileForm.ts";
 import { EMPTY_DRAFT, toInput, validateProfile } from "../lib/profileForm.ts";
+import { takeBoot } from "../lib/boot.ts";
+import { prefetchParticipant } from "../router.tsx";
 
 /** 초안·검증은 내 정보 수정 폼과 함께 쓴다 (`lib/profileForm.ts`) */
 type Draft = ProfileDraft;
+
+/** 회차 조회가 이 화면에 주는 것 — Join 이 넘겨주기도 하고, 없으면 직접 묻는다 */
+type RoomPeek = { registered?: boolean; code?: string; nickHint?: string };
 const EMPTY = EMPTY_DRAFT;
 
 export default function Register() {
@@ -35,6 +40,20 @@ export default function Register() {
   const [checking, setChecking] = useState(true);
   /** 닉네임 칸에 붙일 운영자 문구 (ADR-59). 회차를 확인하는 그 요청이 함께 준다 */
   const [nickHint, setNickHint] = useState("");
+  /*
+   * Join 이 넘겨준 회차 정보. **첫 렌더의 값만 잡는다** — 스텝을 오갈 때마다 다시 보면
+   * 2·3 스텝에서도 이 판정이 돌아 폼이 잠깐 비어 보인다.
+   */
+  const handed = useRef<RoomPeek | undefined>(
+    (useLocation().state as { room?: RoomPeek } | null)?.room ?? undefined,
+  );
+
+  /*
+   * **다음 화면을 지금 받아둔다.** 등록을 마치면 곧바로 참가자 앱으로 가는데, 그건 따로
+   * 내려받는 청크다. 사람이 세 스텝을 채우는 십수 초 동안 조용히 받아두면 제출 뒤에
+   * 기다릴 일이 없다 — 폼을 채우는 시간은 어차피 망이 노는 시간이다.
+   */
+  useEffect(prefetchParticipant, []);
 
   /*
    * **이미 등록을 마쳤으면 폼을 보여주지 않는다.**
@@ -50,9 +69,36 @@ export default function Register() {
    */
   useEffect(() => {
     let alive = true;
-    api<{ registered?: boolean; code?: string; nickHint?: string }>(
-      `/events/by-id/${id}?t=${encodeURIComponent(token)}`,
-    )
+    /*
+     * **Join 이 방금 읽은 값을 넘겨받는다** — 없으면 그때 묻는다.
+     *
+     * 이 화면은 마운트될 때마다 회차를 다시 물었는데, 링크를 눌러 들어온 사람에게는
+     * **Join 이 1초 전에 부른 것과 똑같은 요청**이었다. 4G 에서 151ms 를 그냥 버렸고
+     * 그동안 화면이 비어 있었다(`checking`).
+     *
+     * ⚠️ 새로고침·주소 직접 입력·뒤로 가기로 오면 `state` 가 없다. 그때는 물어야 한다 —
+     *    **넘겨받은 값이 없다고 등록을 막으면 안 된다.**
+     * ⚠️ 판정은 여전히 **토큰이 답한 값**이다 (ADR-44). 넘겨받는 것도 그 값이지
+     *    브라우저 세션이 아니다.
+     */
+    const room = handed.current;
+    if (room) {
+      if (room.registered) void enterHome();
+      else {
+        setNickHint(room.nickHint ?? "");
+        setChecking(false);
+      }
+      return () => {
+        alive = false;
+      };
+    }
+
+    /*
+     * 넘겨받은 게 없다 — 새로고침이거나 주소로 바로 온 사람이다.
+     * 그때도 `index.html` 이 띄워둔 요청이 있으면 그걸 받아간다 (`lib/boot.ts`).
+     */
+    const path = `/events/by-id/${id}?t=${encodeURIComponent(token)}`;
+    (takeBoot<RoomPeek>(path) ?? api<RoomPeek>(path))
       .then((room) => {
         if (!alive) return;
         // 이 토큰의 주인이 이미 등록했다. 자기 화면은 세션이 아는 코드로 간다
