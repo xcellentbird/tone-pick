@@ -31,35 +31,55 @@
    *
    * 그리고 **순회색도 피한다.** 채도 5~7% 이던 것을 주 색(254°) 쪽으로 기울여 15~17% 로 올렸다.
    * 옆에 놓고 봐야 알아차릴 정도지만, 한참 쓰면 `회색 앱` 이 아니라 **보랏빛 앱**으로 기억된다.
-   * 명도는 그대로 둬서 대비는 오히려 조금 올라간다 (fg/카드 15.7 → 16.2).
    *
    * ⚠️ **파랑 쪽으로 기울이지 마라.** 파랑은 남자 색이라(ADR-30) 바탕이 파래지면
    * 아바타 링의 파랑이 배경에 묻힌다. 색이 정보를 나르는 자리를 바탕이 침범하면 안 된다.
+   *
+   * ⚠️ **밝기는 넷을 함께 옮긴다** (ADR-61 후기 4). 바탕만 올리면 카드가 바탕에 잠긴다 —
+   *    `--bg`·`--card`·`--card-2`·`--line` 은 지금 명도 8.0 / 11.6 / 15.3 / 20.6% 이고,
+   *    같은 폭으로 움직여야 층 간격(카드/바탕 1.08)이 유지된다. 색상·채도는 건드리지 않는다.
+   *    `--bg` 를 고치면 **`index.html` 의 인라인 색 둘도 함께** — `check:theme` 가 잡는다.
    */
-  --bg: #131118;
+  --bg: #151118;
   /*
-   * 화면 위아래 모서리에 아주 옅게 번지는 빛. 파티 앱다운 공기를 만든다.
-   * **아주 옅게** 둔다 — 진하면 목록을 길게 스크롤할 때 카드 대비가 흔들린다.
+   * 화면 **위쪽** 모서리에 옅게 번지는 빛. 파티 앱다운 공기를 만든다.
+   * 둘 다 위에 있다 — 아래는 `--bg` 그대로고, 그 대비가 곧 "위가 밝다" 다 (ADR-61 후기 4).
+   *
+   * ⚠️ **더 올리려면 dim 글자를 먼저 보라.** 회차 부제(`3SELD6 · 매력 투표 · 등록 0명`)와
+   *    `✨ 매력 투표 TOP 5` 는 카드가 아니라 **이 빛 위에 바로** 놓인다.
+   *    지금 dim/바탕 5.5:1 이고, 17% 를 넘기면 4.5:1(AA) 아래로 내려간다.
+   *    그리고 `.body` 가 그 아래에서 흐르므로 **진하면 스크롤할 때 카드 대비가 흔들린다.**
    */
   --aurora:
     radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--ok) 9%, transparent), transparent 60%);
-  --card: #1b1922;
-  --card-2: #24212d;
-  --line: #312d3c;
+    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--plum) 11%, transparent), transparent 60%);
+  --card: #1e1922;
+  --card-2: #28212d;
+  --line: #362d3c;
 
   --fg: #f7f7f8;
   --dim: #a8a8b0;
 
+  /*
+   * **로고의 크림.** 글자와 발바닥에서 그대로 뽑았다 (`design/TONE_PARTY_LOGO.png`).
+   *
+   * `--fg`(중성에 가까운 흰색)와 다른 자리에 선다 — 저건 본문 글자색이고 이건 **브랜드 색**이다.
+   * 회차 확인 화면처럼 로고가 서는 자리에서 그 옆 글자가 중성 회색이면 온도가 어긋난다.
+   *
+   * 흐리게 쓸 때는 `color-mix(… var(--cream) N%, var(--bg))` 로 **바탕 쪽으로 섞는다.**
+   * 검정으로 섞으면 바탕의 자두빛이 빠져 회색으로 죽는다.
+   */
+  --cream: #fdf5e2;
+
   /* 어두운 바탕 위의 글씨·테두리에는 밝은 쪽(5.9:1), 흰 글씨를 얹는 버튼에는 짙은 쪽(5.7:1) */
-  --accent: #9b7cff;
+  --accent: #a98fff;
   --accent-solid: #6d48e5;
   --on-accent: #ffffff;
 
   --gold: #ffb400;   /* 파티 · 축하 */
-  --warn: #fc642d;   /* Arches — 주의 */
-  --danger: #ff5a5f;
-  --ok: #00a699;     /* Babu */
+  --warn: #de805e;   /* 주의 — 채도를 눕혔다 */
+  --danger: #e28386;
+  --ok: #5cbcb4;     /* 좋음 — 채도를 눕혔다 */
 
   --on-gold: #241a00;
 
@@ -77,6 +97,18 @@
    * 뜻이 다르다: 성별이 아니라 마음이 오간 일을 말한다.
    */
   --heart: #ff4d8d;
+  /*
+   * **공기의 바닥 빛** (ADR-61 후기 2). 주 색(254°)과 콕(338°) 사이의 자두빛 — 296°.
+   *
+   * 금빛(42°)이 한동안 이 자리였는데, 그건 자정 보라의 **분할보색**이라 어울리는 게 아니라
+   * 부딪혔다. 따뜻하게 만들려다 조화를 깬 것이다. 자정 보라와 어울리는 따뜻함은
+   * **보색 쪽이 아니라 유사색의 따뜻한 끝**(자두~장밋빛)에 있다.
+   *
+   * **새 색을 고르지 않고 있는 둘을 섞는다** — 주 색이나 콕이 바뀌어도 이 색은 저절로
+   * 그 계열 안에 남는다. 뜻으로도 맞다: 고르는 마음과 오간 마음 사이의 색이다.
+   */
+  --plum: color-mix(in srgb, var(--accent) 60%, var(--heart));
+
   /* 순위 바 — 하트(콕)에서 주 색(매칭)으로. 받은 콕이 쌓여 매칭으로 향한다는 걸 색으로도 */
   --meter: linear-gradient(90deg, var(--heart), var(--accent));
 
@@ -251,57 +283,18 @@ button {
   /* 오로라는 화면에 고정이다. 목록과 함께 흐르면 스크롤이 어지럽다 */
   background: var(--aurora), var(--bg);
   background-attachment: local, local;
-  /* 단계가 바뀌면 공기도 바뀐다. 갈아끼우듯 튀지 않게 천천히 */
-  transition: background-image 900ms ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .screen { transition: none; }
 }
 
 /*
- * ── 단계마다 공기가 바뀐다 (ADR-61)
+ * ⚠️ **바탕을 단계마다 바꾸지 마라** (ADR-67 이 ADR-61 ② 를 걷어냈다).
  *
- * **새 색을 만들지 않는다.** 이미 뜻이 있는 색을 시간축에 놓을 뿐이다 —
- * 매력 투표는 주 색, 파티는 금빛(축하), 발표는 매칭 분홍. 톤파티의 뼈대가 네 단계인데
- * 지금까지 색은 그걸 한마디도 하지 않았다.
+ * `--aurora` 는 `:root` 에 한 벌만 있고 참가자·운영자·입장 화면이 전부 그것을 쓴다.
+ * 단계별 `--aurora` 와 그 사이를 잇던 900ms 전환을 함께 걷었다 — 전환할 것이 없으면
+ * `prefers-reduced-motion` 으로 꺼줄 것도 없다.
  *
- * ⚠️ **참가자 화면에만 붙는다** (`data-phase`). 운영자는 여러 회차를 한 화면에서 보므로
- *    *지금 어느 단계인가* 라는 질문 자체가 성립하지 않는다. 기본값(`:root --aurora`)은
- *    그대로 둬서 입장·등록·운영자 콘솔의 공기는 하나도 안 바뀐다.
- *
- * ⚠️ **발표의 분홍을 진하게 하지 마라.** 매칭 색(338°)은 여자 색(334°)과 4° 차이다.
- *    바탕이 짙어지면 성별 색과 섞여 보이고, 그건 자리 탭이 색으로 나르는 정보를 흐린다.
- *    매칭은 여전히 글자가 함께 말한다 (`💘 서로 찔렀어요`, ADR-30).
+ * 되살릴 거라면 **ADR-67 을 먼저 읽어라.** 색을 고르는 문제가 아니었다 —
+ * 바탕이 단계를 말하면 **테이블 건너편에서도 그게 읽힌다** (ADR-64 와 같은 누출).
  */
-.screen[data-phase="prep"],
-.screen[data-phase="reg"] {
-  /* 아직 아무 일도 일어나지 않았다. 가장 조용한 공기 */
-  --aurora:
-    radial-gradient(720px 420px at 8% -6%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 62%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--ok) 7%, transparent), transparent 60%);
-}
-
-.screen[data-phase="prevote"] {
-  /* 고르는 밤 — 주 색이 짙어진다. 매력 투표는 이 색의 시간이다 */
-  --aurora:
-    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 64%),
-    radial-gradient(640px 400px at 96% 2%, color-mix(in srgb, var(--ok) 8%, transparent), transparent 60%);
-}
-
-.screen[data-phase="party"] {
-  /* 불이 켜진다 — 금빛. 화면에서 가장 따뜻한 순간이다 */
-  --aurora:
-    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--gold) 16%, transparent), transparent 64%),
-    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%);
-}
-
-.screen[data-phase="done"] {
-  /* 서로였다면 — 매칭 분홍. 딱 한 번만 쓰는 색이라 옅게 둔다 */
-  --aurora:
-    radial-gradient(760px 440px at 8% -6%, color-mix(in srgb, var(--heart) 13%, transparent), transparent 64%),
-    radial-gradient(660px 420px at 96% 2%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 60%);
-}
 
 .screen > header {
   display: flex;
@@ -1126,6 +1119,127 @@ h1,
 .mineCell .n { font-size: 15px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
 .mineCell .t { font-size: 10px; color: var(--dim); white-space: nowrap; }
 
+/* ─────────────────────────── 회차 확인 (참가 링크가 여는 화면) */
+
+/*
+ * **앱을 통틀어 로고가 서는 유일한 자리다.** 머리 띠가 없는 것도 이 화면뿐이다 —
+ * 참가자가 앱을 처음 만나는 화면이라, 여기서는 로고가 제목 노릇을 한다.
+ *
+ * 세로 짜임은 셋이다: 로고가 위에 서고, `.joinMeta` 가 `margin-top: auto` 로
+ * 바닥 쪽으로 내려가며, 버튼이 그 아래 붙는다. 가운데의 빈 자리는 **일부러 비운 것**이다 —
+ * 이 화면이 하는 일이 "어느 파티인지 한 번 보여주는 것" 하나라서, 채우면 그 하나가 흐려진다.
+ */
+.screen.join {
+  /*
+   * 로고 뒤의 보랏빛. `--aurora` 와 같은 언어지만 **자리가 다르다** —
+   * 저건 화면 모서리의 공기고 이건 로고를 받치는 빛이라 가운데에 선다.
+   * 로고 자체에는 그림자를 넣지 않는다. 빛은 배경이 내고 그림은 평평하게 둔다.
+   */
+  background:
+    radial-gradient(58% 30% at 50% 22%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%),
+    var(--aurora), var(--bg);
+}
+/*
+ * 버튼 아래를 넉넉히 둔다. **`env()` 를 쓰는 이유는 홈 인디케이터다** —
+ * 아이폰에서 그 막대가 버튼 위에 겹치면 이 화면의 유일한 누를 것이 안 눌린다.
+ */
+.screen.join > .body {
+  padding-bottom: calc(var(--pad) * 2 + env(safe-area-inset-bottom));
+}
+
+.joinBody { display: flex; flex-direction: column; align-items: center; text-align: center; }
+
+.joinLogo {
+  display: block;
+  width: min(58%, 260px);
+  height: auto;
+  margin: 7vh 0 0;
+}
+/*
+ * ⚠️ **`.joinLogo` 에 `aspect-ratio` 를 적지 마라.** 비율은 `<img>` 의 `width`/`height`
+ * 속성이 이미 알려주고, `height: auto` 와 함께 브라우저가 그걸로 **자리를 미리 잡는다.**
+ * CSS 에 또 적으면 숫자가 두 곳이 되고, 로고 파일을 갈아끼울 때 한쪽만 고쳐서
+ * 어긋난 비율로 자리를 잡는다 — 그림이 도착하는 순간 화면이 튄다.
+ * 로고를 바꾸면 고칠 곳은 `Join.tsx` 의 `width`/`height` **한 곳뿐이어야 한다.**
+ */
+
+/* 이름 · 선 · 시각. 셋이 한 덩어리로 바닥 쪽에 선다 */
+.joinMeta {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+/*
+ * 회차 이름. **이 화면의 주인공이다** — 로고는 어느 파티인지, 이 줄은 어느 회차인지 말한다.
+ * 길면 두 줄로 접힌다. **말줄임하지 않는다** — 상단 바(`.statusbar`)와 달리 여기서는
+ * 옆에 자리를 다투는 것이 없고, 잘린 이름은 "그 파티가 맞나" 에 답하지 못한다.
+ */
+.joinName {
+  margin: 0;
+  font-size: clamp(24px, 6.2vw, 28px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+/*
+ * 단계 · 이름을 한 덩어리로 묶는다. `.joinMeta` 의 간격(14px)은 세 덩어리 사이의 것이고,
+ * 이 둘은 같은 것을 말하므로 더 붙어 있어야 한다.
+ */
+.joinTitle { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+
+/*
+ * 단계. **목업에는 없었지만 되살렸다** — 파티가 이미 시작된 뒤 늦게 링크를 연 사람은
+ * 등록이 발표 전까지 열려 있어서 `등록하기` 만 보게 되고, 파티가 진행 중인 걸 알 길이 없다.
+ * 색은 상단 바와 같은 값을 읽는다 (`--phase`).
+ */
+.joinPhase {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--phase, var(--dim));
+}
+
+/* 이름과 시각 사이의 선. 두 줄이 다른 것을 말한다는 표시 하나뿐이라 아주 옅다 */
+.joinRule {
+  width: min(56%, 210px);
+  height: 1px;
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
+}
+
+/*
+ * 날짜·시각. **회색이 아니라 흐린 크림이다** — 바로 위가 로고라, 중성 회색을 두면
+ * 그 자리만 온도가 어긋난다. 바탕 쪽으로 섞어 밝기를 내린다.
+ */
+.joinWhen {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--cream) 76%, var(--bg));
+}
+
+/* 등록이 닫혔을 때만 뜬다 (`ENTRY.*`). 시각 바로 아래에 붙어 같은 덩어리로 읽힌다 */
+.joinNote { margin: 2px 0 0; font-size: 14px; color: color-mix(in srgb, var(--cream) 70%, var(--bg)); }
+
+/*
+ * 바닥에 붙는 버튼. 이 화면에서는 조금 크다 — 누를 것이 이것 하나뿐이다.
+ * `margin-top` 이 곧 **날짜와 버튼 사이**다 (`.joinBody` 에 gap 이 없다).
+ */
+.joinGo {
+  margin-top: 26px;
+  min-height: 52px;
+  border-radius: var(--radius);
+  font-size: 19px;
+}
+
+.joinErr { margin-top: 12px; }
+
 /* ─────────────────────────── 상태 셀 · 배너 */
 
 /* 화면 맨 위 두 줄 — 회차 이름·단계 · 카운트다운. 스크롤해도 남는다 */
@@ -1171,11 +1285,45 @@ h1,
 /* 단계는 부제 자리로 내려왔지만 **색은 그대로다** — 글자를 읽기 전에 어디쯤인지 안다 */
 .statusbar .phase { font-size: 13px; font-weight: 800; }
 
-/* 단계를 색으로도 기억하게 한다 — 글자를 읽기 전에 어디쯤인지 안다 */
-.statusbar.phase-reg .phase { color: var(--dim); }
-.statusbar.phase-prevote .phase { color: var(--accent); }
-.statusbar.phase-party .phase { color: var(--gold); }
-.statusbar.phase-done .phase { color: var(--ok); }
+/*
+ * 홈 탭이 아닐 때 이 칸은 **버튼이다** — 누르면 홈으로 간다 (`StatusBar.tsx`).
+ * 보이는 것은 글자 그대로다. 표시를 붙이면 이 줄이 답하는 질문이 둘이 된다.
+ *
+ * 손가락은 44px 을 받아야 하는데(UI.md 모바일 체크리스트) 헤더는 **1px 도 못 준다.**
+ * `.helpBtn` 과 같은 수를 쓴다 — 누르는 크기와 보이는 크기를 나눈다.
+ * 전역 `button { min-height: var(--tap) }` 을 끄고 위아래 패딩으로 탭 영역을 만든 뒤,
+ * 같은 크기의 음수 여백으로 되돌린다. 손가락에는 45px, 줄 높이는 37px 그대로다.
+ *
+ * ⚠️ **`text-align` 과 `color` 를 지우지 마라.** 버튼 기본값은 가운데 정렬에 `buttontext` 라,
+ * 빼면 회차 이름이 헤더 한가운데로 가고 어두운 바탕에 검은 글씨가 된다.
+ */
+.statusbar button.where {
+  min-height: 0;
+  padding: 4px 0;
+  margin: -4px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+/* 눌린 것이 보여야 한다 — 채운 버튼(`.btn`)과 같은 수를 쓴다 */
+.statusbar button.where:active { filter: brightness(1.15); }
+
+/*
+ * 단계를 색으로도 기억하게 한다 — 글자를 읽기 전에 어디쯤인지 안다.
+ *
+ * **색을 정하는 곳은 여기 하나뿐이다.** 상단 바와 회차 확인 화면이 같은 값을 읽는다 —
+ * 두 곳에 베껴 두면 한쪽만 고쳐져 같은 단계가 화면마다 다른 색이 된다.
+ * `phase-*` 를 단 요소가 `--phase` 를 들고, 그 안의 글자가 그걸 쓴다.
+ *
+ * `prep` 에는 색을 주지 않는다 — 참가자가 볼 일이 없는 단계라 기본값(흐린 글씨)으로 둔다.
+ */
+.phase-reg { --phase: var(--dim); }
+.phase-prevote { --phase: var(--accent); }
+.phase-party { --phase: var(--gold); }
+.phase-done { --phase: var(--ok); }
+
+.statusbar .phase { color: var(--phase, var(--dim)); }
 
 /*
  * 홈의 남은 시간. **제 카드다** — 할 일 카드 위에 선다 (`Home.tsx`).

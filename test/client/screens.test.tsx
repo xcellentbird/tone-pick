@@ -430,7 +430,7 @@ describe("뿌리 화면", () => {
     const router = createMemoryRouter(
       [
         { path: "/", element: <Entry /> },
-        { path: "/e/:code", element: <div>{SCREEN_TITLE.join}</div> },
+        { path: "/e/:code", element: <div>event</div> },
       ],
       { initialEntries: ["/"] },
     );
@@ -982,22 +982,32 @@ describe("파티 룰 도움말", () => {
 
 describe("참가자 화면 · 단계 공기", () => {
   /**
-   * ★ **화면이 단계를 실어야 공기가 단계를 따라간다.**
+   * ★ **바탕은 단계를 말하지 않는다** (ADR-67 이 ADR-61 ② 를 걷어냈다).
    *
-   * 색을 고르는 일은 전부 `theme.css` 의 `.screen[data-phase]` 에 있고, 화면이 하는 일은
-   * *지금 어느 단계인가* 를 실어주는 것뿐이다. 그래서 이 속성이 빠지면 **아무것도 안 깨지고**
-   * 공기만 조용히 기본값에 멈춘다 — 리팩터링에 소리 없이 사라지는 종류라 여기서 붙든다.
+   * 한때 단계마다 `--aurora` 를 갈아끼웠다. 걷어낸 이유는 취향이 아니라 누출이다 —
+   * 파티장에서 화면은 옆에서도 보이고, **바탕색이 단계를 말하면 옆 사람이 그걸 읽는다.**
+   * `남이 일으킨 변화에 움직임을 넣지 마라`(ADR-64) 와 같은 자리다.
    *
-   * 값이 `Phase` 그대로여야 한다. 매핑을 하나 끼우면 CSS 의 선택자와 어긋날 자리가 생긴다.
+   * 되살아나는 길은 `data-phase` 하나뿐이라 그 자리를 붙든다 — CSS 선택자가 전부
+   * 거기 걸려 있었고, 속성이 없으면 색은 `:root` 기본값 한 벌에 멈춘다.
+   * happy-dom 은 CSS 를 계산하지 않으므로 **색이 아니라 그 손잡이**를 잰다.
    */
   const phases = ["reg", "prevote", "party", "done"] as const;
   for (const phase of phases) {
-    it(`★ ${phase} 단계가 화면에 실린다`, async () => {
+    it(`★ ${phase} 단계에서도 바탕은 그대로다`, async () => {
       const state = participantState();
       state.event.phase = phase;
       renderParticipant(fakeSource({ load: async () => state }), undefined, () => {}, "home");
       await waitFor(() => {
-        expect(document.querySelector(".screen")?.getAttribute("data-phase")).toBe(phase);
+        const el = document.querySelector(".screen");
+        /*
+         * ⚠️ **다 그려진 화면인지 먼저 확인한다.** 불러오는 동안에도 `.screen` 이 하나 서는데
+         *    (`<div className="screen" />`), 그 껍데기엔 `data-phase` 가 원래 없다 —
+         *    바로 재면 **아무것도 안 재면서 통과한다.** 실제로 그렇게 썼다가 변이가 안 잡혔다.
+         *    `header.bar` 는 다 그려진 참가자 화면에만 있다.
+         */
+        expect(el?.querySelector("header.bar")).toBeTruthy();
+        expect(el?.hasAttribute("data-phase")).toBe(false);
       });
     });
   }

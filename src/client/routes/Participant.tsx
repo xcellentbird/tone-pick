@@ -310,13 +310,22 @@ function Loaded({
     <Overlays>
       {welcome && <Greeting text={welcome} />}
       {/*
-        단계를 화면에 실어 **공기가 단계를 따라가게** 한다 (`theme.css` 의 `.screen[data-phase]`).
-        색을 고르는 일은 전부 거기 있고, 여기서는 지금이 어느 단계인지만 말한다.
+        바탕은 단계를 말하지 않는다 (ADR-67). `data-phase` 를 되살리지 마라 —
+        옆 사람이 화면 색만 보고 이 사람이 어디쯤인지 읽는다.
       */}
-      <div className="screen" data-phase={state.event.phase}>
+      <div className="screen">
         {/* 스크롤해도 남는 자리다. 여기엔 반복해서 볼 것만 둔다 */}
         <header className="bar">
-          <StatusBar state={state} onHelp={() => onHelp(true)} />
+          <StatusBar
+            state={state}
+            /*
+             * 회차 이름이 홈으로 가는 지름길이다. **홈 탭에서는 주지 않는다** —
+             * 갈 곳이 없는데 눌리면 히스토리에 같은 주소가 한 칸 더 쌓이고,
+             * 뒤로 가기가 "아무 일도 안 일어나는 한 번"이 된다.
+             */
+            onHome={tab === "home" ? undefined : () => onTab("home")}
+            onHelp={() => onHelp(true)}
+          />
         </header>
 
         <div className="body stack">

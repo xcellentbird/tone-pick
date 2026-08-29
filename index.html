@@ -11,7 +11,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
     />
-    <meta name="theme-color" content="#131118" />
+    <meta name="theme-color" content="#151118" />
     <!--
       대체 화면은 **늦게** 나타난다.
 
@@ -37,7 +37,26 @@
       @keyframes bootFailIn { to { opacity: 1 } }
       .bootFail { opacity: 0; animation: bootFailIn 0s 6s forwards }
     </style>
-    <title>tone-pick</title>
+    <!--
+      탭에 뜨는 이름. **저장소 이름(`tone-pick`)이 아니라 파티 이름이다** —
+      참가자는 파티 중에 탭을 여러 개 열어두고, 그중에서 우리를 찾아야 한다.
+
+      회차 이름을 쓰지 않는 이유는 로고와 같다: 회차 이름은 운영자가 친 글자라
+      회차마다 다르고, 이 파일은 정적이라 그걸 알 수 없다.
+    -->
+    <title>TONE PARTY</title>
+
+    <!--
+      아이콘은 로고의 **보라색 O 와 발끝**만 잘라 쓴다. 로고 전체는 16px 에서 뭉갠다 —
+      `TONE` 네 글자가 4px 씩 나눠 갖는다.
+
+      ⚠️ **배경을 투명하게 두지 마라.** 발끝이 크림색이라 밝은 탭 배경에서 사라진다.
+      그렇다고 앱 바탕(`--bg`)으로 채우지도 않는다 — **다크 모드 탭바에 아이콘이 묻힌다.**
+      크림으로 채워 밝은 탭·어두운 탭 양쪽에서 도드라지게 한다.
+      만드는 법과 그 값을 고른 근거는 `design/README.md`.
+    -->
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body>
     <!--
@@ -52,9 +71,9 @@
       (`check:copy` 는 `src/` 만 훑으므로 이 파일은 검사에 안 걸린다.)
     -->
     <div id="root">
-      <div class="bootFail" style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;background:#131118;color:#f7f7f8;font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;text-align:center">
+      <div class="bootFail" style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;background:#151118;color:#f7f7f8;font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;text-align:center">
         <p style="margin:0;font-size:16px">화면을 불러오지 못했어요</p>
-        <button onclick="location.reload()" style="min-height:44px;padding:0 20px;border:none;border-radius:8px;background:#9b7cff;color:#fff;font-size:16px;font-weight:600;font-family:inherit">새로고침</button>
+        <button onclick="location.reload()" style="min-height:44px;padding:0 20px;border:none;border-radius:8px;background:#a98fff;color:#fff;font-size:16px;font-weight:600;font-family:inherit">새로고침</button>
         <p style="margin:0;font-size:12px;color:#a8a8b0">새로고침해도 안 되면 운영자에게 이 화면을 보여주세요.</p>
       </div>
     </div>
