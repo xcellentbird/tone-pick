@@ -37,7 +37,25 @@
       @keyframes bootFailIn { to { opacity: 1 } }
       .bootFail { opacity: 0; animation: bootFailIn 0s 6s forwards }
     </style>
-    <title>tone-pick</title>
+    <!--
+      탭에 뜨는 이름. **저장소 이름(`tone-pick`)이 아니라 파티 이름이다** —
+      참가자는 파티 중에 탭을 여러 개 열어두고, 그중에서 우리를 찾아야 한다.
+
+      회차 이름을 쓰지 않는 이유는 로고와 같다: 회차 이름은 운영자가 친 글자라
+      회차마다 다르고, 이 파일은 정적이라 그걸 알 수 없다.
+    -->
+    <title>TONE PARTY</title>
+
+    <!--
+      아이콘은 로고의 **보라색 O 와 발끝**만 잘라 쓴다. 로고 전체는 16px 에서 뭉갠다 —
+      `TONE` 네 글자가 4px 씩 나눠 갖는다.
+
+      ⚠️ **배경을 투명하게 두지 마라.** 발끝이 크림색이라 밝은 탭 배경에서 사라진다.
+      바탕(`--bg`)을 채워 어느 탭에서도 같은 대비를 갖게 한다.
+      만드는 법은 `design/README.md`.
+    -->
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body>
     <!--

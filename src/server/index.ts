@@ -5,6 +5,7 @@ import { hostRoutes } from "./routes/host.ts";
 import { participantRoutes } from "./routes/participant.ts";
 import { PLAYER_COOKIE, cookieName, readCookie, readSession } from "./auth.ts";
 import { eventStub, missingSecrets, moveServerClock, registry, serverNow, syncClock, type Env } from "./http.ts";
+import { withOgFor } from "./og.ts";
 
 export { EventDO, RegistryDO };
 export type { Env };
@@ -104,6 +105,35 @@ app.all("/assets/*", async (c) => {
     return c.text("not found", 404, { "cache-control": "no-store" });
   }
   return res;
+});
+
+/**
+ * **참가 링크만 워커를 거친다** — 카톡에 붙는 주소가 이것 하나뿐이라서다.
+ *
+ * 미리보기 카드를 만드는 건 카톡 서버이고 그 크롤러는 JS 를 안 돌린다. 그래서 og 태그가
+ * 정적 HTML 에 있어야 하는데, 카카오는 절대 https 주소를 요구한다 — 상대경로는 안 받는다.
+ * 요청이 온 주소에서 origin 을 꺼내면 프로덕션·QA·나중의 커스텀 도메인이 저절로 맞는다.
+ *
+ * 다른 경로(`/`, `/e/*`, `/host/*`)는 그대로 ASSETS 가 낸다. 아무도 공유하지 않는 주소라
+ * 태그가 필요 없고, **문이 아닌 곳까지 워커를 거치게 할 이유가 없다.**
+ *
+ * ⚠️ **여기서 던지면 문이 막힌다.** 참가자가 앱에 들어오는 길이 이 경로 하나뿐이라,
+ * 주입이 실패하면 손대지 않은 응답을 그대로 낸다. 미리보기는 없어도 되지만 문은 아니다.
+ */
+app.get("/j/*", async (c) => {
+  const res = await c.env.ASSETS.fetch(c.req.raw);
+  if (!res.headers.get("content-type")?.includes("text/html")) return res;
+  const copy = res.clone();
+  try {
+    // 토큰을 버리는 일은 `withOgFor` 안에서 한다 — 여기서 origin 을 만들지 않는다
+    const html = withOgFor(await res.text(), c.req.url);
+    const headers = new Headers(res.headers);
+    // 길이가 바뀌었다. 옛 값을 남기면 응답이 잘린다
+    headers.delete("content-length");
+    return new Response(html, { status: res.status, headers });
+  } catch {
+    return copy;
+  }
 });
 
 /**
