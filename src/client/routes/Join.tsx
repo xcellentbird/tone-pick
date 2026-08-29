@@ -37,7 +37,6 @@ import { ApiError, api, post } from "../lib/api.ts";
 import { takeBoot } from "../lib/boot.ts";
 import { setTabRef } from "../lib/session.ts";
 import { useLoad } from "../lib/useLoad.ts";
-import logo from "../assets/logo.webp";
 
 export default function Join() {
   const { id = "", token = "" } = useParams();
@@ -110,7 +109,12 @@ export default function Join() {
           낭독기가 `TONE PARTY` 를 한 번 더 읽으면 같은 말이 두 번 난다.
           크기를 박아 두는 건 그림이 늦게 와도 아래 것들이 안 튀게 하기 위해서다.
         */}
-        <img className="joinLogo" src={logo} alt="" aria-hidden width={640} height={455} />
+        {/*
+          **`public/` 의 고정 주소다** — 번들을 거치면 해시가 붙어 `index.html` 이 그 이름을
+          모르고, 그러면 첫 화면 스켈레톤이 로고를 띄울 수 없다. 로고는 거의 안 바뀌므로
+          해시로 얻는 캐시 무효화보다 **먼저 보이는 것**이 값지다.
+        */}
+        <img className="joinLogo" src="/logo.webp" alt="" aria-hidden width={640} height={455} />
 
         {found.error && <p className="err danger joinErr">{found.error.userMessage ?? ENTRY.notFound}</p>}
 
