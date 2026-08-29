@@ -1141,7 +1141,7 @@ h1,
    * `%` 가 아니라 `px` 인 이유는 로고가 `px` 로 내려가기 때문이다 —
    * 화면 높이가 달라져도 둘 사이가 벌어지지 않는다.
    */
-  --logo-drop: 32px;
+  --logo-drop: 40px;
   background:
     radial-gradient(
         58% 30% at 50% calc(22% + var(--logo-drop)),
