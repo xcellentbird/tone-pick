@@ -1135,8 +1135,19 @@ h1,
    * 저건 화면 모서리의 공기고 이건 로고를 받치는 빛이라 가운데에 선다.
    * 로고 자체에는 그림자를 넣지 않는다. 빛은 배경이 내고 그림은 평평하게 둔다.
    */
+  /*
+   * **로고와 그 뒤의 빛은 한 값으로 함께 내려온다.** 따로 적으면 한쪽만 고쳐져
+   * 빛이 로고를 벗어나고, 그러면 받치는 빛이 아니라 그냥 얼룩이 된다.
+   * `%` 가 아니라 `px` 인 이유는 로고가 `px` 로 내려가기 때문이다 —
+   * 화면 높이가 달라져도 둘 사이가 벌어지지 않는다.
+   */
+  --logo-drop: 32px;
   background:
-    radial-gradient(58% 30% at 50% 22%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%),
+    radial-gradient(
+        58% 30% at 50% calc(22% + var(--logo-drop)),
+        color-mix(in srgb, var(--accent) 26%, transparent),
+        transparent 70%
+      ),
     var(--aurora), var(--bg);
 }
 /*
@@ -1149,11 +1160,16 @@ h1,
 
 .joinBody { display: flex; flex-direction: column; align-items: center; text-align: center; }
 
+/*
+ * `--logo-drop` 만큼 내려온다. **아래 것들은 따라 내려오지 않는다** —
+ * `.joinMeta` 가 `margin-top: auto` 로 바닥에 붙어 있어서, 늘어난 자리를
+ * 로고와 이름 사이의 빈 곳이 먹는다. 이름·시각·버튼은 제자리다.
+ */
 .joinLogo {
   display: block;
   width: min(58%, 260px);
   height: auto;
-  margin: 7vh 0 0;
+  margin: calc(7vh + var(--logo-drop)) 0 0;
 }
 /*
  * ⚠️ **`.joinLogo` 에 `aspect-ratio` 를 적지 마라.** 비율은 `<img>` 의 `width`/`height`
