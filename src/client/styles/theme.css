@@ -60,6 +60,17 @@
   --fg: #f7f7f8;
   --dim: #a8a8b0;
 
+  /*
+   * **로고의 크림.** 글자와 발바닥에서 그대로 뽑았다 (`design/TONE_PARTY_LOGO.png`).
+   *
+   * `--fg`(중성에 가까운 흰색)와 다른 자리에 선다 — 저건 본문 글자색이고 이건 **브랜드 색**이다.
+   * 회차 확인 화면처럼 로고가 서는 자리에서 그 옆 글자가 중성 회색이면 온도가 어긋난다.
+   *
+   * 흐리게 쓸 때는 `color-mix(… var(--cream) N%, var(--bg))` 로 **바탕 쪽으로 섞는다.**
+   * 검정으로 섞으면 바탕의 자두빛이 빠져 회색으로 죽는다.
+   */
+  --cream: #fdf5e2;
+
   /* 어두운 바탕 위의 글씨·테두리에는 밝은 쪽(5.9:1), 흰 글씨를 얹는 버튼에는 짙은 쪽(5.7:1) */
   --accent: #a98fff;
   --accent-solid: #6d48e5;
@@ -1169,8 +1180,8 @@ h1,
  */
 .joinName {
   margin: 0;
-  font-size: clamp(23px, 6.6vw, 30px);
-  font-weight: 800;
+  font-size: clamp(24px, 6.2vw, 28px);
+  font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.3;
   text-wrap: balance;
@@ -1199,16 +1210,33 @@ h1,
 .joinRule {
   width: min(56%, 210px);
   height: 1px;
-  background: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
 }
 
-.joinWhen { margin: 0; font-size: 15px; color: var(--dim); }
+/*
+ * 날짜·시각. **회색이 아니라 흐린 크림이다** — 바로 위가 로고라, 중성 회색을 두면
+ * 그 자리만 온도가 어긋난다. 바탕 쪽으로 섞어 밝기를 내린다.
+ */
+.joinWhen {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--cream) 76%, var(--bg));
+}
 
 /* 등록이 닫혔을 때만 뜬다 (`ENTRY.*`). 시각 바로 아래에 붙어 같은 덩어리로 읽힌다 */
-.joinNote { margin: 2px 0 0; font-size: 14px; color: var(--dim); }
+.joinNote { margin: 2px 0 0; font-size: 14px; color: color-mix(in srgb, var(--cream) 70%, var(--bg)); }
 
-/* 바닥에 붙는 버튼. 이 화면에서는 조금 크다 — 누를 것이 이것 하나뿐이다 */
-.joinGo { margin-top: 22px; min-height: 52px; border-radius: var(--radius); }
+/*
+ * 바닥에 붙는 버튼. 이 화면에서는 조금 크다 — 누를 것이 이것 하나뿐이다.
+ * `margin-top` 이 곧 **날짜와 버튼 사이**다 (`.joinBody` 에 gap 이 없다).
+ */
+.joinGo {
+  margin-top: 26px;
+  min-height: 52px;
+  border-radius: var(--radius);
+  font-size: 19px;
+}
 
 .joinErr { margin-top: 12px; }
 
