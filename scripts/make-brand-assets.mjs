@@ -10,7 +10,19 @@ import sharp from "sharp";
 import { statSync } from "node:fs";
 
 const SRC = new URL("../design/TONE_PARTY_LOGO.png", import.meta.url).pathname;
-const BG = "#151118"; // theme.css 의 --bg
+const BG = "#151118"; // theme.css 의 --bg — 미리보기 카드의 바탕
+
+/**
+ * **아이콘 바탕은 크림이다.** 앱 바탕(`--bg`)으로 두면 **다크 모드 탭바에 아이콘이 묻힌다** —
+ * 탭이 여러 개 열린 화면에서 우리를 못 찾는다.
+ *
+ * 로고 글자·발바닥의 크림(`#fdf5e2` · `#fef5e2`)과 **똑같이 두지 않는다.** 같으면 발바닥이
+ * 바탕에 잠겨 짙은 외곽선만 남는다. 한 단 낮춰 실낱만큼 떨어뜨린다.
+ *
+ * 밝은 탭(`#f2f2f2`)·어두운 탭(`#202124`) 양쪽에 얹어 96·32·16px 로 확인했다.
+ * 보라·분홍은 `O` 가 바탕에 잠겨서 못 쓴다.
+ */
+const ICON_BG = "#f7ede0";
 const out = (p) => new URL("../" + p, import.meta.url).pathname;
 
 /** 알파가 있는 픽셀의 상자 — 투명 여백을 걷어낸다 */
@@ -55,7 +67,7 @@ async function markBox() {
 
 const icon = async (px, inset, art) => {
   const inner = await sharp(SRC).extract(art).resize(px - inset * 2, px - inset * 2).png().toBuffer();
-  return sharp({ create: { width: px, height: px, channels: 4, background: BG } })
+  return sharp({ create: { width: px, height: px, channels: 4, background: ICON_BG } })
     .composite([{ input: inner, left: inset, top: inset }])
     .png({ compressionLevel: 9 })
     .toBuffer();
@@ -69,7 +81,7 @@ const LW = 640;
 await sharp(SRC).extract(art).resize(LW, Math.round((art.height / art.width) * LW), { kernel: "lanczos3" })
   .webp({ quality: 80, effort: 6 }).toFile(out("src/client/assets/logo.webp"));
 
-// ② 탭 · ③ 홈 화면 — 배경을 채운다. 발끝이 크림색이라 밝은 탭에서 사라진다
+// ② 탭 · ③ 홈 화면 — 바탕을 채운다. 투명하게 두면 발끝이 밝은 탭에서 사라진다
 await sharp(await icon(48, 2, mark)).toFile(out("public/favicon.png"));
 await sharp(await icon(180, 16, mark)).toFile(out("public/apple-touch-icon.png"));
 
