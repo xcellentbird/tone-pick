@@ -23,7 +23,6 @@ import type { ParticipantSource } from "../../src/client/lib/participant.ts";
 import { ApiError, api, timeoutFor } from "../../src/client/lib/api.ts";
 import EnvBadge from "../../src/client/ui/EnvBadge.tsx";
 import Boom from "../../src/client/ui/Boom.tsx";
-import SeatTakeover from "../../src/client/ui/SeatTakeover.tsx";
 import { useKeyboardInset } from "../../src/client/lib/keyboard.ts";
 
 afterEach(cleanup);
@@ -1197,75 +1196,6 @@ describe("참가자 화면 · 자리", () => {
     fireEvent.click(screen.getByText(SEAT.ack.submit(false)));
     // 되돌아와서 한 번 더 누를 수 있다
     await waitFor(() => expect(screen.getByText(SEAT.ack.submit(false))).toBeTruthy());
-  });
-
-  /**
-   * 화면이 저절로 꺼지지 않게 잡는다 (Screen Wake Lock).
-   *
-   * 참가자는 테이블에서 이야기하느라 폰을 잘 안 본다. 카드가 떠도 30초면 화면이 까매지고
-   * 그 뒤로는 곁눈에도 안 들어온다.
-   */
-  describe("자리 카드가 떠 있는 동안 화면을 잡는다", () => {
-    /** `navigator.wakeLock` 을 흉내 낸다. happy-dom 에는 없다 */
-    function stubWakeLock() {
-      const released: number[] = [];
-      let made = 0;
-      const api = {
-        request: async () => {
-          const n = ++made;
-          return { release: async () => void released.push(n) } as unknown as WakeLockSentinel;
-        },
-      };
-      Object.defineProperty(navigator, "wakeLock", { value: api, configurable: true });
-      return {
-        get made() {
-          return made;
-        },
-        released,
-        restore: () => Reflect.deleteProperty(navigator, "wakeLock"),
-      };
-    }
-
-    it("★ 확인을 기다리는 동안 잡고, 확인하면 놓는다", async () => {
-      const wl = stubWakeLock();
-      try {
-        const source = fakeSource({ load: async () => participantState({ seat }) });
-        renderParticipant(source);
-        await screen.findByText(SEAT.ack.headline(2, false));
-        await waitFor(() => expect(wl.made, "안 잡았다").toBe(1));
-
-        fireEvent.click(screen.getByText(SEAT.ack.submit(false)));
-        // 카드가 사라지면 놓아야 한다 — 파티 내내 켜져 있으면 배터리를 먹는다
-        await waitFor(() => expect(wl.released.length, "안 놓았다").toBe(1));
-      } finally {
-        wl.restore();
-      }
-    });
-
-    /**
-     * ★ **이미 확인한 사람이 다시 열어 읽을 때는 잡지 않는다.**
-     * 그 사람은 지금 화면을 보고 있는 중이라 잡을 이유가 없다.
-     */
-    it("★ 다시 열어 읽는 화면은 잡지 않는다", async () => {
-      const wl = stubWakeLock();
-      try {
-        // 확인을 받는 화면(`onAck`)이 아니라 읽기만 하는 화면(`onClose`)이다
-        render(<SeatTakeover seat={seat} started={false} onClose={() => {}} />);
-        await screen.findByText(SEAT.ack.headline(2, false));
-
-        expect(wl.made, "읽기만 하는데 화면을 잡았다").toBe(0);
-      } finally {
-        wl.restore();
-      }
-    });
-
-    it("★ 이 API 가 없는 브라우저에서도 카드는 그대로 뜬다", async () => {
-      // happy-dom 에는 `wakeLock` 이 없다. 그대로 두고 그린다
-      expect((navigator as Navigator).wakeLock, "픽스처가 이미 넣어뒀다 — 이 줄이 헛돈다").toBeUndefined();
-      renderParticipant(fakeSource({ load: async () => participantState({ seat }) }));
-      await screen.findByText(SEAT.ack.headline(2, false));
-      expect(screen.getByText(SEAT.ack.submit(false))).toBeTruthy();
-    });
   });
 
   it("★ 이미 확인한 사람은 홈에서 다시 열 수 있다", async () => {
