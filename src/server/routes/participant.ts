@@ -225,9 +225,20 @@ function putSession(c: Ctx, base: string, ref: string | undefined, token: string
 participantRoutes.get("/me", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");
-  // 회차는 멀쩡한데 **내가** 없는 경우가 있다 — 운영자가 참가자를 지웠을 때.
-  // 여기서 아무 말도 안 하면 화면이 "그런 회차가 없어요" 라고 거짓말한다
-  const { value, response } = unwrap(c, await seat.stub.participantState(seat.playerId, serverNow()), () => ENTRY.removed);
+  const state = await seat.stub.participantState(seat.playerId, serverNow());
+  /*
+   * 실패가 **둘로 갈린다** (ADR-71). 참가자가 할 일이 정반대라 한 문구로 묶으면 한쪽이 거짓이다.
+   *
+   *   · 회차는 멀쩡한데 **내가** 없다 (운영자가 참가자를 지웠다)
+   *       → 링크는 살아 있다. `같은 링크로 다시 들어올 수도 있어요`
+   *   · **회차가** 없어졌다 (운영자가 회차를 지웠다)
+   *       → 링크도 함께 죽었다. 다시 열라고 하면 죽은 링크를 몇 번이고 다시 연다
+   *
+   * 회차 DO 는 지워지면 빈 채로 다시 서므로 **둘 다 같은 실패로 올라온다.**
+   * 가르는 건 등록부다 — 실패했을 때만 본다. 정상 경로에 왕복을 더하지 않는다.
+   */
+  const gone = state.ok ? false : !(await registry(c.env).hasEvent(seat.eventId));
+  const { value, response } = unwrap(c, state, () => (gone ? ENTRY.notFound : ENTRY.removed));
   if (response) return response;
 
   // 화면은 코드로도(참가자 탭), 회차 아이디로도(참가 링크) 물어볼 수 있다
