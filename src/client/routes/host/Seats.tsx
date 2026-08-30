@@ -345,6 +345,13 @@ export default function Seats() {
          */
         const editable = i === 0 && !revealed;
         const editing = editable && openEdit === round.round;
+        /*
+         * 확인을 **아직 기다리는 라운드인가.** 조건이 `editable` 과 같지만 뜻이 다르다 —
+         * 저건 고칠 수 있느냐이고 이건 답을 기다리는 중이냐다. 지난 라운드는 사람들이
+         * 이미 다음 자리에 앉아 있고, 발표 뒤에는 참가자 화면에 자리 카드가 아예
+         * 안 뜬다(`SeatTakeover`) — 둘 다 확인이 올 수 없는 자리다.
+         */
+        const awaiting = i === 0 && !revealed;
         return (
           <div className="card stack" key={round.round}>
             {/*
@@ -370,6 +377,7 @@ export default function Seats() {
               **설명은 고치는 동안에만, 한 줄만 선다** (ADR-49). 읽으러 연 사람에게는
               테이블이 먼저다 — 늘 떠 있던 설명 넷이 화면 위쪽을 통째로 먹고 있었다.
             */}
+            {awaiting && <NotAcked round={round} state={state} />}
             {editing && editBar(round)}
             {/*
               쌍 성적표도 **고치는 동안에만** 선다 (ADR-49 + ADR-51). 이건 읽을거리가 아니라
@@ -683,6 +691,40 @@ function Tables({
  * **이름이 버튼이다.** 예전에는 알리기만 하고 할 수 있는 일이 없어서,
  * 한 명 때문에 새 라운드를 발행해야 했다 (전원이 옮겼다).
  */
+/**
+ * 자리 카드를 **아직 안 연 사람**을 이름으로 보여준다.
+ *
+ * 숫자만 있을 때(`HOST.ack.progress`)는 운영자가 할 수 있는 일이 없었다 — 몇 명인지는
+ * 알아도 누구인지를 몰라서다. 화장실에 갔거나 밖에 나간 사람은 방에 대고 말해도 안 들린다.
+ *
+ * **남은 사람이 없으면 사라진다.** 할 일이 없는데 `0명` 을 띄우지 않는다.
+ *
+ * 테이블 순으로 세운다 — 같은 번호를 받은 사람끼리 붙어 있어야 한 번에 말해줄 수 있다.
+ * 이름은 `state.players` 에서 찾는다. 자리에는 `playerId` 만 있다.
+ */
+function NotAcked({
+  round,
+  state,
+}: {
+  round: SeatingRound;
+  state: ReturnType<typeof useConsole>["state"];
+}) {
+  const done = new Set(round.acks);
+  const left = round.seats
+    .filter((s) => !done.has(s.playerId))
+    .map((s) => ({ table: s.table, nickname: state.players.find((p) => p.id === s.playerId)?.nickname ?? "" }))
+    .sort((a, b) => a.table - b.table || a.nickname.localeCompare(b.nickname));
+  if (left.length === 0) return null;
+  return (
+    <div className="stack">
+      {/* 경고가 아니라 할 일이다 — 아래 `Unassigned` 와 같은 색으로 묶는다 */}
+      <span className="small accentText">{HOST_UI.seats.notAcked}</span>
+      <p className="small">{left.map((s) => HOST_UI.seats.notAckedAt(s.nickname, s.table)).join(", ")}</p>
+      <span className="tiny dim">{HOST_UI.seats.notAckedHint}</span>
+    </div>
+  );
+}
+
 function Unassigned({
   round,
   state,
