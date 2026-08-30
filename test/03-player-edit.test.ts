@@ -45,6 +45,25 @@ describe("참가자를 지웠을 때", () => {
     expect(res.body.message).not.toBe(ENTRY.notFound);
   });
 
+  it("★ 회차가 지워지면 '참가가 삭제됐다' 가 아니라 '회차가 없다' 고 말한다", async () => {
+    /*
+     * 바로 위 규칙의 **뒤집힌 짝**이다. 둘 다 `participantState()` 가 실패하지만
+     * 참가자가 할 일이 정반대다 —
+     *   · 참가가 지워졌다  → 회차도 링크도 멀쩡하다. 같은 링크로 다시 들어오면 된다
+     *   · 회차가 지워졌다  → 링크도 함께 죽었다. 다시 열어도 열리지 않는다
+     *
+     * 지워진 회차에 `같은 링크로 다시 들어올 수도 있어요` 라고 하면 참가자는 죽은 링크를
+     * 몇 번이고 다시 연다. 등록부가 그 둘을 가른다.
+     */
+    const { ev, b } = await pair();
+    await api(`/api/host/events/${ev.id}`, { method: "DELETE", cookie: master });
+
+    const res = await api<{ message: string }>("/api/me", { cookie: b.cookie });
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe(ENTRY.notFound);
+    expect(res.body.message).not.toBe(ENTRY.removed);
+  });
+
   it("★ 지운 사람의 운세가 남지 않는다 — 그 문장에 닉네임이 들어 있다", async () => {
     const { ev, b } = await pair();
     await setPhase(ev.id, "party");
