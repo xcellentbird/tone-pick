@@ -15,3 +15,12 @@
 # immutable 은 못 쓴다 — 로고를 바꿨는데 영영 안 바뀌면 그게 더 나쁘다.
 /logo.webp
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+# 글자체 (ADR-72). **이름이 곧 내용이다** — `SUIT-Regular.woff2` 는 그 폰트 그 굵기 하나만
+# 가리키고, 다른 글자체로 바꾸면 파일 이름부터 달라진다. 해시가 붙은 것과 같은 성질이라
+# 영구 캐시가 안전하다.
+#
+# preload 하지 않으므로 첫 그림을 막지는 않지만(`font-display: swap`), 두 번째 방문부터
+# 왕복이 붙으면 **글자가 늦게 바뀌는 것이 그대로 보인다.**
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
