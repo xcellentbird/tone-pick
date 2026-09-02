@@ -714,6 +714,17 @@ h1,
 }
 
 /*
+ * 같은 테이블 묶음 (ADR-73). 머리글 한 줄과, 묶음이 끝나는 자리의 간격.
+ * 묶음은 **움직이지 않는다** — 새 라운드가 발행돼 목록이 재배열되는 순간은 자리 전체화면이 덮고 있고,
+ * 남이 일으킨 변화에 움직임을 넣지 않는다 (ADR-64).
+ */
+.groupHead { display: flex; align-items: center; gap: 8px; margin-bottom: -4px; }
+.groupHead .kicker { flex: none; }
+.groupHead::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+/* 묶음의 마지막 줄 — 행 사이 `--gap` 에 이만큼 더 벌어진다. 빈 요소로 벌리면 `.row` 의 gap 을 하나 더 먹어 그 줄만 좁아진다 */
+.row.groupEnd { margin-bottom: 6px; }
+
+/*
  * 카드 안의 **누르는 자리.**
  *
  * 참석 칩이 오른쪽에 있던 시절에 둘로 갈렸다 — 버튼 안에 버튼을 넣을 수 없어서다.
@@ -918,8 +929,13 @@ h1,
  * 내 카드는 맨 위에 있다는 위치와 이 글자로 충분하다. 카드 자체는 다른 카드와 같은 모양이어야
  * 한다 — 이 카드가 답하는 게 "남들에게 어떻게 보이나" 라서, 다르게 그리면 답이 틀린다.
  */
-.avatarMine { position: relative; flex: none; display: inline-flex; }
-.avatarMine .mineTag {
+/*
+ * 아바타 위의 작은 태그. **부품은 하나, 쓰임은 둘** — 내 카드의 `나`, 같은 테이블 사람의 테이블 번호 (ADR-73).
+ * 이름 줄은 닉네임·나이·MBTI 로 꽉 차 있어 거기 무언가를 더하면 이름이 잘린다 — 그래서 아바타다.
+ * 동물도 색도 아니라 `동물 = 사람, 색 = 성별`(ADR-30)을 건드리지 않는다.
+ */
+.avatarMine, .avatarTag { position: relative; flex: none; display: inline-flex; }
+.avatarMine .mineTag, .avatarTag .tag {
   position: absolute;
   right: -2px;
   bottom: -2px;

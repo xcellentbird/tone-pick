@@ -1148,7 +1148,7 @@ describe("참가자 화면 · 어깨너머 가리기", () => {
 });
 
 describe("참가자 화면 · 자리", () => {
-  const seat = { round: 1, table: 2, mates: 6, men: 3, acked: false };
+  const seat = { round: 1, table: 2, mates: 6, men: 3, acked: false, mateIds: [] as string[] };
 
   it("자리가 발행되면 전체 화면으로 확인을 받는다", async () => {
     const source = fakeSource({ load: async () => participantState({ seat }) });
@@ -1555,6 +1555,77 @@ describe("발표 후 참가자 탭", () => {
     renderParticipant(fakeSource());
     await screen.findByText(/그녀/);
     expect(screen.queryByText(new RegExp(REVEAL.matchBadge))).toBeNull();
+  });
+
+  /**
+   * 같은 테이블 사람이 위로 묶인다 (ADR-73 · 슬라이스 26).
+   *
+   * 자리는 방 안에서 이미 보이는 사실이라 앱이 말해도 된다. 지키는 건 **어디까지**다 —
+   * 이번 라운드·내 테이블만, 이유는 없이. 아래 넷이 그 선이다.
+   */
+  const three = () => participantState().roster.concat(
+    { id: "him", nickname: "그남", age: 31, gender: "M", mbti: "ESTJ", charms: ["ㄱ", "ㄴ", "ㄷ"] },
+    { id: "mate", nickname: "옆자리", age: 28, gender: "F", mbti: "INFP", charms: ["ㄹ", "ㅁ", "ㅂ"] },
+  );
+  const order = () => screen.getAllByText(/그녀|그남|옆자리/).map((el) => el.textContent);
+
+  it("★ 같은 테이블 사람이 목록 위에 묶이고 아바타에 테이블 번호가 붙는다", async () => {
+    renderParticipant(fakeSource({
+      load: async () => participantState({
+        event: { ...participantState().event, phase: "party" },
+        roster: three(),   // '옆자리' 가 맨 뒤에서 시작한다
+        seat: { round: 1, table: 3, mates: 4, men: 2, acked: true, mateIds: ["mate"] },
+      }),
+    }));
+    await screen.findByText(/옆자리/);
+    expect(order()[0]).toMatch(/옆자리/);
+    // 머리글은 사실 한 줄. 이유가 될 만한 말은 없다
+    expect(screen.getByText(PEOPLE.sameTable(3))).toBeTruthy();
+    expect(screen.queryByText(/서로/)).toBeNull();
+    // 번호는 아바타에 붙는다 — '나' 태그와 같은 부품이라 이름 줄은 건드리지 않는다 (ADR-30)
+    const tag = screen.getByText("3", { selector: ".tag" });
+    expect(tag.closest(".avatarTag")).toBeTruthy();
+    expect(tag.closest(".name")).toBeNull();
+  });
+
+  it("★ 자리가 없으면 묶음도 머리글도 없다", async () => {
+    renderParticipant(fakeSource({
+      load: async () => participantState({ event: { ...participantState().event, phase: "party" }, roster: three() }),
+    }));
+    await screen.findByText(/옆자리/);
+    expect(screen.queryByText(new RegExp(PEOPLE.sameTable(3)))).toBeNull();
+    expect(document.querySelector(".avatarTag")).toBeNull();
+  });
+
+  it("★ 발표 후에는 서로 찌른 사람만 위다 — 같은 테이블 묶음은 없다", async () => {
+    // 매칭 카드가 `· 3번 테이블` 로 이미 말한다. 묶음까지 두면 머리글이 다른 테이블의 짝을 덮는다
+    renderParticipant(fakeSource({
+      load: async () => participantState({
+        event: { ...participantState().event, phase: "done" },
+        roster: [...three()].reverse(),   // '그녀'(매칭) 가 맨 뒤에서 시작한다
+        poke: { ...matched, matches: matched.matches },
+        seat: { round: 2, table: 3, mates: 4, men: 2, acked: true, mateIds: ["mate"] },
+      }),
+    }));
+    await screen.findByText(/그녀/);
+    expect(order()[0]).toMatch(/그녀/);
+    expect(screen.queryByText(new RegExp(PEOPLE.sameTable(3)))).toBeNull();
+    expect(document.querySelector(".avatarTag")).toBeNull();
+  });
+
+  it("★ 이성만 을 켜면 묶음도 걸러지고, 남는 사람이 없으면 머리글도 없다", async () => {
+    // '옆자리' 는 여성, 나는 남성 — 이성만 에서는 남는다. 동성뿐인 테이블은 머리글이 서면 안 된다
+    renderParticipant(fakeSource({
+      load: async () => participantState({
+        event: { ...participantState().event, phase: "party" },
+        roster: three(),
+        seat: { round: 1, table: 3, mates: 4, men: 2, acked: true, mateIds: ["him"] },   // 동성 한 명뿐
+      }),
+    }));
+    await screen.findByText(/옆자리/);
+    expect(screen.getByText(PEOPLE.sameTable(3))).toBeTruthy();
+    fireEvent.click(screen.getByText(PEOPLE.onlyOpposite));
+    expect(screen.queryByText(new RegExp(PEOPLE.sameTable(3)))).toBeNull();
   });
 
 });
@@ -2494,7 +2565,7 @@ describe("탭 역할 분담", () => {
    * 같은 정보가 두 탭에 있으면 어느 쪽이 맞는지 눈이 한 번 더 확인한다.
    * 탭마다 답하는 질문이 하나씩이고 겹치지 않아야 한다.
    */
-  const withSeat = { round: 1, table: 2, mates: 6, men: 3, acked: true };
+  const withSeat = { round: 1, table: 2, mates: 6, men: 3, acked: true, mateIds: [] as string[] };
 
   /** 그 단계의 상태 한 벌. `event` 는 통째로 갈아끼우는 자리라 기본값에서 떠온다 */
   const inPhase = (phase: ParticipantState["event"]["phase"]): Partial<ParticipantState> => ({
