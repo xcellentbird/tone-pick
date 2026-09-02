@@ -57,6 +57,59 @@ describe("자리는 발행해야 보인다", () => {
     const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
     expect(state.body.seat).toBeUndefined();
     expect(JSON.stringify(state.body)).not.toContain("\"table\"");
+    expect(JSON.stringify(state.body)).not.toContain("mateIds");
+  });
+
+  it("★ 같은 테이블 사람은 발행된 라운드에서만, 내 테이블만 내려간다", async () => {
+    /*
+     * 방 안에서 보이는 사실이라 나가도 된다 (ADR-73). 지키는 건 범위다 —
+     * **다른 테이블 아이디는 하나도 없어야** 한다. 전체 배치표는 남들끼리의 패턴을 드러낸다.
+     * 참가자 응답만으로 확인한다: 서로의 `seat.table` 이 같은 사람들끼리만 서로를 들고 있어야 한다.
+     */
+    const ev = await freshEvent();
+    const all = [];
+    for (let i = 0; i < 6; i++) all.push(await join(ev, { gender: i % 2 === 0 ? "M" : "F" }));
+    await setPhase(ev.id, "prevote");
+    await api(`/api/host/events/${ev.id}/seating`, { method: "POST", cookie: master, body: { tableCount: 2 } });
+    await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
+
+    const states = await Promise.all(all.map((p) => api<ParticipantState>("/api/me", { cookie: p.cookie })));
+    for (const [i, s] of states.entries()) {
+      const mine = s.body.seat!;
+      const expected = all
+        .filter((_, j) => j !== i && states[j].body.seat!.table === mine.table)
+        .map((p) => p.id)
+        .sort();
+      expect([...mine.mateIds].sort()).toEqual(expected);
+      expect(mine.mateIds).not.toContain(all[i].id);   // 나는 내 동석자가 아니다
+    }
+  });
+
+  it("★ 지난 라운드의 자리는 내려가지 않는다 — 이번 라운드만", async () => {
+    /*
+     * 라운드를 겹쳐 보여주면 *내가 안 찌른 사람이 자꾸 온다* 가 정확한 목록이 된다 (ADR-40).
+     * 방은 기억이 흐릿하지만 목록은 정확하다. 그래서 **마지막으로 발행된 것 하나**다.
+     */
+    const ev = await freshEvent();
+    const all = [];
+    for (let i = 0; i < 6; i++) all.push(await join(ev, { gender: i % 2 === 0 ? "M" : "F" }));
+    await setPhase(ev.id, "prevote");
+    await api(`/api/host/events/${ev.id}/seating`, { method: "POST", cookie: master, body: { tableCount: 2 } });
+    await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
+    const r1 = await api<ParticipantState>("/api/me", { cookie: all[0].cookie });
+
+    await setPhase(ev.id, "party");
+    await api(`/api/host/events/${ev.id}/seating`, { method: "POST", cookie: master, body: { tableCount: 3 } });
+    await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
+    const r2 = await api<ParticipantState>("/api/me", { cookie: all[0].cookie });
+
+    expect(r2.body.seat!.round).toBe(2);
+    // 3테이블이면 한 테이블에 두 명 — 동석자는 정확히 한 명이고, 1라운드의 둘은 아니다
+    expect(r2.body.seat!.mateIds).toHaveLength(1);
+    const others = await Promise.all(all.slice(1).map((p) => api<ParticipantState>("/api/me", { cookie: p.cookie })));
+    const sameNow = all.slice(1).filter((_, j) => others[j].body.seat!.table === r2.body.seat!.table).map((p) => p.id);
+    expect(r2.body.seat!.mateIds).toEqual(sameNow);
+    expect(r1.body.seat!.mateIds).toHaveLength(2);
   });
 
   it("★ 파티 시작 전에 발행하면 그 자리에서 보인다 (ADR-39)", async () => {

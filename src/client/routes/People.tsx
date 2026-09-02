@@ -18,6 +18,7 @@ import { afterPoke } from "../../shared/poke.ts";
 import { useCovered } from "../lib/covered.ts";
 import { tap } from "../lib/pulse.ts";
 import { rosterOpen, toPublic } from "../../shared/types.ts";
+import { orderRoster } from "../../shared/roster.ts";
 import { ApiError } from "../lib/api.ts";
 import { now } from "../lib/serverTime.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
@@ -68,14 +69,25 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
   const matched = new Map(state.poke.matches.map((m) => [m.player.id, m]));
 
   /**
-   * 발표 후에는 서로 찌른 사람이 **맨 위**로 온다.
-   * 스무 명 목록에서 그 사람을 찾아 내려가게 두면, 결과를 다른 탭에 숨긴 것과 다를 게 없다.
-   * 발표 전에는 `matched` 가 비어 있어 순서가 그대로다 — 그 자체로 힌트가 되면 안 된다.
+   * 순서는 세 층이다 (ADR-73 · `orderRoster`).
+   *
+   * · **발표 후** — 서로 찌른 사람이 맨 위 (ADR-18). 스무 명 목록에서 그 사람을 찾아
+   *   내려가게 두면 결과를 다른 탭에 숨긴 것과 다를 게 없다. 같은 테이블 묶음은 **없다** —
+   *   매칭 카드가 `· N번 테이블` 로 이미 말하고, 묶음까지 두면 머리글이 다른 테이블의 짝을 덮는다
+   * · **발표 전 · 자리 있음** — 같은 테이블 사람이 위. 방 안에서 보이는 사실이라 앱이 말해도 된다.
+   *   이번 라운드·내 테이블만이고 **이유는 붙이지 않는다**
+   * · **자리 없음** — 보는 사람마다 고정된 무작위. 등록 순서는 *누가 먼저 왔나* 라서 안 쓴다
+   *
+   * 발표 전에는 `matched` 가 비어 있어 매칭 층이 생기지 않는다 — 그 자체로 힌트가 되면 안 된다.
    */
-  const list = state.roster
-    .filter((p) => !onlyOpposite || p.gender !== state.me.gender)
-    .slice()
-    .sort((a, b) => Number(matched.has(b.id)) - Number(matched.has(a.id)));
+  const mateIds = revealed ? undefined : state.seat?.mateIds;
+  const list = orderRoster(
+    state.roster.filter((p) => !onlyOpposite || p.gender !== state.me.gender),
+    { viewerId: state.me.id, mateIds, matchedIds: [...matched.keys()] },
+  );
+  /** 위에 묶인 같은 테이블 사람 수. 필터에 걸러 0 이면 머리글도 없다 */
+  const mateSet = new Set(mateIds ?? []);
+  const mateCount = list.filter((p) => mateSet.has(p.id)).length;
 
   /*
    * 보내는 중에는 다시 안 보낸다. 예전에는 **왕복이 우연히 막고 있었다** —
@@ -292,7 +304,16 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       )}
 
       <div className="stack">
-        {list.map((p) => {
+        {/*
+          같은 테이블 머리글 (ADR-73). **사실 한 줄이다** — 왜 같이 앉았는지는 어디에도 없다.
+          위에 묶인 사람이 있을 때만 선다. `이성만` 으로 걸러 남는 사람이 없으면 머리글도 없다.
+        */}
+        {mateCount > 0 && state.seat && (
+          <div className="groupHead">
+            <span className="kicker">{PEOPLE.sameTable(state.seat.table)}</span>
+          </div>
+        )}
+        {list.map((p, i) => {
           /*
            * 가린 동안은 매칭 표시도 덮는다. 두 사람에게는 공개된 사이지만
            * **옆 사람에게는 아니다.**
@@ -301,10 +322,25 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
            * 통째로 재배열되는데, 그 움직임이 옆 사람 눈을 끄는 게 순서가 흘리는 것보다 크다.
            */
           const match = covered ? undefined : matched.get(p.id);
+          /*
+           * 같은 테이블 사람은 아바타에 **테이블 번호**를 단다 — '나' 태그와 같은 부품이다.
+           * 이름 줄은 닉네임·나이·MBTI 로 이미 꽉 차 있어 거기 태그를 더하면 이름이 잘린다.
+           * 머리글이 스크롤로 넘어가도 이 번호는 사람에게 남는다.
+           */
+          const mate = mateSet.has(p.id);
+          /** 묶음의 마지막 줄. 다음 줄이 다른 테이블일 때 아래를 한 번 벌린다 — 빈 요소를 넣으면 `.row` 의 gap 을 하나 더 먹는다 */
+          const groupEnd = mate && i === mateCount - 1 && i < list.length - 1;
           return (
-            <div className="row" key={p.id}>
+            <div className={`row ${groupEnd ? "groupEnd" : ""}`} key={p.id}>
               <button className={`person grow ${match ? "matched" : ""}`} onClick={() => onProfile(p.id)}>
-                <Avatar nickname={p.nickname} gender={p.gender} />
+                {mate && state.seat ? (
+                  <span className="avatarTag">
+                    <Avatar nickname={p.nickname} gender={p.gender} />
+                    <span className="tag">{state.seat.table}</span>
+                  </span>
+                ) : (
+                  <Avatar nickname={p.nickname} gender={p.gender} />
+                )}
                 <span className="meta">
                   <span className="name">
                     <span className="who">{p.nickname}</span>
