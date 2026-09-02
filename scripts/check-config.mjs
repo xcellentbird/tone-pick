@@ -6,6 +6,8 @@
  *  2. **QA 공통 PIN 이 흔들리는 것** — 연습용은 언제나 0000 이어야 한다는 약속
  *  3. **환경에 상속되지 않는 키를 빠뜨리는 것** — durable_objects·assets 는 상속되지 않는다.
  *     빠뜨리면 배포는 되고 첫 요청에서야 터진다
+ *  4. **preload 한 파일에 캐시 규칙이 없는 것** — preload 는 그 파일을 첫 그림의 조건으로 만든다.
+ *     기본값은 `max-age=0, must-revalidate` 라 두 번째 방문부터 **그림이 왕복 뒤에** 뜬다
  *
  *   node scripts/check-config.mjs
  */
@@ -69,6 +71,46 @@ if (!qa) {
   if (String(names) !== String(expected)) {
     problems.push(`env.qa 의 DO 바인딩(${names})이 프로덕션(${expected})과 다릅니다`);
   }
+}
+
+// ④ index.html 이 preload 하는 파일에는 캐시 규칙이 있어야 한다
+//
+//    preload 는 "이 파일이 와야 화면이 선다" 는 선언이다. 그런데 정적 자산의 기본 헤더는
+//    `max-age=0, must-revalidate` 라, 이름에 해시가 없는 파일은 **두 번째 방문부터도**
+//    304 왕복을 기다린 뒤에야 그려진다. 첫 그림을 정하는 파일에 그 왕복이 붙으면
+//    preload 로 얻은 것이 그대로 없어진다 (ADR-70).
+//
+//    해시가 붙는 /assets/* 는 번들러가 알아서 하지만, public/ 에 손으로 둔 파일은 아무도 안 챙긴다.
+const HTML = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const HEADERS = readFileSync(new URL("../public/_headers", import.meta.url), "utf8");
+
+/** `_headers` 에서 경로 규칙과 그 아래 Cache-Control 을 모은다 */
+const rules = [];
+for (const line of HEADERS.split("\n")) {
+  if (line.startsWith("#") || line.trim() === "") continue;
+  if (!line.startsWith(" ") && !line.startsWith("\t")) rules.push({ path: line.trim(), cache: "" });
+  else if (rules.length > 0 && /^\s*cache-control:/i.test(line)) {
+    rules[rules.length - 1].cache = line.split(":").slice(1).join(":").trim();
+  }
+}
+
+/** `_headers` 의 경로 규칙이 이 주소를 덮는가. 규칙은 끝의 `*` 만 와일드카드다 */
+const covers = (rule, href) =>
+  rule.endsWith("*") ? href.startsWith(rule.slice(0, -1)) : rule === href;
+
+for (const m of HTML.matchAll(/<link\b[^>]*\brel="preload"[^>]*>/g)) {
+  const href = m[0].match(/\bhref="([^"]+)"/)?.[1];
+  if (!href || !href.startsWith("/")) continue;
+  const rule = rules.find((r) => covers(r.path, href));
+  const maxAge = Number(rule?.cache.match(/max-age=(\d+)/)?.[1] ?? 0);
+  if (maxAge > 0) continue;
+  problems.push(
+    rule
+      ? `index.html 이 preload 하는 ${href} 의 캐시 규칙(${rule.path})이 max-age=0 입니다. ` +
+        `첫 그림이 매번 304 왕복을 기다립니다`
+      : `index.html 이 preload 하는 ${href} 에 public/_headers 규칙이 없습니다. ` +
+        `기본값이 max-age=0 이라 첫 그림이 매번 304 왕복을 기다립니다`,
+  );
 }
 
 if (problems.length === 0) {

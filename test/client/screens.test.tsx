@@ -329,18 +329,45 @@ describe("오류 화면", () => {
   });
 
   it("★ 링크를 탓하는 건 404 하나뿐이다", async () => {
-    // 회차는 멀쩡하고 본인이 빠진 것이다 — 그때만 다시 입장할 길을 준다
+    // 회차는 멀쩡하고 본인이 빠진 것이다 — 그 사정을 문구가 말한다
     renderParticipant(fakeSource({ load: async () => { throw new ApiError(404, "not_found"); } }));
     await screen.findByText(ENTRY.notFound);
-    expect(screen.getByText(ENTRY.reenter)).toBeTruthy();
   });
 
   it("★ 세션이 끊겨도 링크를 탓하지 않는다", async () => {
     // 401 은 회차가 없는 게 아니라 내 세션이 이 회차의 것이 아닌 것이다
     renderParticipant(fakeSource({ load: async () => { throw new ApiError(401, "unauthorized"); } }));
-    await screen.findByText(FAIL.title);
+    await screen.findByText(ENTRY.linkOnly);
     expect(screen.queryByText(ENTRY.notFound)).toBeNull();
-    expect(screen.getByText(BTN.home)).toBeTruthy();
+  });
+
+  it("★ 회차를 잃은 실패 화면은 다른 회차로 데려가지 않는다", async () => {
+    /*
+     * 실제로 나온 신고다. 지워진 회차의 주소를 열면 `그런 회차가 없어요` 가 맞게 떴는데,
+     * 그 아래 `처음으로` 를 누르면 **참석 중인 다른 회차 안에 들어가 있었다.**
+     *
+     * 그 버튼은 `/` 로 갔고, `/` 는 세션이 있으면 그 회차로 옮긴다 — 주소만 치고 들어온
+     * 사람에게는 맞는 동작이지만, 방금 A 를 묻고 없다는 답을 들은 사람에게는 아니다.
+     * **묻지 않은 회차로 데려가면 안 된다.** 게다가 `처음으로` 는 자기가 어디로 가는지
+     * 말하지 않아서, 누른 사람은 자기가 다른 파티 안에 서 있는 줄도 모른다.
+     *
+     * 이 앱에서 회차에 들어가는 길은 **참가 링크 하나**다 (ADR-13·15·32).
+     * 회차를 잃은 자리에서 앱이 대신 눌러줄 수 있는 것이 없으므로 버튼을 두지 않는다.
+     */
+    for (const err of [
+      new ApiError(404, "not_found", ENTRY.notFound),   // 회차가 지워졌다
+      new ApiError(404, "not_found", ENTRY.removed),    // 내 참가가 지워졌다
+      new ApiError(401, "unauthorized", ENTRY.notFound), // 세션이 이 회차 것이 아니다
+      new ApiError(403, "forbidden"),
+    ]) {
+      const view = renderParticipant(fakeSource({ load: async () => { throw err; } }));
+      // 여러 줄짜리 문구가 있어 첫 줄로 찾는다 (기본 매처가 줄바꿈을 접는다)
+      await screen.findByText((_, el) =>
+        el?.tagName === "P" && (el.textContent ?? "").startsWith((err.userMessage ?? ENTRY.linkOnly).split("\n")[0]),
+      );
+      expect(screen.queryAllByRole("button")).toHaveLength(0);
+      view.unmount();
+    }
   });
 
   it("★ 번들이 안 붙었을 때의 화면은 **늦게** 나타난다", () => {

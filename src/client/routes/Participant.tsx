@@ -429,7 +429,6 @@ function Failed({
   onRetry: () => void;
   busy: boolean;
 }) {
-  const navigate = useNavigate();
   /*
    * 세션이 이 회차의 것이 아니면(401) 예전에는 코드로 회차를 되찾아 문 앞으로 보냈다.
    * 그 길을 닫았다 — **코드로 회차를 찾는 창구가 곧 링크를 내주는 창구**였기 때문이다
@@ -459,6 +458,19 @@ function Failed({
    */
   const broken = !offline && !removed && !sessionGone;
   /*
+   * **회차를 잃었다** (ADR-71). 다시 물어도 같은 답이고, 이 앱에서 회차에 들어가는 길은
+   * **참가 링크 하나**다 (ADR-13·15·32) — 앱이 대신 눌러줄 수 있는 것이 없다.
+   *
+   * 예전에는 여기에 `처음으로`·`다시 입장하기` 를 두고 `/` 로 보냈다. 그런데 `/` 는
+   * **세션이 있으면 그 회차로 옮기는 문**이다. 지워진 회차를 묻고 없다는 답을 들은 사람이
+   * 그 버튼을 누르면 **참석 중인 다른 파티 안에 서 있었다** — 게다가 `처음으로` 라는 이름은
+   * 자기가 어디로 가는지 말하지 않아서, 옮겨간 줄도 모른다. 실제로 나온 신고다.
+   *
+   * `/` 의 그 이동은 **주소만 치고 들어온 사람**을 위한 것이라 그 자리에서는 맞다.
+   * 여기 오는 사람은 회차 하나를 물은 사람이라, 묻지 않은 회차로 데려가면 안 된다.
+   */
+  const stuck = removed || sessionGone;
+  /*
    * **망 문제에 `location.reload()` 를 걸면 안 된다.** 앱을 통째로 버리고 `index.html`
    * 부터 다시 받는 일인데, 망이 흔들리는 바로 그 순간에 가장 하면 안 되는 것이다.
    * 실패하면 브라우저의 오류 화면으로 넘어가고 거기서는 우리가 할 수 있는 게 없다.
@@ -467,22 +479,18 @@ function Failed({
   return (
     <div className="screen">
       <div className="body stack center" style={{ justifyContent: "center" }}>
-        <p className="dim pre">{error.userMessage ?? (removed ? ENTRY.notFound : FAIL.title)}</p>
-        <button
-          className="btn primary"
-          disabled={offline && busy}
-          onClick={() => (offline ? onRetry() : broken ? location.reload() : navigate("/"))}
-        >
-          {offline
-            ? busy
-              ? FAIL.reconnecting
-              : FAIL.reconnect
-            : broken
-              ? FAIL.retry
-              : removed
-                ? ENTRY.reenter
-                : BTN.home}
-        </button>
+        {/*
+          설명 없이 온 401 은 세션이 아예 없는 것이다. `화면을 불러오지 못했어요` 로는
+          할 일을 알 수 없어서 **문이 어디인지** 말한다 — 버튼을 걷어낸 자리를 이 줄이 맡는다.
+        */}
+        <p className="dim pre">
+          {error.userMessage ?? (removed ? ENTRY.notFound : sessionGone ? ENTRY.linkOnly : FAIL.title)}
+        </p>
+        {!stuck && (
+          <button className="btn primary" disabled={offline && busy} onClick={() => (offline ? onRetry() : location.reload())}>
+            {offline ? (busy ? FAIL.reconnecting : FAIL.reconnect) : FAIL.retry}
+          </button>
+        )}
         {/* 파티장에는 운영자가 눈앞에 있다. 실패를 사람에게 넘길 수 있는 앱은 흔치 않다 */}
         {(offline || broken) && <p className="tiny dim">{FAIL.askHost}</p>}
       </div>
