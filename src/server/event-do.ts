@@ -1705,6 +1705,8 @@ export class EventDO extends DurableObject {
       mates: mates.length,
       men,
       acked: last.acks.includes(playerId),
+      // 같은 테이블 사람들 (ADR-73). `last` 가 발행된 마지막 라운드 하나라 초안도 지난 라운드도 못 든다
+      mateIds: mates.filter((s) => s.playerId !== playerId).map((s) => s.playerId),
     };
   }
 
