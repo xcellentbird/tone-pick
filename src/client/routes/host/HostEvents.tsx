@@ -4,6 +4,7 @@
 import { useNavigate } from "react-router";
 import { FAIL, HOST_UI, PHASE_LABEL, SCREEN_TITLE, UNIT } from "../../../shared/copy.ts";
 import type { EventSummary } from "../../../shared/types.ts";
+import { APP_VERSION } from "../../../shared/constants.ts";
 import { api } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
@@ -21,6 +22,13 @@ export default function HostEvents() {
     <div className="screen">
       <header>
         <h1 className="grow">{SCREEN_TITLE.hostEvents}</h1>
+        {/*
+          앱 버전 (ADR-74). **회차가 아니라 앱에 붙는 값**이라 회차 콘솔이 아니라 여기다.
+          머리는 `.body` 밖이라 회차가 쌓여도 자리가 안 밀린다 — 목록 끝에 두면 자동 파기가
+          없어서(ADR-36) 회차가 계속 쌓이고 언젠가 스크롤 한참 아래가 된다.
+          12px 이라 머리 높이는 h1 이 정한 그대로다.
+        */}
+        <span className="tiny dim">v{APP_VERSION}</span>
       </header>
 
       {/*
