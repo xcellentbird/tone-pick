@@ -210,8 +210,8 @@ describe("등록", () => {
   it("같은 전화번호로 다시 오면 그 사람으로 재접속한다", async () => {
     const ev = await freshEvent();
     const first = await join(ev, { nickname: "처음닉" });
-    // 같은 번호로 문을 다시 두드리면 곧바로 참가자 세션이 나온다 — 등록 폼을 다시 채우지 않는다
-    const back = await enter(ev.id, first.token);
+    // 같은 번호 + PIN 번호로 문을 다시 두드리면 곧바로 참가자 세션이 나온다 — 등록 폼을 다시 채우지 않는다
+    const back = await enter(ev.id, first.phone, first.pin);
     expect(back.status).toBe(200);
     expect(back.body.registered).toBe(true);
     expect(back.body.code).toBe(ev.code);
@@ -275,12 +275,12 @@ describe("초대 명단", () => {
     expect(formatPhone("01012345678")).toBe("010-1234-5678");
   });
 
-  it("★ 명단에 없는 토큰으로는 들어올 수 없다", async () => {
+  it("★ 명단에 없는 번호로는 들어올 수 없다", async () => {
     const ev = await freshEvent();
     await invite(ev.id, "01011112222");
 
-    // 번호를 아는 것은 이제 아무 힘이 없다. 문을 여는 건 그에게 배달된 토큰뿐이다 (ADR-32)
-    const res = await enter(ev.id, "f".repeat(32));
+    // 명단이 문이다 (ADR-15). 없는 번호는 아무것도 열지 못한다
+    const res = await enter(ev.id, "01000000000");
     expect(res.status).toBe(403);
     expect(res.cookie).toBeNull();
     expect((res.body as unknown as { message: string }).message).toBe(ENTRY.notInvited);
@@ -290,12 +290,12 @@ describe("초대 명단", () => {
     expect(reg.status).toBe(401);
   });
 
-  it("★ 자기 토큰이면 통과하고, 등록 폼은 번호를 묻지 않는다", async () => {
+  it("★ 초대된 번호면 통과하고, 등록 폼은 번호를 묻지 않는다", async () => {
     const ev = await freshEvent();
     const phone = nextPhone();
-    const token = await invite(ev.id, phone);
+    await invite(ev.id, phone);
 
-    const gate = await enter(ev.id, token);
+    const gate = await enter(ev.id, phone);
     expect(gate.status).toBe(200);
     expect(gate.body.registered).toBe(false);
 
@@ -337,7 +337,7 @@ describe("초대 명단", () => {
     const out = await api(`/api/host/events/${ev.id}/invites/${me.phone}`, { method: "DELETE", cookie: master });
     expect(out.status).toBe(200);
 
-    const back = await enter(ev.id, me.token);
+    const back = await enter(ev.id, me.phone, me.pin);
     expect(back.status).toBe(200);
     expect(back.body.registered).toBe(true);
   });
@@ -348,7 +348,7 @@ describe("초대 명단", () => {
 
     let blocked = 0;
     for (let i = 0; i < ENTRY_TRIES.max + 2; i++) {
-      const res = await enter(ev.id, String(i).padStart(32, "a"));
+      const res = await enter(ev.id, `0100000${String(1000 + i)}`);
       if (res.status === 429) blocked++;
     }
     expect(blocked).toBeGreaterThan(0);

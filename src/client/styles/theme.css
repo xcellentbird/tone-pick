@@ -1557,6 +1557,13 @@ h1,
  * 0.96 이지 0.8 이 아닌 이유: 크게 튀어오르면 축하처럼 보이는데, 여기서 묻는 것 중에는
  * 되돌릴 수 없는 것도 있다.
  */
+/*
+ * 좁은 확인창 — 묻는 게 칸 둘뿐인 자리 (입장 확인창, ADR-75).
+ * 기본 폭(420px)은 사실 표 + 버튼 둘이 서는 확인창의 것이라, 전화번호 한 칸에는 넓다.
+ */
+.dialog.narrow { width: min(340px, calc(100% - 56px)); }
+.dialog.narrow .sheetTitle { text-align: center; }
+
 .dialog[data-state="open"] { animation: dialogIn 140ms ease-out both; }
 .dialog[data-state="closed"] { animation: dialogOut 140ms ease-in both; }
 @keyframes dialogIn {

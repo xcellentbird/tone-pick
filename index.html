@@ -72,13 +72,14 @@
 
       ⚠️ **`bootFail` 과 같은 이유로 인라인이다** — 번들에 기대면 이 자리가 성립하지 않는다.
       ⚠️ 실패해도 조용히 넘어간다. 앱은 평소대로 자기가 다시 묻는다 (`lib/boot.ts`).
-      ⚠️ `/events/by-id` 는 **토큰만** 보고 세션·`x-tp-ref` 를 안 읽는다. 그래서 미리 불러도
+      ⚠️ `/events/by-id` 는 회차만 보고 세션·`x-tp-ref` 를 안 읽는다. 그래서 미리 불러도
          앱이 부르는 것과 같은 답이 온다. **세션을 읽는 요청을 여기 넣지 마라** —
          탭마다 사람이 다른데(ADR-44) 이 자리는 이름표를 실을 수 없다.
+         "누가 열었나" 는 앱이 번들 뒤에 `/me?event=` 로 따로 묻는다 (ADR-75).
     -->
     <script>
       (function () {
-        var m = location.pathname.match(/^\/j\/([0-9a-fA-F]+)\/([0-9a-fA-F]+)(?:\/|$)/);
+        var m = location.pathname.match(/^\/j\/([0-9a-fA-F]+)(?:\/|$)/);
         if (!m) return;
         /*
          * 참가 링크일 때만 모양을 세운다 — 다른 화면에서 이 자리가 번쩍이면 안 된다.
@@ -89,7 +90,7 @@
          */
         document.documentElement.setAttribute("data-join", "");
         if (!window.fetch) return;
-        var url = "/api/events/by-id/" + m[1] + "?t=" + encodeURIComponent(m[2]);
+        var url = "/api/events/by-id/" + m[1];
         var p = fetch(url, { credentials: "include" }).then(function (r) {
           if (!r.ok) throw r.status;
           return r.json();

@@ -1,5 +1,5 @@
 import type { Defaults } from "./types.ts";
-import { INVITE_TEMPLATE } from "./copy.ts";
+import { INVITE_TEMPLATE, LEGACY_INVITE_TEMPLATE } from "./copy.ts";
 
 /**
  * 화면에 뜨는 앱 버전 (ADR-74). 자리는 **회차 목록 머리 오른쪽 끝** 하나뿐이다.
@@ -72,7 +72,11 @@ export function withDefaults(saved: Partial<Defaults> | null | undefined): Defau
     prevoteBeforeH: num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH),
     voteEndBeforeH: num(saved?.voteEndBeforeH, DEFAULTS.voteEndBeforeH),
     revealAfterH: num(saved?.revealAfterH, DEFAULTS.revealAfterH),
-    inviteTemplate: text(saved?.inviteTemplate, DEFAULTS.inviteTemplate),
+    // ADR-32 시절의 기본 문구가 저장돼 있으면 새 기본 문구로 읽는다 — 링크가 안내문 안으로 돌아왔다 (ADR-75)
+    inviteTemplate:
+      saved?.inviteTemplate?.trim() === LEGACY_INVITE_TEMPLATE.trim()
+        ? DEFAULTS.inviteTemplate
+        : text(saved?.inviteTemplate, DEFAULTS.inviteTemplate),
   };
 }
 
@@ -161,13 +165,21 @@ export const FAIR = { c: 0.3, min: 0.5, max: 2 } as const;
 /**
  * 입장 문을 두드리는 횟수 제한.
  *
- * 이 문은 인증 없이 열려 있다. 넣어볼 칸은 없어졌지만(ADR-32 — 통과하는 값은 토큰이다)
- * 토큰을 긁어보는 일까지 막아주지는 않는다. 제한을 빼면 그 자체가
- * **"이 사람이 이 파티에 있나" 를 되묻는 창구**가 된다.
+ * 이 문은 인증 없이 열려 있다. 넣어보는 값은 전화번호와 PIN 번호다 (ADR-75) — 제한을 빼면
+ * 번호 단계는 **"이 사람이 이 파티에 있나" 를 되묻는 창구**가 되고, PIN 단계는 만 가지를
+ * 다 두드려 보는 자리가 된다. **두 단계 모두에** 건다.
  *
  * 그래서 회차마다, 접속지마다 실패 횟수를 센다. 사람이 자기 번호를 잘못 치는 건 두세 번이다.
+ * PIN 번호는 따로 **번호 단위로** 5회 잠금이 있다 (`PIN.maxFails`) — 접속지에만 걸면 망을 바꿔 빠져나간다.
  */
 export const ENTRY_TRIES = { max: 8, windowMs: 10 * 60_000 } as const;
+
+/**
+ * 참가자 PIN 번호 (ADR-75). 숫자 네 자리, **다섯 번 틀리면 잠긴다.** 잠금은 번호에 걸리고
+ * 시간이 지나도 안 풀린다 — 운영자가 초기화해야 한다. 남은 횟수는 `warnAt` 이하부터 말한다.
+ */
+export const PIN = { length: 4, maxFails: 5, warnAt: 2 } as const;
+export const validPin = (s: unknown): s is string => typeof s === "string" && /^\d{4}$/.test(s);
 
 /** 초대 확인은 통과했지만 아직 등록하지 않은 상태의 수명. 등록 폼을 채울 시간이면 충분하다 */
 export const INVITE_TTL = 60 * 60_000;
@@ -195,9 +207,9 @@ export function normalizePhone(s: string): string {
 /**
  * 전화번호 칸에 미리 들어가 있는 세 글자. **여덟 자리만 치면 된다.**
  *
- * 번호를 치는 칸은 이제 **운영자 명단 하나뿐이다** (ADR-32) — 참가자는 번호를 치지 않는다.
- * 그래서 여기서 틀리면 조용하다: 그 줄에도 토큰이 생기고 링크도 나가므로 화면에 티가 안 나고,
- * 엉뚱한 사람에게 링크를 보낸 것을 파티 당일에야 안다.
+ * 번호를 치는 칸은 둘이다 — 운영자 명단과 참가자의 입장 확인창 (ADR-75). 같은 규칙을 쓴다.
+ * 명단에서 틀리면 조용하다: 화면에 티가 안 나고, 그 사람이 문 앞에서 `초대된 번호가 아니에요` 를
+ * 볼 때야 드러난다.
  * 지우고 `011` 로 고쳐 칠 수 있다 (서버 문턱은 아홉 자리다).
  */
 export const PHONE_SEED = "010";

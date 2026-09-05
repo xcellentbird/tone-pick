@@ -3,7 +3,8 @@
  *
  * - 위의 **초대 명단 카드** — 등록 **전/후**를 맡는다. 카드는 상태 한 줄만 말하고,
  *   누르면 시트가 열려 그 안에서 다 한다: 더하기 · 안내문 · 아직 등록 안 한 사람 · 빼기.
- *   명단에 더하는 길도 그 시트 하나뿐이다.
+ *   명단에 더하는 길도 그 시트 하나뿐이다. **링크는 회차마다 하나라 안내문 안에 있다** (ADR-75) —
+ *   행마다 다른 것이 없어졌으므로 행에는 빼기만 남는다.
  *   **시트로 접은 이유** — 명단 일은 파티 **며칠 전에 한 번에** 하는 일이고,
  *   카드는 당일에 훑는 목록이다. 늘 펼쳐 두면 당일에 쓰는 목록이 지난 일 아래로 밀린다.
  *   카드 한 줄이 "지금 할 일이 있나" 를 대신 말해준다
@@ -23,7 +24,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
-import type { Gender, Invite } from "../../../shared/types.ts";
+import type { Gender, Invite, PinState } from "../../../shared/types.ts";
 import type { Defaults } from "../../../shared/types.ts";
 import { LIMITS, PHONE_SEED, formatPhone, typedPhone } from "../../../shared/constants.ts";
 import { INVITE_TEMPLATE } from "../../../shared/copy.ts";
@@ -65,16 +66,15 @@ export default function Players() {
   const tpl = useLoad(() => api<Defaults>("/host/defaults"));
   const template = tpl.data?.inviteTemplate ?? INVITE_TEMPLATE;
 
-  /** 그 사람의 링크. **사람마다 다른 건 이것뿐이다** */
-  const linkFor = (i: Invite) => `${location.origin}/j/${state.meta.id}/${i.token}`;
-
   /**
    * 이 회차의 안내문. **전원이 같은 글을 받는다** — 사람 인자가 없는 게 그 사실이다.
-   * 링크는 여기 없고 행마다 따로 복사한다 (ADR-32 후기).
+   * **링크도 안에 있다** (ADR-75). 회차마다 하나라 안내문 하나가 완결된 초대장이고,
+   * 한 사람의 링크가 남에게 나가는 사고가 애초에 없다. 열쇠는 링크가 아니라 번호 + PIN 번호다.
    */
   const note = renderInvite(template, {
     place: state.meta.place ?? "",
     when: formatWhen(state.meta.schedule.partyAt),
+    link: `${location.origin}/j/${state.meta.id}`,
   });
 
   /**
@@ -100,23 +100,10 @@ export default function Players() {
     );
   }
 
-  /** 그 사람의 링크만 복사한다. 사람마다 다른 건 이것뿐이라 행에 붙는다 */
-  function copyLink(i: Invite): Promise<boolean> {
-    return (
-      navigator.clipboard
-        ?.writeText(linkFor(i))
-        .then(() => true)
-        .catch(() => {
-          toast(HOST_UI.copyFailedLink);
-          return false;
-        }) ?? Promise.resolve(false)
-    );
-  }
-
   /**
-   * 명단에서 빼기. **되돌릴 수 있지만 토큰은 되돌아오지 않는다** (ADR-32) —
-   * 다시 넣으면 새 링크가 나오고 이미 보낸 링크는 죽는다. 그래서 확인을 붙인다.
-   * 목록에 나와 있는 행이라 손이 미끄러지기 쉬운 자리이기도 하다.
+   * 명단에서 빼기. 되돌릴 수 있다 — 다시 넣으면 그때부터 다시 들어올 수 있다 (ADR-75).
+   * 그래도 확인을 붙인다: 목록에 나와 있는 행이라 손이 미끄러지기 쉬운 자리이고,
+   * 빠진 사이에 문을 두드린 사람은 `초대된 번호가 아니에요` 를 본다.
    */
   function askRemove(i: Invite) {
     confirm(
@@ -129,6 +116,26 @@ export default function Players() {
       async () => {
         await del(`/host/events/${state.meta.id}/invites/${i.phone}`);
         // 토스트를 띄우지 않는다 (ADR-65) — 행이 사라지고 머리 숫자가 내린다. 화면이 이미 말했다
+        reload();
+      },
+    );
+  }
+
+  /**
+   * 참가자 PIN 번호 초기화 (ADR-75). PIN 번호와 실패 횟수를 **함께** 지운다 —
+   * PIN 만 지우고 횟수를 남기면 새로 정하자마자 다시 잠긴다 (S-C1). 서버가 한 번에 한다.
+   */
+  function askPinReset(playerId: string, pin: PinState) {
+    confirm(
+      {
+        btn: HOST_UI.players.pinReset,
+        title: HOST_UI.players.pinResetTitle,
+        facts: HOST_UI.players.pinResetFacts(pin),
+        note: HOST_UI.players.pinResetNote,
+      },
+      async () => {
+        await post(`/host/events/${state.meta.id}/players/${playerId}/pin/reset`);
+        // 토스트를 띄우지 않는다 (ADR-65) — 시트의 상태 줄이 `안 정함` 으로 바뀐다. 화면이 이미 말했다
         reload();
       },
     );
@@ -248,6 +255,15 @@ export default function Players() {
               <Row label={ME.labels.mbti} value={picked.mbti} />
               <Row label={ME.labels.phone} value={picked.phone} />
               {picked.instagram && <Row label={ME.labels.instagram} value={picked.instagram} />}
+              {/*
+                참가자 PIN 번호의 **상태만** 있다 — 값도 해시도 응답에 없다 (S-C3).
+                `잠김` 은 눈에 띄어야 한다: 참가자가 말하기 전에 운영자가 먼저 보는 편이 낫다.
+              */}
+              <Row
+                label={HOST_UI.players.pinLabel}
+                value={HOST_UI.players.pinState[picked.pin]}
+                tone={picked.pin === "locked" ? "warn" : undefined}
+              />
               {/* 두 라운드를 갈라 적는다 — 합치면 콕을 안 찌른 사람이 찌른 것으로 읽힌다 (ADR-34) */}
               <Row label={HOST_UI.players.sentPre(state.sent.pre[picked.id] ?? 0)} value="" />
               <Row label={HOST_UI.players.sent(state.sent.party[picked.id] ?? 0)} value="" />
@@ -264,15 +280,14 @@ export default function Players() {
               ))}
             </div>
 
-            {/* 링크를 잃었다는 연락이 오는 자리. 등록한 사람도 자기 링크로 다시 들어온다 */}
-            {(() => {
-              const mine = state.invites.find((i) => i.phone === picked.phone);
-              return mine ? (
-                <button className="btn ghost block" style={{ marginTop: 16 }} onClick={() => copyLink(mine)}>
-                  {HOST_UI.invite.copyLink}
-                </button>
-              ) : null;
-            })()}
+            {/*
+              PIN 번호를 잊었거나 잠겼다는 연락이 오는 자리 (ADR-75). 초기화는 **지우기만** 한다 —
+              새 값은 그 사람이 다음 입장에서 정한다. 콕·자리·운세는 그대로다 (S-C1·C2).
+              되돌릴 수 없는 일이라 확인창이 무엇이 어떻게 바뀌는지 항목으로 보여준다 (S-C4).
+            */}
+            <button className="btn ghost block" style={{ marginTop: 16 }} onClick={() => askPinReset(picked.id, picked.pin)}>
+              {HOST_UI.players.pinReset}
+            </button>
 
             <div className="row" style={{ marginTop: 16 }}>
               <button className="btn wide ghost" onClick={() => navigate(-1)}>
@@ -293,7 +308,6 @@ export default function Players() {
           eventId={state.meta.id}
           hasPlace={!!state.meta.place}
           onCopyNote={copyNote}
-          onCopyLink={copyLink}
           onRemove={askRemove}
           onEditTemplate={() => navigate("/host/defaults")}
           /*
@@ -323,7 +337,6 @@ function Invites({
   eventId,
   hasPlace,
   onCopyNote,
-  onCopyLink,
   onRemove,
   onEditTemplate,
   onDone,
@@ -337,17 +350,15 @@ function Invites({
   /** 안내문을 복사한다. 전원이 같은 글이라 명단 머리에서 한 번이다 */
   /** 복사 성공 여부를 돌려준다 — 버튼이 그걸 보고 스스로 말한다 (ADR-65) */
   onCopyNote: () => Promise<boolean>;
-  /** 그 사람의 링크만 복사한다. 사람마다 다른 건 이것뿐이다 */
-  onCopyLink: (i: Invite) => Promise<boolean>;
   /** 명단에서 뺀다. 확인창을 거친다 */
   onRemove: (i: Invite) => void;
   /** 더한 수. 이미 있어서 아무 일도 없었으면 0 */
   onDone: () => void;
 }) {
   /**
-   * **번호를 치는 칸은 이제 여기 하나뿐이다** (ADR-32) — `010` 이 미리 들어가 있고
+   * 번호를 치는 칸. 참가자의 입장 확인창과 **같은 규칙**이다 (ADR-75) — `010` 이 미리 들어가 있고
    * 하이픈으로 끊어 보인다. 칸과 아래 목록이 달리 보이면 이미 넣은 사람을 못 알아보고
-   * 같은 번호를 두 줄로 넣는다 — 그러면 토큰도 둘이 되고, 어느 링크를 보냈는지 아무도 모른다.
+   * 같은 번호를 두 줄로 넣는다.
    *
    * 상태는 **숫자 그대로**다. 하이픈은 보여줄 때만 붙는다 (`formatPhone`).
    */
@@ -356,8 +367,7 @@ function Invites({
   const [busy, setBusy] = useState(false);
   /**
    * 방금 복사한 버튼. **클립보드는 눈에 안 보여서 무언가는 말해야 한다** (ADR-65).
-   * 아래에 띄우면 명단을 덮으므로 **누른 그 버튼**이 잠깐 바뀐다 —
-   * 덮지 않고, 복사 버튼이 둘이라 어느 것인지도 함께 말해준다.
+   * 아래에 띄우면 명단을 덮으므로 **누른 그 버튼**이 잠깐 바뀐다.
    */
   const [copied, setCopied] = useState<string | null>(null);
   async function flashCopy(key: string, run: () => Promise<boolean>) {
@@ -417,8 +427,7 @@ function Invites({
         **맨 위에 둔다** — 이 시트에서 가장 자주 하는 일이 안내문을 복사해 보내는 것이다.
         번호를 더하는 건 대개 한 번(회차를 열 때)이고, 그 뒤로는 계속 복사만 한다.
         미리보기는 두지 않는다: 고치는 화면이 글을 그대로 띄우고 있어 같은 일을 두 번 한다.
-        안내문 복사는 여기 하나뿐이다 — 전원이 같은 글이라 행마다 둘 이유가 없고,
-        행에 버튼이 늘면 정작 사람마다 다른 링크가 그만큼 눈에 덜 띈다.
+        안내문 복사는 여기 하나뿐이다 — 전원이 같은 글이고, 링크도 그 안에 있다 (ADR-75).
       */}
       {invites.length > 0 && (
         <div className="card stack">
@@ -470,7 +479,7 @@ function Invites({
       {/*
         **아직 등록 안 한 사람들.** 번호가 그 사람의 유일한 이름인 자리라
         한 덩어리로 모여 있어야 어깨너머로 덜 읽힌다.
-        여기서 하는 일은 **안내문을 보내는 것**과 **명단에서 빼는 것** 둘뿐이다.
+        여기서 하는 일은 **명단에서 빼는 것** 하나다 — 안내문은 위에서 한 번 복사한다.
         행마다 `미등록` 을 또 달지 않는다 — 구역 머리가 이미 한 번 말했다.
       */}
       {waiting.length > 0 && (
@@ -483,13 +492,7 @@ function Invites({
               <div className="row between" key={i.phone}>
                 {/* 목록도 입력칸과 같은 모양으로 끊는다 — 다르면 같은 번호가 다르게 읽힌다 */}
                 <span className="grow ellipsis">{formatPhone(i.phone)}</span>
-                {/* 행에 붙는 건 **사람마다 다른 것**뿐이다. 문구는 위에서 한 번 복사한다 */}
-                <button
-                  className="btn ghost compact"
-                  onClick={() => void flashCopy(i.phone, () => onCopyLink(i))}
-                >
-                  {copied === i.phone ? HOST_UI.invite.copyDone : HOST_UI.invite.link}
-                </button>
+                {/* 행에 붙는 건 빼기뿐이다 (ADR-75). 사람마다 다른 링크가 없어졌다 */}
                 <button className="btn ghost compact" onClick={() => onRemove(i)}>
                   {HOST_UI.invites.remove}
                 </button>
@@ -503,11 +506,12 @@ function Invites({
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, tone }: { label: string; value: string; tone?: "warn" }) {
   return (
     <div className="row between">
       <span className="small dim">{label}</span>
-      <span className="ellipsis">{value}</span>
+      {/* `warn` 은 색으로만 말하지 않는다 — 글자(`잠김`)가 같은 정보를 함께 준다 */}
+      <span className={tone === "warn" ? "ellipsis warnText" : "ellipsis"}>{value}</span>
     </div>
   );
 }

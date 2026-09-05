@@ -9,7 +9,7 @@
  */
 import { MBTI_AXES, REGISTER } from "../../shared/copy.ts";
 import type { MyProfile, RegisterInput } from "../../shared/types.ts";
-import { LIMITS, nicknameProblem, normalizeInstagram, realNameProblem } from "../../shared/constants.ts";
+import { LIMITS, nicknameProblem, normalizeInstagram, realNameProblem, validPin } from "../../shared/constants.ts";
 
 export interface ProfileDraft {
   nickname: string;
@@ -20,6 +20,12 @@ export interface ProfileDraft {
   instagram: string;
   mbti: Record<number, string>;
   charms: [string, string, string];
+  /**
+   * PIN 번호와 재입력 (ADR-75). **등록에만 있다** — 수정 폼은 비워 두고 안 보낸다.
+   * 재입력 대조는 여기(화면)서 한다. 서버는 하나만 받는다.
+   */
+  pin: string;
+  pinAgain: string;
 }
 
 export const EMPTY_DRAFT: ProfileDraft = {
@@ -30,6 +36,8 @@ export const EMPTY_DRAFT: ProfileDraft = {
   instagram: "",
   mbti: {},
   charms: ["", "", ""],
+  pin: "",
+  pinAgain: "",
 };
 
 /** 저장된 내 정보를 폼 초안으로. 수정 폼의 출발점이다 */
@@ -43,6 +51,8 @@ export function draftOf(me: MyProfile): ProfileDraft {
     // MBTI 는 네 글자를 4문항 토글로 되돌린다 — 저장은 "ENFP", 화면은 문항별 선택이다
     mbti: Object.fromEntries(MBTI_AXES.map((_, i) => [i, me.mbti[i] ?? ""])),
     charms: [...me.charms] as [string, string, string],
+    pin: "",
+    pinAgain: "",
   };
 }
 
@@ -56,6 +66,7 @@ export function toInput(d: ProfileDraft): RegisterInput {
     instagram: normalizeInstagram(d.instagram),
     mbti: MBTI_AXES.map((_, i) => d.mbti[i]).join(""),
     charms: d.charms.map((c) => c.trim()) as [string, string, string],
+    pin: d.pin,
   };
 }
 
@@ -99,8 +110,7 @@ export function validateProfile(d: ProfileDraft, step?: number): { field: string
     const age = Number(d.age);
     if (!Number.isInteger(age) || age < 18 || age > 99) return { field: "age", text: REGISTER.err.age };
     if (!d.gender) return { field: "gender", text: REGISTER.err.gender };
-  }
-  if (step === undefined || step === 2) {
+    // 인스타는 첫 걸음에 있다 (ADR-75) — 실명 옆, 둘 다 운영자가 사람을 확인하는 칸이다
     if (!d.instagram.trim()) return { field: "instagram", text: REGISTER.err.instaRequired };
     if (!/^[A-Za-z0-9._]+$/.test(d.instagram.trim())) {
       return { field: "instagram", text: REGISTER.err.insta };
@@ -110,12 +120,17 @@ export function validateProfile(d: ProfileDraft, step?: number): { field: string
       return { field: "instagram", text: REGISTER.err.instaLen(LIMITS.instagramMax) };
     }
   }
-  if (step === undefined || step === 3) {
+  if (step === undefined || step === 2) {
     // 답 안 한 첫 문항·비어 있는 첫 칸을 가리킨다
     const blank = MBTI_AXES.findIndex((_, i) => !d.mbti[i]);
     if (blank >= 0) return { field: `mbti${blank}`, text: REGISTER.err.mbti };
     const missing = d.charms.findIndex((c) => !c.trim());
     if (missing >= 0) return { field: `charm${missing}`, text: REGISTER.err.charm(missing + 1) };
+  }
+  // PIN 번호는 등록 3걸음에만 있다. 수정 폼(`step === undefined`)은 안 본다 — 한 번 정하면 못 고친다 (ADR-75)
+  if (step === 3) {
+    if (!validPin(d.pin)) return { field: "pin", text: REGISTER.err.pin };
+    if (d.pin !== d.pinAgain) return { field: "pinAgain", text: REGISTER.pinMismatch };
   }
   return null;
 }

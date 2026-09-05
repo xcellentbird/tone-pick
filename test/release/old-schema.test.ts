@@ -16,8 +16,8 @@
  */
 import { env, runInDurableObject } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { api, enter, freshEvent, invite, join, master, signInMaster } from "../helpers/party.ts";
-import type { EventMeta, HostState, PublicEvent } from "../../src/shared/types.ts";
+import { api, enter, freshEvent, invite, join, master, person, signInMaster } from "../helpers/party.ts";
+import type { EventMeta, HostState, PublicEvent, RegisterResult } from "../../src/shared/types.ts";
 import type { Env as AppEnv } from "../../src/server/http.ts";
 
 /**
@@ -41,8 +41,8 @@ beforeAll(signInMaster);
  * **옛 모양이 지금 모양에 매달린다** — 지금 것이 바뀔 때마다 옛 것도 따라 흔들려서,
  * 정작 "옛 회차는 이렇게 생겼다" 는 사실을 아무 데서도 읽을 수 없게 된다.
  *
- * 지금과 다른 셋: 토큰 칸이 없고(ADR-32 이전), 걷어낸 칸들이 남아 있고(ADR-42·45·51),
- * 토큰 인덱스가 없다.
+ * 지금과 다른 넷: 토큰 칸이 없고(ADR-32 이전), PIN 번호 칸이 없고(ADR-75 이전),
+ * 걷어낸 칸들이 남아 있고(ADR-42·45·51), 토큰 인덱스가 없다.
  */
 // copy-ok — SQL 이지 화면 문구가 아니다
 const V1_PLAYERS = `CREATE TABLE players (
@@ -122,37 +122,54 @@ describe("옛 모양으로 저장된 회차", () => {
     expect(state.body.invites.map((i) => i.phone)).toContain(player.phone);
   });
 
-  it("★ 토큰 없이 남은 명단 줄에 새 토큰이 채워진다 — 문이 잠긴 파티를 남기지 않는다", async () => {
+  it("★ 토큰 없이 남은 명단 줄로도 문이 열린다 — 문이 잠긴 파티를 남기지 않는다", async () => {
     const ev = await freshEvent();
     const phone = "01098765432";
-    const before = await invite(ev.id, phone);
-    await ageToV1(ev.id);
-
-    const state = await api<HostState>(`/api/host/events/${ev.id}/state`, { cookie: master });
-    expect(state.status, JSON.stringify(state.body)).toBe(200);
-    const row = state.body.invites.find((i) => i.phone === phone);
-    expect(row, "명단 줄이 사라졌다").toBeTruthy();
-    // 되돌리며 토큰을 버렸으니 같은 값일 수 없다. 비어 있지도 않아야 한다
-    expect(row!.token).toBeTruthy();
-    expect(row!.token).not.toBe(before);
-
-    // 그 토큰으로 실제로 문이 열려야 한다. 값만 채우고 안 통하면 고친 게 아니다
-    const gate = await enter(ev.id, row!.token);
-    expect(gate.status, JSON.stringify(gate.body)).toBe(200);
-  });
-
-  it("★ 참가자 쪽 화면도 뜬다 — 옛 회차의 참가자가 앱을 열 수 있다", async () => {
-    const ev = await freshEvent();
-    const phone = "01055556666";
     await invite(ev.id, phone);
     await ageToV1(ev.id);
 
     const state = await api<HostState>(`/api/host/events/${ev.id}/state`, { cookie: master });
-    const token = state.body.invites.find((i) => i.phone === phone)!.token;
+    expect(state.status, JSON.stringify(state.body)).toBe(200);
+    expect(state.body.invites.find((i) => i.phone === phone), "명단 줄이 사라졌다").toBeTruthy();
+
+    /*
+     * 토큰은 이제 응답에 없다 (ADR-75) — 내부 식별자로만 남아 초대 쿠키가 들고 다닌다.
+     * 되돌리며 버린 그 값을 생성자가 다시 채웠는지는 **문이 실제로 열리는가**로만 본다.
+     */
+    const gate = await enter(ev.id, phone);
+    expect(gate.status, JSON.stringify(gate.body)).toBe(200);
+    expect(gate.body.registered).toBe(false);
+    const reg = await api<RegisterResult>("/api/register", { method: "POST", cookie: gate.cookie, body: person() });
+    expect(reg.status, JSON.stringify(reg.body)).toBe(200);
+  });
+
+  it("★ 참가자 쪽 화면도 뜬다 — 옛 회차의 참가 링크가 열린다", async () => {
+    const ev = await freshEvent();
+    await invite(ev.id, "01055556666");
+    await ageToV1(ev.id);
 
     // 참가 링크가 여는 화면이다. 운영자 쪽만 살아나고 여기가 죽으면 파티가 안 열린다
-    const res = await api<PublicEvent>(`/api/events/by-id/${ev.id}?t=${token}`);
+    const res = await api<PublicEvent>(`/api/events/by-id/${ev.id}`);
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body.id).toBe(ev.id);
+  });
+
+  it("★ PIN 번호 칸이 없던 참가자는 다음 입장에서 PIN 번호를 정한다 (ADR-75)", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await ageToV1(ev.id);
+
+    // 번호를 넣으면 `칸 둘을 펴라` 고 답한다 — 옛 참가자에게는 걸린 것이 없다
+    const probe = await enter(ev.id, me.phone);
+    expect(probe.status, JSON.stringify(probe.body)).toBe(200);
+    expect(probe.body.registered).toBe(true);
+    expect(probe.body.pin).toBe("set");
+
+    // 그 자리에서 정한 값이 곧 PIN 번호가 되고, 같은 사람으로 들어온다
+    const set = await enter(ev.id, me.phone, "1357");
+    expect(set.status, JSON.stringify(set.body)).toBe(200);
+    expect(set.body.code).toBe(ev.code);
+    expect((await enter(ev.id, me.phone, "1357")).status).toBe(200);
+    expect((await enter(ev.id, me.phone, "0000")).status).toBe(403);
   });
 });

@@ -506,7 +506,7 @@ function MyCard({ me, phase, onOpen }: { me: MyProfile; phase: Phase; onOpen: ()
  *
  * ⚠️ **전화번호·인스타 줄을 다시 만들지 마라.** 타입에 자리가 없는 것이 곧 방어다 —
  * 되살리려면 `MatchInfo` 부터 고쳐야 하고, 그건 이 앱이 참가자에게 한 약속을 바꾸는 일이다
- * (등록 화면의 `REGISTER.contactNote` 가 먼저다).
+ * (등록 화면의 라벨 `REGISTER.realNameLabel` 이 먼저다).
  *
  * 라벨을 `연락처` 라고 쓰지 않는다. 그렇게 쓰면 뒤에 뭔가 더 있어야 하는 칸이 된다.
  */

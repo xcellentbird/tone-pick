@@ -68,8 +68,7 @@ export interface EnterProbe {
    *   "set"      — PIN 번호가 없다 (운영자가 초기화했다). 칸 둘(정하기 · 재입력)을 편다
    */
   pin?: "required" | "set";
-  /** 잠겼다. 칸을 열지 않는다 — 운영자만 푼다 */
-  locked?: boolean;
+  // locked 는 없다 — 잠긴 번호는 이 응답 대신 423 이 온다 (아래 판정 순서 4). 화면은 그 오류로 PIN 칸을 잠근 채 편다
   /** 미등록일 때만. 초대 쿠키가 함께 심긴다 (ADR-44 의 이름표) */
   ref?: string;
 }
@@ -140,7 +139,7 @@ type AuthScope =
 1. 회차 없음                          → 404  ENTRY.notFound
 2. 접속지 시도 초과 (ENTRY_TRIES)      → 429  ENTRY.tooMany
 3. 번호가 명단에 없음                  → 403  ENTRY.notInvited (`초대된 번호가 아니에요…`)
-4. 잠김 (pin_fails ≥ 5)               → 423  ENTRY.locked      — PIN 대조보다 먼저다
+4. 잠김 (pin_fails ≥ 5)               → 423  ENTRY.pinLocked   — PIN 대조보다 먼저다
 5. { phone } 만 왔다
      미등록                            → 초대 쿠키 심고  { registered: false, ref }
      등록 · PIN 있음                   → { registered: true, pin: "required" }   (쿠키 없음)
@@ -195,7 +194,7 @@ type AuthScope =
 | `Register` | 3걸음. 1걸음에 인스타(라벨 괄호 약속) · 3걸음 `다시 들어올 때` = PIN 칸 둘, 대조는 화면. 라우트에서 `:token` 이 빠진다 |
 | 운영자 · 참가자 상세 | `참가자 PIN 번호 초기화` 줄 + 상태 칩(`정함`·`안 정함`·**`잠김`** 은 눈에 띄게). 확인창: `설정한 PIN 번호가 지워져요 · 다음 입장에서 새로 정해요 · 콕과 자리는 그대로예요` |
 | 초대 명단 시트 | 행의 `링크` 버튼 삭제. 안내문에 `{링크}` 자리 복귀 — 회차 공용 링크 하나 |
-| 안내문 고치기 | 장소에 지도 링크를 넣으면 한 메시지에 링크가 둘이 된다는 한 줄 |
+| 안내문 고치기 | 장소에 지도 링크를 넣으면 한 메시지에 링크가 둘이 된다는 한 줄. **`{링크}` 가 없으면 맨 끝 줄에 붙는다** (`renderInvite`) — 링크 없는 안내문은 나가지 않는다. ADR-32 시절의 기본 문구가 저장돼 있으면 새 기본 문구로 읽는다 (`withDefaults`, `LEGACY_INVITE_TEMPLATE`) |
 
 ---
 
@@ -211,14 +210,14 @@ type AuthScope =
 | `ENTRY.pinHint` | `등록할 때 정한 PIN 번호예요` |
 | `ENTRY.pinNew` · `pinAgain` | `새 PIN 번호 4자리` · `PIN 번호 재입력` (초기화된 사람) |
 | `ENTRY.pinWrong(left)` | `맞지 않아요` / `맞지 않아요 — ${left}번 더 틀리면 잠겨요` (left ≤ 2) |
-| `ENTRY.locked` | `여러 번 틀려서 잠겼어요. 운영자에게 말씀해주세요.` |
+| `ENTRY.pinLocked` | `여러 번 틀려서 잠겼어요. 운영자에게 말씀해주세요.` |
 | `REGISTER.steps` | `["기본 정보", "나를 소개", "다시 들어올 때"]` |
 | `REGISTER.pinIntro` | `다음에 이 파티에 다시 들어올 때 쓸 PIN 번호예요.\n전화번호와 함께 넣으면 바로 내 화면으로 와요.` |
 | `REGISTER.pin` · `pinAgain` · `pinMismatch` | `PIN 번호 4자리` · `PIN 번호 재입력` · `두 번 입력한 PIN 번호가 달라요` |
-| `ME.labels.instagram` | `인스타 (운영자 확인용 · 공개되지 않아요)` |
-| `ME.labels.realName` | `이름 (서로 콕 찌른 상대에게만 보여요)` |
+| `REGISTER.instagramLabel` | `인스타 (운영자 확인용 · 공개되지 않아요)` — 등록 폼과 수정 폼의 라벨. `ME.labels.*` 는 읽기 화면·운영자 시트의 짧은 라벨로 남는다 |
+| `REGISTER.realNameLabel` | `이름 (서로 콕 찌른 상대에게만 보여요)` |
 | `REGISTER.contactNote` · `instaWhy` | **지운다** — 라벨로 옮겼다 |
-| `HOST_UI.pinReset` · `pinState` | `참가자 PIN 번호 초기화` · `정함` / `안 정함` / `잠김` |
+| `HOST_UI.players.pinReset` · `pinState` | `참가자 PIN 번호 초기화` · `정함` / `안 정함` / `잠김` |
 | `INVITE_TEMPLATE` | `{링크}` 가 돌아온다 |
 
 ---

@@ -206,8 +206,8 @@ describe("등록 직후 첫 안내", () => {
     );
     /** **진짜 라우터의 표를 쓴다.** 베낀 표는 언젠가 어긋난다 (위 주석과 같은 이유) */
     return createMemoryRouter(
-      [{ path: "/j/:id/:token/register/:step", element: <Register /> }, ...PARTICIPANT_ROUTES],
-      { initialEntries: ["/j/e1/tok123/register/1"] },
+      [{ path: "/j/:id/register/:step", element: <Register /> }, ...PARTICIPANT_ROUTES],
+      { initialEntries: ["/j/e1/register/1"] },
     );
   }
 
@@ -221,15 +221,19 @@ describe("등록 직후 첫 안내", () => {
     set("realName", "김나");
     set("age", "30");
     fireEvent.click(screen.getByText(GENDER.M));
-    fireEvent.click(screen.getByText(BTN.next));
-
-    await screen.findByLabelText(ME.labels.instagram);
+    // 인스타는 첫 걸음이다 (ADR-75)
     set("instagram", "na_gram");
     fireEvent.click(screen.getByText(BTN.next));
 
     await screen.findByText(MBTI_AXES[0].q);
     for (const axis of MBTI_AXES) fireEvent.click(screen.getByText(axis.opts[0][1]));
     for (const i of [0, 1, 2]) set(`charm${i}`, `매력${i}`);
+    fireEvent.click(screen.getByText(BTN.next));
+
+    // 마지막 걸음 — 다시 들어올 때 쓸 PIN 번호를 두 번 친다
+    await screen.findByLabelText(REGISTER.pin);
+    set("pin", "2468");
+    set("pinAgain", "2468");
     // 머리글 h1 도 같은 말이라 버튼만 골라낸다
     fireEvent.click(screen.getAllByRole("button").find((b) => b.textContent === SCREEN_TITLE.register)!);
   }
@@ -240,33 +244,27 @@ describe("등록 직후 첫 안내", () => {
    * 한동안 여기서 `매칭되면 상대에게 열 것` 을 골랐다 (ADR-37). 그 기능을 걷어냈으므로
    * 고르는 자리도, "상대에게 보여요" 라는 말도 남아 있으면 안 된다 —
    * 문구가 코드보다 넓게 말하면 그 순간부터 거짓말이다.
+   *
+   * 약속은 이제 **라벨에** 있다 (ADR-75) — 연락처 걸음이 사라지면서 두 문장이 칸마다 괄호로 옮겨갔다.
+   * 지우는 게 아니라 옮기는 것이다: 라벨 밖에 문장은 없고, 라벨은 코드가 하는 일만 말한다.
    */
-  it("★ 연락처를 고르는 자리가 없고, 운영자만 본다고 말한다", async () => {
+  it("★ 연락처를 고르는 자리가 없고, 약속은 라벨이 말한다", async () => {
     render(<RouterProvider router={registerRouter()} />);
-    const set = (id: string, value: string) =>
-      fireEvent.change(document.getElementById(id)!, { target: { value } });
 
     await screen.findByLabelText(ME.labels.nickname);
-    set("nickname", "달빛");
-    set("realName", "김나");
-    set("age", "30");
-    fireEvent.click(screen.getByText(GENDER.M));
-    fireEvent.click(screen.getByText(BTN.next));
-
-    await screen.findByLabelText(ME.labels.instagram);
+    // 인스타는 첫 걸음에 있다 — 연락처 걸음이 따로 없다
+    const insta = screen.getByLabelText(REGISTER.instagramLabel) as HTMLInputElement;
+    expect(insta).toBeTruthy();
     // 고르는 컨트롤이 통째로 없다
     expect(screen.queryAllByRole("radiogroup"), "공개 범위를 고르는 자리가 남아 있다").toHaveLength(0);
 
-    // 약속은 **운영자만 본다** 하나다
-    expect(REGISTER.contactNote).toContain("운영자");
-    expect(REGISTER.contactNote, "매칭 상대에게 연락처가 간다고 말하면 안 된다").not.toContain("열");
-    // 인스타를 왜 받는지 그 자리에서 말한다 — 안 그러면 연락 수단으로 읽는다
-    expect(screen.getByText(REGISTER.instaWhy)).toBeTruthy();
-
-    // 아무것도 안 고르고 바로 넘어간다 — 막을 것이 없다
-    set("instagram", "na_gram");
-    fireEvent.click(screen.getByText(BTN.next));
-    await screen.findByText(MBTI_AXES[0].q);
+    // 약속은 **운영자만 본다** 하나다 — 라벨이 든다
+    expect(REGISTER.instagramLabel).toContain("운영자");
+    expect(REGISTER.instagramLabel, "매칭 상대에게 인스타가 간다고 말하면 안 된다").not.toMatch(/열|상대/);
+    // 실명은 서로 콕 찌른 상대에게만 — 그 약속도 라벨이 든다
+    expect(REGISTER.realNameLabel).toContain("서로 콕");
+    // 라벨 밖에 문장이 없다 — 칸 아래 설명 줄은 운영자가 적는 닉네임 안내(ADR-59)뿐인데, 여기서는 그것도 없다
+    expect(insta.parentElement!.querySelectorAll("p, .tiny"), "라벨 밖에 문장이 붙어 있다").toHaveLength(0);
   });
 
   it("★ 등록을 마치면 진행 방식이 열려 있다", async () => {

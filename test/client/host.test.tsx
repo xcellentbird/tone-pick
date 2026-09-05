@@ -44,6 +44,7 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
         mbti: "ENFP",
         charms: ["a", "b", "c"],
             createdAt: 1,
+        pin: "set",
       },
       {
         id: "p2",
@@ -56,6 +57,7 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
         mbti: "ISFJ",
         charms: ["a", "b", "c"],
             createdAt: 2,
+        pin: "set",
       },
     ],
     sent: { pre: { p1: 1, p2: 0 }, party: { p1: 2, p2: 0 } },
@@ -227,7 +229,7 @@ describe("현황 탭의 순위 둘", () => {
     const mk = (n: number) => ({
       id: `x${n}`, nickname: `사람${n}`, realName: `김${n}`, age: 30, gender: (n % 2 ? "M" : "F") as "M" | "F",
       phone: `0100000000${n}`, instagram: `gram_${n}`, mbti: "ENFP",
-      charms: ["a", "b", "c"] as [string, string, string], createdAt: n,
+      charms: ["a", "b", "c"] as [string, string, string], createdAt: n, pin: "set" as const,
     });
     const players = [1, 2, 3, 4, 5, 6, 7].map(mk);
     // 7·6·5·4·3·2·1 — 여섯째부터는 TOP 5 밖이다
@@ -413,7 +415,7 @@ describe("운영자 콘솔", () => {
      * 미등록은 칩에 없다. 그건 위쪽 명단이 맡는다.
      */
     const st = hostState();
-    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    st.invites = [{ phone: "01099998888", addedAt: 2 }];
     stubFetch(st);
     renderConsole("/host/e1/players");
 
@@ -441,9 +443,9 @@ describe("운영자 콘솔", () => {
     const st = hostState();
     st.invites = [
       // 이미 등록한 사람 — 아래 카드로만 나온다
-      { phone: "01011112222", token: "t1", addedAt: 1, nickname: st.players[0].nickname },
+      { phone: "01011112222", addedAt: 1, nickname: st.players[0].nickname },
       // 아직 등록 안 한 사람 — 번호가 그의 유일한 이름이다
-      { phone: "01099998888", token: "t2", addedAt: 2 },
+      { phone: "01099998888", addedAt: 2 },
     ];
     stubFetch(st);
     renderConsole("/host/e1/players");
@@ -470,7 +472,7 @@ describe("운영자 콘솔", () => {
      * 닫히지 않으면 뒤로 가기 한 번이 콘솔 밖으로 나가버린다.
      */
     const st = hostState();
-    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    st.invites = [{ phone: "01099998888", addedAt: 2 }];
     stubFetch(st);
     const router = renderPlayers("/host/e1/players");
 
@@ -495,7 +497,7 @@ describe("운영자 콘솔", () => {
    */
   it("★ 명단을 열었다고 전화번호 칸에 커서가 가지 않는다", async () => {
     const st = hostState();
-    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    st.invites = [{ phone: "01099998888", addedAt: 2 }];
     stubFetch(st);
     renderConsole("/host/e1/players/invites");
 
@@ -537,7 +539,7 @@ describe("운영자 콘솔", () => {
         const body = init?.body ? JSON.parse(String(init.body)) : undefined;
         if (url.includes("/invites") && body && "phones" in body) {
           for (const phone of (body as { phones: string[] }).phones) {
-            st.invites.push({ phone, token: `t${st.invites.length}`, addedAt: 1 });
+            st.invites.push({ phone, addedAt: 1 });
           }
           return json(st.invites);
         }
@@ -559,12 +561,11 @@ describe("운영자 콘솔", () => {
    * ★ **클립보드는 눈에 안 보이니 버튼이 스스로 말한다** (ADR-65).
    *
    * 여기서까지 토스트를 없애면 눌렀는지조차 알 수 없다 — 운영자의 일이
-   * 복사해서 한 명씩 보내는 것이라 그 신호가 없으면 안 된다.
-   * 누른 자리에서 말하면 명단을 안 덮고, **복사 버튼이 둘이라** 어느 것인지도 말해준다.
+   * 복사해서 보내는 것이라 그 신호가 없으면 안 된다. 누른 자리에서 말하면 명단을 안 덮는다.
    */
   it("★ 복사는 버튼이 말한다 — 아래에 띄우지 않는다", async () => {
     const st = hostState();
-    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    st.invites = [{ phone: "01099998888", addedAt: 2 }];
     stubFetch(st);
     stubClipboard();
     renderConsole("/host/e1/players/invites");
@@ -573,8 +574,6 @@ describe("운영자 콘솔", () => {
 
     await screen.findByText(HOST_UI.invite.copyDone);
     expect(document.querySelector(".toast"), "명단을 덮는 토스트가 떴다").toBeNull();
-    // 안내문 버튼만 바뀐다 — 행의 링크 버튼은 그대로다
-    expect(screen.getByText(HOST_UI.invite.link)).toBeTruthy();
   });
 
   /**
@@ -588,7 +587,7 @@ describe("운영자 콘솔", () => {
    */
   it("★ 시트 순서는 안내문 → 더하기 → 명단이다", async () => {
     const st = hostState();
-    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    st.invites = [{ phone: "01099998888", addedAt: 2 }];
     stubFetch(st);
     renderConsole("/host/e1/players/invites");
 
@@ -605,7 +604,7 @@ describe("운영자 콘솔", () => {
 
   it("★ 안내문 카드에 미리보기를 두지 않는다 — 고치는 화면이 그 일을 한다", async () => {
     const st = hostState();
-    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    st.invites = [{ phone: "01099998888", addedAt: 2 }];
     stubFetch(st);
     // 시트도 라우트라 주소로 바로 열린다
     renderConsole("/host/e1/players/invites");
@@ -625,60 +624,93 @@ describe("운영자 콘솔", () => {
   }
 
   /**
-   * 문구와 링크는 **따로 복사한다.**
+   * ★ **링크는 회차마다 하나이고 안내문 안에 있다** (ADR-75).
    *
-   * 한 덩어리로 보내면 참가자가 링크만 집어내야 하고, 장소에 지도 링크를 넣은 회차에서는
-   * 한 메시지에 링크가 둘이 된다. 링크만 온 메시지는 그대로 눌러 열 수 있다.
+   * 사람마다 다른 링크가 없어졌다 — 안내문 하나가 완결된 초대장이라 한 메시지로 끝난다.
+   * 토큰이 주소에 실리면 안 된다: 초대 쿠키의 내부 식별자일 뿐이고, 응답에도 없다.
    */
-  it("★ 문구와 링크를 따로 복사한다", async () => {
+  it("★ 안내문에 회차 링크가 들어간다 — 사람마다 다른 링크는 없다", async () => {
     const st = hostState();
-    st.invites = [{ phone: "01099998888", token: "t2", addedAt: 2 }];
+    st.invites = [{ phone: "01099998888", addedAt: 2 }];
     stubFetch(st);
     const writeText = stubClipboard();
     renderConsole("/host/e1/players/invites");
 
-    // 문구는 명단 머리에서 한 번 복사한다 — 링크가 섞이지 않는다
     fireEvent.click(await screen.findByText(HOST_UI.invite.copy));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
-    expect(String(writeText.mock.calls[0][0])).not.toContain("/j/e1/t2");
-
-    // 링크 버튼 — 그 사람의 링크만, 다른 글자 없이
-    fireEvent.click(screen.getByText(HOST_UI.invite.link));
-    await waitFor(() => expect(writeText.mock.calls.length).toBe(2));
-    expect(writeText.mock.calls[1][0]).toBe(`${location.origin}/j/e1/t2`);
+    const text = String(writeText.mock.calls[0][0]);
+    expect(text).toContain(`${location.origin}/j/e1`);
+    // 회차 링크 뒤에 아무것도 붙지 않는다 — 토큰도 번호도
+    expect(text).toMatch(new RegExp(`/j/e1(\\s|$)`));
+    expect(text).not.toContain("/j/e1/");
   });
 
   /**
-   * 행에 붙는 건 **사람마다 다른 것**뿐이다.
-   *
-   * 문구는 전원이 같아서 행마다 둘 이유가 없고, 어디까지 보냈는지도 표시하지 않는다
-   * (ADR-32 후기) — 복사가 곧 발송이 아니고, 되돌릴 수 있는 표시는 틀렸을 때 아무도 모른다.
+   * 행에 붙는 건 **빼기뿐이다.** 사람마다 다른 것이 없어졌으니 링크 버튼도 없고(ADR-75),
+   * 문구는 전원이 같아서 행마다 둘 이유가 없다. 어디까지 보냈는지도 표시하지 않는다 —
+   * 복사가 곧 발송이 아니고, 되돌릴 수 있는 표시는 틀렸을 때 아무도 모른다.
    */
-  it("★ 명단 행에는 링크뿐이다 — 문구도, 보냄 표시도 없다", async () => {
+  it("★ 명단 행에는 빼기뿐이다 — 링크도 문구도 보냄 표시도 없다", async () => {
     const st = hostState();
     st.invites = [
-      { phone: "01099998888", token: "t2", addedAt: 2 },
-      { phone: "01077776666", token: "t3", addedAt: 3 },
+      { phone: "01099998888", addedAt: 2 },
+      { phone: "01077776666", addedAt: 3 },
     ];
     stubFetch(st);
-    const writeText = stubClipboard();
     renderConsole("/host/e1/players/invites");
 
     // 안내문 복사는 명단 머리에 하나뿐이다 — 사람이 둘이어도 하나다
-    expect((await screen.findAllByText(HOST_UI.invite.link)).length).toBe(2);
-    expect(screen.getAllByText(HOST_UI.invite.copy).length).toBe(1);
-
-    // 두 번째 사람의 링크를 눌러도 그 사람 것이 나온다
-    fireEvent.click(screen.getAllByText(HOST_UI.invite.link)[1]);
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${location.origin}/j/e1/t3`));
-
+    expect((await screen.findAllByText(HOST_UI.invite.copy)).length).toBe(1);
+    expect(screen.getAllByText(HOST_UI.invites.remove).length).toBe(2);
+    // 링크를 말하는 버튼이 없다
+    const links = screen.getAllByRole("button").filter((b) => /링크/.test(b.textContent ?? ""));
+    expect(links, "행에 링크 버튼이 남아 있다").toHaveLength(0);
     // 보냄으로 찍는 길이 아예 없다
     expect(calls.some((c) => c.url.includes("/sent"))).toBe(false);
   });
 
+  /**
+   * ★ **참가자 PIN 번호는 상태만 보인다** (S-C3). 값도 해시도 응답에 없다 — 운영자도 남의 PIN 번호를 못 본다.
+   * `잠김` 은 눈에 띄어야 한다: 참가자가 말하기 전에 운영자가 먼저 보는 편이 낫다.
+   */
+  it("★ 상세 시트는 참가자 PIN 번호의 상태만 보여준다 — 잠김은 눈에 띈다", async () => {
+    const st = hostState();
+    st.players[0].pin = "locked";
+    stubFetch(st);
+    renderConsole("/host/e1/players/p1");
+
+    await screen.findByText(HOST_UI.players.pinLabel);
+    const state = screen.getByText(HOST_UI.players.pinState.locked);
+    expect(state.className, "잠김이 다른 상태와 같은 색이다").toContain("warnText");
+    // 초기화 길은 상세 시트 안에 있다 — 목록에서 손끝으로 지워지는 자리가 아니다
+    expect(screen.getByText(HOST_UI.players.pinReset)).toBeTruthy();
+  });
+
+  /**
+   * ★ **초기화는 확인을 거치고, 무엇이 어떻게 바뀌는지 항목으로 보여준다** (S-C4).
+   * 되돌릴 수 없는 일이다 — 지운 PIN 번호는 아무도 모른다(해시뿐). 콕·자리가 그대로라는 것도 여기서 말한다.
+   */
+  it("★ 참가자 PIN 번호 초기화는 확인을 거쳐 그 사람의 초기화 경로로 간다", async () => {
+    const st = hostState();
+    stubFetch(st);
+    renderConsole("/host/e1/players/p1");
+
+    fireEvent.click(await screen.findByText(HOST_UI.players.pinReset));
+    await screen.findByText(HOST_UI.players.pinResetTitle);
+    for (const [label] of HOST_UI.players.pinResetFacts("set")) expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    expect(screen.getByText(HOST_UI.players.pinResetNote)).toBeTruthy();
+    // 아직 아무 일도 일어나지 않았다
+    expect(calls.some((c) => c.url.includes("/pin/reset"))).toBe(false);
+
+    fireEvent.click(screen.getAllByText(HOST_UI.players.pinReset)[1]);
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/host/events/e1/players/p1/pin/reset"))).toBe(true));
+    // 토스트를 띄우지 않는다 (ADR-65) — 시트의 상태 줄이 바뀐다
+    expect(document.querySelector(".toast")).toBeNull();
+  });
+
   /*
-   * 번호 칸은 **운영자 명단에만** 남았다. 참가자 쪽은 링크가 신원이라 번호를 치지 않는다 (ADR-32).
-   * 그래도 이 칸의 동작은 그대로 중요하다 — 여기서 잘못 옮겨 적은 번호는 파티 당일에야 드러난다.
+   * 운영자 명단의 번호 칸. 참가자의 입장 확인창과 **같은 규칙**(씨앗·하이픈)을 쓴다 (ADR-75).
+   * 여기서 잘못 옮겨 적은 번호는 그 사람이 문 앞에서 `초대된 번호가 아니에요` 를 볼 때야 드러난다.
    */
   describe("명단 번호 칸", () => {
     const field = async () => {
@@ -1039,7 +1071,7 @@ describe("운영자 콘솔", () => {
     const mk = (n: number, g: "M" | "F" = "M") => ({
       id: `x${n}`, nickname: `사람${n}`, realName: `김${n}`, age: 30, gender: g,
       phone: `0100000000${n}`, instagram: `gram_${n}`, mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string],
-        createdAt: n,
+        createdAt: n, pin: "set" as const,
     });
     const players = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => mk(n));
     // 5·4·3·2·2·2 — 5위 자리(2회)에 동점 셋. 잘랐다면 순위가 거짓말이 된다
@@ -1055,7 +1087,7 @@ describe("운영자 콘솔", () => {
 
   it("받은 콕이 아무도 없으면 순위도 없다", () => {
     const players = [{ id: "a", nickname: "가", realName: "김가", age: 30, gender: "M" as const,
-      phone: "01011112222", instagram: "gram_a", mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string], createdAt: 1 }];
+      phone: "01011112222", instagram: "gram_a", mbti: "ENFP", charms: ["a", "b", "c"] as [string, string, string], createdAt: 1, pin: "set" as const }];
     expect(topRanks(players, { a: 0 })).toEqual([]);
   });
 
