@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
-import { ACT, BTN, ENTRY, ENV_BANNER, FAIL, HELP, FORTUNE, HOME, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
+import { ACT, BTN, ENTRY, ENV_BANNER, FAIL, GENDER, HELP, FORTUNE, HOME, MBTI_AXES, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
@@ -1667,147 +1667,341 @@ describe("한 폰으로 두 회차", () => {
   afterEach(() => vi.unstubAllGlobals());
 });
 
-// ─────────────────────────────────────────── 참가 링크 재방문
+// ─────────────────────────────────────────── 참가 링크 · 입장 확인창
 
 describe("참가 링크", () => {
   /**
-   * 링크가 곧 신원이다 (ADR-32). **번호 칸은 없다** —
-   * 번호를 아는 사람이 그 사람이 될 수 있던 구멍을 그렇게 닫았다 (ADR-15 후기 2).
+   * **링크는 회차마다 하나이고, 열쇠는 번호 + PIN 번호다** (ADR-75).
    *
-   * 운영자는 사람마다 다른 링크를 1:1 로 보내고, 참가자는 그 링크를 계속 다시 연다.
-   * 등록을 마친 사람에게 등록 화면을 다시 보여주면 "내가 등록이 안 됐나?" 하고
-   * 두 번 등록하려 든다. 실제로 나온 신고다.
+   * 배너는 어느 파티인지 한 번 보여주고 버튼 하나(`들어가기`)를 둔다 — 번호는 확인창에서 받는다.
+   * 확인창은 걸음을 가르지 않는다: 11자리가 차면 서버에 묻고, 등록한 번호면 PIN 칸이 그 아래로 펼쳐진다.
    */
-  function renderJoin() {
+  const ROOM = { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true };
+  const PHONE = "01012345678";
+
+  function renderJoin(at = "/j/e1") {
     const router = createMemoryRouter(
       [
-        { path: "/j/:id/:token", element: <Join /> },
-        { path: "/j/:id/:token/register/:step", element: <div>{SCREEN_TITLE.register}</div> },
+        { path: "/j/:id", element: <Join /> },
+        { path: "/j/:id/enter", element: <Join /> },
+        { path: "/j/:id/register/:step", element: <div>{SCREEN_TITLE.register}</div> },
         { path: "/e/:code", element: <div>참가자 화면</div> },
       ],
-      { initialEntries: ["/j/e1/tok123"] },
+      { initialEntries: [at] },
     );
-    return render(<RouterProvider router={router} />);
+    render(<RouterProvider router={router} />);
+    return router;
   }
 
-  function stubGate(enter: { status: number; body: unknown }) {
-    const calls: string[] = [];
+  type Reply = { status: number; body: unknown };
+  const NO_SESSION: Reply = { status: 401, body: { error: "unauthorized" } };
+
+  /**
+   * 서버 흉내. `enter` 는 **요청 본문을 보고** 답한다 — 번호만 오면 `probe`, PIN 번호까지 오면 `enter`.
+   * `/me` 는 이 브라우저의 세션이다 — 기본은 없음(401). 늦게 답하게 하려면 함수로 준다.
+   */
+  function stubGate(opts: {
+    me?: Reply | (() => Promise<Reply>);
+    probe?: (phone: string) => Reply;
+    enter?: (phone: string, pin: string) => Reply;
+  } = {}) {
+    const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    const json = (r: Reply) =>
+      new Response(JSON.stringify(r.body), { status: r.status, headers: { "content-type": "application/json" } });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: string) => {
-        calls.push(url);
-        if (url.includes("/me")) {
-          return new Response(JSON.stringify({ error: "unauthorized" }), {
-            status: 401,
-            headers: { "content-type": "application/json" },
-          });
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
+        calls.push({ url: String(url), body });
+        if (String(url).includes("/me")) {
+          const me = opts.me ?? NO_SESSION;
+          return json(typeof me === "function" ? await me() : me);
         }
-        if (url.includes("/enter")) {
-          return new Response(JSON.stringify(enter.body), {
-            status: enter.status,
-            headers: { "content-type": "application/json" },
-          });
+        if (String(url).includes("/enter")) {
+          const { phone, pin } = body as { phone: string; pin?: string };
+          const res = pin === undefined ? opts.probe?.(phone) : opts.enter?.(phone, pin);
+          return json(res ?? { status: 500, body: { error: "unknown" } });
         }
-        return new Response(
-          JSON.stringify({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return json({ status: 200, body: ROOM });
       }),
     );
     return calls;
   }
 
-  it("★ 번호를 묻지 않는다 — 링크를 열고 누르면 등록으로 간다", async () => {
-    stubGate({ status: 200, body: { registered: false } });
+  /** 배너에서 `들어가기` 를 눌러 확인창을 연다. 번호 칸을 돌려준다 */
+  async function openGate() {
+    await screen.findByText("테스트 파티");
+    fireEvent.click(screen.getByText(ENTRY.start));
+    return (await screen.findByLabelText(ENTRY.phone)) as HTMLInputElement;
+  }
+  const type = (input: HTMLElement, value: string) => fireEvent.change(input, { target: { value } });
+  /** 확인창이 서버에 낸 입장 요청들 */
+  const enters = (calls: ReturnType<typeof stubGate>) => calls.filter((c) => c.url.includes("/enter")).map((c) => c.body);
+
+  afterEach(() => sessionStorage.clear());
+
+  it("★ 링크만으로는 아무것도 못 한다 — 배너에는 입력칸이 없고 버튼 하나다", async () => {
+    const calls = stubGate();
     renderJoin();
 
-    // 방이 보인다
     await screen.findByText("테스트 파티");
-    // 등록으로 가는 문은 아직 닫혀 있다
+    // 배너에 입력칸이 없다 — 키보드가 뜨면 로고가 잘린다 (ADR-75)
+    expect(document.querySelector("input")).toBeNull();
+    expect(screen.getByText(ENTRY.start)).toBeTruthy();
     expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
-    // **번호 칸이 없다.** 있으면 지인이 남의 번호로 그 사람이 될 수 있다
-    expect(document.querySelector('input[inputmode="tel"]')).toBeNull();
-
-    fireEvent.click(screen.getByText(ENTRY.start));
-    expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
+    // 회차 조회에 토큰이 없다 — 링크에 토큰이 없어졌다
+    const info = calls.find((c) => c.url.includes("/events/by-id/"))!;
+    expect(info.url).not.toContain("t=");
   });
 
-  it("★ 회차 조회도 토큰을 싣는다 — 아이디만으로 열리면 안 된다", async () => {
-    const calls = stubGate({ status: 200, body: { registered: false } });
-    renderJoin();
-    await screen.findByText("테스트 파티");
+  it("★ 들어가기는 확인창을 연다 — 라우트라 뒤로 가기로 닫힌다", async () => {
+    stubGate();
+    const router = renderJoin();
 
-    const info = calls.find((u) => u.includes("/events/by-id/"));
-    expect(info).toContain("t=tok123");
-  });
+    await openGate();
+    expect(screen.getByText(ENTRY.enterTitle)).toBeTruthy();
+    expect(router.state.location.pathname).toBe("/j/e1/enter");
 
-  it("★ 통하지 않는 링크는 문 앞에서 막힌다", async () => {
-    stubGate({ status: 403, body: { error: "not_invited", message: ENTRY.notInvited } });
-    renderJoin();
-    await screen.findByText("테스트 파티");
-
-    fireEvent.click(screen.getByText(ENTRY.start));
-
-    expect(await screen.findByText(ENTRY.notInvited)).toBeTruthy();
-    expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
-  });
-
-  it("이미 등록한 사람은 등록 폼을 건너뛴다", async () => {
-    stubGate({ status: 200, body: { registered: true, code: "ABCDEF" } });
-    renderJoin();
-    await screen.findByText("테스트 파티");
-
-    fireEvent.click(screen.getByText(ENTRY.start));
-    expect(await screen.findByText("참가자 화면")).toBeTruthy();
+    await act(async () => void (await router.navigate(-1)));
+    await waitFor(() => expect(screen.queryByLabelText(ENTRY.phone)).toBeNull());
+    expect(router.state.location.pathname).toBe("/j/e1");
+    // 배너는 그대로다
+    expect(screen.getByText(ENTRY.start)).toBeTruthy();
   });
 
   /**
-   * ★ **등록 폼의 확인도 토큰이 한다** (ADR-44).
-   *
-   * Join 과 같은 자리다 — `/me` 로 브라우저 세션을 물으면 다른 탭에 열린 사람으로 넘어간다.
-   * 두 곳 다 고쳐야 규칙이 규칙이 된다.
+   * ★ **열리면 번호 칸에 커서가 있다** — ADR-63 의 예외 1호.
+   * 칠 것밖에 없는 창이라 커서가 없으면 탭이 순수하게 하나 낭비된다.
    */
-  it("★ 아직 등록하지 않은 토큰은 남의 세션이 있어도 폼을 연다", async () => {
+  it("★ 확인창은 열리면서 번호 칸에 커서를 준다", async () => {
+    stubGate();
+    renderJoin();
+    const input = await openGate();
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    // 씨앗 `010` 이 들어 있다 — 운영자 명단 칸과 같은 규칙이다
+    expect(input.value).toBe("010");
+  });
+
+  /**
+   * ★ **세 가지 실패는 세 가지 문구다** (S-A8). 명단에 없는 번호는 여기서 끝이고 PIN 칸이 안 열린다 —
+   * 뭉개면 번호를 잘못 친 사람이 PIN 번호를 계속 다시 쳐서 잠금에 걸린다.
+   */
+  it("★ 11자리가 차면 묻지 않아도 검증한다 — 초대 안 된 번호는 PIN 칸이 안 열린다", async () => {
+    const calls = stubGate({ probe: () => ({ status: 403, body: { error: "not_invited", message: ENTRY.notInvited } }) });
+    const router = renderJoin();
+    const input = await openGate();
+
+    type(input, PHONE);
+    expect(input.value).toBe("010-1234-5678");
+    // 확인 버튼이 없다 — 11자리가 곧 확인이다
+    expect(await screen.findByText(ENTRY.notInvited, {}, { timeout: 2000 })).toBeTruthy();
+    expect(enters(calls)).toEqual([{ phone: PHONE }]);
+    expect(screen.queryByLabelText(ENTRY.pin)).toBeNull();
+    // 번호는 남아 있다 — 그 자리에서 고친다
+    expect(input.value).toBe("010-1234-5678");
+    expect(router.state.location.pathname).toBe("/j/e1/enter");
+  });
+
+  it("★ 아직 등록 안 한 번호는 PIN 번호 없이 등록으로 간다 (S-B1)", async () => {
+    stubGate({ probe: () => ({ status: 200, body: { registered: false, ref: "aabbccdd" } }) });
+    const router = renderJoin();
+    const input = await openGate();
+
+    type(input, PHONE);
+    expect(await screen.findByText(SCREEN_TITLE.register, {}, { timeout: 2000 })).toBeTruthy();
+    expect(router.state.location.pathname).toBe("/j/e1/register/1");
+    // 이 탭의 이름표를 든다 (ADR-44) — 다른 탭이 다른 번호로 들어와도 서로 안 덮는다
+    expect(sessionStorage.getItem("tp.ref")).toBe("aabbccdd");
+    // 확인창 칸을 갈아끼웠다 — 뒤로 가면 창이 아니라 배너다
+    await act(async () => void (await router.navigate(-1)));
+    expect(router.state.location.pathname).toBe("/j/e1");
+  });
+
+  it("★ 등록한 번호는 PIN 칸이 펼쳐지고, 4자리가 차면 낸다 (S-A3)", async () => {
+    const calls = stubGate({
+      probe: () => ({ status: 200, body: { registered: true, pin: "required" } }),
+      enter: (_phone, pin) =>
+        pin === "2468"
+          ? { status: 200, body: { registered: true, code: "ABCDEF", ref: "12ab34cd" } }
+          : { status: 403, body: { error: "pin_wrong", message: ENTRY.pinWrong(4) } },
+    });
+    renderJoin();
+    const phone = await openGate();
+
+    type(phone, PHONE);
+    const pin = (await screen.findByLabelText(ENTRY.pin, {}, { timeout: 2000 })) as HTMLInputElement;
+    // 걸음을 가르지 않는다 — 번호 칸이 그대로 있다
+    expect(screen.getByLabelText(ENTRY.phone)).toBeTruthy();
+    expect(screen.getByText(ENTRY.pinHint)).toBeTruthy();
+    // 등록으로 가지 않았다 — 쿠키 없이 칸만 펼쳤다
+    expect(sessionStorage.getItem("tp.ref")).toBeNull();
+
+    type(pin, "2468");
+    expect(await screen.findByText("참가자 화면")).toBeTruthy();
+    expect(enters(calls)).toEqual([{ phone: PHONE }, { phone: PHONE, pin: "2468" }]);
+    expect(sessionStorage.getItem("tp.ref")).toBe("12ab34cd");
+  });
+
+  it("★ PIN 번호가 틀리면 PIN 칸만 비운다 — 번호는 남는다 (S-A4)", async () => {
+    stubGate({
+      probe: () => ({ status: 200, body: { registered: true, pin: "required" } }),
+      enter: () => ({ status: 403, body: { error: "pin_wrong", message: ENTRY.pinWrong(2) } }),
+    });
+    renderJoin();
+    const phone = await openGate();
+    type(phone, PHONE);
+    const pin = (await screen.findByLabelText(ENTRY.pin, {}, { timeout: 2000 })) as HTMLInputElement;
+
+    type(pin, "9999");
+    // 남은 횟수는 서버 문구가 말한다 — 2회부터
+    expect(await screen.findByText(ENTRY.pinWrong(2))).toBeTruthy();
+    expect(pin.value).toBe("");
+    expect((screen.getByLabelText(ENTRY.phone) as HTMLInputElement).value).toBe("010-1234-5678");
+    expect(screen.queryByText("참가자 화면")).toBeNull();
+  });
+
+  /**
+   * ★ **잠겨도 번호 칸은 잠그지 않는다** — 남의 번호를 쳤을 수 있다.
+   * 잠금은 번호 단계에서도(423 이 먼저 온다), PIN 단계에서도 올 수 있다.
+   */
+  it("★ 잠기면 PIN 칸만 잠긴다 — 번호 칸은 산다 (S-A5·A6)", async () => {
+    stubGate({
+      probe: () => ({ status: 200, body: { registered: true, pin: "required" } }),
+      enter: () => ({ status: 423, body: { error: "pin_locked", message: ENTRY.pinLocked } }),
+    });
+    renderJoin();
+    const phone = await openGate();
+    type(phone, PHONE);
+    const pin = (await screen.findByLabelText(ENTRY.pin, {}, { timeout: 2000 })) as HTMLInputElement;
+
+    type(pin, "0000");
+    expect(await screen.findByText(ENTRY.pinLocked)).toBeTruthy();
+    expect(pin.disabled).toBe(true);
+    expect((screen.getByLabelText(ENTRY.phone) as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it("★ 번호 단계에서 이미 잠겨 있으면 PIN 칸이 잠긴 채로 펼쳐진다", async () => {
+    stubGate({ probe: () => ({ status: 423, body: { error: "pin_locked", message: ENTRY.pinLocked } }) });
+    renderJoin();
+    const phone = await openGate();
+    type(phone, PHONE);
+
+    expect(await screen.findByText(ENTRY.pinLocked, {}, { timeout: 2000 })).toBeTruthy();
+    expect((screen.getByLabelText(ENTRY.pin) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText(ENTRY.phone) as HTMLInputElement).disabled).toBe(false);
+  });
+
+  /**
+   * ★ **초기화된 사람은 등록 폼으로 돌려보내지 않는다** (S-C1). 확인창이 칸 둘(새 PIN 번호 · 재입력)을 펴고,
+   * 둘이 같을 때만 낸다 — 4자리는 오타를 눈으로 못 잡고 고칠 길이 없어서 재입력이 유일한 방어다.
+   */
+  it("★ 초기화된 사람은 칸 둘을 편다 — 둘이 같아야 낸다", async () => {
+    const calls = stubGate({
+      probe: () => ({ status: 200, body: { registered: true, pin: "set" } }),
+      enter: () => ({ status: 200, body: { registered: true, code: "ABCDEF", ref: "12ab34cd" } }),
+    });
+    renderJoin();
+    const phone = await openGate();
+    type(phone, PHONE);
+
+    const first = (await screen.findByLabelText(ENTRY.pinNew, {}, { timeout: 2000 })) as HTMLInputElement;
+    const again = screen.getByLabelText(ENTRY.pinAgain) as HTMLInputElement;
+    expect(screen.getByText(ENTRY.pinNewHint)).toBeTruthy();
+
+    type(first, "1357");
+    type(again, "1358");
+    expect(await screen.findByText(REGISTER.pinMismatch)).toBeTruthy();
+    // 재입력만 비운다. 아직 아무것도 내지 않았다
+    expect(again.value).toBe("");
+    expect(first.value).toBe("1357");
+    expect(enters(calls).filter((b) => b && "pin" in b)).toHaveLength(0);
+
+    type(again, "1357");
+    expect(await screen.findByText("참가자 화면")).toBeTruthy();
+    expect(enters(calls).at(-1)).toEqual({ phone: PHONE, pin: "1357" });
+  });
+
+  /**
+   * ★ **링크를 다시 열면 이 브라우저의 마지막 세션으로 들어간다** (S-A10, ADR-75).
+   * `/` 와 같은 규칙이다 — 링크에 신원이 없으니 쿠키가 유일한 단서다.
+   */
+  it("★ 이 회차의 세션이 있으면 배너를 거치지 않고 자기 화면이다", async () => {
+    const calls = stubGate({ me: { status: 200, body: participantState() } });
+    renderJoin();
+
+    expect(await screen.findByText("참가자 화면")).toBeTruthy();
+    // 문을 두드리지 않았다
+    expect(enters(calls)).toHaveLength(0);
+  });
+
+  it("★ 이름표가 있는 탭은 답을 기다렸다 그린다 — 없으면 배너를 먼저 그린다", async () => {
+    // 이름표가 있는 탭 — 이 회차를 지나온 탭이라 돌아온 사람일 확률이 높다. 배너가 번쩍이면 되레 튄다
+    let answer!: (r: Reply) => void;
+    const pending = new Promise<Reply>((r) => (answer = r));
+    sessionStorage.setItem("tp.ref", "aabbccdd");
+    const calls = stubGate({ me: () => pending });
+    renderJoin();
+
+    await waitFor(() => expect(calls.some((c) => c.url.includes("/events/by-id/"))).toBe(true));
+    await act(async () => void (await Promise.resolve()));
+    expect(screen.queryByText("테스트 파티"), "답을 기다리는 동안 배너를 그렸다").toBeNull();
+
+    await act(async () => answer(NO_SESSION));
+    expect(await screen.findByText("테스트 파티")).toBeTruthy();
+    expect(screen.getByText(ENTRY.start)).toBeTruthy();
+    cleanup();
+
+    // 이름표가 없는 탭 — 처음 온 사람일 확률이 높다. 첫 그림을 늦추지 않는다 (ADR-70)
+    sessionStorage.clear();
+    stubGate({ me: () => new Promise<Reply>(() => {}) });
+    renderJoin();
+    expect(await screen.findByText("테스트 파티")).toBeTruthy();
+  });
+
+  /**
+   * ★ **회차 조회는 세션을 보지 않는다.** `index.html` 이 번들보다 먼저 부르는 요청이라
+   * 이름표를 실을 수 없다 (ADR-44) — 그 요청이 세션을 읽으면 남의 탭 사람으로 답한다.
+   */
+  it("★ 세션 확인은 /me 로 따로 간다 — 회차 조회에 세션을 싣지 않는다", async () => {
+    const calls = stubGate();
+    renderJoin();
+    await screen.findByText("테스트 파티");
+    expect(calls.some((c) => /\/me\b/.test(c.url))).toBe(true);
+    expect(calls.some((c) => c.url.includes("/events/by-id/e1"))).toBe(true);
+  });
+
+  // ───────────────────────────── 등록 폼
+
+  /** 등록 폼을 띄운다. 세션은 기본으로 없고(401), 회차 조회는 `room` 을 답한다 */
+  function renderRegister(opts: { room?: Record<string, unknown>; me?: Reply; at?: string } = {}) {
+    const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    const json = (r: Reply) =>
+      new Response(JSON.stringify(r.body), { status: r.status, headers: { "content-type": "application/json" } });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: string) => {
-        const json = (body: unknown) =>
-          new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
-        // 세션은 **있는 것처럼** 답한다. 옛 코드라면 이것만 보고 남의 화면으로 넘어갔다
-        if (String(url).includes("/me")) return json(participantState());
-        return json({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true, registered: false });
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
+        calls.push({ url: String(url), body });
+        if (String(url).includes("/me")) return json(opts.me ?? NO_SESSION);
+        if (String(url).includes("/register")) {
+          return json({ status: 200, body: { state: participantState(), resumed: false } });
+        }
+        return json({ status: 200, body: { ...ROOM, ...(opts.room ?? {}) } });
       }),
     );
     const router = createMemoryRouter(
       [
-        { path: "/j/:id/:token/register/:step", element: <Register /> },
+        { path: "/j/:id", element: <div>배너</div> },
+        { path: "/j/:id/register/:step", element: <Register /> },
         { path: "/e/:code", element: <div>참가자 화면</div> },
+        { path: "/e/:code/help", element: <div>참가자 화면</div> },
       ],
-      { initialEntries: ["/j/e1/tok123/register/1"] },
+      { initialEntries: [opts.at ?? "/j/e1/register/1"] },
     );
     render(<RouterProvider router={router} />);
-
-    expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
-    expect(screen.queryByText("참가자 화면")).toBeNull();
-  });
-
-  /** 회차 조회가 답할 값을 정해서 등록 폼 1스텝을 띄운다 */
-  function renderForm(room: Record<string, unknown>) {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({ id: "e1", name: "테스트 파티", phase: "reg", canRegister: true, registered: false, ...room }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
-      ),
-    );
-    const router = createMemoryRouter([{ path: "/j/:id/:token/register/:step", element: <Register /> }], {
-      initialEntries: ["/j/e1/tok123/register/1"],
-    });
-    return render(<RouterProvider router={router} />);
+    return { router, calls };
   }
+  const set = (id: string, value: string) => fireEvent.change(document.getElementById(id)!, { target: { value } });
 
   /**
    * ★ **운영자가 적은 문구가 닉네임 칸에 뜬다** (ADR-59).
@@ -1817,7 +2011,7 @@ describe("참가 링크", () => {
    * 그래서 여기가 끊기면 아무도 모르는 채로 남는다.
    */
   it("★ 회차가 정한 닉네임 안내 문구가 폼에 뜬다", async () => {
-    renderForm({ nickHint: "파티에서 불릴 이름으로" });
+    renderRegister({ room: { nickHint: "파티에서 불릴 이름으로" } });
     expect(await screen.findByText("파티에서 불릴 이름으로")).toBeTruthy();
   });
 
@@ -1829,10 +2023,10 @@ describe("참가 링크", () => {
    * 그러면 운영자가 적어 넣은 한 줄이 두 줄 중 하나가 되어 묻힌다.
    */
   it("★ 문구가 없으면 닉네임 칸 밑에 아무 줄도 없다", async () => {
-    const { container } = renderForm({});
+    renderRegister();
     await screen.findByText(SCREEN_TITLE.register);
 
-    const nick = container.querySelector("#nickname")!;
+    const nick = document.querySelector("#nickname")!;
     const hints = nick.parentElement!.querySelectorAll(".tiny");
     expect(hints.length, "닉네임 칸 밑에 설명이 붙어 있다").toBe(0);
   });
@@ -1842,93 +2036,97 @@ describe("참가 링크", () => {
      * 완료할 때 `replace` 로 갈아끼우는 건 **마지막 스텝 한 칸뿐**이다.
      * 스텝은 `push` 로 쌓이므로(`이전` 버튼이 그 히스토리를 쓴다) 1·2 스텝이 남는다.
      * 홈에서 뒤로 가면 그 칸을 밟는데, 다 채워진 것처럼 보이는 폼을 보면 두 번 등록하려 든다.
+     * 판정은 **이 탭의 세션**이다 — 등록을 마친 탭은 같은 이름표로 참가자 쿠키를 받았다.
      */
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) =>
-        url.includes("/me")
-          ? new Response(JSON.stringify(participantState()), {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            })
-          : // 회차 조회가 이 토큰의 등록 여부를 답한다 (ADR-44)
-            new Response(JSON.stringify({ id: "e1", registered: true }), {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            }),
-      ),
-    );
-    const router = createMemoryRouter(
-      [
-        { path: "/j/:id/:token/register/:step", element: <Register /> },
-        { path: "/e/:code", element: <div>참가자 화면</div> },
-      ],
-      // 뒤로 가서 2스텝을 밟은 상태
-      { initialEntries: ["/j/e1/tok123/register/2"] },
-    );
-    render(<RouterProvider router={router} />);
+    renderRegister({ me: { status: 200, body: participantState() }, at: "/j/e1/register/2" });
 
     await screen.findByText("참가자 화면");
     // 폼은 한 번도 보이지 않는다
     expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
   });
 
-  /**
-   * ★ **등록했는지는 토큰이 정한다. 브라우저 세션이 아니다** (ADR-44).
-   *
-   * 예전에는 이 화면이 `/me` 를 먼저 불러 "이 브라우저에 세션이 있나" 로 넘겼다.
-   * 쿠키는 탭이 아니라 브라우저 단위라, **두 번째 탭에서 다른 사람의 링크를 열면
-   * 첫 번째 탭의 사람으로 넘어갔다** — 링크가 사람마다 달라도 소용이 없었다.
-   */
-  it("★ 등록을 마친 링크는 곧바로 자기 화면으로 간다", async () => {
-    const fetched = stubRoom({ registered: true }, { registered: true, code: "ABCDEF", ref: "aabbccdd" });
-    renderJoin();
-
-    await screen.findByText("참가자 화면");
-    // 등록 여부를 브라우저 세션에 묻지 않는다 — 그게 탭을 서로 덮던 길이었다
-    for (const [url] of fetched.mock.calls as unknown as Array<[string]>) {
-      expect(String(url)).not.toMatch(/\/me\b/);
-    }
-  });
-
-  it("★ 아직 등록하지 않은 링크는 남의 세션이 있어도 등록부터 시작한다", async () => {
-    // `/me` 는 200 을 준다 — 옛 코드라면 이것만 보고 남의 화면으로 넘어갔다
-    stubRoom({ registered: false }, { registered: false, ref: "aabbccdd" });
-    renderJoin();
-
-    await screen.findByText("테스트 파티");
-    expect(screen.queryByText("참가자 화면")).toBeNull();
-
-    fireEvent.click(screen.getByText(ENTRY.start));
+  it("★ 세션이 없는 탭은 폼을 연다 — 확인창을 지나온 탭의 이름표가 남의 세션을 가른다 (ADR-44)", async () => {
+    renderRegister();
     expect(await screen.findByText(SCREEN_TITLE.register)).toBeTruthy();
-  });
-
-  /** 이름표를 탭에 든다. 다른 탭이 다른 링크로 들어와도 서로 안 건드린다 */
-  it("★ 들어가면서 이 탭의 이름표를 sessionStorage 에 든다", async () => {
-    stubRoom({ registered: true }, { registered: true, code: "ABCDEF", ref: "12ab34cd" });
-    renderJoin();
-
-    await screen.findByText("참가자 화면");
-    expect(sessionStorage.getItem("tp.ref")).toBe("12ab34cd");
+    expect(screen.queryByText("참가자 화면")).toBeNull();
   });
 
   /**
-   * 회차 정보는 **토큰으로** 묻고, 그 답의 `registered` 가 이 화면의 판정이다.
-   * `/me` 로 브라우저 세션을 묻던 자리를 대신한다.
+   * ★ **3걸음이다** — `기본 정보 · 나를 소개 · 다시 들어올 때` (ADR-75).
+   * 인스타는 첫 걸음의 실명 옆이고(둘 다 운영자가 사람을 확인하는 칸), 마지막이 PIN 번호다.
+   * **약속은 문장이 아니라 라벨에 붙는다** — 다섯 칸 사이에서 문단은 안 읽히지만 라벨은 읽힌다.
    */
-  function stubRoom(room: { registered: boolean }, enter: unknown) {
-    sessionStorage.clear();
-    const fetched = vi.fn(async (url: string) => {
-      const json = (status: number, body: unknown) =>
-        new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-      // 옛 경로가 살아 있으면 잡히도록, 세션은 **있는 것처럼** 답한다
-      if (String(url).includes("/me")) return json(200, participantState());
-      if (String(url).includes("/enter")) return json(200, enter);
-      return json(200, { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true, ...room });
-    });
-    vi.stubGlobal("fetch", fetched);
-    return fetched;
-  }
+  it("★ 3걸음: 인스타는 첫 걸음에, PIN 번호는 마지막에 — 약속은 라벨이 말한다", async () => {
+    renderRegister();
+    await screen.findByLabelText(ME.labels.nickname);
+    expect(screen.getByText(`1/3 · ${REGISTER.steps[0]}`)).toBeTruthy();
+
+    // 첫 걸음: 실명과 인스타가 같이 서고, 라벨이 약속을 든다
+    expect(screen.getByLabelText(REGISTER.realNameLabel)).toBeTruthy();
+    expect(screen.getByLabelText(REGISTER.instagramLabel)).toBeTruthy();
+    expect(REGISTER.instagramLabel).toContain("운영자");
+    expect(REGISTER.instagramLabel, "매칭 상대에게 인스타가 간다고 말하면 안 된다").not.toMatch(/상대|열/);
+    expect(REGISTER.realNameLabel).toContain("서로 콕");
+    // 전화번호 칸은 없다 — 입장할 때 확인했다 (ADR-31)
+    expect(screen.queryByLabelText(ME.labels.phone)).toBeNull();
+
+    set("nickname", "달빛");
+    set("realName", "김나");
+    set("age", "30");
+    fireEvent.click(screen.getByText(GENDER.M));
+    set("instagram", "@na_gram");
+    fireEvent.click(screen.getByText(BTN.next));
+
+    // 둘째 걸음: MBTI 와 매력
+    await screen.findByText(MBTI_AXES[0].q);
+    expect(screen.getByText(`2/3 · ${REGISTER.steps[1]}`)).toBeTruthy();
+    for (const axis of MBTI_AXES) fireEvent.click(screen.getByText(axis.opts[0][1]));
+    for (const i of [0, 1, 2]) set(`charm${i}`, `매력${i}`);
+    fireEvent.click(screen.getByText(BTN.next));
+
+    // 셋째 걸음: PIN 번호 둘
+    await screen.findByText(`3/3 · ${REGISTER.steps[2]}`);
+    expect(screen.getByLabelText(REGISTER.pin)).toBeTruthy();
+    expect(screen.getByLabelText(REGISTER.pinAgain)).toBeTruthy();
+    expect(screen.getByText(REGISTER.pinIntro.replace(/\n/g, " "))).toBeTruthy();
+  });
+
+  /**
+   * ★ **두 번 입력이 다르면 등록이 안 된다** (S-B3). 재입력 칸과 "못 고친다" 는 한 몸이다 —
+   * 4자리는 오타를 눈으로 못 잡고 고칠 길이 없으니 재입력이 유일한 방어다. 둘 중 하나만 떼지 마라.
+   */
+  it("★ 두 번 입력이 다르면 등록이 안 된다 — 같으면 PIN 번호 하나만 보낸다", async () => {
+    const { calls } = renderRegister();
+    await screen.findByLabelText(ME.labels.nickname);
+    set("nickname", "달빛");
+    set("realName", "김나");
+    set("age", "30");
+    fireEvent.click(screen.getByText(GENDER.M));
+    set("instagram", "na_gram");
+    fireEvent.click(screen.getByText(BTN.next));
+    await screen.findByText(MBTI_AXES[0].q);
+    for (const axis of MBTI_AXES) fireEvent.click(screen.getByText(axis.opts[0][1]));
+    for (const i of [0, 1, 2]) set(`charm${i}`, `매력${i}`);
+    fireEvent.click(screen.getByText(BTN.next));
+    await screen.findByLabelText(REGISTER.pin);
+    const submit = () =>
+      fireEvent.click(screen.getAllByRole("button").find((b) => b.textContent === SCREEN_TITLE.register)!);
+
+    set("pin", "1234");
+    set("pinAgain", "1243");
+    submit();
+    expect(await screen.findByText(REGISTER.pinMismatch)).toBeTruthy();
+    expect(calls.some((c) => c.url.includes("/register")), "달라도 서버로 갔다").toBe(false);
+
+    set("pinAgain", "1234");
+    submit();
+    await screen.findByText("참가자 화면");
+    const sent = calls.find((c) => c.url.includes("/register"))!.body!;
+    expect(sent.pin).toBe("1234");
+    // 재입력은 화면의 일이다 — 서버는 하나만 받는다. 번호도 없다 (ADR-31)
+    expect(sent).not.toHaveProperty("pinAgain");
+    expect(sent).not.toHaveProperty("phone");
+  });
 });
 
 // ─────────────────────────────────────────── 연습용 환경 표시
@@ -2412,7 +2610,8 @@ describe("내 정보 고치기", () => {
     expect(screen.queryByText("na_gram"), "인스타 값이 그대로 떠 있다").toBeNull();
 
     fireEvent.click(screen.getByText(ME.edit));
-    expect(screen.getByLabelText(ME.labels.instagram), "고치는 칸이 사라졌다").toBeTruthy();
+    // 라벨은 등록 폼과 같은 것이다 — 약속(운영자 확인용)이 라벨에 있다 (ADR-75)
+    expect(screen.getByLabelText(REGISTER.instagramLabel), "고치는 칸이 사라졌다").toBeTruthy();
   });
 
   /**

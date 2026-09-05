@@ -1,13 +1,15 @@
 /**
- * wrangler.jsonc 가 지켜야 하는 것들을 기계가 본다.
+ * 배포 설정이 지켜야 하는 것들을 기계가 본다 — wrangler.jsonc 가 대부분이지만 전부는 아니다.
  *
- * 셋 다 사람 눈으로는 잘 안 잡히는 종류다.
+ * 다섯 다 사람 눈으로는 잘 안 잡히는 종류다.
  *  1. **프로덕션 비밀값이 저장소에 들어오는 것** — vars 에 MASTER_PIN 을 적으면 그대로 공개된다
  *  2. **QA 공통 PIN 이 흔들리는 것** — 연습용은 언제나 0000 이어야 한다는 약속
  *  3. **환경에 상속되지 않는 키를 빠뜨리는 것** — durable_objects·assets 는 상속되지 않는다.
  *     빠뜨리면 배포는 되고 첫 요청에서야 터진다
  *  4. **preload 한 파일에 캐시 규칙이 없는 것** — preload 는 그 파일을 첫 그림의 조건으로 만든다.
  *     기본값은 `max-age=0, must-revalidate` 라 두 번째 방문부터 **그림이 왕복 뒤에** 뜬다
+ *  5. **화면에 뜨는 버전이 package.json 과 어긋나는 것** — 운영자가 그 숫자를 보고
+ *     배포가 나갔는지 판단한다. 틀린 버전은 없느니만 못하다
  *
  *   node scripts/check-config.mjs
  */
@@ -113,10 +115,26 @@ for (const m of HTML.matchAll(/<link\b[^>]*\brel="preload"[^>]*>/g)) {
   );
 }
 
+// ⑤ 화면에 뜨는 버전이 package.json 과 같은가
+//
+//    회차 목록 머리에 뜨는 값이다 (ADR-74). 빌드에 박힌 상수라 배포와 함께 굳는데,
+//    릴리스에서 package.json 만 올리면 화면은 지난 버전을 계속 말한다.
+//    운영자는 그 숫자를 보고 "새 게 안 나갔다" 고 판단하므로, 틀린 버전은 없느니만 못하다.
+const PKG = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const CONSTANTS = readFileSync(new URL("../src/shared/constants.ts", import.meta.url), "utf8");
+const shown = CONSTANTS.match(/APP_VERSION\s*=\s*"([^"]+)"/)?.[1];
+if (shown !== PKG.version) {
+  problems.push(
+    shown
+      ? `화면에 뜨는 APP_VERSION("${shown}")이 package.json("${PKG.version}")과 다릅니다. 릴리스에서 같이 올리세요`
+      : "src/shared/constants.ts 에서 APP_VERSION 을 못 찾았습니다. 회차 목록 머리가 버전을 못 말합니다",
+  );
+}
+
 if (problems.length === 0) {
-  console.log("✅ wrangler 설정 이상 없음");
+  console.log("✅ 배포 설정 이상 없음");
   process.exit(0);
 }
-console.error(`❌ wrangler 설정 문제 (${problems.length}건)\n`);
+console.error(`❌ 배포 설정 문제 (${problems.length}건)\n`);
 for (const p of problems) console.error(`  · ${p}`);
 process.exit(1);

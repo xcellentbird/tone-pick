@@ -29,6 +29,7 @@ import type {
   PublicAnnouncement,
   Phase,
   MyProfile,
+  PinState,
   Player,
   Poke,
   PokeRound,
@@ -48,12 +49,14 @@ import { ENTRY } from "../shared/copy.ts";
 import {
   ENTRY_TRIES,
   LIMITS,
+  PIN,
   cleanName,
   nicknameProblem,
   normalizeInstagram,
   normalizeNickname,
   normalizePhone,
   realNameProblem,
+  validPin,
 } from "../shared/constants.ts";
 import { PHASE_ORDER, canPoke, dueAt, dueTransition, rulesLocked, schedLocked, voteClosed } from "../shared/phase.ts";
 import { buildSeating } from "./seating.ts";
@@ -78,8 +81,11 @@ CREATE TABLE IF NOT EXISTS players (
                                      -- 이미 그 칸을 가진 옛 표는 건드리지 않는다. DROP COLUMN 은 하지 않는다:
                                      -- 살아 있는 회차의 표를 건드리는 일인데 아무도 안 읽으므로 얻는 것이 없다.
                                      -- 읽는 코드가 없으니 있든 없든 같다 — SELECT * 의 결과를 칸 이름으로만 쓴다
-  token      TEXT                    -- 등록할 때 초대 명단에서 복사해 온다 (ADR-32).
-                                     -- 명단에서 지워져도 자기 링크로 계속 들어오게 하는 값이다
+  token      TEXT,                   -- 명단 행의 내부 식별자를 등록할 때 복사해 온다 (ADR-32 → ADR-75).
+                                     -- 이제 주소에는 없다. 초대 쿠키가 들고 다니는 값이다
+  pin_hash   TEXT,                   -- 참가자 PIN 번호의 키 있는 해시 (ADR-75). 값은 어디에도 없다
+  pin_salt   TEXT,                   -- 참가자마다 다른 솔트. 후추(SESSION_SECRET)는 DO 밖이다
+  pin_fails  INTEGER NOT NULL DEFAULT 0   -- 연속 실패. PIN.maxFails 이면 잠김. 초기화가 0 으로 되돌린다
 );
 CREATE TABLE IF NOT EXISTS pokes (
   id      TEXT PRIMARY KEY,
@@ -93,7 +99,7 @@ CREATE INDEX IF NOT EXISTS pokes_to   ON pokes(to_id);
 CREATE TABLE IF NOT EXISTS invites (
   phone    TEXT PRIMARY KEY,      -- 숫자만. 운영자가 미리 넣어두는 초대 명단
   added_at INTEGER NOT NULL,
-  token    TEXT                   -- 이 사람의 참가 링크. 넣는 순간 생긴다 (ADR-32)
+  token    TEXT                   -- 명단 행의 내부 식별자. 초대 쿠키가 든다 — 링크에는 안 실린다 (ADR-75)
 );
 CREATE TABLE IF NOT EXISTS entry_tries (
   ip_hash TEXT NOT NULL,          -- 접속지 해시. 원본 IP 는 저장하지 않는다
@@ -140,7 +146,9 @@ type Fail =
   | "closed"
   | "same_gender"
   | "locked"
-  | "no_budget";
+  | "no_budget"
+  | "pin_wrong"     // PIN 번호가 틀렸다. detail = 남은 횟수 (ADR-75)
+  | "pin_locked";   // 다섯 번 틀려 잠겼다. 운영자만 푼다 (ADR-75)
 
 /** `detail` 은 문구에 들어갈 숫자다 (예: 남은 콕 최대 횟수). 문장은 Worker 가 고른다 */
 export type Result<T> =
@@ -175,6 +183,10 @@ export class EventDO extends DurableObject {
         // 보냄 표시를 걷었다 (ADR-32 후기). 안 읽는 칸을 들고 다니면 다음 사람이 쓰이는 줄 안다
         "ALTER TABLE invites DROP COLUMN sent_at",
         "ALTER TABLE players ADD COLUMN token TEXT",
+        // 참가자 PIN 번호 (ADR-75). 옛 참가자는 세 칸이 비어 있다 — 다음 입장에서 정한다 (`enter` 의 "set")
+        "ALTER TABLE players ADD COLUMN pin_hash TEXT",
+        "ALTER TABLE players ADD COLUMN pin_salt TEXT",
+        "ALTER TABLE players ADD COLUMN pin_fails INTEGER NOT NULL DEFAULT 0",
         "CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token)",
         "CREATE INDEX IF NOT EXISTS players_token ON players(token)",
       ]) {
@@ -421,9 +433,9 @@ export class EventDO extends DurableObject {
 
   // ─────────────────────────── 초대 명단
   //
-  // 파티에 들어오는 문은 **명단 한 줄마다 생기는 토큰**이다 (ADR-32).
-  // 번호는 명단을 만드는 재료일 뿐이고, 참가자는 번호를 치지 않는다 —
-  // 같은 파티에 오는 사람들은 서로 번호를 아는 사이라 번호가 열쇠가 못 됐다.
+  // 파티에 들어오는 문은 **명단에 있는 번호**다 (ADR-75). 번호만으로 그 사람이 되지는 못한다 —
+  // 같은 파티에 오는 사람들은 서로 번호를 아는 사이라서, 등록한 사람은 본인이 정한 PIN 번호까지
+  // 맞아야 한다 (`enter`). 한 줄마다 생기는 토큰은 초대 쿠키의 내부 식별자로만 남는다.
   //
   // 목록을 읽는 RPC 는 없다. 운영자 화면은 `hostState()` 가 함께 내려주는 것을 쓰고,
   // 더하기·빼기가 각자 바뀐 명단을 돌려준다.
@@ -463,19 +475,19 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * 입장 확인. **참가 링크의 토큰만 통과한다** (ADR-32).
+   * 문을 두드린다 (ADR-75). 번호만이면 **묻기**, PIN 번호까지면 **들어가기**.
    *
-   * 번호를 받지 않는다 — 같은 파티에 오는 사람들은 서로 번호를 아는 사이라
-   * 번호는 열쇠가 못 된다. 토큰은 그 사람에게만 배달된 값이다.
+   * **판정 순서가 계약이다** (`15-surface.md`): 회차 → 접속지 시도 → 명단 → **잠금** → PIN 대조.
+   * 잠금이 대조보다 먼저라야 잠긴 뒤에 맞는 값을 확인해 주는 일이 없다.
    *
    * **이미 등록한 사람은 명단과 무관하게 통과한다.** 명단은 문이지 자격이 아니다 —
    * 운영자가 명단을 정리하다 이미 등록한 사람을 지웠다고 파티 중에 쫓겨나면 안 된다.
-   * 그래서 등록할 때 토큰을 `players` 에도 복사해 둔다.
    *
-   * 실패는 회차·접속지별로 센다. 문은 여전히 인증 없이 열려 있다 — 다만
-   * **"번호 넣어보기" 는 이제 일어나지 않는다.** 넣어볼 칸이 없다.
+   * 실패는 회차·접속지별로 센다 (`ENTRY_TRIES`). **틀린 PIN 번호도 접속지 시도로 센다** —
+   * 번호 단계에만 걸면 통과한 뒤 만 번을 두드릴 수 있다.
+   * 미등록 번호에 PIN 번호가 함께 와도 쓰지 않는다 — PIN 번호는 등록에서만 정한다 (S-B2).
    */
-  async checkEntry(token: string, ipHash: string, now: number): Promise<Result<EntryOutcome>> {
+  async enter(rawPhone: string, pin: string | undefined, ipHash: string, now: number): Promise<Result<EntryOutcome>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
 
@@ -483,25 +495,79 @@ export class EventDO extends DurableObject {
     const tries =
       this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM entry_tries WHERE ip_hash = ?", ipHash)[0]?.n ?? 0;
     if (tries >= ENTRY_TRIES.max) return fail("too_many");
+    const strike = () => this.ctx.storage.sql.exec("INSERT INTO entry_tries (ip_hash, at) VALUES (?,?)", ipHash, now);
+    const forgive = () => this.ctx.storage.sql.exec("DELETE FROM entry_tries WHERE ip_hash = ?", ipHash);
 
-    const clean = String(token ?? "").trim();
-    // 등록을 마친 사람이 먼저다 — 명단에서 지워졌어도 그의 토큰은 여기 남아 있다
-    const mine = clean ? this.rows<PlayerRow>("SELECT * FROM players WHERE token = ?", clean)[0] : undefined;
-    const invited =
-      !!clean && !!this.rows<{ phone: string }>("SELECT phone FROM invites WHERE token = ?", clean)[0];
-
-    if (!mine && !invited) {
-      this.ctx.storage.sql.exec("INSERT INTO entry_tries (ip_hash, at) VALUES (?,?)", ipHash, now);
-      return fail("not_invited");
+    const phone = normalizePhone(rawPhone);
+    // 등록을 마친 사람이 먼저다 — 명단에서 지워졌어도 들어온다
+    const mine = phone ? this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone)[0] : undefined;
+    if (!mine) {
+      const inv = phone
+        ? this.rows<{ token: string | null }>("SELECT token FROM invites WHERE phone = ?", phone)[0]
+        : undefined;
+      if (!inv?.token) {
+        strike();
+        return fail("not_invited");
+      }
+      forgive();
+      return ok({ kind: "invited", token: inv.token });
     }
-    // 들어온 사람의 시도 기록은 남기지 않는다
-    this.ctx.storage.sql.exec("DELETE FROM entry_tries WHERE ip_hash = ?", ipHash);
-    return ok(mine ? { registered: true, code: meta.code } : { registered: false });
+
+    if ((mine.pin_fails ?? 0) >= PIN.maxFails) return fail("pin_locked");
+    const hasPin = !!mine.pin_hash && !!mine.pin_salt;
+    if (pin === undefined) return ok({ kind: "probe", pin: hasPin ? "required" : "set" });
+    if (!validPin(pin)) return fail("bad_request");
+
+    if (!hasPin) {
+      // 운영자가 초기화했거나 PIN 번호가 생기기 전의 참가자다 — 지금 정한다
+      await this.setPin(mine.id, pin);
+    } else {
+      const digest = await pinDigest(pin, mine.pin_salt!, this.secret);
+      if (!sameDigest(digest, mine.pin_hash!)) {
+        const fails = (mine.pin_fails ?? 0) + 1;
+        this.ctx.storage.sql.exec("UPDATE players SET pin_fails = ? WHERE id = ?", fails, mine.id);
+        strike();
+        if (fails >= PIN.maxFails) return fail("pin_locked");
+        return fail("pin_wrong", PIN.maxFails - fails);
+      }
+      if (mine.pin_fails) this.ctx.storage.sql.exec("UPDATE players SET pin_fails = 0 WHERE id = ?", mine.id);
+    }
+    forgive();
+    return ok({ kind: "player", playerId: mine.id, code: meta.code });
+  }
+
+  /** 후추. 세션 서명과 같은 비밀값이라 회차 DO 밖에 있다 — 표만 빠져나가도 해시가 안 돌아간다 */
+  private get secret(): string {
+    return (this.env as { SESSION_SECRET?: string }).SESSION_SECRET ?? "";
+  }
+
+  private async setPin(playerId: string, pin: string): Promise<void> {
+    const salt = randomHex(8);
+    const digest = await pinDigest(pin, salt, this.secret);
+    this.ctx.storage.sql.exec(
+      "UPDATE players SET pin_hash = ?, pin_salt = ?, pin_fails = 0 WHERE id = ?",
+      digest,
+      salt,
+      playerId,
+    );
+  }
+
+  /**
+   * 참가자 PIN 번호 초기화 (ADR-75). **지우기만 한다** — 새 값은 그 사람이 다음 입장에서 정한다.
+   * 실패 횟수를 함께 지운다. 따로 지우면 새로 정하자마자 다시 잠긴다.
+   * 삭제가 아니다 — 콕·자리·운세는 그대로다.
+   */
+  async resetPin(playerId: string): Promise<Result<true>> {
+    const row = this.rows<{ id: string }>("SELECT id FROM players WHERE id = ?", playerId)[0];
+    if (!row) return fail("not_found");
+    this.ctx.storage.sql.exec("UPDATE players SET pin_hash = NULL, pin_salt = NULL, pin_fails = 0 WHERE id = ?", playerId);
+    this.toHosts({ type: "roster" });
+    return ok(true);
   }
 
   /**
   * 토큰이 가리키는 번호. **DO 안에서만 쓴다** — 이 값이 Worker 를 지나 쿠키로 나가면
-  * 번호를 치지 않기로 한 결정(ADR-32)이 브라우저에서 새어 나간다.
+  * 서명만 된 페이로드라 개발자 도구에 그대로 읽힌다 (ADR-75 — 전화번호는 어느 쿠키에도 담지 않는다).
   */
   private phoneOf(token: string): string | null {
     const clean = String(token ?? "").trim();
@@ -511,37 +577,18 @@ export class EventDO extends DurableObject {
     return this.rows<{ phone: string }>("SELECT phone FROM players WHERE token = ?", clean)[0]?.phone ?? null;
   }
 
-  /**
-   * 이 토큰이 이 회차의 것인가, 그리고 그 주인이 이미 등록했나.
-   * **번호를 꺼내지 않는다** — 회차 정보를 여는 데 번호는 필요 없다.
-   */
-  async tokenState(token: string): Promise<Result<{ known: boolean; registered: boolean }>> {
-    const clean = String(token ?? "").trim();
-    if (!clean) return ok({ known: false, registered: false });
-    const registered = !!this.rows<{ id: string }>("SELECT id FROM players WHERE token = ?", clean)[0];
-    return ok({ known: registered || !!this.phoneOf(clean), registered });
-  }
-
-  /** 토큰의 주인이 이미 등록했다면 그 사람. 통과한 뒤 참가자 세션을 만들 때 쓴다 */
-  async playerIdByToken(token: string): Promise<Result<string | null>> {
-    const clean = String(token ?? "").trim();
-    if (!clean) return ok(null);
-    const row = this.rows<{ id: string }>("SELECT id FROM players WHERE token = ?", clean)[0];
-    return ok(row?.id ?? null);
-  }
-
   private invites(): Invite[] {
     const byPhone = new Map(this.players().map((p) => [p.phone, p.nickname]));
     /*
      * 칸을 골라 읽는다. `SELECT *` 로 두면 걷어낸 `sent_at` 이 남아 있는 옛 회차에서
      * 그 값이 응답에 딸려 나간다 — 지운 기능이 조용히 되살아 보이는 자리다.
+     * **`token` 도 안 싣는다** (ADR-75) — 내부 식별자이지 보낼 링크가 아니다.
      */
-    return this.rows<{ phone: string; added_at: number; token: string | null }>(
-      "SELECT phone, added_at, token FROM invites ORDER BY added_at, phone",
+    return this.rows<{ phone: string; added_at: number }>(
+      "SELECT phone, added_at FROM invites ORDER BY added_at, phone",
     ).map((r) => ({
       phone: r.phone,
       addedAt: r.added_at,
-      token: r.token ?? "",
       nickname: byPhone.get(r.phone),
     }));
   }
@@ -561,6 +608,8 @@ export class EventDO extends DurableObject {
     if (!phone) return fail("bad_request");
     const clean = cleanProfile(input);
     if (!clean) return fail("bad_request");
+    // PIN 번호는 등록을 마쳐야 저장된다 (ADR-75). 재입력 대조는 화면 몫이라 여기엔 하나뿐이다
+    if (!validPin(input.pin)) return fail("bad_request");
 
     const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone)[0];
     const saved = this.writeProfile(clean, {
@@ -571,11 +620,13 @@ export class EventDO extends DurableObject {
     if (!saved.ok) return saved;
 
     /*
-     * **토큰을 이 사람에게 붙인다** (ADR-32). 명단에서 지워져도 자기 링크로 계속 들어온다 —
-     * "명단은 문이지 자격이 아니다" 를 지키는 자리가 여기다.
+     * **토큰을 이 사람에게 붙인다.** 명단에서 지워져도 등록한 사람은 번호 + PIN 번호로 계속 들어온다
+     * (`enter` 가 명단보다 참가자를 먼저 찾는다) — "명단은 문이지 자격이 아니다" 를 지키는 자리다.
      */
     const tok = this.rows<{ token: string | null }>("SELECT token FROM invites WHERE phone = ?", phone)[0]?.token;
     if (tok) this.ctx.storage.sql.exec("UPDATE players SET token = ? WHERE phone = ?", tok, phone);
+    // 등록을 마치는 순간 PIN 번호가 걸린다 — 그 전에 나간 사람의 자리에는 자물쇠가 없다 (S-B2)
+    await this.setPin(saved.value.id, input.pin);
 
     this.broadcast({ type: "roster" });
     return saved;
@@ -644,6 +695,8 @@ export class EventDO extends DurableObject {
       mbti: clean.mbti,
       charms: clean.charms,
       createdAt: who.createdAt,
+      // 여기서 돌려주는 값을 쓰는 쪽은 `id` 뿐이다. PIN 번호 상태는 표에서 읽는다 (`toPlayer`)
+      pin: "none",
     };
 
     this.ctx.storage.sql.exec(
@@ -675,7 +728,7 @@ export class EventDO extends DurableObject {
    * 회차 DO 는 요청을 순차 처리하므로, 등록이 몰리는 순간 그 세 배가 그대로 줄이 된다.
    */
   async registerAndLoad(input: RegisterInput, token: string, now: number): Promise<Result<RegisterResult>> {
-    // 번호는 **여기서** 푼다. 쿠키에는 토큰만 들어 있다 (ADR-32)
+    // 번호는 **여기서** 푼다. 쿠키에는 명단 행의 토큰만 들어 있다 (ADR-75)
     const phone = this.phoneOf(token);
     if (!phone) return fail("not_invited") as Result<RegisterResult>;
     const before = this.rows<{ id: string }>("SELECT id FROM players WHERE phone = ?", phone)[0];
@@ -1769,6 +1822,10 @@ interface PlayerRow {
   mbti: string;
   charms: string;
   created_at: number;
+  /** 옛 회차에서는 ALTER 로 붙어 비어 있다 (ADR-75) */
+  pin_hash?: string | null;
+  pin_salt?: string | null;
+  pin_fails?: number | null;
 }
 
 interface SeatingRow {
@@ -1845,7 +1902,40 @@ function toPlayer(r: PlayerRow): Player {
     mbti: r.mbti,
     charms: JSON.parse(r.charms) as [string, string, string],
     createdAt: r.created_at,
+    pin: pinStateOf(r),
   };
+}
+
+/** 값도 해시도 아닌 **상태**만 내보낸다 (ADR-75). 운영자 응답에도 이것뿐이다 */
+function pinStateOf(r: PlayerRow): PinState {
+  if ((r.pin_fails ?? 0) >= PIN.maxFails) return "locked";
+  return r.pin_hash && r.pin_salt ? "set" : "none";
+}
+
+/**
+ * 키 있는 해시 — `HMAC-SHA256(SESSION_SECRET, salt ‖ pin)` (ADR-75).
+ *
+ * bcrypt·scrypt 가 아닌 이유는 **요청당 CPU 10ms** 다. 4자리는 어차피 만 가지라 느린 해시로 얻는 게
+ * 없고, 지키는 힘은 **후추가 DO 밖에 있다**는 데서 온다 — 표만 빠져나가도 후추 없이는
+ * 만 번을 돌려볼 수 없다. 솔트는 같은 PIN 번호가 같은 해시로 보이지 않게 한다.
+ */
+async function pinDigest(pin: string, salt: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${salt}:${pin}`));
+  return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function sameDigest(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 /** Fisher–Yates. `Math.random` 대신 crypto 를 쓴다 — 같은 밀리초에 두 번 눌러도 다르게 나오게 */

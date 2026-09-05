@@ -72,7 +72,7 @@ describe("참가자를 지웠을 때", () => {
 
     await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
     // 같은 번호로 다시 들어오면 새 사람이다. 앞사람의 운세를 물려받지 않는다
-    const back = await enter(ev.id, b.token);
+    const back = await enter(ev.id, b.phone);
     expect(back.body.registered).toBe(false);
   });
 
@@ -80,7 +80,7 @@ describe("참가자를 지웠을 때", () => {
     const { ev, b } = await pair();
     await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
 
-    const back = await enter(ev.id, b.token);
+    const back = await enter(ev.id, b.phone);
     expect(back.status).toBe(200);
     expect(back.body.registered).toBe(false);   // 등록 폼부터 다시
   });
@@ -90,7 +90,7 @@ describe("참가자를 지웠을 때", () => {
     await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
     await api(`/api/host/events/${ev.id}/invites/${b.phone}`, { method: "DELETE", cookie: master });
 
-    expect((await enter(ev.id, b.token)).status).toBe(403);
+    expect((await enter(ev.id, b.phone)).status).toBe(403);
   });
 
   it("★ 남은 사람의 받은 콕이 줄지 않는다 — 줄면 누가 찔렀는지 드러난다", async () => {

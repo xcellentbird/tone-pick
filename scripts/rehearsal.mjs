@@ -238,8 +238,8 @@ console.log(`회차 ${code} (${eventId})\n`);
 /*
  * ② 초대 명단 — 파티의 문이다. 명단에 없으면 아무도 못 들어온다.
  *
- * **문을 여는 건 번호가 아니라 토큰이다** (ADR-32). 명단에 번호를 넣으면 그 줄에
- * 토큰이 생기고, 그 토큰이 곧 그 사람의 신원이다. 응답에서 번호별 토큰을 받아 둔다 —
+ * **문을 여는 건 번호 + PIN 번호다** (ADR-75). 링크는 회차마다 하나라 여기서 받을 것이 없고,
+ * 참가자는 번호를 넣어 초대 쿠키를 받은 뒤 등록하며 PIN 번호를 정한다 —
  * 리허설도 **실제 참가자가 지나는 길 그대로** 가야 의미가 있다.
  */
 const phones = Array.from(
@@ -251,11 +251,12 @@ if (invited.status !== 200) {
   console.error("❌ 초대 명단을 넣지 못했습니다:", invited.body);
   process.exit(1);
 }
-const tokenOf = new Map((invited.body ?? []).map((i) => [i.phone, i.token]));
-if (tokenOf.size < PEOPLE) {
-  console.error(`❌ 초대 응답에 토큰이 모자랍니다 (${tokenOf.size}/${PEOPLE}).`);
+if ((invited.body ?? []).length < PEOPLE) {
+  console.error(`❌ 초대 명단이 모자랍니다 (${(invited.body ?? []).length}/${PEOPLE}).`);
   process.exit(1);
 }
+/** 리허설 참가자 전원의 PIN 번호. 진짜 참가자가 없는 곳이라 하나로 둔다 */
+const REHEARSAL_PIN = "2468";
 console.log(`초대 명단 ${phones.length}명\n`);
 
 // ③ 등록 — 회차 DO 가 요청을 순차 처리하는 구간이다
@@ -265,9 +266,9 @@ const regTimes = [];
 let regFailed = 0;
 await pool([...Array(PEOPLE).keys()], WIDTH, async (i) => {
   const c = client();
-  // 문을 먼저 지난다. **번호가 아니라 토큰이다** (ADR-32) — 통과하면 쿠키가 붙고,
-  // 번호는 서버가 토큰에서 꺼내 담는다. 등록 폼은 번호를 만지지 않는다 (ADR-31)
-  await c(`/events/${eventId}/enter`, { method: "POST", body: { token: tokenOf.get(phones[i]) } });
+  // 문을 먼저 지난다. **번호로** (ADR-75) — 명단에 있으면 초대 쿠키가 붙고,
+  // 번호는 서버가 그 쿠키의 명단 행에서 꺼낸다. 등록 폼은 번호를 만지지 않는다 (ADR-31)
+  await c(`/events/${eventId}/enter`, { method: "POST", body: { phone: phones[i] } });
   const res = await c("/register", {
     method: "POST",
     body: {
@@ -278,6 +279,7 @@ await pool([...Array(PEOPLE).keys()], WIDTH, async (i) => {
       instagram: `rehearsal_${i}`,
       mbti: i % 3 === 0 ? "ISTJ" : "ENFP",
       charms: ["리허설용 매력 하나", "둘", "셋"],
+      pin: REHEARSAL_PIN,
     },
   });
   regTimes.push(res.took);

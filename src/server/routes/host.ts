@@ -265,6 +265,20 @@ hostRoutes.delete("/events/:id/players/:pid", async (c) => {
   return response ?? c.json({ ok: true });
 });
 
+/**
+ * 참가자 PIN 번호 초기화 (ADR-75). **지우기만 한다** — 운영자가 새 값을 정하지 않는다.
+ * 남의 PIN 번호를 아는 자리를 만들지 않으려는 것이다. 그 사람이 다음에 들어올 때 직접 정한다.
+ * PIN 번호와 실패 횟수를 함께 지운다 — 따로 지우면 새로 정하자마자 다시 잠긴다.
+ */
+hostRoutes.post("/events/:id/players/:pid/pin/reset", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const reset = unwrap(c, await gate.stub.resetPin(c.req.param("pid")));
+  if (reset.response) return reset.response;
+  const { value, response } = unwrap(c, await gate.stub.hostState(serverNow()));
+  return response ?? c.json(value);
+});
+
 // ─────────────────────────────────── 운영자가 보내는 알림 (슬라이스 14)
 
 hostRoutes.post("/events/:id/announcements", async (c) => {

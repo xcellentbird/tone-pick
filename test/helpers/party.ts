@@ -115,11 +115,19 @@ export function person(over: Partial<RegisterInput> = {}): RegisterInput {
     instagram: `insta_${phoneSeq}`,
     mbti: "ENFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
+    // 등록을 마쳐야 저장된다 (ADR-75). 재입력 대조는 화면 몫이라 여기엔 하나뿐이다
+    pin: PIN,
     ...over,
   };
 }
 
-/** 초대 명단은 **더하고 빼기만** 있다. 통째로 갈아치우는 길은 두지 않았다 */
+/** 테스트 참가자들이 정하는 PIN 번호. 넷 다 같아도 된다 — 회차마다 따로이고 사람마다 따로다 */
+export const PIN = "2468";
+
+/**
+ * 초대 명단은 **더하고 빼기만** 있다. 통째로 갈아치우는 길은 두지 않았다.
+ * 넣은 번호를 그대로 돌려준다 — 문을 여는 열쇠가 이제 번호다 (ADR-75). 토큰은 응답에 없다.
+ */
 export async function invite(eventId: string, phone: string): Promise<string> {
   const res = await api<Invite[]>(`/api/host/events/${eventId}/invites`, {
     method: "POST",
@@ -127,26 +135,30 @@ export async function invite(eventId: string, phone: string): Promise<string> {
     body: { phones: [phone] },
   });
   expect(res.status).toBe(200);
-  // 번호를 넣는 순간 그 줄에 토큰이 생긴다 — 그게 이 사람의 참가 링크다 (ADR-32)
-  return res.body.find((i) => i.phone === phone)!.token;
+  expect(res.body.find((i) => i.phone === phone), "명단에 줄이 생겨야 한다").toBeTruthy();
+  return phone;
 }
 
-/** 문을 두드려 통과한다. **번호가 아니라 토큰이다** (ADR-32) */
-export async function enter(eventId: string, token: string) {
-  return api<{ registered: boolean; code?: string }>(`/api/events/${eventId}/enter`, {
-    method: "POST",
-    body: { token },
-  });
+/**
+ * 문을 두드린다 (ADR-75). 번호만 주면 **묻기**(미등록이면 초대 쿠키, 등록자면 다음에 펼 칸),
+ * PIN 번호까지 주면 **들어가기**다.
+ */
+export async function enter(eventId: string, phone: string, pin?: string) {
+  return api<{ registered: boolean; code?: string; pin?: "required" | "set"; ref?: string }>(
+    `/api/events/${eventId}/enter`,
+    { method: "POST", body: pin === undefined ? { phone } : { phone, pin } },
+  );
 }
 
 /** 명단에 넣고 → 입장하고 → 등록한다. 실제 참가자가 지나는 길 그대로다 */
 export async function join(ev: EventMeta, over: Partial<RegisterInput> = {}) {
   const phone = nextPhone();
   const input = person(over);
-  const token = await invite(ev.id, phone);
+  await invite(ev.id, phone);
 
-  const gate = await enter(ev.id, token);
+  const gate = await enter(ev.id, phone);
   expect(gate.status, JSON.stringify(gate.body)).toBe(200);
+  expect(gate.body.registered).toBe(false);
 
   const res = await api<RegisterResult>("/api/register", {
     method: "POST",
@@ -154,7 +166,7 @@ export async function join(ev: EventMeta, over: Partial<RegisterInput> = {}) {
     body: input,
   });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
-  return { cookie: res.cookie, id: res.body.state.me.id, input, phone, token, resumed: res.body.resumed };
+  return { cookie: res.cookie, id: res.body.state.me.id, input, phone, pin: input.pin, resumed: res.body.resumed };
 }
 
 export async function setPhase(id: string, to: string) {

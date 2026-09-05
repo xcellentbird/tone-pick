@@ -22,6 +22,16 @@ interface Props {
   titleHidden?: boolean;
   /** 아래에서 올라오는 시트인가(기본), 가운데 뜨는 확인창인가 */
   variant?: "sheet" | "dialog";
+  /** 확인창의 폭·모양 변주. `narrow` 는 묻는 게 칸 둘뿐인 자리다 (입장 확인창, ADR-75) */
+  tone?: "narrow";
+  /**
+   * **열릴 때 첫 입력칸에 커서를 준다** — ADR-63 의 예외 1호.
+   *
+   * 기본은 안 준다 (아래 `onOpenAutoFocus`). 시트는 대개 읽으러 여는 것이라 키보드가 화면 절반을
+   * 먹으면 안 되기 때문이다. 이 값은 **칠 것밖에 없는 창**에만 켠다 — 지금은 입장 확인창 하나다.
+   * ADR-63 이 *"구현이 둘 이상일 때 만든다"* 고 적어둔 그 설정이다.
+   */
+  autoFocus?: boolean;
   children: ReactNode;
 }
 
@@ -31,6 +41,8 @@ export default function Sheet({
   title,
   titleHidden,
   variant = "sheet",
+  tone,
+  autoFocus,
   children,
 }: Props) {
   /*
@@ -53,7 +65,7 @@ export default function Sheet({
       <Dialog.Portal>
         <Dialog.Overlay className="scrim" />
         <Dialog.Content
-          className={variant}
+          className={tone ? `${variant} ${tone}` : variant}
           aria-describedby={undefined}
           /*
            * **열었다고 입력칸에 커서를 주지 않는다** (ADR-63).
@@ -68,6 +80,7 @@ export default function Sheet({
            * 받을 수 있고, 입력이 아니라 컨테이너라 키보드는 안 올라온다.
            */
           onOpenAutoFocus={(e) => {
+            if (autoFocus) return; // Radix 가 첫 입력칸을 잡는다 — 칠 것밖에 없는 창이다
             e.preventDefault();
             (e.currentTarget as HTMLElement | null)?.focus();
           }}

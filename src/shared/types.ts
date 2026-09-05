@@ -32,7 +32,16 @@ export interface Player {
   mbti: string;              // "ENFP"
   charms: [string, string, string];
   createdAt: number;
+  /**
+   * PIN 번호의 **상태**뿐이다 (ADR-75). 값도 해시도 어느 응답에도 없다 — 운영자 응답에도.
+   *   set    — 정했다
+   *   none   — 아직 없다 (운영자가 초기화했거나, PIN 번호가 생기기 전의 참가자다)
+   *   locked — 다섯 번 틀려 잠겼다. 운영자만 푼다
+   */
+  pin: PinState;
 }
+
+export type PinState = "set" | "none" | "locked";
 
 /**
  * **본인에게만** 내려가는 내 정보 (ADR-47). 남에게 가는 건 `PublicPlayer` 다.
@@ -41,7 +50,7 @@ export interface Player {
  * 인스타는 남는다: 고치는 폼이 그 값을 칸에 다시 채워야 하고, 그 칸이 없으면
  * 오타를 낸 사람이 영영 못 고친다. 다만 **읽기 화면에는 그리지 않는다.**
  */
-export type MyProfile = Omit<Player, "phone">;
+export type MyProfile = Omit<Player, "phone" | "pin">;
 
 /**
  * 참가자에게 내려가는 형태. 이 타입 밖의 필드를 참가자 응답에 넣지 말 것.
@@ -78,6 +87,7 @@ export function toPublic(p: MyProfile, phase: Phase): PublicPlayer {
  * 그때 하는 일은 한 줄 더 적는 게 아니라 *이 값이 본인에게 가도 되나* 를 정하는 것이다.
  */
 export function toMe(p: Player): MyProfile {
+  // `pin` 은 본인에게도 안 간다 — 화면이 쓸 데가 없고, 안 보내면 실수로도 못 보여준다
   const { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt } = p;
   return { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt };
 }
@@ -394,8 +404,8 @@ export interface EventSummary {
 /**
  * 회차 미리보기 — **인증 없이** 누구나 받는다. 여기에 비밀을 넣지 마라.
  *
- * **토큰이 있어야 열린다** (ADR-32). 회차 아이디만으로 이름·일정이 열리면
- * 링크를 사람마다 다르게 만든 의미가 없다 — 아이디는 링크에 그대로 보이는 값이다.
+ * **아이디만으로 열린다** (ADR-75). 링크가 회차마다 하나라 회차가 있다는 사실은 링크로 이미
+ * 드러난다 — 알고 고른 대가다. 그래서 여기엔 이름·단계·일시뿐이다. 명단도 참가자도 없다.
  * 입장 코드도 절대 넣지 않는다. 코드는 등록을 마친 사람의 화면 주소(`/e/:code`)를 가리킨다.
  */
 export interface PublicEvent {
@@ -415,12 +425,8 @@ export interface PublicEvent {
    * 그러면 운영자가 적어 넣은 한 줄이 두 줄 중 하나가 되어 묻힌다.
    */
   nickHint?: string;
-  /**
-   * 이 링크의 주인이 이미 등록했나. **자기 자신에 대한 답이라 새어 나갈 게 없다** —
-   * 토큰을 가진 사람에게만 이 응답이 열린다 (ADR-32).
-   * 화면이 `등록하기` 와 `다시 입장하기` 를 가르는 데 쓴다.
-   */
-  registered?: boolean;
+  // `registered` 는 없다 (ADR-75). 링크에 토큰이 없어져 "이 링크의 주인" 이 없다 —
+  // 이미 등록했는지는 번호를 넣었을 때(`EnterProbe`) 답한다
 }
 
 export type ErrorCode =
@@ -430,8 +436,10 @@ export type ErrorCode =
   | "code_taken"
   | "bad_request"
   // 슬라이스 02~05 에서 늘어난 것
-  | "not_invited"    // 403 · 명단의 어느 줄도 이 토큰이 아니다 (ADR-32)
+  | "not_invited"    // 403 · 명단에 없는 번호다 (ADR-75)
   | "too_many"       // 429 · 이 회차의 문을 너무 여러 번 두드렸다
+  | "pin_wrong"      // 403 · PIN 번호가 맞지 않는다. detail = 남은 횟수 (ADR-75)
+  | "pin_locked"     // 423 · 다섯 번 틀려 잠겼다. 운영자만 푼다 (ADR-75)
   | "nick_taken"     // 409 · 회차 안에서 닉네임이 겹쳤다
   | "closed"         // 409 · 지금 단계에서는 할 수 없다
   | "no_budget"      // 409 · 이번 라운드 콕을 다 썼다
@@ -483,40 +491,68 @@ export interface RegisterInput {
   instagram: string;
   mbti: string;
   charms: [string, string, string];
+  /**
+   * 숫자 4자리 (ADR-75). 등록을 마쳐야 저장된다. **재입력 대조는 화면이 한다** — 서버는 하나만 받는다.
+   * 등록에서만 정한다 — 입장 확인창은 이미 정한 값을 대조할 뿐이다 (초기화된 사람은 예외, `EnterProbe`).
+   */
+  pin: string;
 }
 
-/** 초대 명단 한 줄. 운영자만 본다 */
+/**
+ * 초대 명단 한 줄. 운영자만 본다.
+ *
+ * `token` 은 응답에 없다 (ADR-75). 참가 링크가 회차마다 하나가 되어 보낼 것이 없어졌다 —
+ * 표에는 내부 식별자로 남아 초대 쿠키가 그 값을 들고 다닌다.
+ */
 export interface Invite {
   phone: string;
   addedAt: number;
-  /**
-   * 이 사람의 참가 링크(`/j/<회차id>/<토큰>`). **번호를 넣는 순간 생긴다** (ADR-32).
-   * 운영자 응답에만 실린다 — 참가자에게 남의 토큰이 가면 그 사람이 될 수 있다.
-   */
-  token: string;
   /** 이미 등록한 사람이면 그 닉네임. 운영자가 누가 왔는지 명단에서 바로 본다 */
   nickname?: string;
 }
 
-/** 입장 확인 결과. 명단에 없으면 이 응답 자체가 오지 않는다 (403) */
-export interface EnterResult {
-  /** 이미 등록을 마친 사람인가. 그러면 등록 폼을 건너뛴다 */
+/**
+ * **번호 하나로 문을 두드린 답** (ADR-75). 명단에 없으면 이 응답 자체가 오지 않는다 (403).
+ *
+ * 화면이 다음에 무엇을 펼지 여기서 정한다 — 미등록이면 등록 폼으로, 등록했으면 PIN 번호 칸을.
+ */
+export interface EnterProbe {
+  /** 등록을 마친 사람인가 */
   registered: boolean;
-  /** 등록을 마친 사람에게만. 자기 화면 주소(`/e/:code`)로 가는 데 쓴다 */
-  code?: string;
   /**
-   * 이 탭이 쓸 세션 이름표 (ADR-44). **비밀이 아니다** —
-   * 쿠키 여럿 중 어느 것을 읽을지 고르는 값일 뿐이라, 이것만으로는 아무 문도 열리지 않는다.
-   * 증명은 끝까지 HttpOnly 쿠키 안에 있다.
+   * 등록한 사람에게만.
+   *   "required" — PIN 번호가 있다. 칸 하나를 편다
+   *   "set"      — PIN 번호가 없다 (운영자가 초기화했거나 PIN 번호가 생기기 전의 참가자다). 칸 둘을 편다
    */
+  pin?: "required" | "set";
+  /**
+   * 미등록일 때만 — 초대 쿠키가 함께 심겼다. 이 탭이 쓸 세션 이름표다 (ADR-44). **비밀이 아니다** —
+   * 쿠키 여럿 중 어느 것을 읽을지 고르는 값일 뿐이라, 이것만으로는 아무 문도 열리지 않는다.
+   */
+  ref?: string;
+}
+
+/** 번호 + PIN 번호로 들어온 답. 참가자 쿠키가 함께 심겼다 */
+export interface EnterResult {
+  registered: true;
+  /** 자기 화면 주소(`/e/:code`)로 가는 데 쓴다 */
+  code: string;
+  /** 이 탭이 쓸 세션 이름표 (ADR-44). 증명은 끝까지 HttpOnly 쿠키 안에 있다 */
   ref: string;
 }
 
 /**
  * 회차 DO 가 내리는 입장 판정. **이름표는 여기 없다** —
  * 세션은 Worker 의 일이고, DO 는 쿠키도 탭도 모른다 (설계 경계).
+ *
+ *   invited — 명단에 있고 아직 등록 전. `token` 은 명단 행의 내부 식별자다 — Worker 가 초대 쿠키에 담는다
+ *   probe   — 등록한 사람이 번호만 넣었다. 다음에 펼 칸을 말한다
+ *   player  — 번호 + PIN 번호가 맞았다 (또는 없던 PIN 번호를 방금 정했다)
  */
-export type EntryOutcome = Omit<EnterResult, "ref">;
+export type EntryOutcome =
+  | { kind: "invited"; token: string }
+  | { kind: "probe"; pin: "required" | "set" }
+  | { kind: "player"; playerId: string; code: string };
 
 /**
  * 참가자에게 내려가는 회차 상태.
@@ -618,7 +654,7 @@ export interface ParticipantState {
    * 본인이 **낸** 값이라 본인에게는 그대로 보여준다.
    *
    * ⚠️ **전화번호만 빠진다** (ADR-47). 그것 하나는 참가자가 낸 값이 아니라
-   * 초대 명단에서 온 값이고(ADR-32 — 참가자는 번호를 치지 않는다),
+   * 초대 명단에서 온 값이고(ADR-75 — 입장할 때 대조할 뿐 폼에서 내지 않는다),
    * 내 정보 탭이 답하는 질문은 *내가 낸 것이 무엇인가* 다.
    * **`Player` 로 되돌리지 마라** — 화면에서 감추는 것과 응답에 없는 것은 다르다.
    */

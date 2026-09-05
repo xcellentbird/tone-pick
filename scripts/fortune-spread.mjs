@@ -326,7 +326,8 @@ async function collect() {
   const phones = Array.from({ length: PEOPLE }, (_, i) => `010${String(stamp).slice(-4)}${String(i).padStart(4, "0")}`);
   const invited = await host(`/host/events/${eventId}/invites`, { method: "POST", body: { phones } });
   if (invited.status !== 200) exit(`초대에 실패했습니다: ${JSON.stringify(invited.body)}`);
-  const tokenOf = new Map(invited.body.map((i) => [i.phone, i.token]));
+  /** 측정 참가자 전원의 PIN 번호 (ADR-75). 연습용 환경이라 하나로 둔다 */
+  const SPREAD_PIN = "2468";
 
   /*
    * 남28 / 여12, 22~34세 — ADR-57 을 맞출 때 쓴 것과 같은 분포다.
@@ -352,12 +353,13 @@ async function collect() {
   const joined = [];
   await pool(people, WIDTH, async (p) => {
     const c = client();
-    await c(`/events/${eventId}/enter`, { method: "POST", body: { token: tokenOf.get(phones[p.i]) } });
+    await c(`/events/${eventId}/enter`, { method: "POST", body: { phone: phones[p.i] } });
     const res = await c("/register", {
       method: "POST",
       body: {
         nickname: p.nickname, realName: p.realName, age: p.age, gender: p.gender,
         instagram: `spread_${p.i}`, mbti: p.mbti, charms: p.charms,
+        pin: SPREAD_PIN,
       },
     });
     if (res.status === 200) joined.push({ ...p, call: c });
