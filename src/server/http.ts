@@ -108,6 +108,8 @@ const STATUS: Record<ErrorCode, number> = {
   not_found: 404,
   not_invited: 403,
   too_many: 429,
+  pin_wrong: 403,
+  pin_locked: 423,
   code_taken: 409,
   nick_taken: 409,
   closed: 409,
@@ -177,8 +179,9 @@ export async function playerScope(c: Ctx): Promise<AuthScope | null> {
 }
 
 /**
- * 링크는 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다.
- * **번호가 아니라 참가 토큰을 들고 있다** (ADR-32) — 번호는 회차 DO 안에서만 푼다.
+ * 번호는 통과했지만 아직 등록하지 않은 사람. 등록 폼 하나만 열 수 있다.
+ * **번호가 아니라 명단 행의 식별자(토큰)를 들고 있다** (ADR-75) — 번호는 회차 DO 안에서만 푼다.
+ * 세션은 서명만 하고 암호화하지 않아서, 번호를 담으면 개발자 도구에 그대로 읽힌다.
  */
 export async function inviteScope(c: Ctx): Promise<{ eventId: string; token: string } | null> {
   const session = readCookie(c.req.header("cookie") ?? null, cookieName(INVITE_COOKIE, sessionRef(c)));

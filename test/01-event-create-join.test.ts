@@ -101,21 +101,13 @@ async function travelTo(at: number) {
   expect(res.status, "테스트 전용 시간 이동 라우트가 필요합니다 (docs/scenarios/01-surface.md)").toBe(200);
 }
 
-let inviteSeq = 0;
 
 /**
- * 참가 링크 주소. **회차 정보 조회도 토큰을 요구한다** (ADR-32) —
- * 아이디만으로 열리면 토큰을 만든 의미가 없다.
+ * 참가 링크가 여는 회차 조회 주소. **토큰이 없다** (ADR-75) — 링크는 회차마다 하나다.
+ * 회차의 존재는 링크만으로 드러난다. 알고 치른 대가다.
  */
 async function linkTo(eventId: string): Promise<string> {
-  const phone = `0108000${String(1000 + ++inviteSeq)}`;
-  const added = await api<Array<{ phone: string; token: string }>>(`/api/host/events/${eventId}/invites`, {
-    method: "POST",
-    cookie: master,
-    body: { phones: [phone] },
-  });
-  const token = added.body.find((i) => i.phone === phone)!.token;
-  return `/api/events/by-id/${eventId}?t=${token}`;
+  return `/api/events/by-id/${eventId}`;
 }
 
 let master: string | null = null;

@@ -238,7 +238,8 @@ function EditForm({
           {err("nickname")}
         </div>
         <div className="field">
-          <label htmlFor="realName">{ME.labels.realName}</label>
+          {/* 등록 화면과 **같은 라벨**이다 — 약속이 라벨에 있고(ADR-75), 두 화면이 다르게 말하면 둘 다 못 믿는다 */}
+          <label htmlFor="realName">{REGISTER.realNameLabel}</label>
           <input
             id="realName"
             value={draft.realName}
@@ -271,7 +272,8 @@ function EditForm({
           {err("gender")}
         </div>
         <div className="field">
-          <label htmlFor="instagram">{ME.labels.instagram}</label>
+          {/* 등록 화면과 **같은 라벨**이다 (ADR-42·75) — 왜 받는지는 라벨이 말한다. 문장을 따로 두지 마라 */}
+          <label htmlFor="instagram">{REGISTER.instagramLabel}</label>
           <input
             id="instagram"
             value={draft.instagram}
@@ -279,8 +281,6 @@ function EditForm({
             onChange={(e) => set("instagram", e.target.value)}
             {...invalid("instagram")}
           />
-          {/* 등록 화면과 **같은 말**이어야 한다 — 두 화면이 다르게 말하면 둘 다 못 믿는다 */}
-          <p className="tiny dim">{REGISTER.instaWhy}</p>
           {err("instagram")}
         </div>
       </div>

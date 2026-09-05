@@ -1,9 +1,9 @@
 /**
  * 탭마다 다른 참가자 (ADR-44).
  *
- * 개인 링크는 사람마다 다른데(ADR-32) **세션은 브라우저에 하나뿐이었다.** 쿠키가 탭이 아니라
- * 브라우저 단위라, 두 번째 탭에서 다른 사람의 링크를 열면 **첫 번째 탭이 조용히 그 사람이 됐다.**
- * 링크를 아무리 잘 나눠도 소용이 없었다.
+ * **세션은 브라우저에 하나뿐이었다.** 쿠키가 탭이 아니라 브라우저 단위라, 두 번째 탭에서
+ * 다른 사람으로 들어오면 **첫 번째 탭이 조용히 그 사람이 됐다.** (개인 링크 시절에 겪었고,
+ * 링크가 회차마다 하나가 된 지금(ADR-75)도 두 탭이 두 사람인 건 같다 — 번호가 다를 뿐이다.)
  *
  * 그래서 쿠키를 사람마다 따로 두고(`tp_play_<이름표>`), 요청이 `x-tp-ref` 로 어느 것을 읽을지
  * 고른다. 이 파일이 지키는 것은 셋이다 —
@@ -42,12 +42,12 @@ function jar() {
 
 type Jar = ReturnType<typeof jar>;
 
-/** 한 탭이 링크를 열고 등록까지 마친다. 실제 참가자가 지나는 길 그대로다 */
+/** 한 탭이 링크를 열고 번호를 넣어 등록까지 마친다. 실제 참가자가 지나는 길 그대로다 */
 async function tabJoin(ev: EventMeta, box: Jar, nickname: string) {
-  const token = await invite(ev.id, nextPhone());
+  const phone = await invite(ev.id, nextPhone());
   const gate = await api<{ registered: boolean; code?: string; ref: string }>(
     `/api/events/${ev.id}/enter`,
-    { method: "POST", cookie: box.header, body: { token } },
+    { method: "POST", cookie: box.header, body: { phone } },
   );
   expect(gate.status, JSON.stringify(gate.body)).toBe(200);
   expect(gate.body.ref, "입장 응답에 이름표가 있어야 한다").toBeTruthy();
@@ -61,7 +61,7 @@ async function tabJoin(ev: EventMeta, box: Jar, nickname: string) {
   });
   expect(done.status, JSON.stringify(done.body)).toBe(200);
   box.take(done);
-  return { ref: gate.body.ref, id: done.body.state.me.id, token };
+  return { ref: gate.body.ref, id: done.body.state.me.id, phone };
 }
 
 describe("탭마다 다른 참가자", () => {
@@ -157,11 +157,11 @@ describe("탭마다 다른 참가자", () => {
   /** 쿠키 이름에 붙는 값이라, 걸러내지 않으면 `;` 하나로 남의 속성을 붙일 수 있다 */
   it("★ 이름표로 쿠키 속성을 밀어 넣을 수 없다", async () => {
     const ev = await freshEvent();
-    const token = await invite(ev.id, nextPhone());
+    const phone = await invite(ev.id, nextPhone());
     const res = await api(`/api/events/${ev.id}/enter`, {
       method: "POST",
       ref: "abcd; Domain=evil.test",
-      body: { token },
+      body: { phone },
     });
     for (const c of res.setCookies) expect(c).not.toContain("evil.test");
   });
@@ -171,7 +171,8 @@ describe("탭마다 다른 참가자", () => {
   it("★ 입장 응답에 이름표는 있고, 번호와 참가자 아이디는 없다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
-    const back = await enter(ev.id, me.token);
+    // 번호를 **요청에 실어 보냈는데도** 응답이 되받아 말하지 않아야 한다
+    const back = await enter(ev.id, me.phone, me.pin);
 
     const raw = JSON.stringify(back.body);
     expect(raw).toContain("ref");
@@ -191,11 +192,11 @@ describe("탭마다 다른 참가자", () => {
   });
 
   async function enterTab(ev: EventMeta, box: Jar) {
-    const token = await invite(ev.id, nextPhone());
+    const phone = await invite(ev.id, nextPhone());
     const gate = await api<{ ref: string }>(`/api/events/${ev.id}/enter`, {
       method: "POST",
       cookie: box.header,
-      body: { token },
+      body: { phone },
     });
     expect(gate.status, JSON.stringify(gate.body)).toBe(200);
     box.take(gate);

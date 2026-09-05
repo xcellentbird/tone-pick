@@ -79,14 +79,15 @@ async function join(ev: EventMeta, gender: "M" | "F" = "M") {
   const added = await api<Invite[]>(`/api/host/events/${ev.id}/invites`, {
     method: "POST", cookie: master, body: { phones: [phone] },
   });
-  const token = added.body.find((i) => i.phone === phone)!.token;
-  const gate = await api(`/api/events/${ev.id}/enter`, { method: "POST", body: { token } });
+  expect(added.body.find((i) => i.phone === phone)).toBeTruthy();
+  const gate = await api(`/api/events/${ev.id}/enter`, { method: "POST", body: { phone } });
   seq++;
   const input: RegisterInput = {
     nickname: `콕${String.fromCharCode(0xac00 + (seq % 1000))}`,
     realName: "김실명", age: 28, gender,
     instagram: `pk_${seq}`, mbti: "ENFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
+    pin: "2468",
   };
   const res = await api<RegisterResult>("/api/register", { method: "POST", cookie: gate.cookie, body: input });
   expect(res.status, JSON.stringify(res.body)).toBe(200);

@@ -90,14 +90,14 @@ async function freshEvent(): Promise<EventMeta> {
 /** 명단에 넣고 → 입장하고 → 등록한다. 실제 참가자가 지나는 길 그대로다 */
 async function join(ev: EventMeta): Promise<{ cookie: string | null; id: string }> {
   const phone = `0102000${String(1000 + ++phoneSeq)}`;
-  // 번호를 넣으면 그 줄에 토큰이 생기고, 문을 여는 건 그 토큰이다 (ADR-32)
+  // 명단에 넣고 번호로 문을 두드린다 (ADR-75)
   const added = await api<Invite[]>(`/api/host/events/${ev.id}/invites`, {
     method: "POST",
     cookie: master,
     body: { phones: [phone] },
   });
-  const token = added.body.find((i) => i.phone === phone)!.token;
-  const gate = await api(`/api/events/${ev.id}/enter`, { method: "POST", body: { token } });
+  expect(added.body.find((i) => i.phone === phone)).toBeTruthy();
+  const gate = await api(`/api/events/${ev.id}/enter`, { method: "POST", body: { phone } });
   expect(gate.status, JSON.stringify(gate.body)).toBe(200);
   const input: RegisterInput = {
     nickname: `투표${hangulSeq(phoneSeq)}`,
@@ -107,6 +107,7 @@ async function join(ev: EventMeta): Promise<{ cookie: string | null; id: string 
     instagram: `insta_${phoneSeq}`,
     mbti: "ENFP",
     charms: ["요리를 잘해요", "잘 웃어요", "노래를 좋아해요"],
+    pin: "2468",
   };
   const res = await api<RegisterResult>("/api/register", { method: "POST", cookie: gate.cookie, body: input });
   expect(res.status, JSON.stringify(res.body)).toBe(200);

@@ -1,21 +1,25 @@
 /**
- * 참가자 등록 3스텝.
+ * 참가자 등록 3걸음 — `기본 정보 · 나를 소개 · 다시 들어올 때` (ADR-75).
  *
  * 지키는 것
  *  · 스텝 이동은 push — 뒤로 가기가 이전 스텝이다 (`이전` 버튼이 그걸 쓴다)
  *  · 등록 완료는 replace — 그런데 **replace 는 마지막 한 칸만 갈아끼운다.**
  *    1·2 스텝은 히스토리에 남으므로, 이미 등록한 사람이 그 칸을 밟으면 홈으로 돌려보낸다
  *  · 에러는 **그 값을 입력한 자리에** 띄운다. 닉네임 중복이면 3스텝이 아니라 1스텝으로 되돌린다
- *  · 에러가 뜨면 그 칸으로 스크롤·포커스한다 — 3스텝은 길어서 화면 밖에 뜰 수 있다
+ *  · 에러가 뜨면 그 칸으로 스크롤·포커스한다 — 2스텝은 길어서 화면 밖에 뜰 수 있다
  *  · 인스타의 @·URL 껍데기는 오류가 아니라 의도다 — 벗겨서 받는다 (normalizeInstagram)
  *  · 토글을 눌러도 입력값을 날리지 않는다 (폼 전체를 다시 그리지 않는다)
  *  · MBTI 는 16지선다가 아니라 4문항 토글 — 모르는 사람도 답할 수 있어야 한다
+ *  · **약속은 문장이 아니라 라벨에 붙는다** — `인스타 (운영자 확인용 · 공개되지 않아요)`,
+ *    `이름 (서로 콕 찌른 상대에게만 보여요)`. 다섯 칸 사이에서 문단은 안 읽히지만 라벨은 읽힌다
+ *  · **PIN 번호는 마지막 걸음이고 두 번 친다.** 한 번 정하면 못 고치므로 재입력이 유일한 방어다 —
+ *    둘 중 하나만 떼지 마라 (S-B3). 대조는 여기서 하고 서버는 하나만 받는다
  */
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, GENDER, MBTI_AXES, ME, REGISTER, SCREEN_TITLE } from "../../shared/copy.ts";
-import type { ParticipantState, RegisterResult } from "../../shared/types.ts";
-import { LIMITS, normalizeInstagram } from "../../shared/constants.ts";
+import type { ParticipantState, PublicEvent, RegisterResult } from "../../shared/types.ts";
+import { LIMITS, PIN, normalizeInstagram } from "../../shared/constants.ts";
 import { ApiError, api, post } from "../lib/api.ts";
 import { useDraftGuard } from "../lib/history.ts";
 import type { ProfileDraft } from "../lib/profileForm.ts";
@@ -27,11 +31,11 @@ import { prefetchParticipant } from "../router.tsx";
 type Draft = ProfileDraft;
 
 /** 회차 조회가 이 화면에 주는 것 — Join 이 넘겨주기도 하고, 없으면 직접 묻는다 */
-type RoomPeek = { registered?: boolean; code?: string; nickHint?: string };
+type RoomPeek = Pick<PublicEvent, "nickHint">;
 const EMPTY = EMPTY_DRAFT;
 
 export default function Register() {
-  const { id = "", token = "", step = "1" } = useParams();
+  const { id = "", step = "1" } = useParams();
   const navigate = useNavigate();
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<{ field: string; text: string } | null>(null);
@@ -62,67 +66,45 @@ export default function Register() {
    * (`이전` 버튼이 그 히스토리를 쓴다) 1·2 스텝이 남고, 홈에서 뒤로 가면 등록 폼이 다시 떴다.
    * 다 채워진 것처럼 보이는 폼을 보면 **두 번 등록하려 든다** — Join 화면이 하는 확인과 같은 것이다.
    *
-   * ⚠️ **그 확인은 토큰에게 묻는다. 브라우저 세션이 아니다** (ADR-44).
-   *    예전에는 `/me` 로 "이 브라우저에 세션이 있나" 를 물었는데, 쿠키는 탭이 아니라
-   *    브라우저 단위라 **다른 탭에 열린 사람으로 넘어갈 수 있었다.** Join 에서 고친 것과
-   *    같은 자리이고, 두 곳 다 고쳐야 규칙이 규칙이 된다.
+   * 그 확인은 **이 탭의 세션**에 묻는다 (`/me?event=`). 링크에 신원이 없어진 뒤로는(ADR-75) 이것이
+   * 유일한 단서다 — 확인창을 지나온 탭은 이름표를 들고 있어서 남의 탭 세션으로 넘어가지 않는다 (ADR-44).
+   * 등록을 마친 탭은 같은 이름표로 참가자 쿠키를 받으므로 여기서 200 이 난다.
    */
   useEffect(() => {
     let alive = true;
-    /*
-     * **Join 이 방금 읽은 값을 넘겨받는다** — 없으면 그때 묻는다.
-     *
-     * 이 화면은 마운트될 때마다 회차를 다시 물었는데, 링크를 눌러 들어온 사람에게는
-     * **Join 이 1초 전에 부른 것과 똑같은 요청**이었다. 4G 에서 151ms 를 그냥 버렸고
-     * 그동안 화면이 비어 있었다(`checking`).
-     *
-     * ⚠️ 새로고침·주소 직접 입력·뒤로 가기로 오면 `state` 가 없다. 그때는 물어야 한다 —
-     *    **넘겨받은 값이 없다고 등록을 막으면 안 된다.**
-     * ⚠️ 판정은 여전히 **토큰이 답한 값**이다 (ADR-44). 넘겨받는 것도 그 값이지
-     *    브라우저 세션이 아니다.
-     */
-    const room = handed.current;
-    if (room) {
-      if (room.registered) void enterHome();
-      else {
-        setNickHint(room.nickHint ?? "");
-        setChecking(false);
-      }
-      return () => {
-        alive = false;
-      };
-    }
-
-    /*
-     * 넘겨받은 게 없다 — 새로고침이거나 주소로 바로 온 사람이다.
-     * 그때도 `index.html` 이 띄워둔 요청이 있으면 그걸 받아간다 (`lib/boot.ts`).
-     */
-    const path = `/events/by-id/${id}?t=${encodeURIComponent(token)}`;
-    (takeBoot<RoomPeek>(path) ?? api<RoomPeek>(path))
-      .then((room) => {
+    api<ParticipantState>(`/me?event=${encodeURIComponent(id)}`)
+      .then((me) => alive && navigate(`/e/${me.event.code}`, { replace: true }))
+      .catch(() => {
         if (!alive) return;
-        // 이 토큰의 주인이 이미 등록했다. 자기 화면은 세션이 아는 코드로 간다
-        if (room.registered) return void enterHome();
-        setNickHint(room.nickHint ?? "");
-        setChecking(false);
-      })
-      .catch(() => alive && setChecking(false));
-
-    /** 등록을 마친 사람을 자기 화면으로. 회차 조회는 코드를 주지 않으므로 세션에 묻는다 */
-    async function enterHome() {
-      try {
-        const me = await api<ParticipantState>(`/me?event=${encodeURIComponent(id)}`);
-        if (alive) navigate(`/e/${me.event.code}`, { replace: true });
-      } catch {
-        // 이 탭에는 세션이 없다 — 링크부터 다시 지나야 한다
-        if (alive) navigate(`/j/${id}/${token}`, { replace: true });
-      }
-    }
-
+        /*
+         * 세션이 없다 — 등록할 사람이다. **Join 이 방금 읽은 값을 넘겨받는다**, 없으면 그때 묻는다.
+         *
+         * 이 화면은 마운트될 때마다 회차를 다시 물었는데, 링크를 눌러 들어온 사람에게는
+         * **Join 이 1초 전에 부른 것과 똑같은 요청**이었다. 4G 에서 151ms 를 그냥 버렸다.
+         *
+         * ⚠️ 새로고침·주소 직접 입력·뒤로 가기로 오면 `state` 가 없다. 그때는 물어야 한다 —
+         *    **넘겨받은 값이 없다고 등록을 막으면 안 된다.** `index.html` 이 띄워둔 요청이 있으면
+         *    그걸 받아간다 (`lib/boot.ts`).
+         */
+        const room = handed.current;
+        if (room) {
+          setNickHint(room.nickHint ?? "");
+          setChecking(false);
+          return;
+        }
+        const path = `/events/by-id/${id}`;
+        (takeBoot<RoomPeek>(path) ?? api<RoomPeek>(path))
+          .then((room) => {
+            if (!alive) return;
+            setNickHint(room.nickHint ?? "");
+            setChecking(false);
+          })
+          .catch(() => alive && setChecking(false));
+      });
     return () => {
       alive = false;
     };
-  }, [id, token, navigate]);
+  }, [id, navigate]);
 
   // 오류를 만든 칸으로 데려간다 — 키보드가 올라온 폰에서는 화면 밖 오류가 "아무 일도 없음"으로 보인다.
   // error.field 가 곧 요소 id 다. 서버 오류로 스텝을 되돌린 경우(nick_taken)도 이 효과가 받는다
@@ -143,18 +125,18 @@ export default function Register() {
 
   function next() {
     // 붙여넣은 @·URL 껍데기는 오류가 아니다 — 벗긴 값으로 검증하고, 화면에도 벗긴 값을 남긴다
-    const d = at === 2 ? { ...draft, instagram: normalizeInstagram(draft.instagram) } : draft;
+    const d = at === 1 ? { ...draft, instagram: normalizeInstagram(draft.instagram) } : draft;
     if (d !== draft) setDraft(d);
     const bad = validateProfile(d, at);
     if (bad) return setError(bad);
-    if (at < 3) return navigate(`/j/${id}/${token}/register/${at + 1}`);
+    if (at < 3) return navigate(`/j/${id}/register/${at + 1}`);
     submit();
   }
 
   async function submit() {
     setBusy(true);
     try {
-      // 번호는 입장할 때 확인한 값이다. 서버가 초대 쿠키에서 꺼내 쓴다 (ADR-15)
+      // 번호는 입장할 때 확인한 값이다. 서버가 초대 쿠키에서 꺼내 쓴다 (ADR-31) — PIN 번호는 여기서 함께 간다
       const done = await post<RegisterResult>("/register", toInput(draft));
       const home = `/e/${done.state.event.code}`;
       // 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
@@ -182,12 +164,12 @@ export default function Register() {
       if (e instanceof ApiError && e.code === "nick_taken") {
         // 닉네임 칸이 있는 1스텝으로 되돌린 뒤 띄운다. 입력값은 그대로 둔다
         setError({ field: "nickname", text: e.userMessage ?? REGISTER.err.nick });
-        navigate(`/j/${id}/${token}/register/1`);
+        navigate(`/j/${id}/register/1`);
         return;
       }
       // 초대 확인이 만료되면 폼을 계속 붙들고 있어봐야 소용없다. 문 앞으로 돌려보낸다
       if (e instanceof ApiError && e.status === 401) {
-        navigate(`/j/${id}/${token}`, { replace: true });
+        navigate(`/j/${id}`, { replace: true });
         return;
       }
       setError({ field: "form", text: e instanceof ApiError ? (e.userMessage ?? REGISTER.err.retry) : REGISTER.err.retry });
@@ -238,7 +220,8 @@ export default function Register() {
               {err("nickname")}
             </div>
             <div className="field">
-              <label htmlFor="realName">{ME.labels.realName}</label>
+              {/* 약속이 라벨에 있다 — 발표 때 서로 콕 찌른 상대에게만, 그것도 실명 하나다 (ADR-42) */}
+              <label htmlFor="realName">{REGISTER.realNameLabel}</label>
               <input id="realName" value={draft.realName} maxLength={LIMITS.realNameMax} onChange={(e) => set("realName", e.target.value)} {...invalid("realName")} />
               {err("realName")}
             </div>
@@ -269,26 +252,20 @@ export default function Register() {
               </div>
               {err("gender")}
             </div>
-          </>
-        )}
-
-        {at === 2 && (
-          <>
-            <p className="tiny dim pre">{REGISTER.contactNote}</p>
             <div className="field">
-              <label htmlFor="instagram">{ME.labels.instagram}</label>
-              <input id="instagram" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} {...invalid("instagram")} />
               {/*
-                **왜 받는지 그 자리에서 말한다** (ADR-42). 이 줄이 없으면 참가자가
-                `연락 수단으로 쓰이겠구나` 로 읽는데, 그건 이제 사실이 아니다
+                **왜 받는지 라벨이 말한다** (ADR-42·75). 이 말이 없으면 참가자가
+                `연락 수단으로 쓰이겠구나` 로 읽는데, 그건 사실이 아니다 — 운영자만 본다.
+                라벨 밖에 문장을 두지 마라. 다섯 칸 사이에서 문단은 안 읽힌다
               */}
-              <p className="tiny dim">{REGISTER.instaWhy}</p>
+              <label htmlFor="instagram">{REGISTER.instagramLabel}</label>
+              <input id="instagram" value={draft.instagram} autoCapitalize="none" onChange={(e) => set("instagram", e.target.value)} {...invalid("instagram")} />
               {err("instagram")}
             </div>
           </>
         )}
 
-        {at === 3 && (
+        {at === 2 && (
           <>
             {MBTI_AXES.map((axis, i) => (
               <div className="field" key={axis.q} id={`mbti${i}`}>
@@ -328,6 +305,41 @@ export default function Register() {
                 {err(`charm${i}`)}
               </div>
             ))}
+          </>
+        )}
+
+        {at === 3 && (
+          <>
+            {/* 무엇에 쓰는 번호인지 먼저. 끝이 숫자 여덟 개라 30초에 끝난다 */}
+            <p className="small dim pre">{REGISTER.pinIntro}</p>
+            <div className="field">
+              <label htmlFor="pin">{REGISTER.pin}</label>
+              <input
+                id="pin"
+                className="pinInput"
+                value={draft.pin}
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={PIN.length}
+                onChange={(e) => set("pin", e.target.value.replace(/[^0-9]/g, "").slice(0, PIN.length))}
+                {...invalid("pin")}
+              />
+              {err("pin")}
+            </div>
+            <div className="field">
+              <label htmlFor="pinAgain">{REGISTER.pinAgain}</label>
+              <input
+                id="pinAgain"
+                className="pinInput"
+                value={draft.pinAgain}
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={PIN.length}
+                onChange={(e) => set("pinAgain", e.target.value.replace(/[^0-9]/g, "").slice(0, PIN.length))}
+                {...invalid("pinAgain")}
+              />
+              {err("pinAgain")}
+            </div>
           </>
         )}
 

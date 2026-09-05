@@ -9,8 +9,9 @@
  *    새 화면이 필요해도 여기서 자료를 조립하지 말고 그쪽을 넓혀라.
  */
 import { Hono } from "hono";
-import type { EnterResult, EntryOutcome, RegisterInput } from "../../shared/types.ts";
+import type { EnterProbe, EnterResult, RegisterInput } from "../../shared/types.ts";
 import { ENTRY, FORTUNE, ME } from "../../shared/copy.ts";
+import { validPin } from "../../shared/constants.ts";
 import { canOpenFortune, canOpenMission } from "../../shared/phase.ts";
 import { fortuneInput, missionInput, validBirth } from "../../shared/fortune.ts";
 import { makeFortune, makeMission } from "../fortune.ts";
@@ -51,97 +52,79 @@ participantRoutes.use("*", timed("api"));
 /**
  * 참가 링크가 여는 화면. 회차 이름과 단계만 준다 — **입장 코드는 주지 않는다**.
  *
- * **토큰이 있어야 열린다** (ADR-32). 경로에서 토큰을 빼는 것만으로는 모자랐다 —
- * 이 응답이 열려 있으면 **회차 아이디만으로 파티 이름·일정이 나온다.**
- * `by-code` 오라클을 걷어낸 것과 같은 종류라, 길을 하나 막을 때 옆문도 같이 본다.
- *
- * 회차가 없든 토큰이 틀렸든 **같은 답**이다. 가르면 그 구분이 곧 답이 된다.
+ * **토큰이 없다** (ADR-75). 링크가 회차마다 하나라 회차의 존재는 링크만으로 드러난다 —
+ * 알고 치른 대가다. 세션도 안 읽는다: `index.html` 이 번들보다 먼저 이걸 부르는데
+ * 그 자리는 이름표를 실을 수 없다 (ADR-44·70). 누가 열었는지는 `/me?event=` 가 따로 답한다.
  */
 participantRoutes.get("/events/by-id/:id", async (c) => {
   const id = c.req.param("id");
-  const link = String(c.req.query("t") ?? "").trim();
-  if (!link || !(await registry(c.env).hasEvent(id))) return apiError(c, "not_found", ENTRY.notFound);
-
-  const link_ = await eventStub(c.env, id).tokenState(link);
-  if (!link_.ok || !link_.value.known) return apiError(c, "not_found", ENTRY.notFound);
-
+  if (!(await registry(c.env).hasEvent(id))) return apiError(c, "not_found", ENTRY.notFound);
   const { value, response } = unwrap(c, await eventStub(c.env, id).publicAt(serverNow()), () => ENTRY.notFound);
-  // 이미 등록한 사람에게 `등록하기` 라고 하면 두 번 등록하려 든다. 실제로 나온 신고다
-  return response ?? c.json({ ...value!, registered: link_.value.registered });
+  return response ?? c.json(value);
 });
 /*
- * 코드로 회차를 찾던 길(`/events/by-code/:code`)을 닫았다.
- *
- * 그 응답에는 **회차 아이디**가 들어 있었다. 즉 30비트 코드(32^6)를 뚫으면
- * 64비트 링크가 그대로 나왔다 — 링크의 강도가 코드까지 내려가 있었던 셈이다.
- * 이제 문은 참가 링크 하나뿐이고, 코드는 참가자 주소(`/e/:code`)를 가리키는 이름으로만 남는다.
+ * 코드로 회차를 찾던 길(`/events/by-code/:code`)은 닫힌 채다.
+ * 코드는 참가자 주소(`/e/:code`)를 가리키는 이름으로만 남는다 (ADR-15 후기).
  */
 
 /**
- * 입장. **명단 한 줄의 토큰만 통과한다** (ADR-32) — 참가자는 번호를 치지 않는다.
+ * 입장 (ADR-75). `{ phone }` 이면 **묻기**, `{ phone, pin }` 이면 **들어가기**.
  *
- * 통과한 토큰은 쿠키에 서명해 담는다 — 등록 폼이 번호를 받으면
- * 명단에 없는 번호로 바꿔 낼 수 있어서, 번호는 회차 DO 안에서만 푼다.
- * 이미 등록한 사람에게는 곧바로 참가자 세션을 준다.
+ *   미등록          → 초대 쿠키를 심고 `{ registered: false, ref }`. 등록 폼으로 간다
+ *   등록 · 번호만    → `{ registered: true, pin: "required" | "set" }`. 쿠키 없음 — 다음에 펼 칸만 말한다
+ *   등록 · 번호+PIN  → 참가자 쿠키를 심고 `{ registered: true, code, ref }`
  *
- * 이 문은 인증 없이 열려 있어서 시도 횟수를 센다. 제한이 없으면
- * "이 번호가 이 파티에 있나"를 되묻는 창구가 된다.
+ * 판정은 회차 DO 가 한다 (`enter`). 순서가 계약이다 — 회차 → 접속지 → 명단 → 잠금 → PIN 대조.
+ * 실패 문구는 **일부러 셋으로 가른다** (`enterMessage`).
+ *
+ * **쿠키에 번호를 담지 않는다.** 세션은 서명만 하고 암호화하지 않아서 페이로드가 개발자 도구에
+ * 그대로 읽힌다. 초대 쿠키는 명단 행의 내부 식별자를 들고, 번호는 회차 DO 안에서만 푼다.
  */
 participantRoutes.post("/events/:id/enter", async (c) => {
   const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => ({}))) as { token?: string };
-  const link = String(body.token ?? "").trim();
+  const body = (await c.req.json().catch(() => ({}))) as { phone?: unknown; pin?: unknown };
+  const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+  const pin = body.pin === undefined || body.pin === null ? undefined : String(body.pin);
 
-  /*
-   * **없는 회차도 "초대되지 않았어요" 라고 답한다** (S-A4). 여기서 `not_found` 를 주면
-   * "그런 회차가 없다" 와 "너는 명단에 없다" 가 갈리고, 그 갈림이 곧 답이 된다.
-   */
-  if (!link || !(await registry(c.env).hasEvent(id))) {
+  if (!(await registry(c.env).hasEvent(id))) {
     count(c.env, id, { kind: "enter", outcome: "not_invited" });
-    return apiError(c, "forbidden", ENTRY.notInvited);
+    return apiError(c, "not_found", ENTRY.notFound);
   }
+  if (!phone) return apiError(c, "bad_request");
+  if (pin !== undefined && !validPin(pin)) return apiError(c, "bad_request", ENTRY.pinFormat);
 
-  const checked = await eventStub(c.env, id).checkEntry(link, await ipHash(c, id), serverNow());
+  const res = await eventStub(c.env, id).enter(phone, pin, await ipHash(c, id), serverNow());
   /*
    * **입장 결과를 센다.** 명단 문제는 조용히 쌓인다 — 참가자는 "안 되네" 하고 말지
-   * 운영자에게 매번 말하지 않는다. 어제 iPhone 연락처의 `+82` 번호가 명단에 잘못
-   * 들어간 것도 이 숫자가 있었으면 보였다.
-   *
-   * 번호도 사람도 담지 않는다. **결과 한 글자만** 센다 (`metrics.ts`).
+   * 운영자에게 매번 말하지 않는다. 번호도 사람도 담지 않는다. **결과 한 글자만** 센다 (`metrics.ts`).
    */
   count(c.env, id, {
     kind: "enter",
-    outcome: checked.ok ? "ok" : checked.error === "too_many" ? "too_many" : "not_invited",
+    outcome: res.ok
+      ? "ok"
+      : res.error === "too_many" || res.error === "pin_wrong" || res.error === "pin_locked"
+        ? res.error
+        : "not_invited",
   });
 
-  const { value, response } = unwrap(c, checked, enterMessage);
+  const { value, response } = unwrap(c, res, enterMessage);
   if (response) return response;
-
-  const result = value as EntryOutcome;
-  /*
-   * **쿠키에 번호를 담지 않는다** (ADR-32). 세션은 서명만 하고 암호화하지 않아서
-   * 페이로드가 개발자 도구에 그대로 읽힌다 — 번호를 치지 않기로 했으면
-   * 번호가 브라우저에 남을 이유도 없다. 번호는 회차 DO 안에서만 푼다.
-   */
-  const scope = result.registered
-    ? await playerScopeFor(c, id, link)
-    : ({ kind: "invited", eventId: id, token: link } as const);
-  if (!scope) return apiError(c, "forbidden", ENTRY.notInvited);
+  const out = value!;
+  if (out.kind === "probe") return c.json({ registered: true, pin: out.pin } satisfies EnterProbe);
 
   /*
    * **들어올 때마다 새 이름표를 준다** (ADR-44). 이 탭이 그걸 들고 다니면
-   * 다른 탭이 다른 링크로 들어와도 서로를 덮지 않는다 — 링크가 사람마다 달라도
-   * 세션이 하나면 소용이 없었다.
+   * 다른 탭이 다른 사람으로 들어와도 서로를 덮지 않는다.
    */
   const ref = newRef();
-  putSession(
-    c,
-    scope.kind === "player" ? PLAYER_COOKIE : INVITE_COOKIE,
-    ref,
-    await signSession(scope, c.env.SESSION_SECRET, serverNow()),
-    sessionTtl(scope),
-  );
-  return c.json({ ...result, ref } satisfies EnterResult);
+  if (out.kind === "invited") {
+    const scope = { kind: "invited", eventId: id, token: out.token } as const;
+    putSession(c, INVITE_COOKIE, ref, await signSession(scope, c.env.SESSION_SECRET, serverNow()), sessionTtl(scope));
+    return c.json({ registered: false, ref } satisfies EnterProbe);
+  }
+  const scope = { kind: "player", eventId: id, playerId: out.playerId } as const;
+  putSession(c, PLAYER_COOKIE, ref, await signSession(scope, c.env.SESSION_SECRET, serverNow()), sessionTtl(scope));
+  return c.json({ registered: true, code: out.code, ref } satisfies EnterResult);
 });
 
 /**
@@ -184,6 +167,8 @@ participantRoutes.post("/register", async (c) => {
   if (!scope) return apiError(c, "unauthorized", ENTRY.enterAgain);
 
   const input = (await c.req.json().catch(() => ({}))) as RegisterInput;
+  // PIN 번호 모양은 여기서 먼저 막는다 — 문구를 고를 수 있는 자리다 (ADR-75)
+  if (!validPin(input.pin)) return apiError(c, "bad_request", ENTRY.pinFormat);
   // 회차 DO 는 요청을 순차 처리한다. 등록이 몰리는 순간을 위해 왕복을 한 번으로 줄였다
   const result = await eventStub(c.env, scope.eventId).registerAndLoad(input, scope.token, serverNow());
   const { value, response } = unwrap(c, result, registerMessage(String(input.nickname ?? "")));
@@ -415,8 +400,3 @@ async function seatOf(c: Ctx) {
   return { playerId: scope.playerId, eventId: scope.eventId, stub: eventStub(c.env, scope.eventId) };
 }
 
-/** 이미 등록한 사람의 세션. **토큰으로** 그 사람을 찾는다 (ADR-32) — 번호로 찾던 길은 닫혔다 */
-async function playerScopeFor(c: Ctx, eventId: string, token: string) {
-  const found = await eventStub(c.env, eventId).playerIdByToken(token);
-  return found.ok && found.value ? ({ kind: "player", eventId, playerId: found.value } as const) : null;
-}

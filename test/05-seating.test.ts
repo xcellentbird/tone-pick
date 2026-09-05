@@ -37,6 +37,7 @@ function makePlayers(men: number, women: number, seed = 42): Player[] {
       age: 24 + Math.floor(rand() * 21),
       gender,
       phone: `010${String(i).padStart(8, "0")}`,
+      pin: "set",
       mbti: rand() < 0.5 ? "ENFP" : "ISTJ",
       charms: ["a", "b", "c"],
         createdAt: i,
