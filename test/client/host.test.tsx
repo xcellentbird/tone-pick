@@ -646,11 +646,11 @@ describe("운영자 콘솔", () => {
   });
 
   /**
-   * 행에 붙는 건 **빼기뿐이다.** 사람마다 다른 것이 없어졌으니 링크 버튼도 없고(ADR-75),
+   * 행에 붙는 건 **빼기뿐이다.** 사람마다 다른 것이 없어졌으니 행마다 링크 버튼이 없고(ADR-75),
    * 문구는 전원이 같아서 행마다 둘 이유가 없다. 어디까지 보냈는지도 표시하지 않는다 —
    * 복사가 곧 발송이 아니고, 되돌릴 수 있는 표시는 틀렸을 때 아무도 모른다.
    */
-  it("★ 명단 행에는 빼기뿐이다 — 링크도 문구도 보냄 표시도 없다", async () => {
+  it("★ 명단 행에는 빼기뿐이다 — 복사 둘은 명단 머리에 하나씩이고, 보냄 표시는 없다", async () => {
     const st = hostState();
     st.invites = [
       { phone: "01099998888", addedAt: 2 },
@@ -659,14 +659,33 @@ describe("운영자 콘솔", () => {
     stubFetch(st);
     renderConsole("/host/e1/players/invites");
 
-    // 안내문 복사는 명단 머리에 하나뿐이다 — 사람이 둘이어도 하나다
+    // 안내문 복사도 링크 복사도 명단 머리에 하나뿐이다 — 사람이 둘이어도 하나다
     expect((await screen.findAllByText(HOST_UI.invite.copy)).length).toBe(1);
+    expect(screen.getAllByText(HOST_UI.invite.copyLink).length).toBe(1);
     expect(screen.getAllByText(HOST_UI.invites.remove).length).toBe(2);
-    // 링크를 말하는 버튼이 없다
-    const links = screen.getAllByRole("button").filter((b) => /링크/.test(b.textContent ?? ""));
-    expect(links, "행에 링크 버튼이 남아 있다").toHaveLength(0);
     // 보냄으로 찍는 길이 아예 없다
     expect(calls.some((c) => c.url.includes("/sent"))).toBe(false);
+  });
+
+  /**
+   * ★ **링크만 복사하는 버튼은 주소 하나만 담는다.** 안내문은 이미 보냈고 링크만 다시 보낼 때
+   * (잃어버린 사람, 늦게 합류한 사람) 안내문 전체를 또 붙여넣게 하지 않는다.
+   * 다른 글자가 섞이면 대화방에서 눌러 열 수 없다.
+   */
+  it("★ 참가 링크 복사는 회차 링크 하나만 담는다 — 다른 글자 없이", async () => {
+    const st = hostState();
+    st.invites = [{ phone: "01099998888", addedAt: 2 }];
+    stubFetch(st);
+    const writeText = stubClipboard();
+    renderConsole("/host/e1/players/invites");
+
+    fireEvent.click(await screen.findByText(HOST_UI.invite.copyLink));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(writeText.mock.calls[0][0]).toBe(`${location.origin}/j/e1`);
+    // 누른 버튼이 말한다 — 안내문 버튼은 그대로다 (ADR-65)
+    await screen.findByText(HOST_UI.invite.copyDone);
+    expect(screen.getByText(HOST_UI.invite.copy)).toBeTruthy();
+    expect(document.querySelector(".toast"), "명단을 덮는 토스트가 떴다").toBeNull();
   });
 
   /**

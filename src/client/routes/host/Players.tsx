@@ -66,6 +66,9 @@ export default function Players() {
   const tpl = useLoad(() => api<Defaults>("/host/defaults"));
   const template = tpl.data?.inviteTemplate ?? INVITE_TEMPLATE;
 
+  /** 이 회차의 참가 링크. **하나뿐이다** (ADR-75) — 안내문 안에도 들어가고, 따로 복사할 수도 있다 */
+  const link = `${location.origin}/j/${state.meta.id}`;
+
   /**
    * 이 회차의 안내문. **전원이 같은 글을 받는다** — 사람 인자가 없는 게 그 사실이다.
    * **링크도 안에 있다** (ADR-75). 회차마다 하나라 안내문 하나가 완결된 초대장이고,
@@ -74,7 +77,7 @@ export default function Players() {
   const note = renderInvite(template, {
     place: state.meta.place ?? "",
     when: formatWhen(state.meta.schedule.partyAt),
-    link: `${location.origin}/j/${state.meta.id}`,
+    link,
   });
 
   /**
@@ -95,6 +98,23 @@ export default function Players() {
         .then(() => true)
         .catch(() => {
           toast(HOST_UI.copyFailed);
+          return false;
+        }) ?? Promise.resolve(false)
+    );
+  }
+
+  /**
+   * 링크만 복사한다 — 다른 글자 없이 주소 하나. 안내문은 이미 보냈고 링크만 다시 보낼 때
+   * (잃어버린 사람, 늦게 합류한 사람에게 대화방에서 한 줄로) 안내문 전체를 또 붙여넣게 하지 않는다.
+   * 성공은 버튼이 말하고 실패만 토스트다 (ADR-65) — `copyNote` 와 같다.
+   */
+  function copyLink(): Promise<boolean> {
+    return (
+      navigator.clipboard
+        ?.writeText(link)
+        .then(() => true)
+        .catch(() => {
+          toast(HOST_UI.copyFailedLink);
           return false;
         }) ?? Promise.resolve(false)
     );
@@ -308,6 +328,7 @@ export default function Players() {
           eventId={state.meta.id}
           hasPlace={!!state.meta.place}
           onCopyNote={copyNote}
+          onCopyLink={copyLink}
           onRemove={askRemove}
           onEditTemplate={() => navigate("/host/defaults")}
           /*
@@ -337,6 +358,7 @@ function Invites({
   eventId,
   hasPlace,
   onCopyNote,
+  onCopyLink,
   onRemove,
   onEditTemplate,
   onDone,
@@ -350,6 +372,8 @@ function Invites({
   /** 안내문을 복사한다. 전원이 같은 글이라 명단 머리에서 한 번이다 */
   /** 복사 성공 여부를 돌려준다 — 버튼이 그걸 보고 스스로 말한다 (ADR-65) */
   onCopyNote: () => Promise<boolean>;
+  /** 회차 링크 하나만 복사한다 — 안내문 없이 링크만 다시 보낼 때 */
+  onCopyLink: () => Promise<boolean>;
   /** 명단에서 뺀다. 확인창을 거친다 */
   onRemove: (i: Invite) => void;
   /** 더한 수. 이미 있어서 아무 일도 없었으면 0 */
@@ -423,22 +447,34 @@ function Invites({
       )}
 
       {/*
-        안내문 카드. **버튼 둘이 전부다** — 복사와 고치기.
+        안내문 카드. **복사 둘과 고치기** — 그게 전부다.
         **맨 위에 둔다** — 이 시트에서 가장 자주 하는 일이 안내문을 복사해 보내는 것이다.
         번호를 더하는 건 대개 한 번(회차를 열 때)이고, 그 뒤로는 계속 복사만 한다.
         미리보기는 두지 않는다: 고치는 화면이 글을 그대로 띄우고 있어 같은 일을 두 번 한다.
         안내문 복사는 여기 하나뿐이다 — 전원이 같은 글이고, 링크도 그 안에 있다 (ADR-75).
+        **링크만 복사하는 버튼**은 그 옆이다 — 안내문은 보냈고 링크만 다시 보낼 때 쓴다.
+        셋을 한 줄에 두면 390px 폰에서 넘친다(`compact` 는 줄을 안 바꾼다) — 복사 둘이 한 줄,
+        고치기는 그 아래 오른쪽이다.
       */}
       {invites.length > 0 && (
         <div className="card stack">
-          <div className="row between">
+          <div className="row">
             <button
-              className="btn ghost compact"
+              className="btn ghost compact grow"
               type="button"
               onClick={() => void flashCopy("note", onCopyNote)}
             >
               {copied === "note" ? HOST_UI.invite.copyDone : HOST_UI.invite.copy}
             </button>
+            <button
+              className="btn ghost compact grow"
+              type="button"
+              onClick={() => void flashCopy("link", onCopyLink)}
+            >
+              {copied === "link" ? HOST_UI.invite.copyDone : HOST_UI.invite.copyLink}
+            </button>
+          </div>
+          <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="btn ghost compact" type="button" onClick={onEditTemplate}>
               {HOST_UI.invite.editTemplate}
             </button>
