@@ -13,7 +13,7 @@ import { INVITE_TEMPLATE, LEGACY_INVITE_TEMPLATE } from "./copy.ts";
  * `package.json` 과 어긋나지 않는 일은 `npm run check` 가 본다
  * (`scripts/check-config.mjs` ⑤). 릴리스에서 이 줄을 빠뜨리면 CI 가 잡는다.
  */
-export const APP_VERSION = "2.4.0";
+export const APP_VERSION = "2.5.0";
 
 /**
  * 등록은 **회차를 만드는 순간** 열린다 (ADR-38). 예약이 남은 건 매력 투표뿐이다 —
