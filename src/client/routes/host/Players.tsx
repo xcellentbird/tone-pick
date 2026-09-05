@@ -452,12 +452,20 @@ function Invites({
         번호를 더하는 건 대개 한 번(회차를 열 때)이고, 그 뒤로는 계속 복사만 한다.
         미리보기는 두지 않는다: 고치는 화면이 글을 그대로 띄우고 있어 같은 일을 두 번 한다.
         안내문 복사는 여기 하나뿐이다 — 전원이 같은 글이고, 링크도 그 안에 있다 (ADR-75).
-        **링크만 복사하는 버튼**은 그 옆이다 — 안내문은 보냈고 링크만 다시 보낼 때 쓴다.
-        셋을 한 줄에 두면 390px 폰에서 넘친다(`compact` 는 줄을 안 바꾼다) — 복사 둘이 한 줄,
-        고치기는 그 아래 오른쪽이다.
+        **링크만 복사하는 버튼**이 맨 위 한 줄이다 — 안내문은 보냈고 링크만 다시 보낼 때 쓴다.
+        그 아래 반반으로 안내문 복사 · 안내문 고치기. **줄은 물건 단위다** — 윗줄 링크, 아랫줄 안내문.
+        복사 둘을 한 줄에 두고 고치기를 혼자 아래 두면 고치기가 오른쪽에 떠서 어긋나 보였다.
+        셋을 한 줄에 두면 390px 폰에서 넘친다 (`compact` 는 줄을 안 바꾼다).
       */}
       {invites.length > 0 && (
         <div className="card stack">
+          <button
+            className="btn ghost compact block"
+            type="button"
+            onClick={() => void flashCopy("link", onCopyLink)}
+          >
+            {copied === "link" ? HOST_UI.invite.copyDone : HOST_UI.invite.copyLink}
+          </button>
           <div className="row">
             <button
               className="btn ghost compact grow"
@@ -466,16 +474,7 @@ function Invites({
             >
               {copied === "note" ? HOST_UI.invite.copyDone : HOST_UI.invite.copy}
             </button>
-            <button
-              className="btn ghost compact grow"
-              type="button"
-              onClick={() => void flashCopy("link", onCopyLink)}
-            >
-              {copied === "link" ? HOST_UI.invite.copyDone : HOST_UI.invite.copyLink}
-            </button>
-          </div>
-          <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn ghost compact" type="button" onClick={onEditTemplate}>
+            <button className="btn ghost compact grow" type="button" onClick={onEditTemplate}>
               {HOST_UI.invite.editTemplate}
             </button>
           </div>
