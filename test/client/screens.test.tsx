@@ -726,7 +726,7 @@ function helpTexts(): string[] {
   const q = HELP.qa;
   return [
     ...HELP.steps.map((v) => v.body),
-    q.prevote.a, q.poke.a, q.host.a, q.sameGender.a, q.result.a,
+    q.prevote.a, q.poke.a, q.sameGender.a, q.result.a,
     q.secret.a(true), q.secret.a(false),
     q.count.a(1, 2), q.count.a(3, 5),
   ];
@@ -880,21 +880,17 @@ describe("파티 룰 도움말", () => {
    * 한동안 발표 칸이 `그때 연락처가 열려요` 라고 적혀 있었다 — **거짓이었다.**
    * 매칭된 상대에게 나가는 건 실명 하나이고(`MatchInfo.realName`), 등록 화면은
    * *인스타는 운영자 확인용* 이라고 말한다. 두 화면이 서로 다른 말을 하고 있었다.
+   *
+   * ⚠️ **금지는 그대로다.** 걷어낸 건 *연락처는 앱이 전하지 않아요* 라고 **덧붙이는** 쪽이고
+   * (ADR-76), 없는 것을 열린다고 말하는 쪽은 여전히 막는다 — 코드가 아니라고 적어둔 것을
+   * 도움말이 그렇다고 말하면 그 순간부터 거짓말이다.
    */
   it("★ 도움말 어디에도 연락처가 열린다고 쓰여 있지 않다", async () => {
-    const all = [
-      ...HELP.steps.map((v) => v.body),
-      HELP.qa.result.a,
-      HELP.qa.secret.a(true),
-      HELP.qa.secret.a(false),
-      HELP.qa.host.a,
-    ];
-    for (const text of all) {
+    for (const text of helpTexts()) {
       expect(text, text).not.toContain("연락처가 열");
     }
-    // 대신 무엇이 나가는지는 분명히 말한다 — 실명까지다
+    // 무엇이 나가는지는 분명히 말한다 — 실명까지다
     expect(HELP.qa.result.a).toContain("이름");
-    expect(HELP.qa.result.a).toContain("연락처는 앱이 전하지 않아요");
   });
 
   /**
@@ -950,28 +946,27 @@ describe("파티 룰 도움말", () => {
     expect(screen.queryByText(HELP.qa.sameGender.a)).toBeNull();
   });
 
-  it("★ 운영자에게도 안 보인다는 것이 적혀 있다", async () => {
-    /*
-     * 익명 걱정은 **상대 다음이 운영자**다. 이 줄이 없으면 *누군가는 다 보고 있다* 고
-     * 여긴 채로 고르게 되고, 그 채로 고르는 것은 이 앱이 없애려던 경험 쪽에 가깝다.
-     *
-     * ⚠️ 이 줄은 **거짓이면 안 된다.** 서로 콕 찌른 쌍은 운영자가 본다 — 발표를 누르는 게
-     * 사람이다. 그래서 "아무도 못 봐요" 가 아니라 **무엇까지 보이는지**를 같은 줄에 적는다.
-     * 지켜지는 쪽(한쪽만 찌른 것은 숫자로만 남는다)은 `04-match-budget.test.ts` 가 지킨다.
-     */
+  /**
+   * ★ **운영자가 무엇까지 보나는 도움말이 답하지 않는다** (ADR-76).
+   *
+   * 한동안 `상대` 다음에 그 문답이 있었다. 걷어낸 이유는 ADR-76 에 있고, 여기서 잠그는 건
+   * **되살릴 때 거짓으로 되살아나지 않게** 하는 것 하나다.
+   *
+   * ⚠️ 다시 적는다면 **`아무도 못 봐요` 는 안 된다.** 서로 콕 찌른 쌍은 운영자가 보고
+   * (발표를 누르는 게 사람이다), 받은 수도 현황 탭 순위로 뜬다 (ADR-30).
+   * 지켜지는 쪽(한쪽만 찌른 것은 응답에도 안 실린다)은 `04-match-budget.test.ts` 가 지킨다 —
+   * **그 보장은 문답을 걷어내도 그대로다.** 말하지 않기로 한 것이지 달라진 것이 아니다.
+   */
+  it("★ 운영자가 다 본다고도, 아무도 못 본다고도 말하지 않는다", async () => {
     renderParticipant(fakeSource(), undefined, () => {}, "home", true);
-    await screen.findByText(HELP.qa.host.a);
-    /*
-     * **낱말이 아니라 두 가지가 적혀 있는지를 본다.** 이 줄이 지켜야 하는 건 둘이다 —
-     *   ① 매칭된 쌍은 운영자가 본다 (발표를 누르는 게 사람이라 그럴 수밖에 없다)
-     *   ② 받은 수도 보인다 (현황 탭의 콕 순위, ADR-30)
-     * 하나라도 빠지면 운영자 화면이 이 줄을 거짓으로 만든다. 문장은 고쳐 쓸 수 있어도
-     * 이 둘은 남아야 하므로, 한 문구에 못박지 않는다.
-     */
-    expect(HELP.qa.host.a).toMatch(/매칭|서로 콕 찌른/);
-    // 받은 수 쪽은 표현이 여러 가지다 — `몇 번 받았는지` 든 `누가 인기 있는지` 든,
-    // **그 이상이 보인다는 사실**만 남으면 된다. 문구가 아니라 그 사실을 잠근다
-    expect(HELP.qa.host.a).toMatch(/몇 번|받았는지|인기/);
+    await screen.findByText(HELP.title);
+
+    /* `helpTexts()` 가 회차 설정으로 갈리는 답까지 양쪽 다 편다 — 한쪽에서만 지키면 지킨 게 아니다 */
+    for (const text of helpTexts()) {
+      // 거짓이 될 수 있는 것만 막는다. **안 적는 것은 자유다**
+      expect(text, text).not.toContain("아무도 못");
+      expect(text, text).not.toContain("아무도 안 봐");
+    }
   });
 
   it("★ 맨 아래에 닫기가 있다 — 끝까지 읽은 자리에서 닫힌다", async () => {

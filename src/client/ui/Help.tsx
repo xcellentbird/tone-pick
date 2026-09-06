@@ -68,10 +68,13 @@ export default function Help({ state }: { state: ParticipantState }) {
           { q: qa.poke.q, a: qa.poke.a },
           { q: qa.secret.q, a: qa.secret.a(notify) },
           /*
-           * 익명 걱정은 **상대 다음이 운영자**다. 둘을 떨어뜨리면 앞 줄을 읽고 생긴 질문이
-           * 몇 줄 뒤에 답을 만나거나, 못 만난 채로 화면을 닫는다.
+           * **운영자가 무엇까지 보나** 는 여기서 답하지 않는다 (ADR-76 — 걷어낸 이유가 거기 있다).
+           * 한동안 `상대` 다음 줄이었다.
+           *
+           * ⚠️ **지켜지는 것은 그대로다.** 말하지 않기로 한 것이지 달라진 것이 아니다 —
+           * 한쪽만 찌른 것은 운영자 응답에도 안 실리고(`04-match-budget.test.ts` 가 지킨다),
+           * 서로 찌른 쌍과 받은 수는 운영자가 본다. **`아무도 못 봐요` 를 새로 적지 마라.**
            */
-          { q: qa.host.q, a: qa.host.a },
           { q: qa.count.q, a: qa.count.a(config.maxPre, config.maxParty) },
           /*
            * **회차 설정으로 갈리는 칸은 이 하나만 남긴다.** 못 고르는 상대가 있다는 건
