@@ -1494,6 +1494,12 @@ h1,
   width: min(560px, 100%);
   max-height: calc(88dvh - var(--kb));
   overflow-y: auto;
+  /*
+   * 시트 안에서 끝까지 스크롤해도 뒤 화면이 딸려 오지 않는다 (`.body` 와 같은 이유).
+   * **끌어서 닫기가 여기에 얹힌다** — 맨 위에서 아래로 끄는 동안은 `Sheet.tsx` 가
+   * `preventDefault()` 로 잡지만, 그 앞뒤로 새는 고무줄은 이 줄이 막는다.
+   */
+  overscroll-behavior: contain;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius) var(--radius) 0 0;
@@ -1513,6 +1519,10 @@ h1,
  * ⚠️ **가운데 정렬과 합성해야 한다.** 위 `.sheet` 가 `translateX(-50%)` 로 가로 가운데를
  *    잡고 있어서, 여기서 `translateY(100%)` 만 쓰면 **그 정렬이 통째로 날아간다** —
  *    시트가 오른쪽으로 반쯤 밀려 나간다. 두 값을 한 `translate()` 에 같이 적는다.
+ *
+ * ⚠️ **끌어서 닫는 동안에는 이 둘이 덮인다** (`Sheet.tsx`). 손가락을 따라가는 변형은
+ *    인라인 `!important` 라 애니메이션보다 세다 — `fill-mode: both` 로 붙들고 있는
+ *    마지막 프레임을 그렇게 이긴다. `sheetOut` 을 고칠 때 저쪽도 같이 봐라.
  */
 .sheet[data-state="open"] { animation: sheetIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 .sheet[data-state="closed"] { animation: sheetOut 180ms ease-in both; }
