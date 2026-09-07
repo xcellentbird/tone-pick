@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:worker": "npm run build:client && wrangler dev",
+    "dev:worker:lan": "npm run build:client && wrangler dev --ip 0.0.0.0",
     "build": "npm run build:client",
     "build:client": "vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit && tsc -p test/tsconfig.json --noEmit",
@@ -17,6 +18,7 @@
     "check:theme": "node scripts/check-theme.mjs",
     "check:adr": "node scripts/check-adr.mjs",
     "rehearsal": "node scripts/rehearsal.mjs",
+    "qa": "node scripts/qa/stage.mjs",
     "check": "npm run typecheck && npm run check:copy && npm run check:config && npm run check:theme && npm run check:adr",
     "test": "vitest run --project worker --project client",
     "test:release": "vitest run --project release",
@@ -40,6 +42,7 @@
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
     "happy-dom": "^20.11.2",
+    "playwright": "^1.55.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.7",
     "vitest": "^4.1.10",

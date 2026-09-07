@@ -205,6 +205,13 @@ npm run deploy:qa    # 연습용. 워커가 달라 회차·참가자 데이터�
 사람이 준비됨으로 바꿔야 하고, 그때 CI 가 **한 번 더** 돈다.
 **사람이 버튼을 누르는 의식은 `qa → main` 하나뿐이다.**
 
+**QA 는 무대로 한다** — `npm run qa -- --phase party --watch` (`scripts/qa/stage.mjs`).
+로컬 워커에 회차와 가짜 참가자를 **실제 경로로** 만들고, 터미널(또는 `--remote` 로 폰)에서
+`poke 3 5` · `phase done` · `late` 같은 명령을 그때그때 치며, `--watch` 로 운영자·참가자 창을
+나란히 띄운다. 앱에는 시연 코드를 넣지 않는다 (ADR-7 후기) — 전부 공개 API 다.
+시간 이동(`now +30m`)은 `.dev.vars` 에 `ALLOW_TEST_ENDPOINTS=1` 을 넣은 로컬에서만 된다.
+폰에서 로컬 워커에 붙으려면 `npm run dev:worker:lan`. **QA 에도 실제 번호를 넣지 마라.**
+
 `npm run check:copy` 는 `copy.ts` 밖에 하드코딩된 한국어를 잡는다.
 주석은 통과한다. SQL·정규식처럼 화면 문구가 아닌 건 윗줄에 `copy-ok` 를 적는다.
 
