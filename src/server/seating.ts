@@ -17,7 +17,7 @@
  * 씨앗을 입력으로 받아 안에서 돌리므로 같은 입력이면 같은 자리가 나온다.
  */
 import type { Player, Seat } from "../shared/types.ts";
-import { FAIR, MEET_GAP, SEAT_W } from "../shared/constants.ts";
+import { AGE_GAP, FAIR, MEET_GAP, SEAT_W } from "../shared/constants.ts";
 
 export function spread(n: number, t: number): number[] {
   const base = Math.floor(n / t);
@@ -319,7 +319,13 @@ class World {
       for (let j = 0; j < n; j++) {
         if (i === j) continue;
         const k = i * n + j;
-        const gap = Math.abs(this.age[i] - this.age[j]) / 10;
+        /*
+         * **벌점은 10살에서 멈춘다** (ADR-78). 8~9살은 아직 이어질 자리가 있지만
+         * 그 위로는 다 같다 — 16살과 66살을 다르게 벌할 이유가 없다.
+         * 문턱 없는 세제곱은 66살 차이를 287.5 로 쳐서, 등록 나이 상한(99)까지 적을 수 있는
+         * 한 사람이 목적함수를 통째로 끌고 갔다. 상한에 걸리면 벌점은 `SEAT_W.AGE` 그대로다.
+         */
+        const gap = Math.min(Math.abs(this.age[i] - this.age[j]), AGE_GAP) / 10;
         const opposite = this.male[i] !== this.male[j];
         const mutual = opposite && pokeOut[k] > 0 && pokeOut[j * n + i] > 0;
 
