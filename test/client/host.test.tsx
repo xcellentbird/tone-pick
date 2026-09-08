@@ -1309,6 +1309,10 @@ describe("자리 배정 시트", () => {
 
   /** 시트 안의 것을 누른다 — 목록 화면에도 같은 이름의 버튼이 있다 */
   const inSheet = () => within(document.querySelector('[role="dialog"]') as HTMLElement);
+  /** 목록은 접힌 채로 열린다 (ADR-77). 이름 줄·성별 칩을 만지려면 먼저 편다 */
+  const unfold = () => fireEvent.click(inSheet().getByText(HOST_UI.seats.excludePick));
+  /** a 가 b 보다 앞에 섰는가 — 운영자가 보는 순서다 */
+  const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
   it("★ 테이블 수보다 뺄 사람을 먼저 묻는다", async () => {
     stubFetch(party());
@@ -1331,15 +1335,50 @@ describe("자리 배정 시트", () => {
     expect(screen.queryByText(HOST_UI.seats.leftOutNote)).toBeNull();
   });
 
-  it("★ 뺀 사람은 인원에서 빠지고, 왜 빠졌는지 말한다", async () => {
+  /**
+   * ★ **접힌 채로 연다** (ADR-77). 대부분의 라운드는 아무도 안 빼므로, 서른 줄을 지나서야
+   * 다음 버튼에 닿게 하지 않는다 — 열자마자 인원 줄과 다음 버튼이 있고, 이름은 손잡이를
+   * 눌러야 선다. 펼치면 손잡이는 사라진다.
+   */
+  it("★ 접힌 채로 열린다 — 다음 버튼은 바로, 이름은 펼쳐야 보인다", async () => {
     stubFetch(party());
     renderConsole("/host/e1/seats/new");
     await screen.findByText(HOST_UI.seats.seatedAll(2));
 
-    // 한 명을 뺀다 — `2명 배정` 이 아니라 `1명 배정 · 1명 제외`
+    expect(inSheet().getByText(HOST_UI.seats.excludeNext)).toBeTruthy();
+    expect(inSheet().queryByText("가"), "펼치기 전에는 이름이 없다").toBeNull();
+
+    unfold();
+    expect(inSheet().getByText("가")).toBeTruthy();
+    expect(inSheet().queryByText(HOST_UI.seats.excludePick), "펼친 뒤 손잡이는 없다").toBeNull();
+  });
+
+  /** ★ **이름 순이다** (ADR-77). 등록 순서에는 찾는 규칙이 없다 */
+  it("★ 목록은 등록 순서가 아니라 이름 순으로 선다", async () => {
+    const st = party();
+    // 등록 순서는 다 → 가 → 나
+    st.players = [{ ...st.players[0], id: "p3", nickname: "다", realName: "김다" }, ...st.players];
+    stubFetch(st);
+    renderConsole("/host/e1/seats/new");
+    await screen.findByText(HOST_UI.seats.seatedAll(3));
+    unfold();
+
+    const [ga, na, da] = ["가", "나", "다"].map((n) => inSheet().getByText(n));
+    expect(before(ga, na), "가 → 나").toBe(true);
+    expect(before(na, da), "나 → 다").toBe(true);
+  });
+
+  it("★ 뺀 사람은 인원에서 빠지고, 왜 빠졌는지 말한다", async () => {
+    stubFetch(party());
+    renderConsole("/host/e1/seats/new");
+    await screen.findByText(HOST_UI.seats.seatedAll(2));
+    unfold();
+
+    // 한 명을 뺀다 — `2명 배정` 이 아니라 `1명 배정 · 1명 제외`, 그리고 발에 누구를 뺐는지
     fireEvent.click(inSheet().getByText("가"));
     await screen.findByText(HOST_UI.seats.leftOut(1, 1));
     expect(screen.queryByText(HOST_UI.seats.seatedAll(2))).toBeNull();
+    expect(inSheet().getByText(HOST_UI.seats.excludedNames(["가"], 0))).toBeTruthy();
   });
 
   /**
@@ -1351,6 +1390,7 @@ describe("자리 배정 시트", () => {
     renderConsole("/host/e1/seats/new");
     await screen.findByText(HOST_UI.seats.seatedAll(2));
 
+    unfold();
     // 전체로 시작한다 — 남 하나, 여 하나
     expect(inSheet().getByText("가")).toBeTruthy();
     expect(inSheet().getByText("나")).toBeTruthy();
@@ -1370,6 +1410,7 @@ describe("자리 배정 시트", () => {
     stubFetch(party());
     renderConsole("/host/e1/seats/new");
     await screen.findByText(HOST_UI.seats.seatedAll(2));
+    unfold();
 
     fireEvent.click(inSheet().getByText(GENDER.M, { exact: false }));
     // 인원 줄은 여전히 전원 기준이다
@@ -1407,6 +1448,7 @@ describe("자리 배정 시트", () => {
     stubFetch(st);
     renderConsole("/host/e1/seats/new");
     await screen.findByText(HOST_UI.seats.seatedAll(3));
+    unfold();
 
     fireEvent.click(inSheet().getByText("가"));
     fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
