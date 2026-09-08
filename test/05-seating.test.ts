@@ -190,6 +190,84 @@ describe("나이차", () => {
   });
 });
 
+describe("나이차 벌점은 10살에서 멈춘다 (ADR-78)", () => {
+  /**
+   * **8~9살은 아직 이어질 자리가 있지만, 10살을 넘으면 그 다음은 다 같다.**
+   *
+   * 세제곱에는 문턱이 없어서 66살 차이의 벌점이 **287.5** 였다 — 가장 강한 긍정 신호인
+   * 상호 콕(2.5)의 115배다. 등록 나이는 18~99 라 장난으로 91 을 적을 수 있고, 그러면
+   * 목적함수가 통째로 그 한 사람에게 끌려간다. 상한을 `AGE_GAP`(10살) 에 둔다 (ADR-78).
+   */
+
+  /**
+   * ★ **상한 위에서는 서로 구별되지 않는다.**
+   *
+   * 24~31세 파티에 **모두와 10살 넘게 떨어진 사람**을 하나 넣고 그 나이만 41 → 91 로 바꾼다.
+   * 둘 다 나이순 초기 배치에서 맨 끝이고, 나이대 이성(±6)도 둘 다 없다.
+   * 남는 차이는 벌점뿐이라 — 상한에 걸려 있으면 **자리가 글자 그대로 같아야 한다.**
+   */
+  it("★ 41세와 91세가 같은 자리를 만든다 — 10살 위는 다 같다", () => {
+    const ages = [26, 27, 25, 28, 29, 26, 27, 30, 24, 31, 28, 26, 29, 27, 25, 30];
+    const seatFor = (odd: number) => {
+      const players = makePlayers(8, 8).map((p, i) => ({ ...p, age: i === 0 ? odd : ages[i] }));
+      return buildSeating({
+        players, tableCount: 4, round: 1, history: [],
+        votes: {}, pokes: {}, maxVote: 2, maxPoke: 3, seed: 77,
+      });
+    };
+    expect(seatFor(91)).toEqual(seatFor(41));
+  });
+
+  /**
+   * ★ **10살과 20살이 같으므로, 그 둘은 표가 가른다.**
+   *
+   * 앞 테스트가 "구별하지 않는다" 를 잡고 이 테스트는 **그래서 무엇이 달라지는가**를 잡는다.
+   * 문턱이 없던 때는 20살(8.0)과 10살(1.0)의 차이가 7.0 이라 표(최대 0.4)가 낄 자리가
+   * 아예 없었다. 상한 뒤로는 둘 다 1.0 이고, 그 위에서 표가 자리를 정한다.
+   *
+   * ⚠️ 이 판은 **10살 미만을 공짜로 만들지 않는다** — 아래 테스트가 그 경계를 지킨다.
+   */
+  it("★ 10살차와 20살차 사이는 표가 가른다", () => {
+    /*
+     * D 를 B·C 로부터 **등거리(5살)** 에 둔다. 그래야 D 가 어느 쪽에 앉든 값이 같아서
+     * 판이 A 의 선택 하나로 좁혀진다 — D 를 한쪽에 붙여 두면 A 가 아니라 D 가 자리를 정한다.
+     */
+    const players: Player[] = [
+      { ...makePlayers(1, 0)[0], id: "A", gender: "M", age: 30 },
+      { ...makePlayers(1, 0)[0], id: "D", gender: "M", age: 45 },
+      { ...makePlayers(0, 1, 7)[0], id: "B", gender: "F", age: 40 },
+      { ...makePlayers(0, 1, 9)[0], id: "C", gender: "F", age: 50 },
+    ];
+    const seats = buildSeating({
+      players, tableCount: 2, round: 1, history: [],
+      votes: { "A>C": 3 }, pokes: {}, maxVote: 3, maxPoke: 3, seed: 5,
+    });
+    const at = (id: string) => seats.find((s) => s.playerId === id)?.table;
+    expect(at("A")).toBe(at("C"));
+  });
+
+  /**
+   * ★ **상한 아래는 그대로다.** 여기가 무너지면 상한이 아니라 나이차를 걷어낸 것이다.
+   *
+   * 나이순으로 짝지으면(A30-B31 · D39-C38) 둘 다 1살차이고 나이대 이성(±6)이라 새 만남까지
+   * 얹힌다. 표를 따라가면 둘 다 8살차(0.512)가 되고 새 만남도 사라진다 — 표로는 못 뒤집는다.
+   */
+  it("★ 10살 아래에서는 표가 나이차를 못 이긴다", () => {
+    const players: Player[] = [
+      { ...makePlayers(1, 0)[0], id: "A", gender: "M", age: 30 },
+      { ...makePlayers(1, 0)[0], id: "D", gender: "M", age: 39 },
+      { ...makePlayers(0, 1, 7)[0], id: "B", gender: "F", age: 31 },
+      { ...makePlayers(0, 1, 9)[0], id: "C", gender: "F", age: 38 },
+    ];
+    const seats = buildSeating({
+      players, tableCount: 2, round: 1, history: [],
+      votes: { "A>C": 3 }, pokes: {}, maxVote: 3, maxPoke: 3, seed: 5,
+    });
+    const at = (id: string) => seats.find((s) => s.playerId === id)?.table;
+    expect(at("A")).toBe(at("B"));
+  });
+});
+
 describe("재회 회피", () => {
   it("2라운드는 1라운드와 다른 자리를 만든다", () => {
     const players = makePlayers(10, 10);
