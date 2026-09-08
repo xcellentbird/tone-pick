@@ -1535,6 +1535,24 @@ h1,
   to { transform: translate(-50%, 100%) }
 }
 
+/*
+ * 시트의 발 — 바닥에 붙는 묶음 (인원 줄 + 다음 버튼).
+ *
+ * `.sheet` 자체가 스크롤 상자라 `sticky; bottom: 0` 이 시트의 보이는 바닥에 선다. 목록이 길면
+ * 그 아래로 지나가고 버튼은 늘 손에 닿는다. 짧으면 그냥 흐름 끝에 놓인다 — 같은 자리다.
+ *
+ * 시트의 안쪽 여백만큼 음수 마진으로 가로를 채우고 아래로 내려, 발이 시트 가장자리까지 덮는다.
+ * 안 그러면 여백 사이로 목록 줄이 비쳐 보인다. 바탕은 시트와 같은 색이어야 한다.
+ */
+.sheetFoot {
+  position: sticky;
+  bottom: calc(-1 * (var(--pad) + env(safe-area-inset-bottom)));
+  margin: 0 calc(-1 * var(--pad)) calc(-1 * (var(--pad) + env(safe-area-inset-bottom)));
+  padding: var(--gap) var(--pad) calc(var(--pad) + env(safe-area-inset-bottom));
+  background: var(--card);
+  border-top: 1px solid var(--line);
+}
+
 /* 확인창도 **보이는 영역의** 가운데다. 키보드가 떠 있으면 그만큼 위로 */
 .dialog {
   position: fixed;

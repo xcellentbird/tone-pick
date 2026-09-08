@@ -425,72 +425,101 @@ function ExcludePicker({
 }) {
   const seated = players.length - out.size;
   /**
+   * **접힌 채로 연다.** 대부분의 라운드는 아무도 안 빼므로(ADR-45 의 기본이 전원 배정이다)
+   * 그 운영자가 서른 줄을 지나 버튼에 닿게 하지 않는다 — 열자마자 인원 줄과 다음 버튼이 보이고,
+   * 뺄 사람이 있을 때만 손잡이를 눌러 목록을 편다. 펼치면 손잡이는 사라진다.
+   */
+  const [open, setOpen] = useState(false);
+  /**
    * 성별로 걸러 본다. **참가자 탭과 같은 칩·같은 순서다** —
    * 사람이 서른을 넘으면 한 목록에서 한 사람을 찾는 게 일이 된다.
    * 두 화면이 다른 모양으로 거르면 운영자가 매번 어느 쪽인지 다시 익혀야 한다.
    */
   const [filter, setFilter] = useState<"all" | Gender>("all");
-  const shown = players.filter((p) => filter === "all" || p.gender === filter);
+  /** 가나다순. 등록 순서에는 찾는 규칙이 없다 — 자리 검토 화면도 닉네임순이라 두 화면에서 같은 자리에 선다 */
+  const sorted = [...players].sort((a, b) => a.nickname.localeCompare(b.nickname, "ko"));
+  const shown = sorted.filter((p) => filter === "all" || p.gender === filter);
   const count = {
     all: players.length,
     M: players.filter((p) => p.gender === "M").length,
     F: players.filter((p) => p.gender === "F").length,
   } as const;
+  const excluded = sorted.filter((p) => out.has(p.id)).map((p) => p.nickname);
 
   return (
     <div className="stack">
       <p className="small dim">{HOST_UI.seats.excludeNote}</p>
 
-      {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
-      <div className="choice">
-        {(
-          [
-            ["all", HOST_UI.players.filterAll],
-            ["M", GENDER.M],
-            ["F", GENDER.F],
-          ] as const
-        ).map(([key, label]) => (
-          <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>
-            {label} <span className="filterCount">{count[key]}</span>
-          </button>
-        ))}
-      </div>
+      {!open && (
+        <button type="button" className="btn ghost block" onClick={() => setOpen(true)}>
+          {HOST_UI.seats.excludePick}
+        </button>
+      )}
 
-      {shown.length === 0 && <p className="dim center">{HOST_UI.players.emptyFiltered}</p>}
+      {open && (
+        <>
+          {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
+          <div className="choice">
+            {(
+              [
+                ["all", HOST_UI.players.filterAll],
+                ["M", GENDER.M],
+                ["F", GENDER.F],
+              ] as const
+            ).map(([key, label]) => (
+              <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>
+                {label} <span className="filterCount">{count[key]}</span>
+              </button>
+            ))}
+          </div>
 
-      <div className="stack">
-        {shown.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            className={`fact ${out.has(p.id) ? "" : "on"}`}
-            aria-pressed={!out.has(p.id)}
-            onClick={() => onToggle(p.id)}
-          >
-            <Avatar nickname={p.nickname} gender={p.gender} size="sm" />
-            <span className="grow ellipsis">{p.nickname}</span>
-            {/* 톤만으로 말하지 않는다. 지금 어느 쪽인지 글자가 같은 정보를 다시 준다 */}
-            <span className={out.has(p.id) ? "dim" : ""}>
-              {out.has(p.id) ? HOST_UI.seats.excludeOut : HOST_UI.seats.excludeIn}
-            </span>
-          </button>
-        ))}
-      </div>
+          {shown.length === 0 && <p className="dim center">{HOST_UI.players.emptyFiltered}</p>}
+
+          <div className="stack">
+            {shown.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={`fact ${out.has(p.id) ? "" : "on"}`}
+                aria-pressed={!out.has(p.id)}
+                onClick={() => onToggle(p.id)}
+              >
+                <Avatar nickname={p.nickname} gender={p.gender} size="sm" />
+                <span className="grow ellipsis">{p.nickname}</span>
+                {/* 톤만으로 말하지 않는다. 지금 어느 쪽인지 글자가 같은 정보를 다시 준다 */}
+                <span className={out.has(p.id) ? "dim" : ""}>
+                  {out.has(p.id) ? HOST_UI.seats.excludeOut : HOST_UI.seats.excludeIn}
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {/*
-        다음 걸음이 이 숫자로 계산한다. 넘어가기 전에 한 번 말해준다.
-        **거른 것과 상관없이 언제나 전원 기준이다** — 남성만 보고 있다고 여성이 빠진 게 아니다.
-      */}
-      <div className="fact">
-        <span className="grow">
-          {out.size > 0 ? HOST_UI.seats.leftOut(seated, out.size) : HOST_UI.seats.seatedAll(seated)}
-        </span>
-      </div>
+        **발 — 시트 바닥에 붙는다** (`.sheetFoot`). 시트가 스크롤 상자라 sticky 가 바닥에 서고,
+        목록은 그 아래로 지나간다. 인원 줄이 누를 때마다 눈앞에서 바뀌고, 다음 버튼은 늘 손에 닿는다.
+        `fixed` 로 띄우지 않는다 — 규칙 4 가 토스트에서 겪은 대로 목록을 덮고 키보드(`--kb`)와 어긋난다.
 
-      {/* 테이블 하나에 둘은 앉아야 한다. 그 아래로는 다음 걸음에서 할 수 있는 게 없다 */}
-      <button className="btn primary block" disabled={seated < 2} onClick={onNext}>
-        {HOST_UI.seats.excludeNext}
-      </button>
+        다음 걸음이 이 숫자로 계산한다. **거른 것과 상관없이 언제나 전원 기준이다** —
+        남성만 보고 있다고 여성이 빠진 게 아니다.
+      */}
+      <div className="sheetFoot stack">
+        <div className="fact">
+          <span className="grow">
+            {out.size > 0 ? HOST_UI.seats.leftOut(seated, out.size) : HOST_UI.seats.seatedAll(seated)}
+          </span>
+        </div>
+        {excluded.length > 0 && (
+          <p className="small dim ellipsis">
+            {HOST_UI.seats.excludedNames(excluded.slice(0, 3), Math.max(0, excluded.length - 3))}
+          </p>
+        )}
+        {/* 테이블 하나에 둘은 앉아야 한다. 그 아래로는 다음 걸음에서 할 수 있는 게 없다 */}
+        <button className="btn primary block" disabled={seated < 2} onClick={onNext}>
+          {HOST_UI.seats.excludeNext}
+        </button>
+      </div>
     </div>
   );
 }
