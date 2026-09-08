@@ -13,7 +13,7 @@ import { INVITE_TEMPLATE, LEGACY_INVITE_TEMPLATE } from "./copy.ts";
  * `package.json` 과 어긋나지 않는 일은 `npm run check` 가 본다
  * (`scripts/check-config.mjs` ⑤). 릴리스에서 이 줄을 빠뜨리면 CI 가 잡는다.
  */
-export const APP_VERSION = "2.7.0";
+export const APP_VERSION = "2.8.0";
 
 /**
  * 등록은 **회차를 만드는 순간** 열린다 (ADR-38). 예약이 남은 건 매력 투표뿐이다 —
@@ -148,8 +148,15 @@ export const SEAT_W = {
 export const MEET_GAP = 6;
 
 /**
- * **측정용 문턱.** 벌점은 세제곱이라 문턱이 없고, 이건 테스트와 문서가
- * *"나이차 위반 몇 쌍"* 을 셀 때 쓰는 기준이다 (`docs/SEATING.md`).
+ * **여기서부터는 다 같다.** 8~9살은 아직 이어질 자리가 있지만 10살을 넘으면 그 다음은
+ * 구별할 이유가 없다 — 16살과 66살을 다르게 벌하지 않는다 (ADR-78).
+ *
+ * 한 값이 두 몫을 한다. 일부러 그렇게 뒀다 — 둘이 같은 것을 말하기 때문이다.
+ *   · **벌점 상한** — `seating.ts` 가 나이차를 여기서 자른다. 상한에서 벌점은 `SEAT_W.AGE`
+ *   · **측정 문턱** — 테스트·문서가 *"나이차 위반 몇 쌍"* 을 셀 때 쓴다 (`docs/SEATING.md`)
+ *
+ * 그래서 그 지표는 **벌점이 상한에 걸린 쌍의 수**와 정확히 같은 것을 센다.
+ * 나누고 싶어지면 먼저 ADR-78 을 읽어라 — 둘을 갈라 놓으면 지표가 목적함수와 어긋난다.
  */
 export const AGE_GAP = 10;
 
