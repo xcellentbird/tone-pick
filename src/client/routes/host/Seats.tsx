@@ -436,15 +436,20 @@ function ExcludePicker({
    * 두 화면이 다른 모양으로 거르면 운영자가 매번 어느 쪽인지 다시 익혀야 한다.
    */
   const [filter, setFilter] = useState<"all" | Gender>("all");
-  /** 가나다순. 등록 순서에는 찾는 규칙이 없다 — 자리 검토 화면도 닉네임순이라 두 화면에서 같은 자리에 선다 */
-  const sorted = [...players].sort((a, b) => a.nickname.localeCompare(b.nickname, "ko"));
+  /**
+   * **실명 순**(가나다). 등록 순서에는 찾는 규칙이 없다. 닉네임 순이 아니다 — 운영자는
+   * 실명으로 사람을 알고 줄도 실명이 앞에 선다 (ADR-77 후기). 같은 실명이면 닉네임으로 가른다
+   */
+  const sorted = [...players].sort(
+    (a, b) => a.realName.localeCompare(b.realName, "ko") || a.nickname.localeCompare(b.nickname, "ko"),
+  );
   const shown = sorted.filter((p) => filter === "all" || p.gender === filter);
   const count = {
     all: players.length,
     M: players.filter((p) => p.gender === "M").length,
     F: players.filter((p) => p.gender === "F").length,
   } as const;
-  const excluded = sorted.filter((p) => out.has(p.id)).map((p) => p.nickname);
+  const excluded = sorted.filter((p) => out.has(p.id)).map((p) => p.realName);
 
   return (
     <div className="stack">
@@ -485,7 +490,19 @@ function ExcludePicker({
                 onClick={() => onToggle(p.id)}
               >
                 <Avatar nickname={p.nickname} gender={p.gender} size="sm" />
-                <span className="grow ellipsis">{p.nickname}</span>
+                {/*
+                  **실명이 앞에, 굵게.** 운영자는 닉네임만으로 그 사람이 누구인지 알기 어렵다 —
+                  참가자 탭과 같은 차례(실명 · 닉네임 · 나이)다. 운영자만 전체를 본다
+                */}
+                <span className="grow ellipsis">
+                  <span className="name">{p.realName}</span>
+                  <span className="dim">
+                    {" · "}
+                    {p.nickname}
+                    {" · "}
+                    {UNIT.age(p.age)}
+                  </span>
+                </span>
                 {/* 톤만으로 말하지 않는다. 지금 어느 쪽인지 글자가 같은 정보를 다시 준다 */}
                 <span className={out.has(p.id) ? "dim" : ""}>
                   {out.has(p.id) ? HOST_UI.seats.excludeOut : HOST_UI.seats.excludeIn}
