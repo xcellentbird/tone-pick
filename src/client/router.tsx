@@ -113,6 +113,8 @@ export const HOST_CONSOLE_ROUTES = [
     // 예전에는 `:mode` 로 `new`·`final` 둘을 받았다. 커플 자리를 걷어내며 길이 하나가 됐다 (ADR-51)
     { path: "seats/new", element: chunk(<Seats />) },
     { path: "seats/new/tables", element: chunk(<Seats />) },
+    // 자리 없는 사람을 앉힐 자리 고르기 (ADR-79). 라운드가 주소에 있어야 새로고침해도 같은 카드다
+    { path: "seats/seat/:round/:pid", element: chunk(<Seats />) },
     { path: "settings", element: chunk(<Settings />) },
 ];
 

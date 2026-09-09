@@ -360,13 +360,18 @@ hostRoutes.post("/events/:id/seating/swap", async (c) => {
   return response ?? c.json(value);
 });
 
-/** 자리 없는 사람을 앉힌다. **테이블은 받지 않는다** — 서버가 고른다 (SEATING.md) */
+/**
+ * 자리 없는 사람을 앉힌다. **테이블은 선택값이다** (ADR-79).
+ *
+ * 안 주면 서버가 고른다 — 자기 성별이 가장 적은 테이블(`autoTable`). 주면 그대로 앉힌다.
+ * 빈 의자가 어느 테이블에 있는지는 현장의 운영자만 알기 때문이다. 범위 검사는 DO 가 한다.
+ */
 hostRoutes.post("/events/:id/seating/seat", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
-  const body = await json<{ playerId?: string; round?: number }>(c);
+  const body = await json<{ playerId?: string; round?: number; table?: number }>(c);
   if (!body.playerId) return apiError(c, "bad_request");
-  const { value, response } = unwrap(c, await gate.stub.seatPlayer(body.playerId, body.round));
+  const { value, response } = unwrap(c, await gate.stub.seatPlayer(body.playerId, body.round, body.table));
   markSeat(c, "seat", response);
   return response ?? c.json(value);
 });

@@ -45,6 +45,7 @@ import type {
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
 import { rosterOpen, toMe, toPublic } from "../shared/types.ts";
+import { autoTable } from "../shared/seats.ts";
 import { ENTRY } from "../shared/copy.ts";
 import {
   ENTRY_TRIES,
@@ -1274,27 +1275,21 @@ export class EventDO extends DurableObject {
    * 발행된 라운드라면 `acks` 에 함께 넣는다. 안 그러면 이 사람에게만 자리 이동 확인이
    * 뜬다 — 방금 운영자가 손으로 앉히며 말해준 것을 앱이 한 번 더 묻는 꼴이다.
    */
-  async seatPlayer(playerId: string, round?: number): Promise<Result<SeatingRound>> {
+  async seatPlayer(playerId: string, round?: number, table?: number): Promise<Result<SeatingRound>> {
     if (!(await this.seatsOpen())) return fail("closed");
     const target = this.editableRound(round);
     if (!target) return fail("not_found");
     const me = this.player(playerId);
     if (!me) return fail("not_found");
     if (target.seats.some((s) => s.playerId === playerId)) return ok(target);
+    // 없는 테이블에 앉히면 그 사람은 아무 데도 없는 자리를 받는다. 범위 밖이면 거절한다
+    if (table !== undefined && (!Number.isInteger(table) || table < 1 || table > target.tableCount))
+      return fail("bad_request");
 
     const gender = new Map(
       this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
     );
-    let best = 1;
-    let bestKey: [number, number] = [Infinity, Infinity];
-    for (let t = 1; t <= target.tableCount; t++) {
-      const here = target.seats.filter((s) => s.table === t);
-      const key: [number, number] = [here.filter((s) => gender.get(s.playerId) === me.gender).length, here.length];
-      if (key[0] < bestKey[0] || (key[0] === bestKey[0] && key[1] < bestKey[1])) {
-        best = t;
-        bestKey = key;
-      }
-    }
+    const best = table ?? autoTable(target.seats, target.tableCount, (id) => gender.get(id), me.gender);
 
     target.seats.push({ playerId, table: best });
     if (target.status === "published" && !target.acks.includes(playerId)) target.acks.push(playerId);
