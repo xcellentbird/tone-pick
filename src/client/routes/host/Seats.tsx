@@ -379,13 +379,23 @@ export default function Seats() {
               ✨ {HOST_UI.seats.reseat}
             </button>
           </div>
+          <button className="btn primary block" onClick={() => askPublish(draft)}>
+            {HOST.seating.publish}
+          </button>
           {/*
-            **`취소` 를 섞기 줄에서 뺐다.** 섞기는 마음에 들 때까지 연타하는 버튼인데
-            초안을 통째로 날리는 버튼이 그 손가락 밑에 있었다. 하나가 둘이 되면서
-            빗나갈 자리가 넓어져 제 줄로 내렸다.
+            **`취소` 는 맨 아래, primary 아래다.**
 
-            **`확정하고 알리기` 위에 둔다.** 아래로 내리면 primary 를 되돌리는 버튼으로
-            읽힌다 — 이 버튼이 지우는 건 발송이 아니라 초안이다.
+            섞기 줄에서 뺀 건 그쪽이 마음에 들 때까지 **연타하는** 자리이기 때문이다 —
+            초안을 통째로 날리는 버튼이 그 손가락 밑에 있으면 안 된다. 섞기가 둘이 되면서
+            빗나갈 자리가 더 넓어졌다.
+
+            **primary 위가 아니라 아래인 이유는 읽는 순서다.** 위에 두면 끝내는 버튼으로
+            가는 길목에 파괴적인 것이 서서, 눈이 매번 그것을 지나간다. 아래로 내리면
+            `이대로 보낸다 → 아니면 없던 일로` 가 되어 카드가 결론에서 끝난다.
+            시트 맨 아래의 조용한 버튼은 **여기서 빠져나간다**로 읽히는 자리이기도 하고,
+            이 버튼이 하는 일이 정확히 그것이다.
+
+            그래서 `ghost` 다. 발송과 나란히 서는 만큼 **눌러야 할 것처럼 보이면 안 된다.**
           */}
           <button
             className="btn block ghost"
@@ -397,9 +407,6 @@ export default function Seats() {
             }}
           >
             {HOST_UI.seats.discard}
-          </button>
-          <button className="btn primary block" onClick={() => askPublish(draft)}>
-            {HOST.seating.publish}
           </button>
         </div>
       )}
