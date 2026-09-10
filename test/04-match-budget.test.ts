@@ -194,9 +194,9 @@ describe("자리 섞기", () => {
     expect(res.status).toBe(404);
   });
 
-  // ── AI 자리섞기 — 같은 사람·같은 테이블 수로 가중식을 다시 돌린다
+  // ── AI 섞기 — 같은 사람·같은 테이블 수로 가중식을 다시 돌린다
 
-  it("★ AI 자리섞기는 앉은 사람과 테이블 수를 그대로 두고 다시 계산한다", async () => {
+  it("★ AI 섞기는 앉은 사람과 테이블 수를 그대로 두고 다시 계산한다", async () => {
     /*
      * 테이블 수도 뺄 사람도 다시 묻지 않는 것이 이 손잡이의 요점이다 —
      * 물어야 한다면 위쪽 `자리 재배정` 과 다를 게 없다 (SEATING.md).
@@ -233,7 +233,7 @@ describe("자리 섞기", () => {
     expect(seen.size).toBeGreaterThan(1);
   });
 
-  it("★ 이번 라운드에서 뺀 사람을 AI 자리섞기가 데려오지 않는다", async () => {
+  it("★ 이번 라운드에서 뺀 사람을 AI 섞기가 데려오지 않는다", async () => {
     // 눈앞의 테이블 인원이 소리 없이 달라지면 운영자가 보고 있던 화면이 거짓이 된다
     const ev = await freshEvent();
     const ids: string[] = [];
@@ -254,7 +254,7 @@ describe("자리 섞기", () => {
     expect(after.body.seats.length).toBe(made.body.seats.length);
   });
 
-  it("만든 자리가 없으면 AI 자리섞기도 할 것이 없다", async () => {
+  it("만든 자리가 없으면 AI 섞기도 할 것이 없다", async () => {
     const ev = await freshEvent();
     const res = await api(`/api/host/events/${ev.id}/seating/reseat`, { method: "POST", cookie: master });
     expect(res.status).toBe(404);
