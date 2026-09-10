@@ -387,12 +387,24 @@ hostRoutes.post("/events/:id/seating/unseat", async (c) => {
   return response ?? c.json(value);
 });
 
-/** 남녀 비율은 그대로 두고 사람만 다시 섞는다 */
+/** 남녀 비율은 그대로 두고 사람만 다시 섞는다 (`랜덤 자리섞기`) */
 hostRoutes.post("/events/:id/seating/shuffle", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const { value, response } = unwrap(c, await gate.stub.shuffleSeating());
   markSeat(c, "shuffle", response);
+  return response ?? c.json(value);
+});
+
+/**
+ * 같은 사람·같은 테이블 수로 **가중식을 다시 돌린다** (`AI 자리섞기`).
+ * 위의 섞기와 달리 끌림·재회·공정성을 전부 다시 잰다 (SEATING.md).
+ */
+hostRoutes.post("/events/:id/seating/reseat", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { value, response } = unwrap(c, await gate.stub.reseatDraft(serverNow()));
+  markSeat(c, "reseat", response);
   return response ?? c.json(value);
 });
 

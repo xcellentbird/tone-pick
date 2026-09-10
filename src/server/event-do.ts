@@ -1349,6 +1349,55 @@ export class EventDO extends DurableObject {
     return ok(draft);
   }
 
+  /**
+   * 같은 사람·같은 테이블 수로 **가중식을 처음부터 다시 돌린다** (`AI 자리섞기`).
+   *
+   * `shuffleSeating()` 과 짝이다 — 저쪽은 테이블별 성비만 지키고 사람을 무작위로 옮기고,
+   * 이쪽은 끌림·재회·공정성을 **전부 다시 재서** 앉힌다 (SEATING.md).
+   * 위쪽 `자리 재배정` 과 다른 점은 **테이블 수도 뺄 사람도 다시 묻지 않는 것**이다 —
+   * 지금 초안에 앉아 있는 사람과 그 테이블 수를 그대로 쓴다. 누르면 바로 다시 앉는다.
+   *
+   * 씨앗이 **부를 때의 서버 시각**이라 누를 때마다 다른 답이 나온다.
+   * `buildSeating` 은 순수 함수 그대로다 (CLAUDE.md) — 다르게 주는 건 씨앗뿐이다.
+   *
+   * ⚠️ **붙어 앉은 쌍을 지키지 않는다.** 섞기(ADR-49)와 갈리는 지점이다 — 저건 자리를
+   * 안 건드리니 쌍을 뺄 수 있지만, 이건 배정을 통째로 다시 만드는 일이라 지킬 자리가 없다.
+   * 운영자가 맞교환으로 붙여둔 쌍은 떨어질 수 있고, 화면이 그 사실을 누른 뒤에 말한다.
+   *
+   * 초안에 자리가 없는 사람은 그대로 둔다. 운영자가 이번 라운드에서 뺐거나(ADR-45)
+   * 초안 뒤에 등록한 사람인데, 여기서 끌어들이면 눈앞의 테이블 인원이 소리 없이 달라진다.
+   */
+  async reseatDraft(now: number): Promise<Result<SeatingRound>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    // 발표만이 자리를 끝낸다 (ADR-28). 초안을 찾기 **전에** 닫는다 — 잠긴 것과 없는 것은 다른 답이다
+    if (meta.phase === "done") return fail("closed");
+
+    const draft = this.seatings().find((s) => s.status === "draft");
+    if (!draft) return fail("not_found");
+
+    const seated = new Set(draft.seats.map((s) => s.playerId));
+    const players = this.players().filter((p) => seated.has(p.id));
+    // 자리를 비우다 인원이 모자라진 초안. 만들 때와 같은 문을 여기서도 닫는다
+    if (players.length < draft.tableCount * 2) return fail("bad_request");
+
+    const published = this.seatings().filter((s) => s.status === "published");
+    draft.seats = buildSeating({
+      players,
+      tableCount: draft.tableCount,
+      // **이 초안의 라운드 그대로다.** 다시 세면 재회 벌점이 한 칸씩 밀린다
+      round: draft.round,
+      history: published.map((s) => s.seats),
+      votes: this.sentBy("pre"),
+      pokes: this.sentBy("party"),
+      maxVote: meta.config.maxPre,
+      maxPoke: meta.config.maxParty,
+      seed: now,
+    });
+    this.writeSeating(draft);
+    return ok(draft);
+  }
+
   /** 이 배정에서 **같은 테이블에 앉은** 상호 매칭 쌍의 사람들 */
   private pairedSeatIds(round: SeatingRound): Set<string> {
     const table = new Map(round.seats.map((s) => [s.playerId, s.table]));
