@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, VOTE_END, phaseAction, schedDiff } from "../../src/shared/copy.ts";
+import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, UNIT, VOTE_END, phaseAction, schedDiff } from "../../src/shared/copy.ts";
 import { formatGap, formatWhen, toLocalInput } from "../../src/shared/time.ts";
 import type { HostState, SeatingRound } from "../../src/shared/types.ts";
 import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
@@ -1346,26 +1346,55 @@ describe("자리 배정 시트", () => {
     await screen.findByText(HOST_UI.seats.seatedAll(2));
 
     expect(inSheet().getByText(HOST_UI.seats.excludeNext)).toBeTruthy();
-    expect(inSheet().queryByText("가"), "펼치기 전에는 이름이 없다").toBeNull();
+    expect(inSheet().queryByText("김가"), "펼치기 전에는 이름이 없다").toBeNull();
 
     unfold();
-    expect(inSheet().getByText("가")).toBeTruthy();
+    expect(inSheet().getByText("김가")).toBeTruthy();
     expect(inSheet().queryByText(HOST_UI.seats.excludePick), "펼친 뒤 손잡이는 없다").toBeNull();
   });
 
-  /** ★ **이름 순이다** (ADR-77). 등록 순서에는 찾는 규칙이 없다 */
-  it("★ 목록은 등록 순서가 아니라 이름 순으로 선다", async () => {
+  /**
+   * ★ **실명이 앞에 서고, 닉네임과 나이가 같은 줄에 있다** (ADR-77 후기).
+   * 운영자는 닉네임만으로 그 사람이 누구인지 알기 어렵다 — 참가자 탭과 같은 차례다.
+   */
+  it("★ 줄은 실명이 앞에 서고, 닉네임과 나이가 따라온다", async () => {
+    stubFetch(party());
+    renderConsole("/host/e1/seats/new");
+    await screen.findByText(HOST_UI.seats.seatedAll(2));
+    unfold();
+
+    const row = inSheet().getByText("김가").closest("button") as HTMLElement;
+    const text = row.textContent ?? "";
+    expect(text.indexOf("김가"), "실명이 닉네임보다 앞").toBeLessThan(text.indexOf("가 "));
+    expect(text).toContain(UNIT.age(28));
+  });
+
+  /**
+   * ★ **자리 검토의 머리말은 뺄 사람 시트의 `제외` 와 같은 말이다** (ADR-77 후기).
+   * 운영자가 방금 고른 낱말이 검토 카드에서 다시 보여야 두 화면이 이어진다 —
+   * `아직 앉지 않은 사람` 은 참가자가 스스로 안 앉은 것처럼 읽혔다.
+   */
+  it("★ 검토 카드의 빠진 사람 머리말은 시트의 `제외` 표시와 같은 말이다", () => {
+    expect(HOST_UI.seats.unassigned).toBe(HOST_UI.seats.excludeOut);
+  });
+
+  /** ★ **실명 순이다** (ADR-77 후기). 등록 순서도, 닉네임 순도 아니다 */
+  it("★ 목록은 등록 순서도 닉네임 순도 아니라 실명 순으로 선다", async () => {
     const st = party();
-    // 등록 순서는 다 → 가 → 나
-    st.players = [{ ...st.players[0], id: "p3", nickname: "다", realName: "김다" }, ...st.players];
+    // 등록 순서는 다(이서) → 가(박준) → 나(김민). 닉네임 순이면 가·나·다, 실명 순이면 김민·박준·이서
+    st.players = [
+      { ...st.players[0], id: "p3", nickname: "다", realName: "이서" },
+      { ...st.players[0], nickname: "가", realName: "박준" },
+      { ...st.players[1], nickname: "나", realName: "김민" },
+    ];
     stubFetch(st);
     renderConsole("/host/e1/seats/new");
     await screen.findByText(HOST_UI.seats.seatedAll(3));
     unfold();
 
-    const [ga, na, da] = ["가", "나", "다"].map((n) => inSheet().getByText(n));
-    expect(before(ga, na), "가 → 나").toBe(true);
-    expect(before(na, da), "나 → 다").toBe(true);
+    const [kim, park, lee] = ["김민", "박준", "이서"].map((n) => inSheet().getByText(n));
+    expect(before(kim, park), "김민 → 박준").toBe(true);
+    expect(before(park, lee), "박준 → 이서").toBe(true);
   });
 
   it("★ 뺀 사람은 인원에서 빠지고, 왜 빠졌는지 말한다", async () => {
@@ -1374,11 +1403,11 @@ describe("자리 배정 시트", () => {
     await screen.findByText(HOST_UI.seats.seatedAll(2));
     unfold();
 
-    // 한 명을 뺀다 — `2명 배정` 이 아니라 `1명 배정 · 1명 제외`, 그리고 발에 누구를 뺐는지
-    fireEvent.click(inSheet().getByText("가"));
+    // 한 명을 뺀다 — `2명 배정` 이 아니라 `1명 배정 · 1명 제외`, 그리고 발에 누구를 뺐는지(실명)
+    fireEvent.click(inSheet().getByText("김가"));
     await screen.findByText(HOST_UI.seats.leftOut(1, 1));
     expect(screen.queryByText(HOST_UI.seats.seatedAll(2))).toBeNull();
-    expect(inSheet().getByText(HOST_UI.seats.excludedNames(["가"], 0))).toBeTruthy();
+    expect(inSheet().getByText(HOST_UI.seats.excludedNames(["김가"], 0))).toBeTruthy();
   });
 
   /**
@@ -1392,12 +1421,12 @@ describe("자리 배정 시트", () => {
 
     unfold();
     // 전체로 시작한다 — 남 하나, 여 하나
-    expect(inSheet().getByText("가")).toBeTruthy();
-    expect(inSheet().getByText("나")).toBeTruthy();
+    expect(inSheet().getByText("김가")).toBeTruthy();
+    expect(inSheet().getByText("김나")).toBeTruthy();
 
     fireEvent.click(inSheet().getByText(GENDER.M, { exact: false }));
-    expect(inSheet().getByText("가")).toBeTruthy();
-    expect(inSheet().queryByText("나")).toBeNull();
+    expect(inSheet().getByText("김가")).toBeTruthy();
+    expect(inSheet().queryByText("김나")).toBeNull();
   });
 
   /**
@@ -1450,7 +1479,7 @@ describe("자리 배정 시트", () => {
     await screen.findByText(HOST_UI.seats.seatedAll(3));
     unfold();
 
-    fireEvent.click(inSheet().getByText("가"));
+    fireEvent.click(inSheet().getByText("김가"));
     fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
     await screen.findAllByText(HOST_UI.seats.tableCount);
     fireEvent.click(inSheet().getByText(HOST_UI.seats.make));

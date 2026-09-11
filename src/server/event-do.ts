@@ -45,6 +45,7 @@ import type {
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
 import { rosterOpen, toMe, toPublic } from "../shared/types.ts";
+import { autoTable } from "../shared/seats.ts";
 import { ENTRY } from "../shared/copy.ts";
 import {
   ENTRY_TRIES,
@@ -1274,27 +1275,21 @@ export class EventDO extends DurableObject {
    * 발행된 라운드라면 `acks` 에 함께 넣는다. 안 그러면 이 사람에게만 자리 이동 확인이
    * 뜬다 — 방금 운영자가 손으로 앉히며 말해준 것을 앱이 한 번 더 묻는 꼴이다.
    */
-  async seatPlayer(playerId: string, round?: number): Promise<Result<SeatingRound>> {
+  async seatPlayer(playerId: string, round?: number, table?: number): Promise<Result<SeatingRound>> {
     if (!(await this.seatsOpen())) return fail("closed");
     const target = this.editableRound(round);
     if (!target) return fail("not_found");
     const me = this.player(playerId);
     if (!me) return fail("not_found");
     if (target.seats.some((s) => s.playerId === playerId)) return ok(target);
+    // 없는 테이블에 앉히면 그 사람은 아무 데도 없는 자리를 받는다. 범위 밖이면 거절한다
+    if (table !== undefined && (!Number.isInteger(table) || table < 1 || table > target.tableCount))
+      return fail("bad_request");
 
     const gender = new Map(
       this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
     );
-    let best = 1;
-    let bestKey: [number, number] = [Infinity, Infinity];
-    for (let t = 1; t <= target.tableCount; t++) {
-      const here = target.seats.filter((s) => s.table === t);
-      const key: [number, number] = [here.filter((s) => gender.get(s.playerId) === me.gender).length, here.length];
-      if (key[0] < bestKey[0] || (key[0] === bestKey[0] && key[1] < bestKey[1])) {
-        best = t;
-        bestKey = key;
-      }
-    }
+    const best = table ?? autoTable(target.seats, target.tableCount, (id) => gender.get(id), me.gender);
 
     target.seats.push({ playerId, table: best });
     if (target.status === "published" && !target.acks.includes(playerId)) target.acks.push(playerId);
@@ -1350,6 +1345,55 @@ export class EventDO extends DurableObject {
       const ids = shuffle(mine.map((s) => s.playerId));
       mine.forEach((seat, i) => (seat.playerId = ids[i]));
     }
+    this.writeSeating(draft);
+    return ok(draft);
+  }
+
+  /**
+   * 같은 사람·같은 테이블 수로 **가중식을 처음부터 다시 돌린다** (`AI 섞기`).
+   *
+   * `shuffleSeating()` 과 짝이다 — 저쪽은 테이블별 성비만 지키고 사람을 무작위로 옮기고,
+   * 이쪽은 끌림·재회·공정성을 **전부 다시 재서** 앉힌다 (SEATING.md).
+   * 위쪽 `자리 재배정` 과 다른 점은 **테이블 수도 뺄 사람도 다시 묻지 않는 것**이다 —
+   * 지금 초안에 앉아 있는 사람과 그 테이블 수를 그대로 쓴다. 누르면 바로 다시 앉는다.
+   *
+   * 씨앗이 **부를 때의 서버 시각**이라 누를 때마다 다른 답이 나온다.
+   * `buildSeating` 은 순수 함수 그대로다 (CLAUDE.md) — 다르게 주는 건 씨앗뿐이다.
+   *
+   * ⚠️ **붙어 앉은 쌍을 지키지 않는다.** 섞기(ADR-49)와 갈리는 지점이다 — 저건 자리를
+   * 안 건드리니 쌍을 뺄 수 있지만, 이건 배정을 통째로 다시 만드는 일이라 지킬 자리가 없다.
+   * 운영자가 맞교환으로 붙여둔 쌍은 떨어질 수 있고, 화면이 그 사실을 누른 뒤에 말한다.
+   *
+   * 초안에 자리가 없는 사람은 그대로 둔다. 운영자가 이번 라운드에서 뺐거나(ADR-45)
+   * 초안 뒤에 등록한 사람인데, 여기서 끌어들이면 눈앞의 테이블 인원이 소리 없이 달라진다.
+   */
+  async reseatDraft(now: number): Promise<Result<SeatingRound>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    // 발표만이 자리를 끝낸다 (ADR-28). 초안을 찾기 **전에** 닫는다 — 잠긴 것과 없는 것은 다른 답이다
+    if (meta.phase === "done") return fail("closed");
+
+    const draft = this.seatings().find((s) => s.status === "draft");
+    if (!draft) return fail("not_found");
+
+    const seated = new Set(draft.seats.map((s) => s.playerId));
+    const players = this.players().filter((p) => seated.has(p.id));
+    // 자리를 비우다 인원이 모자라진 초안. 만들 때와 같은 문을 여기서도 닫는다
+    if (players.length < draft.tableCount * 2) return fail("bad_request");
+
+    const published = this.seatings().filter((s) => s.status === "published");
+    draft.seats = buildSeating({
+      players,
+      tableCount: draft.tableCount,
+      // **이 초안의 라운드 그대로다.** 다시 세면 재회 벌점이 한 칸씩 밀린다
+      round: draft.round,
+      history: published.map((s) => s.seats),
+      votes: this.sentBy("pre"),
+      pokes: this.sentBy("party"),
+      maxVote: meta.config.maxPre,
+      maxPoke: meta.config.maxParty,
+      seed: now,
+    });
     this.writeSeating(draft);
     return ok(draft);
   }

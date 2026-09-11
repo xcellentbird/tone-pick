@@ -315,22 +315,39 @@ describe("앉힌 자리 고치기", () => {
     expect(res.status).toBe(404);
   });
 
-  it("★ 앉힐 테이블은 서버가 고른다 — 그 성별이 가장 덜 찬 곳으로", async () => {
-    /*
-     * 운영자가 테이블을 고르게 하면 그게 곧 **한 명만 옮기는 API** 다 (SEATING.md).
-     * 성비는 지키려고 노력하는 게 아니라 깨질 방법이 없어야 한다.
-     */
+  it("★ 테이블을 안 주면 서버가 고른다 — 그 성별이 가장 덜 찬 곳으로", async () => {
     const { ev, round } = await seated();
     const man = round.seats.find((s) => s.table === 1)!;
     // 1번에서 한 명을 빼면 그 테이블이 그 성별로 가장 비게 된다 → 도로 1번에 앉아야 한다
     await seatOp(ev.id, "unseat", { playerId: man.playerId, round: round.round });
     const back = await seatOp(ev.id, "seat", { playerId: man.playerId, round: round.round });
     expect(back.body.seats.find((s) => s.playerId === man.playerId)?.table).toBe(1);
+  });
 
-    // 테이블을 받는 통로는 없다 — 보내도 서버가 무시한다
+  /**
+   * ★ **테이블을 주면 그대로 앉힌다** (ADR-79).
+   *
+   * `SEATING.md` 가 막던 길을 연 것이다 — 빈 의자가 어느 테이블에 있는지는 현장의 운영자만
+   * 안다. 자동이 고를 자리(1번)와 **다른 곳**을 골라야 이 통로가 실제로 열린 것이 된다.
+   */
+  it("★ 테이블을 주면 그대로 앉는다 — 자동이 고를 자리가 아니어도", async () => {
+    const { ev, round } = await seated();
+    const man = round.seats.find((s) => s.table === 1)!;
     await seatOp(ev.id, "unseat", { playerId: man.playerId, round: round.round });
     const forced = await seatOp(ev.id, "seat", { playerId: man.playerId, round: round.round, table: 2 });
-    expect(forced.body.seats.find((s) => s.playerId === man.playerId)?.table).toBe(1);
+    expect(forced.body.seats.find((s) => s.playerId === man.playerId)?.table).toBe(2);
+  });
+
+  /** ★ 없는 테이블에 앉히면 그 사람은 **아무 데도 없는 자리**를 받는다. 범위 밖은 거절한다 */
+  it("★ 없는 테이블 번호는 거절한다", async () => {
+    const { ev, round } = await seated();
+    const man = round.seats.find((s) => s.table === 1)!;
+    await seatOp(ev.id, "unseat", { playerId: man.playerId, round: round.round });
+    // 이 회차는 두 테이블이다 (`seated()`) — 0 · 3 · 소수는 전부 없는 번호다
+    for (const table of [0, 3, 1.5]) {
+      const res = await seatOp(ev.id, "seat", { playerId: man.playerId, round: round.round, table });
+      expect(res.status, `테이블 ${table}`).toBe(400);
+    }
   });
 
   it("★ 같은 사람이 두 자리에 있지 않다", async () => {
@@ -406,6 +423,7 @@ describe("앉힌 자리 고치기", () => {
       ["seat", { playerId: ids[0], round: round.round }],
       ["unseat", { playerId: ids[0], round: round.round }],
       ["shuffle", {}],
+      ["reseat", {}],
       ["publish", {}],
     ] as const) {
       const res = await api(`/api/host/events/${ev.id}/seating/${op}`, { method: "POST", cookie: master, body });

@@ -11,6 +11,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type {
   EventMeta,
   ParticipantState,
+  SeatingRound,
 } from "../src/shared/types.ts";
 import { signInMaster, api, freshEvent, join, master, setPhase } from "./helpers/party.ts";
 
@@ -190,6 +191,72 @@ describe("자리 섞기", () => {
   it("만든 자리가 없으면 섞을 것도 없다", async () => {
     const ev = await freshEvent();
     const res = await api(`/api/host/events/${ev.id}/seating/shuffle`, { method: "POST", cookie: master });
+    expect(res.status).toBe(404);
+  });
+
+  // ── AI 섞기 — 같은 사람·같은 테이블 수로 가중식을 다시 돌린다
+
+  it("★ AI 섞기는 앉은 사람과 테이블 수를 그대로 두고 다시 계산한다", async () => {
+    /*
+     * 테이블 수도 뺄 사람도 다시 묻지 않는 것이 이 손잡이의 요점이다 —
+     * 물어야 한다면 위쪽 `자리 재배정` 과 다를 게 없다 (SEATING.md).
+     * 씨앗이 서버 시각이라 **누를 때마다 다른 답**이 나온다. 같은 답만 나오면 죽은 버튼이다.
+     */
+    const ev = await freshEvent();
+    const ids: string[] = [];
+    for (let i = 0; i < 12; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    const made = await api<SeatingRound>(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 3 },
+    });
+    expect(made.status).toBe(200);
+
+    const shape = (r: SeatingRound) => r.seats.map((s) => `${s.playerId}:${s.table}`).sort().join(" ");
+    /*
+     * **처음 만든 초안은 여기 넣지 않는다.** 그건 이미 다른 씨앗으로 나온 것이라,
+     * 함께 세면 씨앗을 굳혀도 `2` 가 나와 죽은 버튼을 못 잡는다 (실제로 못 잡았다).
+     * 재계산끼리 갈리는지만 본다.
+     */
+    const seen = new Set<string>();
+
+    for (let i = 0; i < 8; i++) {
+      const after = await api<SeatingRound>(`/api/host/events/${ev.id}/seating/reseat`, {
+        method: "POST", cookie: master,
+      });
+      expect(after.status).toBe(200);
+      expect(after.body.seats.map((s) => s.playerId).sort()).toEqual(ids.slice().sort());
+      expect(after.body.tableCount).toBe(3);
+      // 라운드를 다시 세지 않는다 — 세면 재회 벌점이 한 칸씩 밀린다
+      expect(after.body.round).toBe(made.body.round);
+      expect(after.body.status).toBe("draft");
+      seen.add(shape(after.body));
+    }
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it("★ 이번 라운드에서 뺀 사람을 AI 섞기가 데려오지 않는다", async () => {
+    // 눈앞의 테이블 인원이 소리 없이 달라지면 운영자가 보고 있던 화면이 거짓이 된다
+    const ev = await freshEvent();
+    const ids: string[] = [];
+    for (let i = 0; i < 9; i++) ids.push((await join(ev, { gender: i % 2 === 0 ? "M" : "F" })).id);
+    const out = ids[0];
+
+    const made = await api<SeatingRound>(`/api/host/events/${ev.id}/seating`, {
+      method: "POST", cookie: master, body: { tableCount: 2, exclude: [out] },
+    });
+    expect(made.status).toBe(200);
+    expect(made.body.seats.some((s) => s.playerId === out)).toBe(false);
+
+    const after = await api<SeatingRound>(`/api/host/events/${ev.id}/seating/reseat`, {
+      method: "POST", cookie: master,
+    });
+    expect(after.status).toBe(200);
+    expect(after.body.seats.some((s) => s.playerId === out)).toBe(false);
+    expect(after.body.seats.length).toBe(made.body.seats.length);
+  });
+
+  it("만든 자리가 없으면 AI 섞기도 할 것이 없다", async () => {
+    const ev = await freshEvent();
+    const res = await api(`/api/host/events/${ev.id}/seating/reseat`, { method: "POST", cookie: master });
     expect(res.status).toBe(404);
   });
 });
