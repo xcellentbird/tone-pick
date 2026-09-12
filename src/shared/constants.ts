@@ -13,7 +13,7 @@ import { INVITE_TEMPLATE, LEGACY_INVITE_TEMPLATE } from "./copy.ts";
  * `package.json` 과 어긋나지 않는 일은 `npm run check` 가 본다
  * (`scripts/check-config.mjs` ⑤). 릴리스에서 이 줄을 빠뜨리면 CI 가 잡는다.
  */
-export const APP_VERSION = "2.9.0";
+export const APP_VERSION = "2.10.0";
 
 /**
  * 등록은 **회차를 만드는 순간** 열린다 (ADR-38). 예약이 남은 건 매력 투표뿐이다 —
@@ -118,9 +118,12 @@ export const LIMITS = {
  * 특히 `MUTUAL` 을 8 이상으로 올리면 나이대 이성 전원 만남이 무너진다.
  */
 export const SEAT_W = {
-  /** 나이차 벌점의 계수. `(나이차/10)³` 에 곱한다 — 작은 차이는 거의 공짜고 큰 차이는 무겁다 */
+  /**
+   * 나이차 벌점의 계수. `(나이차/10)³` 에 곱한다 — 작은 차이는 거의 공짜고 큰 차이는 무겁다.
+   * **이성 쌍에만 건다** (ADR-80). 동성끼리는 나이가 자리를 가르지 않는다.
+   */
   AGE: 1.0,
-  /** 이미 만난 사이. `min(1, 만난 횟수/2)` 에 곱한다 */
+  /** 이미 만난 사이. `min(1, 만난 횟수/2)` 에 곱한다. **이성 쌍에만 건다** (ADR-80) */
   REP: 0.6,
   /** 매력 투표 — **호기심이라 콕보다 가볍다.** 진행도와 무관하게 일정하다 */
   VOTE: 0.4,

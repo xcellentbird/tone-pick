@@ -333,8 +333,17 @@ class World {
         v += wPoke * pull(pokeOut[k], pokeOut[j * n + i], maxPoke);
         v += SEAT_W.VOTE * pull(voteOut[k], voteOut[j * n + i], maxVote);
         if (mutual) v += SEAT_W.MUTUAL;
-        v -= SEAT_W.AGE * gap * gap * gap;
-        v -= SEAT_W.REP * Math.min(1, met[k] / 2);
+        /*
+         * **나이차·재회 벌점은 이성 쌍에만** (ADR-80). 이 앱이 자리로 지키려는 건 *이어질 수
+         * 있는* 만남이고, 그건 이성 쌍이다. 같은 테이블의 동성끼리는 나이가 벌어진 것도, 지난
+         * 테이블에서 본 사이인 것도 벌하지 않는다 — 동성 배치는 이성 쪽 사정의 부산물일 뿐이다.
+         * 시작 배치(②)는 여전히 나이순이라 첫 라운드의 동성은 대체로 모여 앉는다. 그건 이성
+         * 나이차를 위한 출발점이지 벌점이 아니다.
+         */
+        if (opposite) {
+          v -= SEAT_W.AGE * gap * gap * gap;
+          v -= SEAT_W.REP * Math.min(1, met[k] / 2);
+        }
         this.give[k] = lam * v;
 
         const first = opposite && met[k] === 0 && Math.abs(this.age[i] - this.age[j]) <= MEET_GAP;
