@@ -674,6 +674,34 @@ export interface RegisterResult {
   resumed: boolean;
 }
 
+/**
+ * 콕 이력 한 줄 — **운영자 전용 뽑기** (ADR-82). 콕 하나가 줄 하나다.
+ *
+ * 운영자의 공개 범위는 `발신자까지` 다 (`docs/DOMAIN.md`). 그래도 이 값이 참가자에게 가는 길은
+ * 없어야 한다 — 만드는 곳은 `EventDO.pokeLog()` 하나고 부르는 곳은 운영자 CSV 라우트 하나다.
+ * `ParticipantState` 어디에도 넣지 마라.
+ *
+ * **전화·인스타 칸이 없다.** 이 줄은 DO 밖으로 나가는 파일이 되므로, 새면 돌이킬 수 없다 —
+ * 칸이 없는 것이 곧 방어다 (ADR-42 와 같은 논리).
+ */
+export interface HostPokeSide {
+  id: string;
+  nickname: string;
+  realName: string;
+  gender: Gender;
+  age: number;
+}
+
+export interface HostPokeRow {
+  round: PokeRound;
+  at: number;
+  /** 나간 사람이면 `null` — 그가 보낸 콕은 남는다 (ADR-29) */
+  from: HostPokeSide | null;
+  to: HostPokeSide | null;
+  /** **같은 라운드에** 상대도 이쪽을 찔렀다. 매칭 규칙(파티 콕만)과 다른, 줄 하나의 사실이다 */
+  mutual: boolean;
+}
+
 /** 운영자 콘솔 한 벌. 운영자만 전체를 본다 */
 export interface HostState {
   meta: EventMeta;
