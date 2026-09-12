@@ -334,16 +334,17 @@ class World {
         v += SEAT_W.VOTE * pull(voteOut[k], voteOut[j * n + i], maxVote);
         if (mutual) v += SEAT_W.MUTUAL;
         /*
-         * **나이차·재회 벌점은 이성 쌍에만** (ADR-80). 이 앱이 자리로 지키려는 건 *이어질 수
-         * 있는* 만남이고, 그건 이성 쌍이다. 같은 테이블의 동성끼리는 나이가 벌어진 것도, 지난
-         * 테이블에서 본 사이인 것도 벌하지 않는다 — 동성 배치는 이성 쪽 사정의 부산물일 뿐이다.
+         * **나이차 벌점은 이성 쌍에만** (ADR-80). 이 앱이 자리로 지키려는 건 *이어질 수 있는*
+         * 만남이고, 그건 이성 쌍이다. 같은 테이블의 동성끼리는 나이가 벌어진 것을 벌하지 않는다.
          * 시작 배치(②)는 여전히 나이순이라 첫 라운드의 동성은 대체로 모여 앉는다. 그건 이성
          * 나이차를 위한 출발점이지 벌점이 아니다.
+         *
+         * **재회는 동성에도 걸리되 1/3 이다** (ADR-81). 0 이면 이성 쪽 사정이 가르지 않는 한
+         * 같은 남자 셋이 라운드마다 다시 앉는다. 가벼운 값은 **이성 쪽이 아무 말도 하지 않는
+         * 자리에서만** 동성을 가른다 — 이성 재회를 피하는 일과 부딪히면 진다.
          */
-        if (opposite) {
-          v -= SEAT_W.AGE * gap * gap * gap;
-          v -= SEAT_W.REP * Math.min(1, met[k] / 2);
-        }
+        if (opposite) v -= SEAT_W.AGE * gap * gap * gap;
+        v -= (opposite ? SEAT_W.REP : SEAT_W.REP_SAME) * Math.min(1, met[k] / 2);
         this.give[k] = lam * v;
 
         const first = opposite && met[k] === 0 && Math.abs(this.age[i] - this.age[j]) <= MEET_GAP;
