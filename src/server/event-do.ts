@@ -39,6 +39,8 @@ import type {
   Seat,
   SeatingRound,
   ServerEvent,
+  HostPokeRow,
+  HostPokeSide,
   HostState,
   MySeat,
 } from "../shared/types.ts";
@@ -926,6 +928,40 @@ export class EventDO extends DurableObject {
   }
 
   // ─────────────────────────── 운영자 화면
+
+  /**
+   * 콕 이력 — **운영자 전용 뽑기** (ADR-82). 콕 하나가 줄 하나다.
+   *
+   * 보낸 사람 순으로(등록 순), 그 안에서는 시각 순으로 늘어놓는다 — *각 사람이 누구를 찔렀나* 를
+   * 위에서 아래로 읽는 파일이다. 나간 사람의 콕은 이름 자리가 비어 나간다 (ADR-29).
+   * `mutual` 은 **같은 라운드에** 상대도 찔렀다는 줄 하나의 사실이다 — 매칭(파티 콕만)이 아니다.
+   */
+  async pokeLog(now: number): Promise<Result<HostPokeRow[]>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    const players = this.players();
+    const order = new Map(players.map((p, i) => [p.id, i]));
+    const by = new Map(players.map((p) => [p.id, p]));
+    const side = (id: string): HostPokeSide | null => {
+      const p = by.get(id);
+      return p ? { id, nickname: p.nickname, realName: p.realName, gender: p.gender, age: p.age } : null;
+    };
+    const pokes = this.pokes();
+    const sent = new Set(pokes.map((k) => `${k.round}:${k.fromId}>${k.toId}`));
+    const rank = (k: Poke) => order.get(k.fromId) ?? players.length;
+    const roundNo = (k: Poke) => (k.round === "pre" ? 0 : 1);
+    return ok(
+      pokes
+        .sort((x, y) => rank(x) - rank(y) || roundNo(x) - roundNo(y) || x.at - y.at)
+        .map((k) => ({
+          round: k.round,
+          at: k.at,
+          from: side(k.fromId),
+          to: side(k.toId),
+          mutual: sent.has(`${k.round}:${k.toId}>${k.fromId}`),
+        })),
+    );
+  }
 
   async hostState(now: number): Promise<Result<HostState>> {
     const meta = await this.touch(now);
