@@ -120,7 +120,12 @@ describe("알림 설정", () => {
     expect(totalReceived(await meOf(me.cookie))).toBe(0);
   });
 
-  it("★ 발표되면 나간다 — 그래야 '몇 번 받았는지' 를 말할 수 있다", async () => {
+  /*
+   * **발표돼도 나가지 않는다** (ADR-85). 한동안 여기서 1 을 기대했다 — 결과 카드가
+   * `그래도 N번이나 누군가의 마음을 받았답니다` 를 말하려고. 그러면 알림을 끈 회차에서
+   * 발표 순간 받은 콕 줄이 한꺼번에 쏟아진다. 매칭이 열려도 일방적으로 받은 수는 열리지 않는다.
+   */
+  it("★ 발표돼도 나가지 않는다 — 끈 회차는 끝까지 몇 번 받았는지 모른다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
     const her = await join(ev, "F");
@@ -128,7 +133,7 @@ describe("알림 설정", () => {
     await poke(her.cookie, me.id);
     await setPhase(ev.id, "done");
 
-    expect(totalReceived(await meOf(me.cookie))).toBe(1);
+    expect(totalReceived(await meOf(me.cookie))).toBe(0);
   });
 
   it("★ 켠 회차에서는 그때그때 보인다", async () => {
