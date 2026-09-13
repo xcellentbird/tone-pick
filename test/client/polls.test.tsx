@@ -78,10 +78,10 @@ describe("운영자 설문 탭", () => {
 
     fireEvent.click(card);
     await waitFor(() => expect(router.state.location.pathname).toBe("/host/e1/polls/q1"));
-    // 첫 칩(선택지 1)이 켜져 있다 — 김가만 보인다. 연락처도 카드에 바로 선다
+    // 첫 칩(선택지 1)이 켜져 있다 — 김가만 보인다. 전화번호는 카드에 바로 서고, 인스타는 상세에서 본다
     expect(await screen.findByText(/김가/)).toBeTruthy();
     expect(screen.getByText(/0001/)).toBeTruthy();
-    expect(screen.getByText("gram_ga")).toBeTruthy();
+    expect(screen.queryByText("gram_ga")).toBeNull();
     expect(screen.queryByText(/김나/)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /못 가요/ }));
@@ -90,6 +90,10 @@ describe("운영자 설문 탭", () => {
 
     fireEvent.click(screen.getByRole("button", { name: new RegExp(HOST_UI.polls.notYet) }));
     expect(await screen.findByText(/김다/)).toBeTruthy();
+
+    // 카드를 누르면 참가자 탭의 상세 시트다 — 인스타는 거기서 본다
+    fireEvent.click(screen.getByText(/김다/));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/host/e1/players/p3"));
   });
 });
 

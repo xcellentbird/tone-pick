@@ -2,7 +2,8 @@
  * 설문 탭 (슬라이스 27, ADR-88). 운영자가 두 선택지 설문을 보내고, **누가 무엇을 골랐는지** 본다.
  *
  * 목록 카드는 숫자 셋(선택지 둘 + 미응답)만 말한다. 카드를 누르면 참가자 탭과 같은 카드 목록이
- * 답으로 걸러져 나온다 — 뒤풀이 인원을 세고 **연락까지 하는** 화면이라 실명이 앞에 오고 전화·인스타가 같이 선다.
+ * 답으로 걸러져 나온다 — 뒤풀이 인원을 세고 **연락까지 하는** 화면이라 실명이 앞에 오고 전화번호가 같이 선다.
+ * 카드를 누르면 참가자 탭의 상세 시트가 그대로 열린다 — 인스타 같은 나머지는 거기서 본다.
  * 설문은 여러 개가 함께 열려 있을 수 있다. 닫는 것도 지우는 것도 운영자가 누른다.
  *
  * 보내기 시트와 상세는 라우트다 — 뒤로 가기로 닫힌다 (ROUTES.md). `/polls/new` 가 시트,
@@ -202,20 +203,20 @@ function Detail({
 
       {shown.map((p) => (
         <div className="person" key={p.id}>
-          <div className="open">
+          {/*
+            참가자 탭의 카드와 같다 — 누르면 그 탭의 상세 시트가 열린다(인스타는 거기서 본다).
+            카드에는 전화번호까지만 — 뒤풀이 자리를 잡고 나면 이 목록을 보며 연락한다. 운영자 화면이라 된다 (원칙 3).
+            인스타까지 넣었더니 카드가 세 줄이 되어 목록이 길어졌다.
+          */}
+          <button type="button" className="open" onClick={() => navigate(`/host/${eventId}/players/${p.id}`)}>
             <Avatar nickname={p.nickname} gender={p.gender} />
             <span className="meta">
               <span className="name ellipsis">
                 {p.realName} · {p.nickname} · {UNIT.age(p.age)}
               </span>
-              {/*
-                연락처가 바로 보인다 — 뒤풀이 자리를 잡고 나면 이 목록을 보며 연락한다. 운영자 화면이라 된다 (원칙 3).
-                `div` 인 이유: `span` 둘은 한 줄에 붙어 `010-…-0001stage_1` 로 읽혔다. 줄마다 하나씩이다
-              */}
-              <div className="charm ellipsis">{formatPhone(p.phone)}</div>
-              {p.instagram && <div className="charm ellipsis">{p.instagram}</div>}
+              <span className="charm ellipsis">{formatPhone(p.phone)}</span>
             </span>
-          </div>
+          </button>
         </div>
       ))}
 
