@@ -48,16 +48,18 @@ import { useConsole } from "./HostConsole.tsx";
 type Filter = "all" | Gender;
 
 /**
- * 나이 띠 한 줄이 서는 자리 — `[min, max]` 와 중앙값.
+ * 나이 띠 한 줄이 서는 자리 — `[min, max]` 와 평균.
  *
- * **중앙값이다, 평균이 아니다.** 등록 나이는 18~99 가 다 통과하므로(ADR-78) 장난으로 적은
- * 한 살이 평균은 세 살 넘게 밀지만 중앙값은 안 흔든다.
+ * **평균이다** (ADR-86 후기). 중앙값으로 시작했던 건 장난으로 적은 한 살이 평균을 세 살씩
+ * 밀어서였는데, 등록 상한이 48 로 내려가며(ADR-87) 그 값이 애초에 못 들어온다.
+ *
+ * 소수 한 자리를 남긴다 — 정수로 자르면 27.5 와 27.0 이 같아 보여 두 줄을 견줄 수 없다.
+ * `Number()` 가 `27.0` 의 `.0` 을 떼어 준다.
  */
 function ageOf(ages: number[]) {
   const sorted = [...ages].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  return { min: sorted[0], max: sorted.at(-1)!, median };
+  const mean = Number((sorted.reduce((a, b) => a + b, 0) / sorted.length).toFixed(1));
+  return { min: sorted[0], max: sorted.at(-1)!, mean };
 }
 
 /**
@@ -70,7 +72,7 @@ function ageOf(ages: number[]) {
 const MIN_BAND = 6;
 
 function AgeRow({ gender, ages, lo, span }: { gender: Gender; ages: number[]; lo: number; span: number }) {
-  const { min, max, median } = ageOf(ages);
+  const { min, max, mean } = ageOf(ages);
   const width = Math.max(((max - min) / span) * 100, MIN_BAND);
   // 최소 폭으로 세운 띠가 오른쪽 끝에서 축을 넘지 않게 민다
   const left = Math.min(((min - lo) / span) * 100, 100 - width);
@@ -81,7 +83,7 @@ function AgeRow({ gender, ages, lo, span }: { gender: Gender; ages: number[]; lo
       <span className="bar">
         <i style={{ left: pct(left), width: pct(width) }} />
       </span>
-      <span className="small dim">{HOST_UI.players.ages.summary(min, max, median)}</span>
+      <span className="small dim">{HOST_UI.players.ages.summary(min, max, mean)}</span>
     </div>
   );
 }

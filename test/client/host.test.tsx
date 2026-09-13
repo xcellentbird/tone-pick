@@ -1572,9 +1572,10 @@ describe("참가자 탭 · 나이 띠", () => {
   /**
    * ★ **남녀 나이가 얼마나 겹치는지 눈으로 본다.**
    *
-   * 운영자가 조절하려는 것은 *남녀 나이차* 인데, 평균 비교는 그 답을 못 준다 —
+   * 운영자가 조절하려는 것은 *남녀 나이차* 인데, 숫자 하나로는 그 답을 못 준다 —
    * 쌍봉이면 평균 차이가 0 으로 나오고, 다 겹치는 판이 한쪽 끝에 혼자 있는 판보다
-   * 평균 차이가 더 크게 나온다. 그래서 **같은 축 위의 띠 두 줄**로 보여준다.
+   * 평균 차이가 더 크게 나온다. 그래서 **같은 축 위의 띠 두 줄**로 보여주고,
+   * 숫자는 그 옆에 거드는 자리다 (ADR-86 후기 — 중앙값에서 평균으로).
    *
    * 인원 수는 여기 없다 — 바로 위 성별 칩이 이미 말한다.
    */
@@ -1596,17 +1597,30 @@ describe("참가자 탭 · 나이 띠", () => {
     return { left: i.style.left, width: i.style.width };
   }
 
-  it("★ 남녀 각각 나이대와 중앙값이 보인다", async () => {
+  it("★ 남녀 각각 나이대와 평균이 보인다", async () => {
     stubFetch(hostState({}, {
       players: [mk("a", 26, "M"), mk("b", 29, "M"), mk("c", 34, "M"),
                 mk("d", 23, "F"), mk("e", 27, "F"), mk("f", 31, "F")],
     }));
     renderPlayers("/host/e1/players");
-    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29));
+    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29.7));
 
     // **줄마다** 본다 — 두 줄을 한꺼번에 훑으면 남녀가 뒤바뀌어도 통과한다
-    expect(within(row(GENDER.M)).getByText(HOST_UI.players.ages.summary(26, 34, 29))).toBeTruthy();
+    expect(within(row(GENDER.M)).getByText(HOST_UI.players.ages.summary(26, 34, 29.7))).toBeTruthy();
     expect(within(row(GENDER.F)).getByText(HOST_UI.players.ages.summary(23, 31, 27))).toBeTruthy();
+  });
+
+  it("★ 평균은 한 자리까지 남긴다 — 정수로 자르면 두 줄이 같아 보인다", async () => {
+    // 남 27.5 · 여 27.0. 반올림해 버리면 둘 다 `28세` 와 `27세` 로 갈리거나 같아진다
+    stubFetch(hostState({}, {
+      players: [mk("a", 27, "M"), mk("b", 28, "M"), mk("d", 26, "F"), mk("e", 28, "F")],
+    }));
+    renderPlayers("/host/e1/players");
+    await waitFor(() => expect(card()).toBeTruthy());
+
+    expect(within(row(GENDER.M)).getByText(HOST_UI.players.ages.summary(27, 28, 27.5))).toBeTruthy();
+    // 27.0 은 `.0` 을 달지 않는다
+    expect(within(row(GENDER.F)).getByText(HOST_UI.players.ages.summary(26, 28, 27))).toBeTruthy();
   });
 
   it("★ 두 띠가 같은 축을 쓴다 — 그래야 겹침이 보인다", async () => {
@@ -1615,7 +1629,7 @@ describe("참가자 탭 · 나이 띠", () => {
                 mk("d", 23, "F"), mk("e", 27, "F"), mk("f", 31, "F")],
     }));
     renderPlayers("/host/e1/players");
-    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29));
+    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29.7));
 
     /*
      * 축은 23~34 (폭 11). 줄마다 제 범위로 늘이면 두 띠가 똑같이 꽉 차서
