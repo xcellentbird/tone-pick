@@ -28,3 +28,24 @@ export function autoTable(
   }
   return best;
 }
+
+/**
+ * 떼어 놓을 상대와 **같은 테이블에 앉은** 사람 → 그 상대들 (ADR-90).
+ *
+ * 서버의 섞기와 운영자 자리 칩이 **같은 함수**를 쓴다 — 섞기가 "안 걸린다" 고 본 자리에
+ * 칩이 ⛔ 를 띄우면 둘 중 하나가 거짓말이다. 쌍에는 방향이 없어 양쪽 사람에게 다 적는다.
+ * 자리가 없는 사람은 걸리지 않는다.
+ */
+export function apartClashes(
+  seats: readonly { playerId: string; table: number }[],
+  pairs: ReadonlyArray<readonly [string, string]>,
+): Map<string, string[]> {
+  const table = new Map(seats.map((s) => [s.playerId, s.table]));
+  const out = new Map<string, string[]>();
+  for (const [a, b] of pairs) {
+    if (!table.has(a) || table.get(a) !== table.get(b)) continue;
+    out.set(a, [...(out.get(a) ?? []), b]);
+    out.set(b, [...(out.get(b) ?? []), a]);
+  }
+  return out;
+}

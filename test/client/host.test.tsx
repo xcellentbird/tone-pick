@@ -69,6 +69,7 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
     seatings: [],
     invites: [],
     announcements: [],
+    apart: [],
     ...more,
   };
 }
@@ -1657,5 +1658,83 @@ describe("참가자 탭 · 나이 띠", () => {
 
     // 여성 줄을 빈 띠로 두면 `0명` 이 아니라 `0세` 로 읽힌다
     expect(card().querySelectorAll(".ageRow")).toHaveLength(1);
+  });
+});
+
+/**
+ * 떨어뜨려 앉히기 (ADR-90, 슬라이스 33). **운영자 화면에만 있다.**
+ *
+ * 알리는 자리는 **자리 칩 하나**다 — 요약 문구·토스트·테이블 머리글이 없다.
+ * 되돌릴 수 있는 일이라 넣기도 빼기도 확인창이 없다 (ADR-6).
+ */
+describe("떨어뜨려 앉히기", () => {
+  const published = (seats: SeatingRound["seats"]): SeatingRound => ({
+    round: 1, tableCount: 2, status: "published", seats, acks: [], createdAt: 1, publishedAt: 1,
+  });
+
+  it("★ 떼어 놓을 상대와 같은 테이블이면 두 사람 자리 칩에만 ⛔ 와 상대 닉네임이 뜬다", async () => {
+    stubFetch(
+      hostState(
+        { phase: "party" },
+        { seatings: [published([{ playerId: "p1", table: 1 }, { playerId: "p2", table: 1 }])], apart: [["p1", "p2"]] },
+      ),
+    );
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(1));
+
+    const chips = [...document.querySelectorAll(".seatChip")];
+    const chipOf = (nick: string) => chips.find((c) => c.textContent?.includes(nick) && c.querySelector(".ellipsis")?.textContent?.endsWith(nick))!;
+    expect(chipOf("가").textContent).toContain(HOST_UI.seats.apartChip);
+    expect(chipOf("가").textContent, "그림만으로 말했다").toContain(HOST_UI.seats.apartNote(["나"]));
+    expect(chipOf("나").textContent).toContain(HOST_UI.seats.apartNote(["가"]));
+    // 칩 밖 어디에도 없다 — 요약 문구·머리글을 두지 않는다
+    const outside = document.body.textContent!.split(HOST_UI.seats.apartChip).length - 1;
+    expect(outside, "칩 밖에 ⛔ 가 있다").toBe(2);
+  });
+
+  it("★ 다른 테이블이면 아무 표시도 없다", async () => {
+    stubFetch(
+      hostState(
+        { phase: "party" },
+        { seatings: [published([{ playerId: "p1", table: 1 }, { playerId: "p2", table: 2 }])], apart: [["p1", "p2"]] },
+      ),
+    );
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(1));
+    expect(document.body.textContent).not.toContain(HOST_UI.seats.apartChip);
+  });
+
+  it("★ 상세 시트에서 고르면 그 쌍으로 간다 — 확인창 없이", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/players/p1");
+
+    fireEvent.click(await screen.findByText(HOST_UI.players.apart.add));
+    await screen.findByText(HOST_UI.players.apart.pickTitle("가"));
+    const sheet = screen.getByRole("dialog", { name: HOST_UI.players.apart.pickTitle("가") });
+    // 자기 자신은 고를 수 없다
+    expect(within(sheet).queryByText(`김가 · 가 · ${UNIT.age(28)}`)).toBeNull();
+    fireEvent.click(within(sheet).getByText(`김나 · 나 · ${UNIT.age(27)}`));
+
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/host/events/e1/apart"))).toBe(true));
+    expect(calls.find((c) => c.url.endsWith("/host/events/e1/apart"))!.body).toEqual({ a: "p1", b: "p2" });
+    expect(document.querySelector(".dialog"), "되돌릴 수 있는데 확인창이 떴다").toBeNull();
+    expect(document.querySelector(".toast"), "줄이 생기는 것이 알림인데 토스트가 떴다").toBeNull();
+  });
+
+  it("★ 이미 넣은 쌍은 상세 시트에 줄로 있고, 빼기도 확인창 없이 간다", async () => {
+    stubFetch(hostState({}, { apart: [["p1", "p2"]] }));
+    renderConsole("/host/e1/players/p2");
+
+    await screen.findByText("김가 · 가");
+    fireEvent.click(screen.getByText(HOST_UI.players.apart.remove));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/host/events/e1/apart/p2/p1"))).toBe(true));
+    expect(document.querySelector(".dialog")).toBeNull();
+  });
+
+  it("★ 발표 뒤에는 더하는 버튼이 없다", async () => {
+    stubFetch(hostState({ phase: "done" }));
+    renderConsole("/host/e1/players/p1");
+    await screen.findByText(HOST_UI.players.apart.title);
+    expect(screen.queryByText(HOST_UI.players.apart.add)).toBeNull();
   });
 });

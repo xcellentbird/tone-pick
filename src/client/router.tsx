@@ -108,6 +108,7 @@ export const HOST_CONSOLE_ROUTES = [
     { index: true, element: chunk(<Dash />) },
     { path: "players", element: chunk(<Players />) },
     { path: "players/:pid", element: chunk(<Players />) },   // 상세 시트
+    { path: "players/:pid/apart", element: chunk(<Players />) },   // 떨어뜨릴 사람 고르기 (ADR-90)
     { path: "seats", element: chunk(<Seats />) },
     // 배정 시트도 라우트다 — 뒤로 가기로 닫힌다.
     // **걸음이 곧 주소다** — 뺄 사람 고르기 → 테이블 수 (ADR-45). push 라 뒤로 가면 앞 걸음이다.

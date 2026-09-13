@@ -10,6 +10,9 @@
  *   ③ 개선 단계의 이웃 연산이 **같은 성별 2인 맞교환뿐**이다
  * 따라서 성비는 "지키려고 노력"하는 게 아니라 바뀔 방법이 없다.
  *
+ * 운영자가 떼어 놓은 쌍(ADR-90)은 가중치 대신 **다른 값을 다 합쳐도 못 넘는 벌점**으로 막는다.
+ * 다 지킬 수 없는 판에서는 어기는 쌍이 가장 적은 배치가 이긴다 — 배정이 실패하지는 않는다.
+ *
  * ⚠️ 무료 플랜은 요청당 CPU 10ms. 안쪽 루프는 사람 객체가 아니라 **번호**로 돌고,
  *    쌍마다의 값은 미리 n×n 판에 펼쳐 둔다 (문자열 키로 Map 을 두드리면 100명에 23ms 였다).
  *
@@ -69,6 +72,11 @@ export interface BuildInput {
   maxPoke: number;
   /** 같은 상태면 같은 자리가 나오도록 **부르는 쪽이** 준다 (보통 서버 시각) */
   seed: number;
+  /**
+   * 같은 테이블에 앉히지 않을 쌍 (ADR-90). **방향이 없다** — 순서는 아무 뜻이 없다.
+   * 서로 콕을 찔렀어도 이쪽이 이긴다. 운영자가 사정을 알고 넣은 것이다.
+   */
+  apart?: ReadonlyArray<readonly [string, string]>;
 }
 
 /**
@@ -218,6 +226,8 @@ class World {
   readonly fresh: Float32Array;
   /** 서로 콕을 찌른 이성 쌍. 주고받은 수가 많은 쌍이 앞이다 */
   readonly mutualPairs: Array<[number, number]> = [];
+  /** `i*n+j` → 1 이면 같은 테이블에 앉히지 않는다 (ADR-90). 양쪽 칸이 같이 선다 */
+  readonly apart: Uint8Array;
 
   constructor(input: BuildInput) {
     const { players, history, votes, pokes, maxVote, maxPoke } = input;
@@ -226,6 +236,7 @@ class World {
     this.male = new Uint8Array(n);
     this.give = new Float32Array(n * n);
     this.fresh = new Float32Array(n * n);
+    this.apart = new Uint8Array(n * n);
 
     const index = new Map<string, number>();
     players.forEach((p, i) => {
@@ -268,6 +279,13 @@ class World {
     const voteOut = counts(votes);
     const pokeOut = counts(pokes);
 
+    for (const [a, b] of input.apart ?? []) {
+      const i = index.get(a);
+      const j = index.get(b);
+      if (i === undefined || j === undefined || i === j) continue;
+      this.apart[i * n + j] = this.apart[j * n + i] = 1;
+    }
+
     /*
      * **얼마나 채웠나** — 나이대 이성 중 아직 못 만난 비율. 두 곳에 쓴다:
      * 아직 많이 남은 사람의 새 만남을 더 값지게 보고(결핍), 그 사람의 자리를 더 크게 본다(공정성).
@@ -299,7 +317,8 @@ class World {
         if (this.male[i] === this.male[j]) continue;
         if (pokeOut[i * n + j] > 0 && pokeOut[j * n + i] > 0) {
           mutualCount++;
-          this.mutualPairs.push([i, j]);
+          // 떼어 놓을 쌍은 시작 배치에서 붙이지 않는다 — 붙인 뒤 떼느라 예산을 쓸 이유가 없다 (ADR-90)
+          if (!this.apart[i * n + j]) this.mutualPairs.push([i, j]);
         }
       }
     }
@@ -372,6 +391,8 @@ function cell(w: World, i: number, group: number[]): number {
     if (j === i) continue;
     sum += (w.give[i * w.n + j] + w.give[j * w.n + i]) / k;
     sum += w.fresh[i * w.n + j] + w.fresh[j * w.n + i];
+    // 인원으로 나누지 않는다 — 큰 테이블에서 가벼워지면 새 만남 점수가 규칙을 이긴다 (ADR-90)
+    if (w.apart[i * w.n + j]) sum -= SEAT_W.APART;
   }
   return sum;
 }
@@ -386,6 +407,7 @@ function total(w: World, tables: number[][]): number {
         const j = group[y];
         sum += (w.give[i * w.n + j] + w.give[j * w.n + i]) / k;
         sum += w.fresh[i * w.n + j] + w.fresh[j * w.n + i];
+        if (w.apart[i * w.n + j]) sum -= SEAT_W.APART;
       }
     }
   }
