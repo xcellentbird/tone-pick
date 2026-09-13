@@ -266,6 +266,26 @@ hostRoutes.delete("/events/:id/players/:pid", async (c) => {
 });
 
 /**
+ * 떨어뜨려 앉히기 (ADR-90). **운영자만 쓴다** — 참가자 쪽에는 이 길도, 이 말도 없다.
+ * 쌍에는 방향이 없어 두 아이디의 순서는 뜻이 없다. 지표에도 싣지 않는다 (ADR-58).
+ */
+hostRoutes.post("/events/:id/apart", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const body = await json<{ a?: string; b?: string }>(c);
+  if (!body.a || !body.b) return apiError(c, "bad_request");
+  const { value, response } = unwrap(c, await gate.stub.addApart(body.a, body.b));
+  return response ?? c.json({ apart: value });
+});
+
+hostRoutes.delete("/events/:id/apart/:a/:b", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { value, response } = unwrap(c, await gate.stub.removeApart(c.req.param("a"), c.req.param("b")));
+  return response ?? c.json({ apart: value });
+});
+
+/**
  * 참가자 PIN 번호 초기화 (ADR-75). **지우기만 한다** — 운영자가 새 값을 정하지 않는다.
  * 남의 PIN 번호를 아는 자리를 만들지 않으려는 것이다. 그 사람이 다음에 들어올 때 직접 정한다.
  * PIN 번호와 실패 횟수를 함께 지운다 — 따로 지우면 새로 정하자마자 다시 잠긴다.

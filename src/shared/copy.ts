@@ -1838,6 +1838,20 @@ export const HOST_UI = {
      */
     pinLabel: "참가자 PIN 번호",
     pinState: { set: "정함", none: "안 정함", locked: "잠김" } as Record<PinState, string>,
+    /**
+     * 떨어뜨려 앉히기 (ADR-90). **운영자 문구에만 있다** — 참가자는 이런 기능이 있는지 모른다.
+     * 참가자 쪽 문구(등록·도움말·알림)로 옮기지 마라. `test/33-keep-apart.test.ts` 가 `HOST_UI` 밖을 훑는다.
+     *
+     * 사유를 적는 칸도, 누가 부탁했는지도 없다 — 쌍에는 방향이 없다.
+     * 운영자에게도 요약 문구(`N쌍을 못 떼었어요`)를 두지 않는다. 자리 칩이 말한다 (`seats.apartNote`).
+     */
+    apart: {
+      title: "떨어뜨려 앉히기",
+      add: "떨어뜨릴 사람 고르기",
+      remove: "빼기",
+      pickTitle: (nickname: string) => `${nickname} 님과 떨어뜨릴 사람`,
+      noOne: "더 고를 사람이 없어요",
+    },
     pinReset: "참가자 PIN 번호 초기화",
     pinResetTitle: "PIN 번호를 초기화할까요?",
     /** 초기화는 지우기만 한다 — 새 값은 참가자가 정한다. 콕·자리가 그대로라는 것도 여기서 말한다 */
@@ -2061,6 +2075,13 @@ export const HOST_UI = {
      */
     pairChip: (together: number) => (together > 1 ? `💘×${together}` : together > 0 ? "💘" : "💔"),
     pairChipNote: (together: number) => (together > 0 ? "짝과 함께" : "짝 따로"),
+    /**
+     * 떼어 놓을 상대와 같은 테이블에 앉은 자리 칩 (ADR-90). **알리는 자리는 칩 하나다** —
+     * 요약 문구·토스트·테이블 머리글을 두지 않는다. 그림만으로 말하지 않게 둘째 줄에 누구와 걸리는지 적는다.
+     */
+    apartChip: "⛔",
+    // 여럿이면 쉼표로 잇는다 — 가운뎃점으로 셋 이상을 이으면 번역투다 (ADR-89)
+    apartNote: (nicknames: string[]) => `${nicknames.join(", ")} 님과 떨어뜨려야 해요`,
     /** 붙어 앉은 쌍을 떼는 맞교환. 막지는 않는다 — 현장 사정은 운영자가 안다 */
     breakTitle: "이 맞교환은 이어진 쌍을 떼어놓습니다",
     breakNote: "서로 콕을 주고받아 같은 테이블에 앉은 쌍이에요.\n그래도 바꾸시겠어요?",
