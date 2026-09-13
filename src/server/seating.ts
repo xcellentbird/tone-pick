@@ -320,10 +320,14 @@ class World {
         if (i === j) continue;
         const k = i * n + j;
         /*
-         * **벌점은 10살에서 멈춘다** (ADR-78). 8~9살은 아직 이어질 자리가 있지만
-         * 그 위로는 다 같다 — 16살과 66살을 다르게 벌할 이유가 없다.
-         * 문턱 없는 세제곱은 66살 차이를 287.5 로 쳐서, 등록 나이 상한(99)까지 적을 수 있는
-         * 한 사람이 목적함수를 통째로 끌고 갔다. 상한에 걸리면 벌점은 `SEAT_W.AGE` 그대로다.
+         * **한 살은 어디서나 같은 값이다** (ADR-80). 0.1 씩 곧게 오르고 10살에서 멈춘다.
+         *
+         * 세제곱이던 때는 3살이 0.027 로 거의 공짜라 좁은 나이대에 뭉쳤고, 7~9살에서
+         * 갑자기 비싸져(0.343~0.729) **딱 그 구간의 이성이 안 이어졌다.** 선형이면
+         * 5살이 0.5 로 새 만남(최대 2.0)에 눌려서, 나이대를 건너뛴 자리가 만들어진다.
+         *
+         * 상한은 그대로다 (ADR-78) — 16살과 66살을 다르게 벌할 이유가 없고,
+         * 상한에 걸리면 벌점은 `SEAT_W.AGE` 그대로다.
          */
         const gap = Math.min(Math.abs(this.age[i] - this.age[j]), AGE_GAP) / 10;
         const opposite = this.male[i] !== this.male[j];
@@ -333,7 +337,7 @@ class World {
         v += wPoke * pull(pokeOut[k], pokeOut[j * n + i], maxPoke);
         v += SEAT_W.VOTE * pull(voteOut[k], voteOut[j * n + i], maxVote);
         if (mutual) v += SEAT_W.MUTUAL;
-        v -= SEAT_W.AGE * gap * gap * gap;
+        v -= SEAT_W.AGE * gap;
         v -= SEAT_W.REP * Math.min(1, met[k] / 2);
         this.give[k] = lam * v;
 
