@@ -208,9 +208,12 @@ function Detail({
               <span className="name ellipsis">
                 {p.realName} · {p.nickname} · {UNIT.age(p.age)}
               </span>
-              {/* 연락처가 바로 보인다 — 뒤풀이 자리를 잡고 나면 이 목록을 보며 연락한다. 운영자 화면이라 된다 (원칙 3) */}
-              <span className="charm ellipsis">{formatPhone(p.phone)}</span>
-              {p.instagram && <span className="charm ellipsis">{p.instagram}</span>}
+              {/*
+                연락처가 바로 보인다 — 뒤풀이 자리를 잡고 나면 이 목록을 보며 연락한다. 운영자 화면이라 된다 (원칙 3).
+                `div` 인 이유: `span` 둘은 한 줄에 붙어 `010-…-0001stage_1` 로 읽혔다. 줄마다 하나씩이다
+              */}
+              <div className="charm ellipsis">{formatPhone(p.phone)}</div>
+              {p.instagram && <div className="charm ellipsis">{p.instagram}</div>}
             </span>
           </div>
         </div>
