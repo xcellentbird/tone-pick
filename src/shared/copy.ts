@@ -1888,9 +1888,10 @@ export const HOST_UI = {
     closedBadge: "마감",
     /** 목록 카드의 한 줄. 선택지 이름이 곧 답이라 그대로 쓴다 */
     summary: (aLabel: string, a: number, bLabel: string, b: number, rest: number) =>
-      `${aLabel} ${a}명 / ${bLabel} ${b}명 / 아직 ${rest}명`,
+      `${aLabel} ${a}명 / ${bLabel} ${b}명 / 미응답 ${rest}명`,
     back: "설문 목록",
-    notYet: "아직",
+    /** 셋째 칩. `아직` 은 무엇이 아직인지 말하지 않아서 설문 화면에서 흔히 쓰는 말로 */
+    notYet: "미응답",
     noOne: "아직 아무도 답하지 않았어요",
     emptyFiltered: "이 답을 고른 사람이 없어요",
     everyoneAnswered: "모두 답했어요",

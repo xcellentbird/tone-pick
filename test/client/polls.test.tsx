@@ -17,8 +17,8 @@ import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 afterEach(cleanup);
 
 const HOUR = 3600_000;
-const person = (id: string, nickname: string, realName: string, gender: "M" | "F") => ({
-  id, nickname, realName, gender, age: 29, phone: `0101111${id}`, instagram: "", mbti: "ENFP",
+const person = (id: string, nickname: string, realName: string, gender: "M" | "F", n: number) => ({
+  id, nickname, realName, gender, age: 29, phone: `0101111000${n}`, instagram: n === 1 ? "gram_ga" : "", mbti: "ENFP",
   charms: ["a", "b", "c"] as [string, string, string], createdAt: 1, pin: "set" as const,
 });
 
@@ -31,7 +31,7 @@ function hostState(): HostState {
       config: { maxPre: 3, maxParty: 3 },
       createdAt: Date.now() - 4 * HOUR,
     },
-    players: [person("p1", "가", "김가", "M"), person("p2", "나", "김나", "F"), person("p3", "다", "김다", "M")],
+    players: [person("p1", "가", "김가", "M", 1), person("p2", "나", "김나", "F", 2), person("p3", "다", "김다", "M", 3)],
     sent: { pre: {}, party: {} },
     received: { pre: {}, party: {} },
     mutual: [],
@@ -77,8 +77,10 @@ describe("운영자 설문 탭", () => {
 
     fireEvent.click(card);
     await waitFor(() => expect(router.state.location.pathname).toBe("/host/e1/polls/q1"));
-    // 첫 칩(선택지 1)이 켜져 있다 — 김가만 보인다
+    // 첫 칩(선택지 1)이 켜져 있다 — 김가만 보인다. 연락처도 카드에 바로 선다
     expect(await screen.findByText(/김가/)).toBeTruthy();
+    expect(screen.getByText(/0001/)).toBeTruthy();
+    expect(screen.getByText("gram_ga")).toBeTruthy();
     expect(screen.queryByText(/김나/)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /못 가요/ }));

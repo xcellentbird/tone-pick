@@ -1,8 +1,8 @@
 /**
  * 설문 탭 (슬라이스 27, ADR-83). 운영자가 두 선택지 설문을 보내고, **누가 무엇을 골랐는지** 본다.
  *
- * 목록 카드는 숫자 셋(선택지 둘 + 아직)만 말한다. 카드를 누르면 참가자 탭과 같은 카드 목록이
- * 답으로 걸러져 나온다 — 뒤풀이 인원을 세는 화면이라 실명이 앞에 온다.
+ * 목록 카드는 숫자 셋(선택지 둘 + 미응답)만 말한다. 카드를 누르면 참가자 탭과 같은 카드 목록이
+ * 답으로 걸러져 나온다 — 뒤풀이 인원을 세고 **연락까지 하는** 화면이라 실명이 앞에 오고 전화·인스타가 같이 선다.
  * 설문은 여러 개가 함께 열려 있을 수 있다. 닫는 것도 지우는 것도 운영자가 누른다.
  *
  * 보내기 시트와 상세는 라우트다 — 뒤로 가기로 닫힌다 (ROUTES.md). `/polls/new` 가 시트,
@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 import { HOST_UI, UNIT } from "../../../shared/copy.ts";
+import { formatPhone } from "../../../shared/constants.ts";
 import type { HostAnnouncement, Player, PollChoice } from "../../../shared/types.ts";
 import { formatWhen } from "../../../shared/time.ts";
 import { del, post, put } from "../../lib/api.ts";
@@ -19,7 +20,7 @@ import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
 import { useConsole } from "./HostConsole.tsx";
 
-/** 답 둘과 '아직'. 셋 중 하나가 늘 켜져 있다 — 참가자 탭의 성별 칩과 같은 꼴이다 */
+/** 답 둘과 '미응답'. 셋 중 하나가 늘 켜져 있다 — 참가자 탭의 성별 칩과 같은 꼴이다 */
 type Filter = PollChoice | "none";
 
 function tally(a: HostAnnouncement, players: Player[]) {
@@ -207,6 +208,9 @@ function Detail({
               <span className="name ellipsis">
                 {p.realName} · {p.nickname} · {UNIT.age(p.age)}
               </span>
+              {/* 연락처가 바로 보인다 — 뒤풀이 자리를 잡고 나면 이 목록을 보며 연락한다. 운영자 화면이라 된다 (원칙 3) */}
+              <span className="charm ellipsis">{formatPhone(p.phone)}</span>
+              {p.instagram && <span className="charm ellipsis">{p.instagram}</span>}
             </span>
           </div>
         </div>
