@@ -46,6 +46,11 @@ export interface Notice {
   /** 배너로 띄울 수 있는가. 익명 콕은 시각이 없어 배너로 쓰지 않는다 */
   bannerable: boolean;
   tab: NoticeTab;
+  /**
+   * 설문이면 그 아이디 (슬라이스 27). 설문은 홈에 **카드로 따로 그리므로** 소식 목록은 이 줄을 건너뛴다 —
+   * 이 줄이 있는 이유는 배너 하나다. 같은 설문이 카드와 소식 줄에 두 번 서면 안 된다.
+   */
+  poll?: { id: string };
 }
 
 /** 최근 3분 안의 변화만 배너로 띄운다. 그보다 오래된 건 알림 탭에만 (UI.md) */
@@ -118,6 +123,23 @@ export function noticesOf(state: ParticipantState, now: number): Notice[] {
       bannerable: true,
       tab: matched ? "people" : "home",
     });
+  }
+  /*
+   * 운영자가 보낸 것 (슬라이스 14·27). 저장된 것에서 파생시키므로 지우면 여기서도 사라진다 (ADR-4).
+   * 설문은 닫히면 배너로 안 뜬다 — 답할 수 없는 것을 3분 동안 위에 세워두지 않는다.
+   */
+  for (const a of state.announcements) {
+    if (a.poll) {
+      list.push({
+        key: `poll:${a.id}`, icon: NOTICE.poll.icon, title: NOTICE.poll.title, body: a.text,
+        at: a.at, order: a.at, bannerable: !a.poll.closed, tab: "home", poll: { id: a.id },
+      });
+    } else {
+      list.push({
+        key: `announce:${a.id}`, icon: NOTICE.announce.icon, title: NOTICE.announce.title, body: a.text,
+        at: a.at, order: a.at, bannerable: true, tab: "home",
+      });
+    }
   }
   /**
    * 받은 콕은 **한 번에 하나씩** 쌓인다. 합쳐서 "지금까지 N회" 로 세어 주면

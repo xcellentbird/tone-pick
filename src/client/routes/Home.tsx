@@ -11,8 +11,9 @@
  *     `fired` 에서 파생되는 것뿐이라 파티 한 번에 많아야 네 개고, 읽음 상태도 없다.
  *     받은편지함이 아니라 타임라인이고, 그건 "지금 무슨 일인가"의 과거형이다 (ADR-4)
  */
-import { HOME, REVEAL, SEAT, STATUS } from "../../shared/copy.ts";
-import type { EventSchedule, ParticipantState } from "../../shared/types.ts";
+import { useState } from "react";
+import { HOME, POLL, REVEAL, SEAT, STATUS } from "../../shared/copy.ts";
+import type { EventSchedule, ParticipantState, PollChoice } from "../../shared/types.ts";
 import { canPoke } from "../../shared/phase.ts";
 import { TICK_WINDOW, formatCountdown, formatDayHour, formatWhen } from "../../shared/time.ts";
 import { noticesOf } from "../lib/notices.ts";
@@ -48,6 +49,7 @@ export default function Home({
   onTab,
   onSeat,
   onHelp,
+  onVote,
 }: {
   state: ParticipantState;
   onTab: (tab: Tab) => void;
@@ -55,6 +57,8 @@ export default function Home({
   onSeat: () => void;
   /** 진행 방식을 다시 여는 길 (슬라이스 21). 등록 중에만 카드에 붙는다 */
   onHelp: () => void;
+  /** 설문에 답한다 (슬라이스 27). 서버가 돌려준 그 설문 하나로 화면이 바뀐다 */
+  onVote: (id: string, choice: PollChoice) => Promise<void>;
 }) {
   const { phase, schedule, fired } = state.event;
   const seat = state.seat;
@@ -180,8 +184,60 @@ export default function Home({
         !revealed && <p className="tiny dim center">{HOME.seatWaiting}</p>
       )}
 
+      <Polls state={state} onVote={onVote} />
       <News state={state} />
     </div>
+  );
+}
+
+/**
+ * 운영자 설문 (슬라이스 27, ADR-88). **숫자가 없다** — 선택지 둘이 버튼이고, 고르면 그 버튼이 눌린 채로 남는다.
+ * 몇 명이 무엇을 골랐는지는 운영자가 정하려고 묻는 것이라 참가자 화면에는 없다.
+ * 열린 설문이 위, 마감된 설문은 내 답만 남긴 채 아래로 내려간다.
+ */
+function Polls({ state, onVote }: { state: ParticipantState; onVote: (id: string, choice: PollChoice) => Promise<void> }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const polls = state.announcements
+    .filter((a) => a.poll)
+    .sort((x, y) => Number(x.poll!.closed) - Number(y.poll!.closed));
+  if (polls.length === 0) return null;
+
+  async function pick(id: string, choice: PollChoice) {
+    setBusy(id);
+    try {
+      await onVote(id, choice);
+    } catch {
+      // 그 사이 운영자가 마감했을 수 있다. 소켓이 "다시 읽어라" 를 이미 보냈으므로 여기서 더 할 일이 없다
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <>
+      <div className="kicker">{POLL.section}</div>
+      <div className="stack">
+        {polls.map((a) => {
+          const poll = a.poll!;
+          return (
+            <div className="card stack" key={a.id}>
+              <div className="name pre">{a.text}</div>
+              {poll.closed ? (
+                <div className="small dim">{poll.mine ? POLL.closedMine(poll[poll.mine]) : POLL.closed}</div>
+              ) : (
+                <div className="choice">
+                  {(["a", "b"] as const).map((c) => (
+                    <button key={c} type="button" aria-pressed={poll.mine === c} disabled={busy === a.id} onClick={() => pick(a.id, c)}>
+                      {poll[c]}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -192,7 +248,8 @@ export default function Home({
  * 그래서 읽음 플래그도 알림 테이블도 없다 — 상태가 바뀌면 목록이 그 자리에서 따라간다.
  */
 function News({ state }: { state: ParticipantState }) {
-  const list = noticesOf(state, now());
+  // 설문은 위 카드가 그린다 — 소식 줄은 배너용이라 여기서는 건너뛴다 (`Notice.poll`)
+  const list = noticesOf(state, now()).filter((n) => !n.poll);
   if (list.length === 0) return null;
 
   return (
