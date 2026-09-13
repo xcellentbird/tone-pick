@@ -1610,7 +1610,7 @@ export class EventDO extends DurableObject {
    * 받은 콕 수. **라운드를 반드시 준다** (ADR-43·46).
    *
    * 총합을 읽는 갈래가 있었는데, 알림이 라운드마다 갈리면서(`visibleReceived`) 부르는 곳이 없어졌다.
-   * 되살리지 마라 — 총합을 그대로 내려보내면 꺼둔 라운드가 파티 시작과 함께 얹힌다.
+   * 되살리지 마라 — 총합을 그대로 내려보내면 꺼둔 라운드가 파티 시작·발표와 함께 얹힌다.
    */
   private receivedCount(toId: string, round: PokeRound): number {
     return (
@@ -1634,10 +1634,11 @@ export class EventDO extends DurableObject {
    * 부르게 되는데, 참가자는 그 단계에서 콕을 찌른 적이 없다. 가른 대가는 그 후기에 적었다.
    */
   private visibleReceived(toId: string, meta: EventMeta): Record<PokeRound, number> {
-    // 발표 뒤에는 전부 센다 — 그때는 매칭까지 열리므로 감출 것이 없다
-    if (meta.phase === "done") {
-      return { pre: this.receivedCount(toId, "pre"), party: this.receivedCount(toId, "party") };
-    }
+    /*
+     * **발표 뒤에도 그대로다** (ADR-85). 한동안 발표되면 끈 라운드까지 전부 셌는데,
+     * 그러면 알림을 꺼 둔 회차에서 발표 순간 받은 줄이 한꺼번에 쏟아진다.
+     * 매칭이 열린다고 **일방적으로 받은 수**까지 열리는 게 아니다 — `phase === "done"` 갈래를 되살리지 마라.
+     */
     return {
       pre: meta.config.preNotify ? this.receivedCount(toId, "pre") : 0,
       party: meta.config.pokeNotify ? this.receivedCount(toId, "party") : 0,
@@ -1713,7 +1714,7 @@ export class EventDO extends DurableObject {
         party: { max: meta.config.maxParty, used: used.party },
       },
       sentTo,
-      // 알림을 끈 라운드는 발표 전까지 세지 않는다 (ADR-34·43) — `visibleReceived` 가 판단한다
+      // 알림을 끈 라운드는 발표 뒤에도 세지 않는다 (ADR-34·43·85) — `visibleReceived` 가 판단한다
       received: this.visibleReceived(playerId, meta),
       matches,
     };
