@@ -423,6 +423,7 @@ describe("앉힌 자리 고치기", () => {
       ["seat", { playerId: ids[0], round: round.round }],
       ["unseat", { playerId: ids[0], round: round.round }],
       ["shuffle", {}],
+      ["reseat", {}],
       ["publish", {}],
     ] as const) {
       const res = await api(`/api/host/events/${ev.id}/seating/${op}`, { method: "POST", cookie: master, body });

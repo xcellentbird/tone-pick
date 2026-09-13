@@ -32,6 +32,7 @@ import {
   type Ctx,
   type Env, timed,} from "../http.ts";
 import { seatingMessage, settingsMessage } from "../messages.ts";
+import { pokeCsv } from "../export.ts";
 
 export const hostRoutes = new Hono<{ Bindings: Env }>();
 
@@ -171,6 +172,25 @@ hostRoutes.get("/events/:id/state", async (c) => {
   if (gate.response) return gate.response;
   const { value, response } = unwrap(c, await gate.stub.hostState(serverNow()));
   return response ?? c.json(value);
+});
+
+/**
+ * 콕 이력 CSV — **운영자 전용** (ADR-82). 콘솔에 로그인한 브라우저에서 이 주소를 열면
+ * 파일이 내려오고, `scripts/export-pokes.mjs` 도 같은 길을 쓴다.
+ *
+ * 콘솔 화면에는 없다. 운영 중에 누가 누구를 찔렀는지 보는 자리를 만들지 않는 것이 ADR-22 다 —
+ * 이건 끝나고 돌아보는 파일이다. 전화·인스타는 싣지 않는다 (`HOST_CSV` 에 칸이 없다).
+ */
+hostRoutes.get("/events/:id/pokes.csv", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { value, response } = unwrap(c, await gate.stub.pokeLog(serverNow()));
+  if (response) return response;
+  return c.body(pokeCsv(value), 200, {
+    "content-type": "text/csv; charset=utf-8",
+    "content-disposition": `attachment; filename="pokes-${gate.id}.csv"`,
+    "cache-control": "no-store",
+  });
 });
 
 /**
@@ -387,12 +407,24 @@ hostRoutes.post("/events/:id/seating/unseat", async (c) => {
   return response ?? c.json(value);
 });
 
-/** 남녀 비율은 그대로 두고 사람만 다시 섞는다 */
+/** 남녀 비율은 그대로 두고 사람만 다시 섞는다 (`랜덤 섞기`) */
 hostRoutes.post("/events/:id/seating/shuffle", async (c) => {
   const gate = await openEvent(c);
   if (gate.response) return gate.response;
   const { value, response } = unwrap(c, await gate.stub.shuffleSeating());
   markSeat(c, "shuffle", response);
+  return response ?? c.json(value);
+});
+
+/**
+ * 같은 사람·같은 테이블 수로 **가중식을 다시 돌린다** (`AI 섞기`).
+ * 위의 섞기와 달리 끌림·재회·공정성을 전부 다시 잰다 (SEATING.md).
+ */
+hostRoutes.post("/events/:id/seating/reseat", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { value, response } = unwrap(c, await gate.stub.reseatDraft(serverNow()));
+  markSeat(c, "reseat", response);
   return response ?? c.json(value);
 });
 

@@ -89,7 +89,8 @@ export const SEATING_KEYS = [
   "swap",     // 두 사람을 맞바꿨다
   "seat",     // 자리 없는 사람을 앉혔다
   "unseat",   // 이 라운드에서 뺐다
-  "shuffle",  // 사람만 다시 섞었다
+  "shuffle",  // 사람만 다시 섞었다 (랜덤 섞기)
+  "reseat",   // 같은 사람·같은 테이블 수로 가중식을 다시 돌렸다 (AI 섞기)
   "discard",  // 초안을 버렸다
   "publish",  // 발행했다
 ] as const;

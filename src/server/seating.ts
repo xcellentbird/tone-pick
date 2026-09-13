@@ -320,7 +320,7 @@ class World {
         if (i === j) continue;
         const k = i * n + j;
         /*
-         * **한 살은 어디서나 같은 값이다** (ADR-80). 0.1 씩 곧게 오르고 10살에서 멈춘다.
+         * **한 살은 어디서나 같은 값이다** (ADR-83). 0.1 씩 곧게 오르고 10살에서 멈춘다.
          *
          * 세제곱이던 때는 3살이 0.027 로 거의 공짜라 좁은 나이대에 뭉쳤고, 7~9살에서
          * 갑자기 비싸져(0.343~0.729) **딱 그 구간의 이성이 안 이어졌다.** 선형이면
@@ -337,8 +337,18 @@ class World {
         v += wPoke * pull(pokeOut[k], pokeOut[j * n + i], maxPoke);
         v += SEAT_W.VOTE * pull(voteOut[k], voteOut[j * n + i], maxVote);
         if (mutual) v += SEAT_W.MUTUAL;
-        v -= SEAT_W.AGE * gap;
-        v -= SEAT_W.REP * Math.min(1, met[k] / 2);
+        /*
+         * **나이차 벌점은 이성 쌍에만** (ADR-80). 이 앱이 자리로 지키려는 건 *이어질 수 있는*
+         * 만남이고, 그건 이성 쌍이다. 같은 테이블의 동성끼리는 나이가 벌어진 것을 벌하지 않는다.
+         * 시작 배치(②)는 여전히 나이순이라 첫 라운드의 동성은 대체로 모여 앉는다. 그건 이성
+         * 나이차를 위한 출발점이지 벌점이 아니다.
+         *
+         * **재회는 동성에도 걸리되 1/3 이다** (ADR-81). 0 이면 이성 쪽 사정이 가르지 않는 한
+         * 같은 남자 셋이 라운드마다 다시 앉는다. 가벼운 값은 **이성 쪽이 아무 말도 하지 않는
+         * 자리에서만** 동성을 가른다 — 이성 재회를 피하는 일과 부딪히면 진다.
+         */
+        if (opposite) v -= SEAT_W.AGE * gap;
+        v -= (opposite ? SEAT_W.REP : SEAT_W.REP_SAME) * Math.min(1, met[k] / 2);
         this.give[k] = lam * v;
 
         const first = opposite && met[k] === 0 && Math.abs(this.age[i] - this.age[j]) <= MEET_GAP;

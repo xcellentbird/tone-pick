@@ -18,10 +18,13 @@
  *    같은 이유로 회고용 뽑기를 막고 있다. 넣을지는 **볼 때마다 다시 정하라.**
  *    닉네임까지 지우려면 `--anon-nick` 을 준다 (`사람1`·`사람2`…).
  *
- * ⚠️ **매력 투표의 방향(누가 누구에게)은 들어가지 않는다.** 운영자 API 가 주지 않기 때문이다 —
- *    `hostState` 에는 사람별 **보낸/받은 수**와 **상호 쌍**만 있고 한쪽만 향한 표는 없다
- *    (ADR-76 이 지키는 선이다). 방향까지 넣으려면 서버에 내보내기 통로를 새로 여는 일이고,
- *    그건 일방적인 호감을 응답에 싣는 일이라 이 앱이 하지 않기로 한 것이다.
+ * ⚠️ **매력 투표와 콕의 방향(누가 누구에게)이 들어간다.** 2.12.0 의 콕 이력 CSV(ADR-82)가
+ *    운영자에게 그 통로를 열었다 — `buildSeating` 이 받는 `votes`·`pokes` 와 같은 모양으로 담는다.
+ *    그래서 이 판으로 **끌림까지 그대로 재생**할 수 있다.
+ *
+ *    그만큼 무겁다. **일방적인 호감이 이 파일 안에 있다** — 참가자에게는 끝까지 드러나지 않고
+ *    운영 중 콘솔에도 안 뜨는 것이다 (ADR-22·76). 저장소에 넣는 것은 그것을 git 기록에
+ *    영구히 남기는 일이다. 방향이 필요 없으면 `--no-pairs` 로 뺀다.
  */
 import { writeFileSync, mkdirSync } from "node:fs";
 
@@ -43,7 +46,26 @@ if (!PIN) {
 }
 
 let cookie = "";
-async function call(path) {
+/** 따옴표 안의 쉼표·줄바꿈을 견디는 작은 CSV 파서 */
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (c === '"') q = false;
+      else cell += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { row.push(cell); cell = ""; }
+    else if (c === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+    else if (c !== "\r") cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((x) => x !== ""));
+}
+
+async function call(path, asText = false) {
   const res = await fetch(`${BASE}${path}`, {
     method: path === "/api/host/pin" ? "POST" : "GET",
     headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
@@ -52,7 +74,7 @@ async function call(path) {
   const set = res.headers.get("set-cookie");
   if (set) cookie = set.split(";")[0];
   if (!res.ok) throw new Error(`${path} → ${res.status} ${(await res.text()).slice(0, 160)}`);
-  return res.json();
+  return asText ? res.text() : res.json();
 }
 
 try {
@@ -88,6 +110,24 @@ try {
   const idx = new Map(players.map((p, i) => [p.id, `p${i}`]));
   const num = (rec) => Object.fromEntries(Object.entries(rec ?? {}).map(([k, v]) => [idx.get(k) ?? k, v]));
 
+  /**
+   * 방향이 있는 표·콕. CSV 는 아이디가 아니라 **닉네임+실명**으로 사람을 적으므로 그걸로 잇는다
+   * (실명은 여기서만 쓰고 파일에는 안 남는다). 나간 사람 줄은 이름 자리가 비어 있어 건너뛴다.
+   */
+  const pairs = { pre: {}, party: {} };
+  if (!has("no-pairs")) {
+    const key = new Map(players.map((p, i) => [`${p.nickname}\u0000${p.realName}`, `p${i}`]));
+    const rows = parseCsv(await call(`/api/host/events/${target.id}/pokes.csv`, true).catch(() => ""));
+    for (const r of rows.slice(1)) {
+      const round = r[0] === "사전 투표" ? "pre" : r[0] === "파티" ? "party" : null;
+      const from = key.get(`${r[2]}\u0000${r[3]}`);
+      const to = key.get(`${r[6]}\u0000${r[7]}`);
+      if (!round || !from || !to) continue;
+      const k = `${from}>${to}`;
+      pairs[round][k] = (pairs[round][k] ?? 0) + 1;
+    }
+  }
+
   const out = {
     /** 이 판이 무엇인지. 회차 아이디·코드는 넣지 않는다 — 실제 회차를 가리키는 열쇠다 */
     label: NAME ?? `party-${new Date().toISOString().slice(0, 10)}`,
@@ -100,8 +140,8 @@ try {
     rounds: seatings.length,
     players: people,
     /**
-     * 사람별 수만 있다. **방향은 없다** — 운영자 API 가 주지 않는다 (머리말 참고).
-     * `pre` 는 매력 투표, `party` 는 콕이다.
+     * 사람별 수. `pre` 는 매력 투표, `party` 는 콕이다.
+     * 방향은 아래 `votes`·`pokes` 에 따로 있다.
      */
     voteSent: num(st.sent?.pre),
     voteReceived: num(st.received?.pre),
@@ -109,6 +149,14 @@ try {
     pokeReceived: num(st.received?.party),
     /** 서로 찌른 쌍. 발표에서 양쪽에 공개된 것이라 여기 있어도 새로 드러나는 게 없다 */
     mutual: (st.mutual ?? []).map(([a, b]) => [idx.get(a) ?? a, idx.get(b) ?? b]),
+    /**
+     * **방향이 있는 표와 콕** — `buildSeating` 이 받는 모양 그대로다 (`"p0>p3": 2`).
+     * 콕 이력 CSV(ADR-82)에서 가져온다. `--no-pairs` 면 비어 있다.
+     *
+     * ⚠️ **여기 일방적인 호감이 들어 있다.** 참가자에게는 끝까지 드러나지 않는 값이다.
+     */
+    votes: pairs.pre,
+    pokes: pairs.party,
     /** 라운드별 자리 — 알고리즘이 실제로 무엇을 만들었는지의 기록 */
     seatings: seatings.map((s) => ({
       round: s.round,

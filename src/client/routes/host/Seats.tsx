@@ -132,6 +132,25 @@ export default function Seats() {
   }
 
   /**
+   * `AI 섞기` — 같은 사람·같은 테이블 수로 **가중식을 다시 돌린다.**
+   *
+   * 위의 `shuffle` 과 하는 일이 다르다. 저건 테이블별 성비만 지키고 사람을 무작위로 옮기고,
+   * 이건 끌림·재회·공정성을 다시 재서 앉힌다 (SEATING.md). 씨앗이 서버 시각이라 누를 때마다
+   * 다른 답이 나온다.
+   *
+   * **붙어 있던 쌍이 떨어질 수 있다는 걸 그때 말한다.** 섞기는 붙은 쌍을 자리에 남겨두지만
+   * (ADR-49) 이건 배정을 통째로 다시 만드는 일이라 지킬 자리가 없다 — 운영자가 맞교환으로
+   * 붙여둔 손이 말없이 풀리면 그게 가장 나쁜 종류의 놀람이다.
+   */
+  async function reseat() {
+    const held = draft ? pairStats(draft, state.mutual).together : 0;
+    await post(`${base}/reseat`);
+    toast(held > 0 ? HOST.seating.reseatedPairs : HOST.seating.reseated);
+    setPicked(null);
+    reload();
+  }
+
+  /**
    * 이 맞교환으로 **떨어지게 되는 짝**들. **모든 라운드에서 본다** (ADR-51) —
    * 운영자가 손으로 붙여둔 쌍을 다음 맞교환이 조용히 떼면 그 손이 헛일이 된다.
    * 첫 라운드에는 상호 매칭이 없어 이 목록이 늘 비어 있다.
@@ -345,25 +364,49 @@ export default function Seats() {
           />
           {/* 초안에도 자리 없는 사람이 있다 — 배정을 누른 뒤에 등록한 사람 */}
           <Unassigned round={draft} state={state} onSeat={(id) => navigate(`${here}/seat/${draft.round}/${id}`)} />
+          {/*
+            **다시 만드는 두 손잡이는 형제라 나란히 선다.** 넣는 사람도 테이블 수도 같고
+            무엇으로 섞는지만 다르다 — 붙어 있어야 그 차이가 고르는 자리에서 읽힌다.
+            왼쪽이 싼 것(성비만 지키고 무작위), 오른쪽이 비싼 것(전부 다시 계산)이다.
+          */}
           <div className="row">
-            <button
-              className="btn wide ghost"
-              onClick={async () => {
-                setPicked(null);
-                await del(base);
-                toast(HOST.seating.discarded);
-                reload();
-              }}
-            >
-              {HOST_UI.seats.discard}
-            </button>
             {/* 계산은 그대로, 사람만 다시 섞는다. 테이블마다 남 몇·여 몇인지는 그대로다 */}
             <button className="btn wide" onClick={shuffle}>
-              🔀 {HOST_UI.seats.shuffle}
+              🎲 {HOST_UI.seats.shuffle}
+            </button>
+            {/* 같은 사람·같은 테이블 수로 가중식을 다시 돌린다 */}
+            <button className="btn wide" onClick={reseat}>
+              ✨ {HOST_UI.seats.reseat}
             </button>
           </div>
           <button className="btn primary block" onClick={() => askPublish(draft)}>
             {HOST.seating.publish}
+          </button>
+          {/*
+            **`취소` 는 맨 아래, primary 아래다.**
+
+            섞기 줄에서 뺀 건 그쪽이 마음에 들 때까지 **연타하는** 자리이기 때문이다 —
+            초안을 통째로 날리는 버튼이 그 손가락 밑에 있으면 안 된다. 섞기가 둘이 되면서
+            빗나갈 자리가 더 넓어졌다.
+
+            **primary 위가 아니라 아래인 이유는 읽는 순서다.** 위에 두면 끝내는 버튼으로
+            가는 길목에 파괴적인 것이 서서, 눈이 매번 그것을 지나간다. 아래로 내리면
+            `이대로 보낸다 → 아니면 없던 일로` 가 되어 카드가 결론에서 끝난다.
+            시트 맨 아래의 조용한 버튼은 **여기서 빠져나간다**로 읽히는 자리이기도 하고,
+            이 버튼이 하는 일이 정확히 그것이다.
+
+            그래서 `ghost` 다. 발송과 나란히 서는 만큼 **눌러야 할 것처럼 보이면 안 된다.**
+          */}
+          <button
+            className="btn block ghost"
+            onClick={async () => {
+              setPicked(null);
+              await del(base);
+              toast(HOST.seating.discarded);
+              reload();
+            }}
+          >
+            {HOST_UI.seats.discard}
           </button>
         </div>
       )}
