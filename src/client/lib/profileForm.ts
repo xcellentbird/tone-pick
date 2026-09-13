@@ -9,7 +9,7 @@
  */
 import { MBTI_AXES, REGISTER } from "../../shared/copy.ts";
 import type { MyProfile, RegisterInput } from "../../shared/types.ts";
-import { LIMITS, nicknameProblem, normalizeInstagram, realNameProblem, validPin } from "../../shared/constants.ts";
+import { AGE_RANGE, LIMITS, nicknameProblem, normalizeInstagram, realNameProblem, validPin } from "../../shared/constants.ts";
 
 export interface ProfileDraft {
   nickname: string;
@@ -108,7 +108,8 @@ export function validateProfile(d: ProfileDraft, step?: number): { field: string
         return name satisfies never;
     }
     const age = Number(d.age);
-    if (!Number.isInteger(age) || age < 18 || age > 99) return { field: "age", text: REGISTER.err.age };
+    if (!Number.isInteger(age) || age < AGE_RANGE.min || age > AGE_RANGE.max)
+      return { field: "age", text: REGISTER.err.age(AGE_RANGE.min, AGE_RANGE.max) };
     if (!d.gender) return { field: "gender", text: REGISTER.err.gender };
     // 인스타는 첫 걸음에 있다 (ADR-75) — 실명 옆, 둘 다 운영자가 사람을 확인하는 칸이다
     if (!d.instagram.trim()) return { field: "instagram", text: REGISTER.err.instaRequired };

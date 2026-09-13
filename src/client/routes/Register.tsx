@@ -231,6 +231,8 @@ export default function Register() {
                 id="age"
                 value={draft.age}
                 inputMode="numeric"
+                /* 18~48 은 전부 두 자리다 (ADR-87). 세 자리를 못 치게 해서 오류 문구까지 안 가게 한다 */
+                maxLength={2}
                 onChange={(e) => set("age", e.target.value.replace(/[^0-9]/g, ""))}
                 {...invalid("age")}
               />

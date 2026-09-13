@@ -49,6 +49,7 @@ import { autoTable } from "../shared/seats.ts";
 import { appendPokeLog, pokeLogLine, type PokeLogEntry } from "./poke-log.ts";
 import { ENTRY } from "../shared/copy.ts";
 import {
+  AGE_RANGE,
   ENTRY_TRIES,
   LIMITS,
   PIN,
@@ -1933,7 +1934,7 @@ function cleanProfile(input: RegisterInput): CleanProfile | null {
   const nickname = cleanName(input.nickname);
   const realName = cleanName(input.realName);
   if (nicknameProblem(nickname) || realNameProblem(realName)) return null;
-  if (!Number.isInteger(input.age) || input.age < 18 || input.age > 99) return null;
+  if (!Number.isInteger(input.age) || input.age < AGE_RANGE.min || input.age > AGE_RANGE.max) return null;
   if (input.gender !== "M" && input.gender !== "F") return null;
   if (!/^[EI][NS][TF][JP]$/.test(String(input.mbti))) return null;
 
