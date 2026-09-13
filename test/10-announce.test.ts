@@ -1,12 +1,12 @@
 /**
- * 슬라이스 14 — 운영자가 보내는 알림 (텍스트 + A/B 투표)
+ * 슬라이스 14·27 — 운영자가 보내는 알림과 설문 (ADR-83)
  *
- * 이 파일이 보는 건 하나로 줄일 수 있다 —
- * **표는 저장되지만 사람과 함께는 어디에도 나가지 않는다.**
+ * 이 파일이 지키는 건 셋이다.
  *
- * 한 사람 한 표를 지키려면 `playerId → choice` 를 저장할 수밖에 없다.
- * 그 짝이 응답에 실리면 화면이 언젠가 그걸 보여준다. 그래서 참가자 응답도,
- * **운영자 응답도** 뒤진다 — 운영자는 전체를 보지만 *누가 9시를 골랐나* 를 알 이유가 없다.
+ *   · **누가 무엇을 골랐는지는 운영자만 본다.** 뒤풀이 인원을 세려면 이름이 필요하다 — 운영자의
+ *     공개 범위는 원래 전체다(원칙 2). 참가자 응답에는 남의 답도, 몇 명인지도 없다
+ *   · 한 사람은 한 표다 — 다시 고르면 옮겨간다
+ *   · 설문 여러 개가 함께 열려 있을 수 있다. 닫는 건 운영자가 누른다
  */
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -173,27 +173,29 @@ describe("텍스트 알림", () => {
 
 // ─────────────────────────────────────────── 투표
 
-describe("A/B 투표", () => {
-  it("★ 표는 사람과 함께 어디에도 나가지 않는다 — 운영자 응답에도", async () => {
+describe("설문 — 두 선택지", () => {
+  it("★ 누가 무엇을 골랐는지는 운영자만 본다 — 참가자 응답에는 남의 답도 숫자도 없다", async () => {
     /*
-     * 이 슬라이스의 유일한 불변식이다. 저장은 하되(한 사람 한 표를 지켜야 하므로)
-     * 그 짝이 응답에 실리면 화면이 언젠가 보여준다.
-     *
-     * 그래서 참가자 아이디가 응답 어디에도 없는지를 **문자열째로** 뒤진다 —
-     * 필드 이름을 짐작해서 보면 새 필드가 생겼을 때 그냥 지나친다.
+     * ADR-83 의 결정이다. 한동안 운영자 응답에서도 표의 주인을 뺐는데(슬라이스 14),
+     * 뒤풀이 인원을 세려면 **누가** 간다고 했는지 알아야 한다. 참가자 쪽은 그대로다 —
+     * 남의 아이디가 응답 어디에도 없는지를 **문자열째로** 뒤진다.
      */
     const ev = await freshEvent();
-    const p = await join(ev);
-    const made = await send(ev, { text: "2부 언제?", poll: { a: "9시", b: "9시 30분" } });
+    const [p, q] = [await join(ev), await join(ev)];
+    const made = await send(ev, { text: "2차 갈래요?", poll: { a: "갈래요", b: "못 가요" } });
     await vote(p.cookie, made.body.id, "a");
+    await vote(q.cookie, made.body.id, "b");
 
-    const host = await hostState(ev);
-    const ann = JSON.stringify(host.body.announcements);
-    expect(ann).not.toContain(p.id);
-    expect(ann).toContain('"a":1');
+    const host = (await hostState(ev)).body.announcements[0];
+    expect(host.choices).toEqual({ [p.id]: "a", [q.id]: "b" });
+    expect(host.count).toEqual({ a: 1, b: 1 });
 
-    const mine = JSON.stringify((await me(p.cookie, ev)).body.announcements);
-    expect(mine).not.toContain(p.id);
+    const mine = (await me(p.cookie, ev)).body.announcements[0];
+    expect(mine.poll?.mine).toBe("a");
+    const text = JSON.stringify(mine);
+    expect(text).not.toContain(q.id);
+    expect(text).not.toContain("count");
+    expect(text).not.toContain("choices");
   });
 
   it("★ 한 사람은 한 표다 — 다시 고르면 옮겨간다", async () => {
@@ -206,27 +208,13 @@ describe("A/B 투표", () => {
 
     // 마음을 바꾸는 건 실패가 아니다 — 409 가 아니라 200 이다
     expect(again.status).toBe(200);
-    expect(again.body.poll?.count).toEqual({ a: 0, b: 1 });
     expect(again.body.poll?.mine).toBe("b");
+    const host = (await hostState(ev)).body.announcements[0];
+    expect(host.choices[p.id]).toBe("b");
+    expect(host.count).toEqual({ a: 0, b: 1 });
   });
 
-  it("★ 여러 사람의 표가 합쳐진다", async () => {
-    const ev = await freshEvent();
-    const [x, y, z] = [await join(ev), await join(ev), await join(ev)];
-    const made = await send(ev, { text: "음악 줄일까요?", poll: { a: "네", b: "아니요" } });
-
-    await vote(x.cookie, made.body.id, "a");
-    await vote(y.cookie, made.body.id, "a");
-    const last = await vote(z.cookie, made.body.id, "b");
-    expect(last.body.poll?.count).toEqual({ a: 2, b: 1 });
-
-    // 남의 선택은 내 응답에 없다. 숫자만 같다
-    const seen = (await me(x.cookie, ev)).body.announcements[0];
-    expect(seen.poll?.count).toEqual({ a: 2, b: 1 });
-    expect(seen.poll?.mine).toBe("a");
-  });
-
-  it("★ 닫으면 더 못 고른다. 숫자는 남는다", async () => {
+  it("★ 닫으면 더 못 고른다. 답은 남는다", async () => {
     const ev = await freshEvent();
     const p = await join(ev);
     const made = await send(ev, { text: "2부 언제?", poll: { a: "9시", b: "9시 30분" } });
@@ -244,7 +232,8 @@ describe("A/B 투표", () => {
 
     const seen = (await me(p.cookie, ev)).body.announcements[0];
     expect(seen.poll?.closed).toBe(true);
-    expect(seen.poll?.count).toEqual({ a: 1, b: 0 });
+    expect(seen.poll?.mine).toBe("a");
+    expect((await hostState(ev)).body.announcements[0].count).toEqual({ a: 1, b: 0 });
   });
 
   it("★ 닫은 것을 다시 열 수 있다 — 되돌릴 수 있어야 확인창이 없다", async () => {
@@ -258,37 +247,35 @@ describe("A/B 투표", () => {
     expect((await vote(p.cookie, made.body.id, "a")).status).toBe(200);
   });
 
-  it("★ 새 투표를 올리면 앞엣것이 닫힌다 — 열린 투표는 한 번에 하나다", async () => {
+  it("★ 설문 여러 개가 함께 열려 있다 — 새 설문이 앞엣것을 닫지 않는다", async () => {
     /*
-     * 둘이 동시에 열려 있으면 참가자는 무엇에 답해야 하는지,
-     * 운영자는 어느 집계를 보는지 헷갈린다.
+     * 슬라이스 14 는 열린 설문을 하나로 묶었는데, 운영자는 파티 중에 한두 개를 나란히 묻는다
+     * (다음 게임과 뒤풀이). 닫는 건 운영자가 누른다 (ADR-83).
      */
     const ev = await freshEvent();
     const p = await join(ev);
     const first = await send(ev, { text: "먼저", poll: { a: "A", b: "B" } });
     await send(ev, { text: "나중", poll: { a: "C", b: "D" } });
 
-    expect((await vote(p.cookie, first.body.id, "a")).status).toBe(409);
+    expect((await vote(p.cookie, first.body.id, "a")).status).toBe(200);
 
     const open = (await me(p.cookie, ev)).body.announcements.filter((a) => a.poll && !a.poll.closed);
-    expect(open).toHaveLength(1);
-    expect(open[0].text).toBe("나중");
+    expect(open.map((a) => a.text)).toEqual(["나중", "먼저"]);
   });
 
-  it("텍스트 알림은 투표를 닫지 않는다", async () => {
-    // 글 하나 보냈다고 열린 투표가 끝나면 운영자가 놀란다
+  it("텍스트 알림은 설문을 닫지 않는다", async () => {
     const ev = await freshEvent();
     const p = await join(ev);
-    const poll = await send(ev, { text: "투표", poll: { a: "A", b: "B" } });
+    const poll = await send(ev, { text: "설문", poll: { a: "A", b: "B" } });
     await send(ev, { text: "그냥 알림" });
     expect((await vote(p.cookie, poll.body.id, "a")).status).toBe(200);
   });
 
-  it("없는 알림에 표를 보내면 404 다", async () => {
+  it("없는 설문에 답을 보내면 404 다", async () => {
     /*
      * 운영자가 방금 지웠는데 참가자 화면이 아직 옛 목록일 때 실제로 생긴다.
      *
-     * ⚠️ **먼저 진짜 표를 한 번 넣는다.** 안 그러면 `/api/vote` 가 아예 없을 때도
+     * ⚠️ **먼저 진짜 답을 한 번 넣는다.** 안 그러면 `/api/vote` 가 아예 없을 때도
      * 통째 404 로 통과해서, 구현이 하나도 없는데 초록불이 켜진다 (ADR-8).
      */
     const ev = await freshEvent();
@@ -302,6 +289,20 @@ describe("A/B 투표", () => {
   it("선택지가 한쪽만 오면 받지 않는다", async () => {
     const ev = await freshEvent();
     expect((await send(ev, { text: "질문", poll: { a: "A", b: "  " } })).status).toBe(400);
+  });
+
+  it("나간 사람의 답은 세지 않는다", async () => {
+    // 명단에 없는 아이디가 운영자 화면에 빈 카드로 서면 안 된다 (ADR-29 와 같은 정리)
+    const ev = await freshEvent();
+    const [p, q] = [await join(ev), await join(ev)];
+    const made = await send(ev, { text: "2차 갈래요?", poll: { a: "갈래요", b: "못 가요" } });
+    await vote(p.cookie, made.body.id, "a");
+    await vote(q.cookie, made.body.id, "a");
+    await api(`/api/host/events/${ev.id}/players/${q.id}`, { method: "DELETE", cookie: master });
+
+    const host = (await hostState(ev)).body.announcements[0];
+    expect(host.choices).toEqual({ [p.id]: "a" });
+    expect(host.count).toEqual({ a: 1, b: 0 });
   });
 });
 
@@ -336,11 +337,11 @@ describe("경계", () => {
     await vote(p.cookie, made.body.id, "a");
     await api(`/api/host/events/${ev.id}/announcements/${made.body.id}`, { method: "DELETE", cookie: master });
 
-    // 같은 아이디로 다시 만들 수는 없지만, 표가 남아 새 투표에 섞이면 안 된다
+    // 같은 아이디로 다시 만들 수는 없지만, 표가 남아 새 설문에 섞이면 안 된다
     const next = await send(ev, { text: "질문", poll: { a: "A", b: "B" } });
     const seen = (await me(p.cookie, ev)).body.announcements[0];
     expect(seen.id).toBe(next.body.id);
-    expect(seen.poll?.count).toEqual({ a: 0, b: 0 });
     expect(seen.poll?.mine).toBeUndefined();
+    expect((await hostState(ev)).body.announcements[0].count).toEqual({ a: 0, b: 0 });
   });
 });

@@ -1032,7 +1032,6 @@ export class EventDO extends DurableObject {
    * 응답에 없으면 화면이 실수로라도 보여줄 수 없다.
    */
   private publicAnnouncements(playerId: string): PublicAnnouncement[] {
-    const counts = this.voteCounts();
     const mine = new Map(
       this.rows<{ ann_id: string; choice: PollChoice }>(
         "SELECT ann_id, choice FROM votes WHERE player_id = ?",
@@ -1045,10 +1044,10 @@ export class EventDO extends DurableObject {
       text: r.text,
       ...(r.poll_a !== null && r.poll_b !== null
         ? {
+            // 숫자는 없다 (ADR-83) — 남의 답도 몇 명인지도 참가자에게는 안 간다
             poll: {
               a: r.poll_a,
               b: r.poll_b,
-              count: counts.get(r.id) ?? { a: 0, b: 0 },
               ...(mine.has(r.id) ? { mine: mine.get(r.id)! } : {}),
               closed: r.closed_at !== null,
             },
@@ -1057,15 +1056,33 @@ export class EventDO extends DurableObject {
     }));
   }
 
+  /**
+   * 운영자에게는 **누가 무엇을 골랐는지**까지 간다 (ADR-83). 뒤풀이 인원을 세려면 이름이 필요하다.
+   * 나간 사람의 답은 빼고 센다 — 명단에 없는 아이디가 화면에 빈 카드로 서면 안 된다.
+   */
   private hostAnnouncements(): HostAnnouncement[] {
-    const counts = this.voteCounts();
-    return this.announcementRows().map((r) => ({
-      ...toAnnouncement(r),
-      count: counts.get(r.id) ?? { a: 0, b: 0 },
-    }));
+    const here = new Set(this.players().map((p) => p.id));
+    const choices = new Map<string, Record<string, PollChoice>>();
+    for (const r of this.rows<{ ann_id: string; player_id: string; choice: PollChoice }>(
+      "SELECT ann_id, player_id, choice FROM votes",
+    )) {
+      if (!here.has(r.player_id)) continue;
+      const cur = choices.get(r.ann_id) ?? {};
+      cur[r.player_id] = r.choice;
+      choices.set(r.ann_id, cur);
+    }
+    return this.announcementRows().map((r) => {
+      const mine = choices.get(r.id) ?? {};
+      const count = { a: 0, b: 0 };
+      for (const c of Object.values(mine)) count[c]++;
+      return { ...toAnnouncement(r), count, choices: mine };
+    });
   }
 
-  /** 보낸다. 투표면 **열려 있던 투표를 먼저 닫는다** — 열린 투표는 한 번에 하나다 */
+  /**
+   * 보낸다. **설문 여러 개가 함께 열려 있을 수 있다** (ADR-83) — 한동안 새 설문이 앞엣것을 닫았는데,
+   * 운영자는 파티 중에 한두 개를 나란히 묻는다(다음 게임과 뒤풀이). 닫는 건 운영자가 누른다.
+   */
   announce(input: AnnounceInput, now: number): Result<HostAnnouncement> {
     const text = input.text?.trim() ?? "";
     if (!text) return fail("bad_request");
@@ -1073,11 +1090,6 @@ export class EventDO extends DurableObject {
     const b = input.poll?.b.trim() ?? "";
     if (input.poll && (!a || !b)) return fail("bad_request");
 
-    if (input.poll) {
-      // 둘이 동시에 열려 있으면 참가자는 무엇에 답할지, 운영자는 어느 집계를 볼지 헷갈린다.
-      // **텍스트 알림은 닫지 않는다** — 글 하나 보냈다고 투표가 끝나면 운영자가 놀란다
-      this.ctx.storage.sql.exec("UPDATE announcements SET closed_at = ? WHERE poll_a IS NOT NULL AND closed_at IS NULL", now);
-    }
     const id = randomHex(8);
     this.ctx.storage.sql.exec(
       "INSERT INTO announcements (id, at, text, poll_a, poll_b) VALUES (?, ?, ?, ?, ?)",
@@ -1133,18 +1145,6 @@ export class EventDO extends DurableObject {
 
   private announcementRows(): AnnRow[] {
     return this.rows<AnnRow>("SELECT * FROM announcements ORDER BY at DESC, id DESC");
-  }
-
-  private voteCounts(): Map<string, { a: number; b: number }> {
-    const out = new Map<string, { a: number; b: number }>();
-    for (const r of this.rows<{ ann_id: string; choice: PollChoice; n: number }>(
-      "SELECT ann_id, choice, COUNT(*) AS n FROM votes GROUP BY ann_id, choice",
-    )) {
-      const cur = out.get(r.ann_id) ?? { a: 0, b: 0 };
-      cur[r.choice] = Number(r.n);
-      out.set(r.ann_id, cur);
-    }
-    return out;
   }
 
   // ─────────────────────────── 오늘의 연애운 (ADR-20)

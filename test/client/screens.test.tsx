@@ -93,6 +93,7 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
     ackSeat: async (round) => {
       calls.ack.push(round);
     },
+    vote: async (id, choice) => ({ id, at: 1, text: "", poll: { a: "A", b: "B", mine: choice, closed: false } }),
     saveProfile: async (input) => {
       calls.saved.push(input);
       return { ...participantState().me, ...input };

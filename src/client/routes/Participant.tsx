@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, FAIL, FORTUNE, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
-import type { MyPokeState, ParticipantState } from "../../shared/types.ts";
+import type { MyPokeState, PublicAnnouncement, ParticipantState } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { voteClosed } from "../../shared/phase.ts";
 import { TICK_WINDOW } from "../../shared/time.ts";
@@ -210,6 +210,13 @@ export function ParticipantView(props: ViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.set],
   );
+  /** 설문 답 한 칸만 갈아끼운다 (슬라이스 27). `setPoke` 와 같은 이유로 통로가 좁다 */
+  const setAnnouncement = useCallback(
+    (a: PublicAnnouncement) =>
+      state.set((cur) => (cur ? { ...cur, announcements: cur.announcements.map((x) => (x.id === a.id ? a : x)) } : cur)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.set],
+  );
   useEffect(() => {
     if (!source.liveCode || failed) return;
     const socket = connect(source.liveCode, () => state.reload());
@@ -219,7 +226,7 @@ export function ParticipantView(props: ViewProps) {
 
   if (state.error) return <Failed error={state.error} code={code} onRetry={state.reload} busy={state.loading} />;
   if (!state.data) return <div className="screen" />;
-  return <Loaded {...props} state={state.data} reload={state.reload} setPoke={setPoke} />;
+  return <Loaded {...props} state={state.data} reload={state.reload} setPoke={setPoke} setAnnouncement={setAnnouncement} />;
 }
 
 function Loaded({
@@ -236,9 +243,15 @@ function Loaded({
   state,
   reload,
   setPoke,
+  setAnnouncement,
   helpOpen,
   onHelp,
-}: ViewProps & { state: ParticipantState; reload: () => void; setPoke: (poke: MyPokeState) => void }) {
+}: ViewProps & {
+  state: ParticipantState;
+  reload: () => void;
+  setPoke: (poke: MyPokeState) => void;
+  setAnnouncement: (a: PublicAnnouncement) => void;
+}) {
   const [acked, setAcked] = useState<number[]>([]);
   /**
    * **마감은 아무도 밀어주지 않는다** (ADR-55). 예약대로 닫히는 쪽에는 서버가 보낼 신호가 없다 —
@@ -344,7 +357,14 @@ function Loaded({
             </button>
           )}
           {tab === "home" && (
-            <Home state={state} onTab={onTab} onSeat={() => onSeat(true)} onHelp={() => onHelp(true)} />
+            <Home
+              state={state}
+              onTab={onTab}
+              onSeat={() => onSeat(true)}
+              onHelp={() => onHelp(true)}
+              // 서버가 방금 준 답을 버리고 다시 묻지 않는다 (슬라이스 17 과 같은 이유)
+              onVote={async (id, choice) => setAnnouncement(await source.vote(id, choice))}
+            />
           )}
           {tab === "people" && (
             <People

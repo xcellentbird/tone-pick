@@ -56,6 +56,7 @@ const HostConsole = lazy(() => import("./routes/host/HostConsole.tsx"));
 const Dash = lazy(() => import("./routes/host/Dash.tsx"));
 const Players = lazy(() => import("./routes/host/Players.tsx"));
 const Seats = lazy(() => import("./routes/host/Seats.tsx"));
+const Polls = lazy(() => import("./routes/host/Polls.tsx"));
 const Settings = lazy(() => import("./routes/host/Settings.tsx"));
 import { Overlays } from "./ui/Overlays.tsx";
 
@@ -115,6 +116,8 @@ export const HOST_CONSOLE_ROUTES = [
     { path: "seats/new/tables", element: chunk(<Seats />) },
     // 자리 없는 사람을 앉힐 자리 고르기 (ADR-79). 라운드가 주소에 있어야 새로고침해도 같은 카드다
     { path: "seats/seat/:round/:pid", element: chunk(<Seats />) },
+    { path: "polls", element: chunk(<Polls />) },
+    { path: "polls/:aid", element: chunk(<Polls />) },       // `new` 는 보내기 시트, 그 밖은 상세
     { path: "settings", element: chunk(<Settings />) },
 ];
 
