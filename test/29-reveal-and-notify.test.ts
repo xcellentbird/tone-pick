@@ -173,7 +173,12 @@ describe("알림은 라운드마다 따로다", () => {
     expect(await s.seen(), "매력 투표 표가 파티에서 얹혔다").toBe(1);
   });
 
-  it("★ 발표 뒤에는 끈 라운드까지 전부 센다", async () => {
+  /**
+   * **발표가 끝이 아니다** (ADR-85, ADR-43 의 한 줄을 뒤집는다). 예전에는 발표되면 끈 라운드까지
+   * 전부 세어서, 알림을 꺼 둔 회차에서 발표 순간 받은 줄이 한꺼번에 쏟아졌다.
+   * 운영자가 끈 것은 "파티 중에만" 이 아니라 **몇 번 받았는지 알리지 않는 것**이다.
+   */
+  it("★ 알림을 끈 라운드는 발표 뒤에도 세지 않는다", async () => {
     const s = await received({ preNotify: false, pokeNotify: false }, "pre");
     expect(s.now).toBe(0);
 
@@ -181,9 +186,21 @@ describe("알림은 라운드마다 따로다", () => {
     await api("/api/poke", { method: "POST", cookie: s.a.cookie, body: { toId: s.b.id } });
     expect(await s.seen(), "발표 전인데 세어졌다").toBe(0);
 
-    // 발표되면 매칭까지 열리므로 감출 것이 없다
     await setPhase(s.ev.id, "done");
-    expect(await s.seen()).toBe(2);
+    expect(await s.seen(), "발표와 함께 끈 라운드가 드러났다").toBe(0);
+  });
+
+  it("★ 발표 뒤에도 켠 라운드만 센다 — 한쪽만 끈 회차", async () => {
+    // 매력 투표 알림만 켰다. 파티 콕은 끝까지 안 보여야 한다
+    const s = await received({ preNotify: true, pokeNotify: false }, "pre");
+    expect(s.now).toBe(1);
+
+    await setPhase(s.ev.id, "party");
+    await api("/api/poke", { method: "POST", cookie: s.a.cookie, body: { toId: s.b.id } });
+    await setPhase(s.ev.id, "done");
+
+    const res = await api<ParticipantState>("/api/me", { cookie: s.b.cookie });
+    expect(res.body.poke.received).toEqual({ pre: 1, party: 0 });
   });
 
   it("★ 콕이 오가기 시작하면 알림 설정이 굳는다", async () => {

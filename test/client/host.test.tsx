@@ -1567,3 +1567,81 @@ describe("자리 검토 — 서로 찌른 쌍", () => {
     expect(chips().filter((t) => t.includes(HOST_UI.seats.pairChipNote(0)))).toHaveLength(0);
   });
 });
+
+describe("참가자 탭 · 나이 띠", () => {
+  /**
+   * ★ **남녀 나이가 얼마나 겹치는지 눈으로 본다.**
+   *
+   * 운영자가 조절하려는 것은 *남녀 나이차* 인데, 평균 비교는 그 답을 못 준다 —
+   * 쌍봉이면 평균 차이가 0 으로 나오고, 다 겹치는 판이 한쪽 끝에 혼자 있는 판보다
+   * 평균 차이가 더 크게 나온다. 그래서 **같은 축 위의 띠 두 줄**로 보여준다.
+   *
+   * 인원 수는 여기 없다 — 바로 위 성별 칩이 이미 말한다.
+   */
+  const mk = (id: string, age: number, gender: "M" | "F") => ({
+    id, nickname: id, realName: `김${id}`, age, gender,
+    phone: `0100000${id.padStart(4, "0")}`, instagram: id, mbti: "ENFP",
+    charms: ["a", "b", "c"] as [string, string, string], createdAt: 1, pin: "set" as const,
+  });
+
+  /**
+   * 성별 줄 하나를 집어온다 — 어느 줄에 무엇이 적혔는지까지 봐야 한다.
+   * **띠 카드 안으로 좁힌다** — `남성`·`여성` 은 바로 위 필터 칩에도 있다.
+   */
+  const card = () => document.querySelector<HTMLElement>(".ageBand")!;
+  const row = (label: string) => within(card()).getByText(label).closest<HTMLElement>(".ageRow")!;
+  /** 띠의 자리 — `left`·`width` 를 퍼센트 문자열로 */
+  function band(label: string) {
+    const i = row(label).querySelector<HTMLElement>(".bar i")!;
+    return { left: i.style.left, width: i.style.width };
+  }
+
+  it("★ 남녀 각각 나이대와 중앙값이 보인다", async () => {
+    stubFetch(hostState({}, {
+      players: [mk("a", 26, "M"), mk("b", 29, "M"), mk("c", 34, "M"),
+                mk("d", 23, "F"), mk("e", 27, "F"), mk("f", 31, "F")],
+    }));
+    renderPlayers("/host/e1/players");
+    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29));
+
+    // **줄마다** 본다 — 두 줄을 한꺼번에 훑으면 남녀가 뒤바뀌어도 통과한다
+    expect(within(row(GENDER.M)).getByText(HOST_UI.players.ages.summary(26, 34, 29))).toBeTruthy();
+    expect(within(row(GENDER.F)).getByText(HOST_UI.players.ages.summary(23, 31, 27))).toBeTruthy();
+  });
+
+  it("★ 두 띠가 같은 축을 쓴다 — 그래야 겹침이 보인다", async () => {
+    stubFetch(hostState({}, {
+      players: [mk("a", 26, "M"), mk("b", 29, "M"), mk("c", 34, "M"),
+                mk("d", 23, "F"), mk("e", 27, "F"), mk("f", 31, "F")],
+    }));
+    renderPlayers("/host/e1/players");
+    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29));
+
+    /*
+     * 축은 23~34 (폭 11). 줄마다 제 범위로 늘이면 두 띠가 똑같이 꽉 차서
+     * **겹침이 사라진다** — 그게 이 화면이 답하려는 질문 자체다.
+     */
+    expect(band(GENDER.M)).toEqual({ left: "27.3%", width: "72.7%" });
+    expect(band(GENDER.F)).toEqual({ left: "0%", width: "72.7%" });
+  });
+
+  it("★ 모두 같은 나이여도 띠가 사라지지 않는다", async () => {
+    stubFetch(hostState({}, { players: [mk("a", 30, "M"), mk("d", 30, "F")] }));
+    renderPlayers("/host/e1/players");
+    await waitFor(() => expect(card()).toBeTruthy());
+
+    // 폭이 0 이면 0% 가 되어 줄이 빈 것처럼 보인다. 나이가 하나뿐인 것과 아무도 없는 것은 다르다
+    for (const g of [GENDER.M, GENDER.F]) expect(band(g).width).not.toBe("0%");
+    // 범위가 없으면 범위처럼 적지 않는다 — `30~30세 · 중앙 30세` 는 같은 말을 세 번 한다
+    expect(within(row(GENDER.M)).getByText(UNIT.age(30))).toBeTruthy();
+  });
+
+  it("★ 한쪽 성별만 있으면 그 줄만 선다", async () => {
+    stubFetch(hostState({}, { players: [mk("a", 26, "M"), mk("b", 34, "M")] }));
+    renderPlayers("/host/e1/players");
+    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 30));
+
+    // 여성 줄을 빈 띠로 두면 `0명` 이 아니라 `0세` 로 읽힌다
+    expect(card().querySelectorAll(".ageRow")).toHaveLength(1);
+  });
+});

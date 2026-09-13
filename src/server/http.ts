@@ -28,6 +28,11 @@ export interface Env {
    * 지표는 있으면 좋은 것이지 없으면 안 되는 게 아니다. 테스트·로컬에는 없다.
    */
   METRICS?: AnalyticsEngineDataset;
+  /**
+   * 콕 로그 파일이 쌓이는 버킷 (ADR-84, `poke-log.ts`). **없어도 콕은 된다** — 테스트·로컬 밖에서
+   * 빠지면 로그만 조용히 비므로, 두 환경 모두에 있는지는 `npm run check` 가 본다.
+   */
+  LOGS?: R2Bucket;
   MASTER_PIN: string;
   SESSION_SECRET: string;
   /** "1" 일 때만 테스트 전용 라우트를 **등록**한다. 런타임 분기가 아니라 존재 자체를 없앤다 */

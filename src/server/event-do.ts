@@ -39,8 +39,6 @@ import type {
   Seat,
   SeatingRound,
   ServerEvent,
-  HostPokeRow,
-  HostPokeSide,
   HostState,
   MySeat,
 } from "../shared/types.ts";
@@ -48,6 +46,7 @@ import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
 import { rosterOpen, toMe, toPublic } from "../shared/types.ts";
 import { autoTable } from "../shared/seats.ts";
+import { appendPokeLog, pokeLogLine, type PokeLogEntry } from "./poke-log.ts";
 import { ENTRY } from "../shared/copy.ts";
 import {
   ENTRY_TRIES,
@@ -166,6 +165,9 @@ interface Attachment {
 }
 
 export class EventDO extends DurableObject {
+  /** 콕 로그 쓰기를 한 줄로 세운다 (ADR-84). 나란히 쓰면 뒤엣것이 앞의 줄을 덮는다 — `appendPokeLog` */
+  private logQueue: Promise<void> = Promise.resolve();
+
   constructor(ctx: DurableObjectState, env: unknown) {
     super(ctx as never, env as never);
     ctx.blockConcurrencyWhile(async () => {
@@ -812,6 +814,7 @@ export class EventDO extends DurableObject {
     if (notifyOn(meta.config, round)) {
       this.toPlayer(toId, { type: "poke", received: this.visibleReceived(toId, meta) });
     }
+    await this.logPoke(meta.id, { kind: "poke", round, at: now, from: me, to: target });
     return ok(await this.pokeState(fromId, meta));
   }
 
@@ -844,7 +847,27 @@ export class EventDO extends DurableObject {
     if (notifyOn(meta.config, round)) {
       this.toPlayer(toId, { type: "poke", received: this.visibleReceived(toId, meta) });
     }
+    // 콕 표에서는 줄이 사라졌다. 누가 무엇을 되돌렸는지는 이 로그에만 남는다 (ADR-84)
+    const me = this.player(fromId);
+    const target = this.player(toId);
+    if (me && target) await this.logPoke(meta.id, { kind: "undo", round, at: now, from: me, to: target });
     return ok(await this.pokeState(fromId, meta));
+  }
+
+  /**
+   * 콕 로그 파일에 한 줄 (ADR-84). **콕이 이미 저장된 뒤에** 부른다 — 로그는 일어난 일만 적는다.
+   *
+   * 기다리는 이유는 순서다. 참가자 화면은 낙관적으로 먼저 바뀌므로(슬라이스 09·17) 이 왕복이 체감되지 않는다.
+   * 실패는 삼킨다 — 로그 때문에 콕이 깨지면 안 된다. 남기는 말에 이름을 싣지 마라, Workers Logs 로 나간다.
+   */
+  private logPoke(eventId: string, entry: PokeLogEntry): Promise<void> {
+    const bucket = (this.env as { LOGS?: R2Bucket }).LOGS;
+    if (!bucket) return Promise.resolve();
+    const line = pokeLogLine(entry);
+    this.logQueue = this.logQueue
+      .then(() => appendPokeLog(bucket, eventId, line))
+      .catch((e) => console.error("poke log failed", e instanceof Error ? e.message : String(e)));
+    return this.logQueue;
   }
 
   // ─────────────────────────── 참가자 화면
@@ -928,40 +951,6 @@ export class EventDO extends DurableObject {
   }
 
   // ─────────────────────────── 운영자 화면
-
-  /**
-   * 콕 이력 — **운영자 전용 뽑기** (ADR-82). 콕 하나가 줄 하나다.
-   *
-   * 보낸 사람 순으로(등록 순), 그 안에서는 시각 순으로 늘어놓는다 — *각 사람이 누구를 찔렀나* 를
-   * 위에서 아래로 읽는 파일이다. 나간 사람의 콕은 이름 자리가 비어 나간다 (ADR-29).
-   * `mutual` 은 **같은 라운드에** 상대도 찔렀다는 줄 하나의 사실이다 — 매칭(파티 콕만)이 아니다.
-   */
-  async pokeLog(now: number): Promise<Result<HostPokeRow[]>> {
-    const meta = await this.touch(now);
-    if (!meta) return fail("not_found");
-    const players = this.players();
-    const order = new Map(players.map((p, i) => [p.id, i]));
-    const by = new Map(players.map((p) => [p.id, p]));
-    const side = (id: string): HostPokeSide | null => {
-      const p = by.get(id);
-      return p ? { id, nickname: p.nickname, realName: p.realName, gender: p.gender, age: p.age } : null;
-    };
-    const pokes = this.pokes();
-    const sent = new Set(pokes.map((k) => `${k.round}:${k.fromId}>${k.toId}`));
-    const rank = (k: Poke) => order.get(k.fromId) ?? players.length;
-    const roundNo = (k: Poke) => (k.round === "pre" ? 0 : 1);
-    return ok(
-      pokes
-        .sort((x, y) => rank(x) - rank(y) || roundNo(x) - roundNo(y) || x.at - y.at)
-        .map((k) => ({
-          round: k.round,
-          at: k.at,
-          from: side(k.fromId),
-          to: side(k.toId),
-          mutual: sent.has(`${k.round}:${k.toId}>${k.fromId}`),
-        })),
-    );
-  }
 
   async hostState(now: number): Promise<Result<HostState>> {
     const meta = await this.touch(now);
@@ -1621,7 +1610,7 @@ export class EventDO extends DurableObject {
    * 받은 콕 수. **라운드를 반드시 준다** (ADR-43·46).
    *
    * 총합을 읽는 갈래가 있었는데, 알림이 라운드마다 갈리면서(`visibleReceived`) 부르는 곳이 없어졌다.
-   * 되살리지 마라 — 총합을 그대로 내려보내면 꺼둔 라운드가 파티 시작과 함께 얹힌다.
+   * 되살리지 마라 — 총합을 그대로 내려보내면 꺼둔 라운드가 파티 시작·발표와 함께 얹힌다.
    */
   private receivedCount(toId: string, round: PokeRound): number {
     return (
@@ -1645,10 +1634,11 @@ export class EventDO extends DurableObject {
    * 부르게 되는데, 참가자는 그 단계에서 콕을 찌른 적이 없다. 가른 대가는 그 후기에 적었다.
    */
   private visibleReceived(toId: string, meta: EventMeta): Record<PokeRound, number> {
-    // 발표 뒤에는 전부 센다 — 그때는 매칭까지 열리므로 감출 것이 없다
-    if (meta.phase === "done") {
-      return { pre: this.receivedCount(toId, "pre"), party: this.receivedCount(toId, "party") };
-    }
+    /*
+     * **발표 뒤에도 그대로다** (ADR-85). 한동안 발표되면 끈 라운드까지 전부 셌는데,
+     * 그러면 알림을 꺼 둔 회차에서 발표 순간 받은 줄이 한꺼번에 쏟아진다.
+     * 매칭이 열린다고 **일방적으로 받은 수**까지 열리는 게 아니다 — `phase === "done"` 갈래를 되살리지 마라.
+     */
     return {
       pre: meta.config.preNotify ? this.receivedCount(toId, "pre") : 0,
       party: meta.config.pokeNotify ? this.receivedCount(toId, "party") : 0,
@@ -1724,7 +1714,7 @@ export class EventDO extends DurableObject {
         party: { max: meta.config.maxParty, used: used.party },
       },
       sentTo,
-      // 알림을 끈 라운드는 발표 전까지 세지 않는다 (ADR-34·43) — `visibleReceived` 가 판단한다
+      // 알림을 끈 라운드는 발표 뒤에도 세지 않는다 (ADR-34·43·85) — `visibleReceived` 가 판단한다
       received: this.visibleReceived(playerId, meta),
       matches,
     };
