@@ -4,7 +4,6 @@
  *   MASTER_PIN=**** node scripts/party-export.mjs                       # 회차가 하나면 그걸로
  *   MASTER_PIN=**** node scripts/party-export.mjs --event <회차id|코드>
  *   MASTER_PIN=**** node scripts/party-export.mjs --url https://tone-pick-qa... --name qa-연습
- *   MASTER_PIN=**** node scripts/party-export.mjs --seating --name 9월회차   # 자리 계산용 최소 판
  *
  * `buildSeating` 을 실제 파티의 사람 구성으로 돌려보려고 만든 것이다 — 나이 분포·성비·테이블 수가
  * 지어낸 표본과 다르기 때문에, 나이차 벌점이나 `MEET_GAP` 을 건드릴 때 이 판으로 재본다.
@@ -46,14 +45,6 @@ const WANT = flag("event", null);
 const NAME = flag("name", null);
 const PIN = process.env.MASTER_PIN;
 const POKES = flag("pokes", null);
-/**
- * **자리 계산에 필요한 것만** 뽑는다 — 나이·성별·테이블 수·라운드 수·라운드별 자리.
- *
- * 이름도 닉네임도 MBTI 도 매력 문구도 콕도 들어가지 않는다. `buildSeating` 이 나이와 성별로
- * 하는 일(누가 누구를 만나게 되는가)을 재는 데는 그것이면 충분하고, **남에게 건네도 되는
- * 가장 작은 판**이라 알고리즘을 손볼 때 주고받기 좋다. 사람은 번호로만 구분된다.
- */
-const SEATING_ONLY = has("seating");
 
 if (!PIN) {
   console.error("MASTER_PIN 을 환경변수로 주세요:  MASTER_PIN=**** node scripts/party-export.mjs");
@@ -63,11 +54,10 @@ if (!PIN) {
  * 방향 없이 조용히 뽑지 않는다. 예전에는 CSV 를 못 받으면 빈 값으로 넘어갔는데,
  * 그러면 **끌림이 0 인 판**이 끌림을 재생하는 판처럼 저장된다.
  */
-if (!POKES && !has("no-pairs") && !SEATING_ONLY) {
+if (!POKES && !has("no-pairs")) {
   console.error("콕 방향은 로그 파일에서 읽습니다 (ADR-84). 둘 중 하나를 주세요:");
   console.error("  --pokes <파일>   npx wrangler r2 object get tone-pick-logs/poke-logs/<회차id>.csv --remote --file tmp/poke-log.csv");
   console.error("  --no-pairs       방향 없이 뽑는다");
-  console.error("  --seating        나이·성별·테이블 수·자리만 (가장 작은 판)");
   process.exit(1);
 }
 
@@ -143,7 +133,7 @@ try {
    * 칸은 머리글 이름으로 찾는다 — 로그에 칸이 더해져도 여기가 조용히 어긋나지 않게.
    */
   const pairs = { pre: {}, party: {} };
-  if (!has("no-pairs") && !SEATING_ONLY) {
+  if (!has("no-pairs")) {
     const key = new Map(players.map((p, i) => [`${p.nickname}\u0000${p.realName}`, `p${i}`]));
     const [head = [], ...rows] = parseCsv(readFileSync(POKES, "utf8").replace(/^\uFEFF/, ""));
     const at = (name) => {
@@ -163,29 +153,6 @@ try {
       if (pairs[round][k] <= 0) delete pairs[round][k];
     }
   }
-
-  /** 라운드별 자리. 사람은 번호(`p0`)뿐이라 이름이 없다 */
-  const rounds = seatings.map((s) => ({
-    round: s.round,
-    tableCount: s.tableCount,
-    seats: s.seats.map((x) => ({ playerId: idx.get(x.playerId) ?? x.playerId, table: x.table })),
-  }));
-
-  /*
-   * **자리만 뽑는 판** — 사람은 `["M", 28]` 두 값뿐이다. 이름도 닉네임도 MBTI 도 매력도 콕도 없다.
-   * 여기 없는 것은 자리 계산이 안 쓰는 것이고, 안 쓰는 것은 건네지 않는다.
-   */
-  const seatingOnly = {
-    label: NAME ?? `party-${new Date().toISOString().slice(0, 10)}`,
-    people: people.length,
-    men: people.filter((p) => p.gender === "M").length,
-    women: people.filter((p) => p.gender === "F").length,
-    rounds: rounds.length,
-    tableCounts: rounds.map((r) => r.tableCount),
-    /** `[성별, 나이]` — 차례는 등록 순이고 아무 뜻이 없다 */
-    players: people.map((p) => [p.gender, p.age]),
-    seatings: rounds,
-  };
 
   const out = {
     /** 이 판이 무엇인지. 회차 아이디·코드는 넣지 않는다 — 실제 회차를 가리키는 열쇠다 */
@@ -217,21 +184,18 @@ try {
     votes: pairs.pre,
     pokes: pairs.party,
     /** 라운드별 자리 — 알고리즘이 실제로 무엇을 만들었는지의 기록 */
-    seatings: rounds,
+    seatings: seatings.map((s) => ({
+      round: s.round,
+      tableCount: s.tableCount,
+      seats: s.seats.map((x) => ({ playerId: idx.get(x.playerId) ?? x.playerId, table: x.table })),
+    })),
   };
 
-  const body = SEATING_ONLY ? seatingOnly : out;
   mkdirSync("eval/parties", { recursive: true });
-  const file = `eval/parties/${body.label.replace(/[^\w가-힣.-]/g, "-")}${SEATING_ONLY ? ".seating" : ""}.json`;
-  writeFileSync(file, JSON.stringify(body, null, 1) + "\n", "utf8");
-  console.error(`${file} — ${body.people}명 (남 ${body.men}/여 ${body.women}) · ${body.rounds}라운드`);
-  if (SEATING_ONLY) {
-    // 건네려고 뽑는 판이라 화면에도 그대로 뿌린다 — 파일을 찾아 열지 않아도 복사된다
-    process.stdout.write(JSON.stringify(body) + "\n");
-    console.error("나이·성별·테이블 수·자리뿐입니다. 이름·닉네임·MBTI·매력·콕은 없습니다.");
-  } else {
-    console.error("이름·전화번호·인스타는 가명입니다." + (has("anon-nick") ? " 닉네임도 지웠습니다." : " 닉네임은 그대로입니다."));
-  }
+  const file = `eval/parties/${out.label.replace(/[^\w가-힣.-]/g, "-")}.json`;
+  writeFileSync(file, JSON.stringify(out, null, 1) + "\n", "utf8");
+  console.error(`${file} — ${out.people}명 (남 ${out.men}/여 ${out.women}) · ${out.rounds}라운드`);
+  console.error("이름·전화번호·인스타는 가명입니다." + (has("anon-nick") ? " 닉네임도 지웠습니다." : " 닉네임은 그대로입니다."));
   console.error("⚠️ 커밋하면 git 기록에 영구히 남습니다. 넣을지 다시 한 번 보세요.");
 } catch (e) {
   console.error("실패:", e.message);
