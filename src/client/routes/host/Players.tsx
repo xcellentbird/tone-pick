@@ -47,6 +47,45 @@ import { useConsole } from "./HostConsole.tsx";
  */
 type Filter = "all" | Gender;
 
+/**
+ * 나이 띠 한 줄이 서는 자리 — `[min, max]` 와 중앙값.
+ *
+ * **중앙값이다, 평균이 아니다.** 등록 나이는 18~99 가 다 통과하므로(ADR-78) 장난으로 적은
+ * 한 살이 평균은 세 살 넘게 밀지만 중앙값은 안 흔든다.
+ */
+function ageOf(ages: number[]) {
+  const sorted = [...ages].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  return { min: sorted[0], max: sorted.at(-1)!, median };
+}
+
+/**
+ * 띠 두 줄이 **같은 축**을 쓴다 — 줄마다 제 범위로 늘이면 둘 다 꽉 차서 겹침이 사라진다.
+ * 겹침이 이 화면이 답하려는 질문 자체라, 축을 공유하는 것이 곧 기능이다.
+ *
+ * 폭이 0 인 자리(다 같은 나이·한 명)는 `MIN_BAND` 로 세운다 — 0% 로 두면 줄이 빈 것처럼
+ * 보이는데, **나이가 하나뿐인 것과 아무도 없는 것은 다르다.**
+ */
+const MIN_BAND = 6;
+
+function AgeRow({ gender, ages, lo, span }: { gender: Gender; ages: number[]; lo: number; span: number }) {
+  const { min, max, median } = ageOf(ages);
+  const width = Math.max(((max - min) / span) * 100, MIN_BAND);
+  // 최소 폭으로 세운 띠가 오른쪽 끝에서 축을 넘지 않게 민다
+  const left = Math.min(((min - lo) / span) * 100, 100 - width);
+  const pct = (n: number) => `${Number(n.toFixed(1))}%`;
+  return (
+    <div className={`ageRow ${gender === "M" ? "m" : "f"}`}>
+      <span className="sex">{GENDER[gender]}</span>
+      <span className="bar">
+        <i style={{ left: pct(left), width: pct(width) }} />
+      </span>
+      <span className="small dim">{HOST_UI.players.ages.summary(min, max, median)}</span>
+    </div>
+  );
+}
+
 export default function Players() {
   const { state, reload } = useConsole();
   const { pid } = useParams();
@@ -178,6 +217,23 @@ export default function Players() {
     F: state.players.filter((p) => p.gender === "F").length,
   };
 
+  /**
+   * 띠 두 줄이 나눠 쓰는 **하나의 축**. 양쪽 성별 전체에서 잰다.
+   *
+   * 한쪽 성별만 있으면 그 줄만 선다 — 빈 띠를 두면 `0명` 이 아니라 `0세` 로 읽힌다.
+   * 아무도 등록 안 했으면 카드 자체가 없다 (아래 `players.empty` 가 그 자리를 맡는다).
+   */
+  const ageAxis = (() => {
+    const rows = (["M", "F"] as const)
+      .map((g) => [g, state.players.filter((p) => p.gender === g).map((p) => p.age)] as const)
+      .filter(([, ages]) => ages.length > 0);
+    if (!rows.length) return null;
+    const all = state.players.map((p) => p.age);
+    const lo = Math.min(...all);
+    // 다 같은 나이면 폭이 0 이다. 나누는 자리라 1 로 받쳐 둔다 — 띠는 `MIN_BAND` 가 세운다
+    return { rows, lo, span: Math.max(Math.max(...all) - lo, 1) };
+  })();
+
   function askDelete(playerId: string) {
     const rounds = state.seatings.filter((s) => s.seats.some((x) => x.playerId === playerId)).length;
     confirm(
@@ -238,6 +294,22 @@ export default function Players() {
           </button>
         ))}
       </div>
+
+      {/*
+        **나이 띠** (ADR-86) — 운영자가 남녀 나이차를 눈으로 재는 자리다. 성별 칩 바로 아래에 둔다:
+        칩이 *몇 명인가* 를 말하고 이 띠가 *어느 나이대인가* 를 말해서 한 덩어리로 읽힌다.
+
+        인원 수는 여기 없다 — 칩이 이미 말한다. 평균도 없다: 운영자가 답하려는 질문은
+        *두 쪽이 겹치는가* 인데 평균은 쌍봉을 0.0 으로 적어 그 질문에 거짓말을 한다.
+        겹침은 **띠가 말한다** — 그래서 두 줄이 같은 축을 쓴다.
+      */}
+      {ageAxis && (
+        <div className="card ageBand">
+          {ageAxis.rows.map(([g, ages]) => (
+            <AgeRow key={g} gender={g} ages={ages} lo={ageAxis.lo} span={ageAxis.span} />
+          ))}
+        </div>
+      )}
 
       {state.players.length === 0 && <p className="dim center">{HOST_UI.players.empty}</p>}
       {state.players.length > 0 && shown.length === 0 && (
