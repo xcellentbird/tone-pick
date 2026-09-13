@@ -22,7 +22,7 @@
  * 상세 시트는 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md).
  */
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Invite, PinState } from "../../../shared/types.ts";
 import type { Defaults } from "../../../shared/types.ts";
@@ -100,6 +100,9 @@ export default function Players() {
    * `/players/invites` 는 참가자 아이디와 겹치지 않는다 (아이디는 서버가 만든 난수다).
    */
   const atInvites = pid === "invites";
+  /** 떨어뜨릴 사람 고르기 (ADR-90). 상세 시트 **위에서** 여는 시트라 주소가 한 칸 더 깊다 */
+  const { pathname } = useLocation();
+  const atApart = !!picked && pathname.endsWith("/apart");
   /*
    * 안내문 문구는 **운영자 기본값**에 하나만 둔다 (ADR-32). 여기서 한 번 읽어
    * 위의 미리보기와 아래 행별 복사가 **같은 값**을 본다 — 둘로 읽으면 언젠가 어긋난다.
@@ -236,6 +239,27 @@ export default function Players() {
     return { rows, lo, span: Math.max(Math.max(...all) - lo, 1) };
   })();
 
+  /**
+   * 떨어뜨려 앉히기 (ADR-90). **되돌릴 수 있어 확인창이 없다** (ADR-6) — 목록에 줄이 생기고 사라지는 것이 곧 알림이다.
+   * 방향이 없어 누구 시트에서 넣었든 같은 쌍이다.
+   */
+  const apartOf = (playerId: string) =>
+    state.apart
+      .filter(([a, b]) => a === playerId || b === playerId)
+      .map(([a, b]) => state.players.find((p) => p.id === (a === playerId ? b : a)))
+      .filter((p): p is NonNullable<typeof p> => !!p);
+
+  async function addApart(a: string, b: string) {
+    await post(`/host/events/${state.meta.id}/apart`, { a, b });
+    reload();
+    navigate(-1);
+  }
+
+  async function removeApart(a: string, b: string) {
+    await del(`/host/events/${state.meta.id}/apart/${a}/${b}`);
+    reload();
+  }
+
   function askDelete(playerId: string) {
     const rounds = state.seatings.filter((s) => s.seats.some((x) => x.playerId === playerId)).length;
     confirm(
@@ -339,7 +363,7 @@ export default function Players() {
         </div>
       ))}
 
-      <Sheet open={!!picked} onClose={() => navigate(-1)} title={picked?.nickname ?? ""}>
+      <Sheet open={!!picked && !atApart} onClose={() => navigate(-1)} title={picked?.nickname ?? ""}>
         {picked && (
           <>
             <div className="stack">
@@ -375,6 +399,32 @@ export default function Players() {
             </div>
 
             {/*
+              **떨어뜨려 앉히기** (ADR-90). 참가자가 현장에서 부탁한 것을 운영자 손에 옮겨 두는 자리다.
+              사유 칸은 없다. 발표가 자리를 끝내므로 그 뒤에는 더하는 버튼이 없고, 빼기만 남는다.
+            */}
+            <p className="kicker" style={{ marginTop: 16 }}>
+              {HOST_UI.players.apart.title}
+            </p>
+            <div className="stack">
+              {apartOf(picked.id).map((other) => (
+                <div className="fact" key={other.id} style={{ alignItems: "center" }}>
+                  <Avatar nickname={other.nickname} gender={other.gender} size="sm" />
+                  <span className="grow ellipsis">
+                    {other.realName} · {other.nickname}
+                  </span>
+                  <button className="btn ghost" onClick={() => removeApart(picked.id, other.id)}>
+                    {HOST_UI.players.apart.remove}
+                  </button>
+                </div>
+              ))}
+            </div>
+            {state.meta.phase !== "done" && (
+              <button className="btn ghost block" style={{ marginTop: 8 }} onClick={() => navigate(`${base}/${picked.id}/apart`)}>
+                {HOST_UI.players.apart.add}
+              </button>
+            )}
+
+            {/*
               PIN 번호를 잊었거나 잠겼다는 연락이 오는 자리 (ADR-75). 초기화는 **지우기만** 한다 —
               새 값은 그 사람이 다음 입장에서 정한다. 콕·자리·운세는 그대로다 (S-C1·C2).
               되돌릴 수 없는 일이라 확인창이 무엇이 어떻게 바뀌는지 항목으로 보여준다 (S-C4).
@@ -393,6 +443,35 @@ export default function Players() {
             </div>
           </>
         )}
+      </Sheet>
+
+      {/* 떨어뜨릴 사람 고르기 (ADR-90). 고르면 뒤로 가 상세 시트로 돌아간다 — 거기 줄이 생긴 것이 곧 알림이다 */}
+      <Sheet
+        open={atApart}
+        onClose={() => navigate(-1)}
+        title={HOST_UI.players.apart.pickTitle(picked?.nickname ?? "")}
+      >
+        {picked && (() => {
+          const taken = new Set([picked.id, ...apartOf(picked.id).map((p) => p.id)]);
+          const candidates = state.players.filter((p) => !taken.has(p.id));
+          if (!candidates.length) return <p className="dim center">{HOST_UI.players.apart.noOne}</p>;
+          return (
+            <div className="stack">
+              {candidates.map((p) => (
+                <div className="person" key={p.id}>
+                  <button type="button" className="open" onClick={() => addApart(picked.id, p.id)}>
+                    <Avatar nickname={p.nickname} gender={p.gender} />
+                    <span className="meta">
+                      <span className="name ellipsis">
+                        {p.realName} · {p.nickname} · {UNIT.age(p.age)}
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </Sheet>
 
       {/* 명단 시트. 여는 카드가 위에 있고, 뒤로 가기로 닫힌다 */}

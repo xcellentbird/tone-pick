@@ -45,7 +45,7 @@ import type {
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
 import { rosterOpen, toMe, toPublic } from "../shared/types.ts";
-import { autoTable } from "../shared/seats.ts";
+import { apartClashes, autoTable } from "../shared/seats.ts";
 import { appendPokeLog, pokeLogLine, type PokeLogEntry } from "./poke-log.ts";
 import { ENTRY } from "../shared/copy.ts";
 import {
@@ -136,6 +136,11 @@ CREATE TABLE IF NOT EXISTS seatings (
   acks         TEXT NOT NULL DEFAULT '[]',
   created_at   INTEGER NOT NULL,
   published_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS apart (   -- 같은 테이블에 앉히지 않을 쌍 (ADR-90). 운영자만 쓰고 운영자만 읽는다
+  a TEXT NOT NULL,                   -- a < b 로 정렬해 넣는다. 방향이 없다 — 누가 부탁했는지 남기지 않는다
+  b TEXT NOT NULL,
+  PRIMARY KEY (a, b)
 );
 `;
 
@@ -765,6 +770,8 @@ export class EventDO extends DurableObject {
     this.ctx.storage.sql.exec("DELETE FROM pokes WHERE to_id = ?", playerId);
     // 운세 문장에는 닉네임이 들어 있다. 사람을 지웠는데 그 문장이 남으면 지운 게 아니다
     this.ctx.storage.sql.exec("DELETE FROM fortunes WHERE player_id = ?", playerId);
+    // 없는 사람을 가리키는 쌍은 아무것도 지키지 않는다 (ADR-90)
+    this.ctx.storage.sql.exec("DELETE FROM apart WHERE a = ? OR b = ?", playerId, playerId);
     // 이미 발행한 자리에서도 빠진다
     for (const s of this.seatings()) {
       const seats = s.seats.filter((x) => x.playerId !== playerId);
@@ -1009,6 +1016,7 @@ export class EventDO extends DurableObject {
       seatings: this.seatings(),
       invites: this.invites(),
       announcements: this.hostAnnouncements(),
+      apart: this.apartPairs(),
     });
   }
 
@@ -1223,6 +1231,7 @@ export class EventDO extends DurableObject {
       maxPoke: meta.config.maxParty,
       // 누를 때마다 다른 초안이 나온다. 같은 씨앗이면 같은 자리다 — 순수 함수를 지킨다
       seed: now,
+      apart: this.apartPairs(),
     });
 
     const draft: SeatingRound = {
@@ -1363,14 +1372,30 @@ export class EventDO extends DurableObject {
       this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
     );
     const held = this.pairedSeatIds(draft);
+    const apart = this.apartPairs();
 
-    for (const g of ["M", "F"] as const) {
-      // 이 성별이 앉아 있던 자리들과 사람들을 따로 모아, 사람 쪽만 섞어 도로 앉힌다.
-      // 붙어 앉은 쌍은 애초에 이 목록에 들어오지 않으므로 제자리에 남는다
-      const mine = draft.seats.filter((s) => gender.get(s.playerId) === g && !held.has(s.playerId));
-      const ids = shuffle(mine.map((s) => s.playerId));
-      mine.forEach((seat, i) => (seat.playerId = ids[i]));
+    /*
+     * **떼어 놓을 쌍이 같이 앉게 섞지 않는다** (ADR-90). 섞기는 가중식을 안 돌리므로 여러 번 섞어
+     * 걸리는 쌍이 가장 적은 판을 고른다 — 대부분 첫 판이 0 이다. 다 지킬 수 없는 판이면 가장 적은 쪽이다.
+     */
+    let best = draft.seats;
+    let bestClash = Infinity;
+    for (let attempt = 0; attempt < SHUFFLE_TRIES && bestClash > 0; attempt++) {
+      const seats = draft.seats.map((s) => ({ ...s }));
+      for (const g of ["M", "F"] as const) {
+        // 이 성별이 앉아 있던 자리들과 사람들을 따로 모아, 사람 쪽만 섞어 도로 앉힌다.
+        // 붙어 앉은 쌍은 애초에 이 목록에 들어오지 않으므로 제자리에 남는다
+        const mine = seats.filter((s) => gender.get(s.playerId) === g && !held.has(s.playerId));
+        const ids = shuffle(mine.map((s) => s.playerId));
+        mine.forEach((seat, i) => (seat.playerId = ids[i]));
+      }
+      const clash = apartClashes(seats, apart).size;
+      if (clash < bestClash) {
+        best = seats;
+        bestClash = clash;
+      }
     }
+    draft.seats = best;
     this.writeSeating(draft);
     return ok(draft);
   }
@@ -1419,6 +1444,7 @@ export class EventDO extends DurableObject {
       maxVote: meta.config.maxPre,
       maxPoke: meta.config.maxParty,
       seed: now,
+      apart: this.apartPairs(),
     });
     this.writeSeating(draft);
     return ok(draft);
@@ -1435,6 +1461,37 @@ export class EventDO extends DurableObject {
       }
     }
     return held;
+  }
+
+  // ─────────────────────────── 떨어뜨려 앉히기 (ADR-90)
+
+  /**
+   * 같은 테이블에 앉히지 않을 쌍을 더한다. **운영자만 부른다** — 참가자는 이런 기능이 있는지 모른다.
+   *
+   * 방향이 없다. 두 아이디를 정렬해 넣으므로 B–A 를 또 넣어도 한 쌍이다.
+   * **발행된 자리는 건드리지 않는다** — 파티 중에 넣으면 운영자 자리 칩에 ⛔ 가 뜨고, 옮기는 건 맞교환이다.
+   * 발표가 자리를 끝내므로(ADR-28) 그 뒤에는 더하지 못한다.
+   */
+  async addApart(a: string, b: string): Promise<Result<Array<[string, string]>>> {
+    if (!(await this.seatsOpen())) return fail("closed");
+    if (a === b) return fail("bad_request");
+    if (!this.player(a) || !this.player(b)) return fail("not_found");
+    const [x, y] = a < b ? [a, b] : [b, a];
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO apart (a, b) VALUES (?, ?)", x, y);
+    this.toHosts({ type: "roster" });
+    return ok(this.apartPairs());
+  }
+
+  /** 뺀다. 발표 뒤에도 된다 — 남겨 둘 이유가 없다. 없는 쌍을 빼도 같은 답이다 */
+  async removeApart(a: string, b: string): Promise<Result<Array<[string, string]>>> {
+    const [x, y] = a < b ? [a, b] : [b, a];
+    this.ctx.storage.sql.exec("DELETE FROM apart WHERE a = ? AND b = ?", x, y);
+    this.toHosts({ type: "roster" });
+    return ok(this.apartPairs());
+  }
+
+  private apartPairs(): Array<[string, string]> {
+    return this.rows<{ a: string; b: string }>("SELECT a, b FROM apart ORDER BY a, b").map((r) => [r.a, r.b]);
   }
 
   async discardSeating(): Promise<Result<true>> {
@@ -2008,6 +2065,9 @@ function sameDigest(a: string, b: string): boolean {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
+
+/** 섞기가 떼어 놓을 쌍을 피하려 다시 섞어 보는 횟수 (ADR-90). 사람 수백 명에도 CPU 1ms 안이다 */
+const SHUFFLE_TRIES = 30;
 
 /** Fisher–Yates. `Math.random` 대신 crypto 를 쓴다 — 같은 밀리초에 두 번 눌러도 다르게 나오게 */
 function shuffle<T>(list: T[]): T[] {

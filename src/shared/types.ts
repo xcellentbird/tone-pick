@@ -714,6 +714,11 @@ export interface HostState {
   invites: Invite[];
   /** 운영자가 보낸 알림. 최신순 */
   announcements: HostAnnouncement[];
+  /**
+   * 같은 테이블에 앉히지 않을 쌍 (ADR-90). **운영자 응답에만 있다** — 참가자는 이런 기능이 있는지 모른다.
+   * 방향이 없다: 한 쌍 안의 두 아이디는 정렬돼 있고 순서는 아무 뜻이 없다.
+   */
+  apart: Array<[string, string]>;
 }
 
 /**

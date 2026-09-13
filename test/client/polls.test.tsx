@@ -39,6 +39,7 @@ function hostState(): HostState {
     pokeUsedMax: { pre: 0, party: 0 },
     seatings: [],
     invites: [],
+    apart: [],
     announcements: [
       {
         id: "q1", at: Date.now() - 600_000, text: "2차 갈래요?",

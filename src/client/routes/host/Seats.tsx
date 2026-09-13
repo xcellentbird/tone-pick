@@ -22,6 +22,7 @@ import { GENDER, HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Player, SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
 import { autoTable } from "../../../shared/seats.ts";
+import { apartClashes } from "../../../shared/seats.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
@@ -757,6 +758,8 @@ function Tables({
   const tables = Array.from({ length: round.tableCount }, (_, i) => i + 1);
   /** 이 라운드에서 누가 몇 번 테이블인가. 짝이 어디 앉았는지 보려면 자리 전체가 필요하다 */
   const seatedAt = new Map(round.seats.map((s) => [s.playerId, s.table]));
+  /** 떼어 놓을 상대와 같은 테이블에 앉은 사람 → 그 상대들 (ADR-90). 섞기와 **같은 함수**다 */
+  const clashes = apartClashes(round.seats, state.apart);
   return (
     <div className="tableGrid">
       {tables.map((t) => {
@@ -779,6 +782,9 @@ function Tables({
                */
               const mates = [...(partners.get(person.id) ?? [])].filter((id) => seatedAt.has(id));
               const together = mates.filter((id) => seatedAt.get(id) === t).length;
+              const avoid = (clashes.get(person.id) ?? []).map(
+                (id) => state.players.find((p) => p.id === id)?.nickname ?? "",
+              );
               return (
               <button
                 className={`seatChip ${person.gender === "M" ? "m" : "f"} ${picked === person.id ? "picked" : ""}`}
@@ -790,6 +796,7 @@ function Tables({
                 <span className="grow" style={{ minWidth: 0 }}>
                   <span className="row between">
                     <span className="ellipsis">
+                      {avoid.length > 0 && `${HOST_UI.seats.apartChip} `}
                       {mates.length > 0 && `${HOST_UI.seats.pairChip(together)} `}
                       {person.nickname}
                     </span>
@@ -801,6 +808,7 @@ function Tables({
                   <span className="tiny dim ellipsis" style={{ display: "block" }}>
                     {person.realName} · {UNIT.age(person.age)} · {person.mbti}
                     {mates.length > 0 && ` · ${HOST_UI.seats.pairChipNote(together)}`}
+                    {avoid.length > 0 && ` · ${HOST_UI.seats.apartNote(avoid)}`}
                   </span>
                 </span>
               </button>
