@@ -68,6 +68,13 @@ if (!qa) {
   for (const key of ["durable_objects", "assets"]) {
     if (!qa[key]) problems.push(`env.qa 에 ${key} 가 없습니다. 환경에 상속되지 않으니 그대로 다시 적어야 합니다`);
   }
+  // 콕 로그 버킷 (ADR-84). 빠져도 배포는 되고 콕도 된다 — **로그만 조용히 빈다**
+  const logs = (env) => (env.r2_buckets ?? []).find((b) => b.binding === "LOGS")?.bucket_name;
+  if (!logs(config)) problems.push("프로덕션에 LOGS 버킷(r2_buckets)이 없습니다. 콕 로그가 쌓이지 않습니다 (ADR-84)");
+  if (!logs(qa)) problems.push("env.qa 에 LOGS 버킷(r2_buckets)이 없습니다. 환경에 상속되지 않으니 그대로 다시 적어야 합니다");
+  if (logs(config) && logs(config) === logs(qa)) {
+    problems.push(`QA 와 프로덕션이 같은 로그 버킷(${logs(qa)})을 씁니다. 연습 콕이 진짜 파티 로그에 섞입니다`);
+  }
   const names = (qa.durable_objects?.bindings ?? []).map((b) => b.name).sort();
   const expected = (config.durable_objects?.bindings ?? []).map((b) => b.name).sort();
   if (String(names) !== String(expected)) {

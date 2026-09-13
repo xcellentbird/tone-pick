@@ -18,15 +18,20 @@
  *    같은 이유로 회고용 뽑기를 막고 있다. 넣을지는 **볼 때마다 다시 정하라.**
  *    닉네임까지 지우려면 `--anon-nick` 을 준다 (`사람1`·`사람2`…).
  *
- * ⚠️ **매력 투표와 콕의 방향(누가 누구에게)이 들어간다.** 2.12.0 의 콕 이력 CSV(ADR-82)가
- *    운영자에게 그 통로를 열었다 — `buildSeating` 이 받는 `votes`·`pokes` 와 같은 모양으로 담는다.
- *    그래서 이 판으로 **끌림까지 그대로 재생**할 수 있다.
+ * ⚠️ **매력 투표와 콕의 방향(누가 누구에게)이 들어간다.** 앱은 그 방향을 내주지 않는다 —
+ *    콕 로그 파일(ADR-84)을 Cloudflare 에서 받아 `--pokes` 로 넘긴다. 찌름·되돌림을 다시 셈해
+ *    `buildSeating` 이 받는 `votes`·`pokes` 와 같은 모양으로 담는다. 그래서 **끌림까지 그대로 재생**할 수 있다.
+ *
+ *      npx wrangler r2 object get tone-pick-logs/poke-logs/<회차id>.csv --remote --file tmp/poke-log.csv
+ *      MASTER_PIN=**** node scripts/party-export.mjs --pokes tmp/poke-log.csv
+ *
+ *    로그는 ADR-84 를 배포한 뒤의 파티에만 있다. 그 전 파티는 `--no-pairs` 로 뽑는다.
  *
  *    그만큼 무겁다. **일방적인 호감이 이 파일 안에 있다** — 참가자에게는 끝까지 드러나지 않고
  *    운영 중 콘솔에도 안 뜨는 것이다 (ADR-22·76). 저장소에 넣는 것은 그것을 git 기록에
  *    영구히 남기는 일이다. 방향이 필요 없으면 `--no-pairs` 로 뺀다.
  */
-import { writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const flag = (n, d) => {
@@ -39,9 +44,20 @@ const BASE = flag("url", "https://tone-pick.tone-party.workers.dev").replace(/\/
 const WANT = flag("event", null);
 const NAME = flag("name", null);
 const PIN = process.env.MASTER_PIN;
+const POKES = flag("pokes", null);
 
 if (!PIN) {
   console.error("MASTER_PIN 을 환경변수로 주세요:  MASTER_PIN=**** node scripts/party-export.mjs");
+  process.exit(1);
+}
+/*
+ * 방향 없이 조용히 뽑지 않는다. 예전에는 CSV 를 못 받으면 빈 값으로 넘어갔는데,
+ * 그러면 **끌림이 0 인 판**이 끌림을 재생하는 판처럼 저장된다.
+ */
+if (!POKES && !has("no-pairs")) {
+  console.error("콕 방향은 로그 파일에서 읽습니다 (ADR-84). 둘 중 하나를 주세요:");
+  console.error("  --pokes <파일>   npx wrangler r2 object get tone-pick-logs/poke-logs/<회차id>.csv --remote --file tmp/poke-log.csv");
+  console.error("  --no-pairs       방향 없이 뽑는다");
   process.exit(1);
 }
 
@@ -111,20 +127,30 @@ try {
   const num = (rec) => Object.fromEntries(Object.entries(rec ?? {}).map(([k, v]) => [idx.get(k) ?? k, v]));
 
   /**
-   * 방향이 있는 표·콕. CSV 는 아이디가 아니라 **닉네임+실명**으로 사람을 적으므로 그걸로 잇는다
-   * (실명은 여기서만 쓰고 파일에는 안 남는다). 나간 사람 줄은 이름 자리가 비어 있어 건너뛴다.
+   * 방향이 있는 표·콕 — 콕 로그 파일(ADR-84)을 **처음부터 다시 셈한다.** 찌름 +1, 되돌림 −1.
+   * 로그는 아이디가 아니라 **닉네임+실명**으로 사람을 적으므로 그걸로 잇는다
+   * (실명은 여기서만 쓰고 파일에는 안 남는다). 지금 명단에 없는 사람의 줄은 건너뛴다.
+   * 칸은 머리글 이름으로 찾는다 — 로그에 칸이 더해져도 여기가 조용히 어긋나지 않게.
    */
   const pairs = { pre: {}, party: {} };
   if (!has("no-pairs")) {
     const key = new Map(players.map((p, i) => [`${p.nickname}\u0000${p.realName}`, `p${i}`]));
-    const rows = parseCsv(await call(`/api/host/events/${target.id}/pokes.csv`, true).catch(() => ""));
-    for (const r of rows.slice(1)) {
-      const round = r[0] === "사전 투표" ? "pre" : r[0] === "파티" ? "party" : null;
-      const from = key.get(`${r[2]}\u0000${r[3]}`);
-      const to = key.get(`${r[6]}\u0000${r[7]}`);
-      if (!round || !from || !to) continue;
+    const [head = [], ...rows] = parseCsv(readFileSync(POKES, "utf8").replace(/^\uFEFF/, ""));
+    const at = (name) => {
+      const i = head.indexOf(name);
+      if (i < 0) throw new Error(`${POKES} 에 '${name}' 칸이 없습니다 — 콕 로그 파일이 맞나요?`);
+      return i;
+    };
+    const c = { kind: at("구분"), round: at("라운드"), from: at("보낸 사람"), fromName: at("보낸 사람 실명"), to: at("받은 사람"), toName: at("받은 사람 실명") };
+    for (const r of rows) {
+      const round = r[c.round] === "사전 투표" ? "pre" : r[c.round] === "파티" ? "party" : null;
+      const step = r[c.kind] === "찌름" ? 1 : r[c.kind] === "되돌림" ? -1 : 0;
+      const from = key.get(`${r[c.from]}\u0000${r[c.fromName]}`);
+      const to = key.get(`${r[c.to]}\u0000${r[c.toName]}`);
+      if (!round || !step || !from || !to) continue;
       const k = `${from}>${to}`;
-      pairs[round][k] = (pairs[round][k] ?? 0) + 1;
+      pairs[round][k] = (pairs[round][k] ?? 0) + step;
+      if (pairs[round][k] <= 0) delete pairs[round][k];
     }
   }
 
@@ -151,7 +177,7 @@ try {
     mutual: (st.mutual ?? []).map(([a, b]) => [idx.get(a) ?? a, idx.get(b) ?? b]),
     /**
      * **방향이 있는 표와 콕** — `buildSeating` 이 받는 모양 그대로다 (`"p0>p3": 2`).
-     * 콕 이력 CSV(ADR-82)에서 가져온다. `--no-pairs` 면 비어 있다.
+     * 콕 로그 파일(ADR-84, `--pokes`)에서 다시 셈한다. `--no-pairs` 면 비어 있다.
      *
      * ⚠️ **여기 일방적인 호감이 들어 있다.** 참가자에게는 끝까지 드러나지 않는 값이다.
      */
