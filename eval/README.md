@@ -5,7 +5,8 @@
 나이차 벌점이나 `MEET_GAP` 을 건드릴 때 그 차이가 결론을 바꾼다.
 
 ```
-MASTER_PIN=**** node scripts/party-export.mjs --name 2026-09-1회차
+npx wrangler r2 object get tone-pick-logs/poke-logs/<회차id>.csv --remote --file tmp/poke-log.csv
+MASTER_PIN=**** node scripts/party-export.mjs --name 2026-09-1회차 --pokes tmp/poke-log.csv
 ```
 
 `eval/parties/<이름>.json` 하나가 나온다.
@@ -30,10 +31,11 @@ MASTER_PIN=**** node scripts/party-export.mjs --name 2026-09-1회차
 
 `buildSeating` 은 `votes: { "A>B": n }` 를 받고, 이 판에 그 모양 그대로 들어간다.
 **끌림까지 그대로 재생할 수 있다** — 나이차 벌점을 바꿨을 때 그 파티의 자리가 실제로 어떻게
-달라졌을지를 잰다는 뜻이다. 2.12.0 의 콕 이력 CSV(ADR-82)가 운영자에게 그 통로를 열었다.
+달라졌을지를 잰다는 뜻이다. 앱은 그 방향을 내주지 않는다 — 콕 로그 파일(ADR-84)을 Cloudflare 에서 받아
+`--pokes tmp/poke-log.csv` 로 넘긴다. 로그는 ADR-84 배포 뒤의 파티에만 있다.
 
 ⚠️ **그 줄 하나하나가 일방적인 호감이다.** 참가자에게는 끝까지 드러나지 않고(이 앱의 존재 이유다)
-운영 중 콘솔에도 뜨지 않는 값이다 (ADR-22). 파일로 뽑는 것까지는 ADR-82 가 연 길이지만,
+운영 중 콘솔에도 뜨지 않는 값이다 (ADR-22). 로그 파일로 남는 것까지는 ADR-84 가 연 길이지만,
 **저장소에 넣는 것은 그것을 git 기록에 영구히 남기는 일**이라 그 다음 걸음이다.
 방향이 필요 없는 측정이면 `--no-pairs` 로 빼고 뽑아라 — 나이 분포·성비·테이블 수가 만드는 것은
 그것 없이도 다 잰다.

@@ -45,11 +45,19 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EventDO", "RegistryDO"] }],
 
   /*
-   * 운영 카운터. **회차 DO 밖에 쌓이는 유일한 자료다** — 무엇을 넣는지가 곧
-   * 개인정보 경계라, 규칙은 `src/server/metrics.ts` 주석에 있다.
+   * 운영 카운터. 무엇을 넣는지가 곧 개인정보 경계라, 규칙은 `src/server/metrics.ts` 주석에 있다.
    * 운영 카운터는 넣고 결과 통계(매칭·콕·순위)는 넣지 않는다.
    */
   "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "tone_pick_ops" }],
+
+  /*
+   * 콕 로그 파일 (ADR-84). 회차마다 `poke-logs/<회차id>.csv` 하나 — 찌름·되돌림이 한 줄씩 붙는다.
+   *
+   * ⚠️ **실명이 담긴, 회차 DO 밖의 유일한 자료다.** 회차를 지워도 남는다 — 지우는 건 사람이 한다.
+   * 앱에는 꺼내는 길이 없다. 운영자가 `wrangler r2 object get` 이나 대시보드에서 받는다.
+   * 버킷은 배포 전에 있어야 한다 — 없으면 배포가 거절된다 (`wrangler r2 bucket create tone-pick-logs`).
+   */
+  "r2_buckets": [{ "binding": "LOGS", "bucket_name": "tone-pick-logs" }],
 
   "observability": { "enabled": true },
 
@@ -62,7 +70,7 @@
    * ENV_LABEL 이 있으면 화면 위에 띠가 뜬다. 파티 당일 운영자가 연습용 콘솔에서 단계를 넘기고
    * "참가자 화면이 왜 안 바뀌지?" 하는 사고를 막는 게 목적이다.
    *
-   * ⚠️ durable_objects·assets·vars 는 환경에 상속되지 않는다. 위와 똑같이 적어줘야 한다.
+   * ⚠️ durable_objects·assets·vars·r2_buckets 는 환경에 상속되지 않는다. 위와 똑같이 적어줘야 한다.
    */
   "env": {
     "qa": {
@@ -114,6 +122,7 @@
         "LLM_TEMPERATURE": "1.5"
       },
       "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "tone_pick_ops_qa" }],
+      "r2_buckets": [{ "binding": "LOGS", "bucket_name": "tone-pick-qa-logs" }],
       "assets": {
         "directory": "./dist/client",
         "binding": "ASSETS",
