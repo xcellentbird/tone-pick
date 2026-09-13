@@ -1033,7 +1033,7 @@ export class EventDO extends DurableObject {
       text: r.text,
       ...(r.poll_a !== null && r.poll_b !== null
         ? {
-            // 숫자는 없다 (ADR-83) — 남의 답도 몇 명인지도 참가자에게는 안 간다
+            // 숫자는 없다 (ADR-87) — 남의 답도 몇 명인지도 참가자에게는 안 간다
             poll: {
               a: r.poll_a,
               b: r.poll_b,
@@ -1046,7 +1046,7 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * 운영자에게는 **누가 무엇을 골랐는지**까지 간다 (ADR-83). 뒤풀이 인원을 세려면 이름이 필요하다.
+   * 운영자에게는 **누가 무엇을 골랐는지**까지 간다 (ADR-87). 뒤풀이 인원을 세려면 이름이 필요하다.
    * 나간 사람의 답은 빼고 센다 — 명단에 없는 아이디가 화면에 빈 카드로 서면 안 된다.
    */
   private hostAnnouncements(): HostAnnouncement[] {
@@ -1069,7 +1069,7 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * 보낸다. **설문 여러 개가 함께 열려 있을 수 있다** (ADR-83) — 한동안 새 설문이 앞엣것을 닫았는데,
+   * 보낸다. **설문 여러 개가 함께 열려 있을 수 있다** (ADR-87) — 한동안 새 설문이 앞엣것을 닫았는데,
    * 운영자는 파티 중에 한두 개를 나란히 묻는다(다음 게임과 뒤풀이). 닫는 건 운영자가 누른다.
    */
   announce(input: AnnounceInput, now: number): Result<HostAnnouncement> {
