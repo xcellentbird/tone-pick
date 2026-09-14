@@ -97,12 +97,6 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
   const sending = useRef(false);
   const [covered, setCovered] = useCovered();
 
-  /** 되돌릴 수 있나 (ADR-34). **라운드마다 따로** 정한다. 없으면 무를 수 있다 */
-  const canUndo =
-    round === "pre"
-      ? state.event.config.allowUndoPre !== false
-      : state.event.config.allowUndo !== false;
-
   /** 되돌리기. **확인창을 붙이지 않는다** — 되돌리는 것 자체가 되돌리기다 */
   async function undo(target: PublicPlayer) {
     if (sending.current) return;
@@ -142,9 +136,12 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
      *
      * 그때 창에는 되돌리기 하나만 둔다. 보낼 것이 없으니 보내기 버튼을 그릴 수 없다.
      * 되돌릴 것도 없으면 그때는 토스트가 맞다 — 이 사람에게는 할 수 있는 일이 없다.
+     *
+     * 되돌릴 수 있나는 **묻지 않는다** (ADR-95). 두 라운드 다 언제나 된다 —
+     * 보낸 적이 있으면 무를 수 있다는 것이 전부다.
      */
     if (budget.used >= budget.max) {
-      if (!(already > 0 && canUndo)) return toast(POKE.blocked.noBudget(round, budget.max));
+      if (already === 0) return toast(POKE.blocked.noBudget(round, budget.max));
       const spent = budget.max - budget.used;
       return confirm(
         {
@@ -172,11 +169,11 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       {
         btn: POKE.confirm.submit(round),
         title: POKE.confirm.title(round, already),
-        note: POKE.confirm.note(round, canUndo),
+        note: POKE.confirm.note,
         // 한 줄뿐이다. 몇 번째인지는 제목과 그 사람 카드의 숫자가 이미 말한다
         facts: [[POKE.confirm.rowBudget(round), POKE.confirm.change(left, left - 1)]],
-        // 이미 보낸 적이 있고 되돌릴 수 있을 때만. 창이 숫자를 이미 보여주고 있다
-        ...(already > 0 && canUndo ? { second: { label: POKE.undo.btn, run: () => undo(target) } } : {}),
+        // 이미 보낸 적이 있을 때만. 창이 숫자를 이미 보여주고 있다
+        ...(already > 0 ? { second: { label: POKE.undo.btn, run: () => undo(target) } } : {}),
       },
       async () => {
         // 확인창을 통과한 것만 센다 (ADR-56). 창을 열었다 닫은 건 콕이 아니다

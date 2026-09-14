@@ -865,49 +865,65 @@ describe("운영자 콘솔", () => {
     );
   });
 
-  it("★ 되돌리기·알림을 회차마다, 라운드마다 정한다 (ADR-34)", async () => {
+  it("★ 알림을 회차마다, 라운드마다 정한다 (ADR-43)", async () => {
     /*
-     * 되돌리기와 알림은 **한 몸이다** — 알림을 켠 채 되돌리기를 열면 받은 수가 줄어드는 걸 보고
-     * "방금 누가 되돌렸다" 에서 발신자를 좁힐 수 있다.
-     * 기본은 셋 다 안전한 쪽이다 — 되돌릴 수 있고, 알리지 않는다.
+     * 알림은 **라운드마다 따로다.** 매력 투표는 며칠에 걸쳐 쌓여서, 켜두면 파티 전에
+     * 이미 순위가 생긴다. 기본은 둘 다 안전한 쪽 — 알리지 않는다.
+     *
+     * 되돌리기 토글 둘이 여기 있었다 (ADR-95 가 걷었다). **되살리지 마라** —
+     * 아래 `되돌리기 칸이 없다` 가 그 약속을 지킨다.
      */
     stubFetch(hostState());
     renderConsole("/host/e1/settings");
     // 설정은 묶음으로 접혀 있다 — 규칙은 `콕 설정` 안이다
     fireEvent.click(await screen.findByText(HOST_UI.settings.rules));
 
-    /** 그 설정 줄 안의 버튼만 집는다 — 세 줄이 같은 글자를 쓴다 */
+    /** 그 설정 줄 안의 버튼만 집는다 — 여러 줄이 같은 글자를 쓴다 */
     const rowBtn = (label: string, option: string) => {
       const field = screen.getAllByText(label).find((el) => el.tagName === "LABEL")!.parentElement!;
       return [...field.querySelectorAll("button")].find((b) => b.textContent === option)!;
     };
 
-    // 기본값이 눌려 있다 (매력 투표·콕 되돌리기는 됨, 알림은 안 보냄)
-    expect(rowBtn(HOST_UI.fields.undoPre, HOST_UI.fields.undoOn).getAttribute("aria-pressed")).toBe("true");
-    expect(rowBtn(HOST_UI.fields.undoParty, HOST_UI.fields.undoOn).getAttribute("aria-pressed")).toBe("true");
+    // 기본값이 눌려 있다 (알림은 안 보냄)
+    expect(rowBtn(HOST_UI.fields.preNotify, HOST_UI.fields.pokeNotifyOff).getAttribute("aria-pressed")).toBe("true");
     expect(rowBtn(HOST_UI.fields.pokeNotify, HOST_UI.fields.pokeNotifyOff).getAttribute("aria-pressed")).toBe("true");
 
-    // 셋 다 뒤집는다
-    fireEvent.click(rowBtn(HOST_UI.fields.undoPre, HOST_UI.fields.undoOff));
-    fireEvent.click(rowBtn(HOST_UI.fields.undoParty, HOST_UI.fields.undoOff));
+    // 둘 다 뒤집는다
+    fireEvent.click(rowBtn(HOST_UI.fields.preNotify, HOST_UI.fields.pokeNotifyOn));
     fireEvent.click(rowBtn(HOST_UI.fields.pokeNotify, HOST_UI.fields.pokeNotifyOn));
     fireEvent.click(screen.getByText(HOST_UI.applySettings));
 
     // 확인창이 무엇이 어떻게 바뀌는지 말한다 (CLAUDE.md 규칙 4)
     await screen.findByText(HOST_UI.applyTitle);
     expect(
-      screen.getAllByText(`${HOST_UI.fields.undoOn} → ${HOST_UI.fields.undoOff}`),
+      screen.getAllByText(`${HOST_UI.fields.pokeNotifyOff} → ${HOST_UI.fields.pokeNotifyOn}`),
     ).toHaveLength(2);
-    expect(
-      screen.getByText(`${HOST_UI.fields.pokeNotifyOff} → ${HOST_UI.fields.pokeNotifyOn}`),
-    ).toBeTruthy();
 
     fireEvent.click(screen.getAllByText(HOST_UI.applySettings)[1]);
     await waitFor(() =>
       expect(calls.find((c) => c.url.endsWith("/host/events/e1"))?.body).toMatchObject({
-        config: { allowUndo: false, allowUndoPre: false, pokeNotify: true },
+        config: { preNotify: true, pokeNotify: true },
       }),
     );
+  });
+
+  /**
+   * ★ **되돌리기는 회차 설정이 아니다** (ADR-95).
+   *
+   * 라운드마다 켜고 끄는 토글이 둘 있었다. 걷어낸 이유는 막는 회차를 만들 이유가 없어서다 —
+   * 잘못 누른 것을 못 무르게 하면 다 쓴 사람이 손쓸 데가 없다.
+   * 되살리려면 이 테스트부터 갈아야 한다.
+   */
+  it("★ 콕 설정에도 회차 만들기에도 되돌리기 칸이 없다", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/settings");
+    fireEvent.click(await screen.findByText(HOST_UI.settings.rules));
+
+    // 같은 묶음의 다른 줄은 그대로 있다 — 묶음을 못 연 것이 아니다
+    expect(screen.getByText(HOST_UI.fields.pokeTarget)).toBeTruthy();
+    for (const word of ["되돌리기", "할 수 있음", "못 함"]) {
+      expect(screen.queryAllByText(word), word).toHaveLength(0);
+    }
   });
 
   /**
@@ -1060,7 +1076,7 @@ describe("운영자 콘솔", () => {
     expect(screen.getAllByText(HOST_UI.frozen).length, "굳음 표시까지 사라졌다").toBeGreaterThan(0);
   });
 
-  it("★ 콕이 오가기 시작하면 규칙 넷과 일정이 잠긴다 (ADR-35)", async () => {
+  it("★ 콕이 오가기 시작하면 규칙 셋과 일정이 잠긴다 (ADR-35)", async () => {
     /*
      * 잠긴 줄을 **지우지 않는다** — 지금 어느 규칙으로 돌아가는 중인지는
      * 파티 도중에 가장 자주 확인하는 값이다. 못 누르게만 하고 이유를 한 줄 남긴다.
@@ -1076,10 +1092,9 @@ describe("운영자 콘솔", () => {
 
     // 규칙은 `콕 설정` 묶음 안이다
     fireEvent.click(screen.getByText(HOST_UI.settings.rules));
+    // 되돌리기 둘이 여기 있었다 — 설정이 없어졌으니 굳을 것도 없다 (ADR-95)
     for (const label of [
       HOST_UI.fields.pokeTarget,
-      HOST_UI.fields.undoPre,
-      HOST_UI.fields.undoParty,
       HOST_UI.fields.preNotify,
       HOST_UI.fields.pokeNotify,
     ]) {

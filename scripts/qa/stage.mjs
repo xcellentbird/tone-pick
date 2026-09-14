@@ -87,7 +87,7 @@ const HEADLESS = process.env.HEADLESS === "1";
 const VIEWS = opt("views", "host,1,2,3,4").split(",").map((s) => s.trim()).filter(Boolean);
 
 /** 회차 설정. 기본은 앱 기본값에 알림만 켠 것 — 받은 콕이 방송으로 닿는 순간을 보는 게 QA 의 절반이라 */
-const config = { maxPre: 1, maxParty: 2, allowUndoPre: true, allowUndo: true, preNotify: true, pokeNotify: true };
+const config = { maxPre: 1, maxParty: 2, preNotify: true, pokeNotify: true };
 for (let i = 0; i < args.length; i++) {
   if (args[i] !== "--config") continue;
   const [k, v] = String(args[i + 1] ?? "").split("=");

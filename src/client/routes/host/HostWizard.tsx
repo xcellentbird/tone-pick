@@ -20,7 +20,7 @@ import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from ".
 import { ApiError, api, post } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
-import { NOTIFY_OPTIONS, Num, TARGET_OPTIONS, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
+import { NOTIFY_OPTIONS, Num, TARGET_OPTIONS, Toggle } from "./HostDefaults.tsx";
 
 const HOUR = 3600_000;
 
@@ -52,8 +52,6 @@ export default function HostWizard() {
    */
   const [allowSameGender, setAllowSameGender] = useState(true);
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
-  const [allowUndo, setAllowUndo] = useState(true);
-  const [allowUndoPre, setAllowUndoPre] = useState(true);
   const [preNotify, setPreNotify] = useState(false);
   const [pokeNotify, setPokeNotify] = useState(false);
   const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
@@ -120,7 +118,7 @@ export default function HostWizard() {
         prevoteAt,
         voteEndAt,
         revealAt,
-        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify },
+        config: { maxPre, maxParty, allowSameGender, preNotify, pokeNotify },
         requestId,
       };
       const made = await post<EventMeta>("/host/events", body);
@@ -272,18 +270,6 @@ export default function HostWizard() {
               value={allowSameGender}
               options={TARGET_OPTIONS}
               onChange={setAllowSameGender}
-            />
-            <Toggle
-              label={HOST_UI.fields.undoPre}
-              value={allowUndoPre}
-              options={UNDO_OPTIONS}
-              onChange={setAllowUndoPre}
-            />
-            <Toggle
-              label={HOST_UI.fields.undoParty}
-              value={allowUndo}
-              options={UNDO_OPTIONS}
-              onChange={setAllowUndo}
             />
             <Toggle
               label={HOST_UI.fields.preNotify}

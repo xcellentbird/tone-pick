@@ -250,7 +250,7 @@ participantRoutes.post("/poke", async (c) => {
 });
 
 /**
- * 콕 되돌리기 (ADR-34). **두 라운드 다 회차 설정을 따른다** — `allowUndoPre`·`allowUndo` 가 따로다.
+ * 콕 되돌리기 (ADR-34). **두 라운드 다 언제나 된다** (ADR-95) — 회차 설정으로 막던 것을 걷어냈다.
  * 알림은 파생값이라 무르면 그 줄이 저절로 사라진다 (`noticesOf`).
  */
 participantRoutes.post("/unpoke", async (c) => {
