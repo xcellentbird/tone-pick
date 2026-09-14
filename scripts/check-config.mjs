@@ -75,6 +75,20 @@ if (!qa) {
   if (logs(config) && logs(config) === logs(qa)) {
     problems.push(`QA 와 프로덕션이 같은 로그 버킷(${logs(qa)})을 씁니다. 연습 콕이 진짜 파티 로그에 섞입니다`);
   }
+  /*
+   * 국가 문 (ADR-92). **빠지면 조용히 열린다** — 배포는 되고 앱도 멀쩡히 돌고, 문만 없어진다.
+   * `vars` 도 환경에 상속되지 않아서 QA 에 따로 적어야 한다.
+   *
+   * 값이 무엇인지는 보지 않는다. 나라를 바꾸는 건 설정이고, **비어 있는 것만** 사고다.
+   * 문을 걷어내기로 했다면 이 검사도 함께 걷어내라 — 안 그러면 검사가 없는 문을 지킨다.
+   */
+  if (!config.vars?.ALLOWED_COUNTRIES) {
+    problems.push("프로덕션 vars 에 ALLOWED_COUNTRIES 가 없습니다. 국가 문이 조용히 열립니다 (ADR-92)");
+  }
+  if (!qa.vars?.ALLOWED_COUNTRIES) {
+    problems.push("env.qa 에 ALLOWED_COUNTRIES 가 없습니다. 환경에 상속되지 않으니 그대로 다시 적어야 합니다 (ADR-92)");
+  }
+
   const names = (qa.durable_objects?.bindings ?? []).map((b) => b.name).sort();
   const expected = (config.durable_objects?.bindings ?? []).map((b) => b.name).sort();
   if (String(names) !== String(expected)) {

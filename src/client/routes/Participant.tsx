@@ -489,7 +489,13 @@ function Failed({
    * `/` 의 그 이동은 **주소만 치고 들어온 사람**을 위한 것이라 그 자리에서는 맞다.
    * 여기 오는 사람은 회차 하나를 물은 사람이라, 묻지 않은 회차로 데려가면 안 된다.
    */
-  const stuck = removed || sessionGone;
+  /*
+   * **막힌 나라는 예외다** (ADR-92). 위의 "다시 물어도 같은 답" 이 여기서만 틀리다 —
+   * VPN 을 끄거나 한국 망으로 옮기면 **같은 요청이 다르게 답한다.** 그래서 버튼을 남긴다.
+   * 문구가 `끄고 다시 열어주세요` 라고 말하는데 누를 것이 없으면 그 문장이 헛말이 된다.
+   */
+  const blockedHere = error.code === "region_blocked";
+  const stuck = removed || (sessionGone && !blockedHere);
   /*
    * **망 문제에 `location.reload()` 를 걸면 안 된다.** 앱을 통째로 버리고 `index.html`
    * 부터 다시 받는 일인데, 망이 흔들리는 바로 그 순간에 가장 하면 안 되는 것이다.
