@@ -17,7 +17,7 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { api, enter, freshEvent, invite, join, master, person, signInMaster } from "../helpers/party.ts";
-import type { EventMeta, HostState, PublicEvent, RegisterResult } from "../../src/shared/types.ts";
+import type { EventMeta, HostState, ParticipantState, PublicEvent, RegisterResult } from "../../src/shared/types.ts";
 import type { Env as AppEnv } from "../../src/server/http.ts";
 
 /**
@@ -109,6 +109,25 @@ describe("옛 모양으로 저장된 회차", () => {
 
     const list = await api<{ events: unknown[] }>("/api/host/events", { cookie: master });
     expect(list.status, JSON.stringify(list.body)).toBe(200);
+  });
+
+  /**
+   * `seen_stage` 는 ADR-96 가 `ALTER` 로 더한 칸이다. 옛 표에는 없고, 참가자 화면을 여는 길(`/api/me`)이
+   * 그 칸을 읽는다 — 더하는 줄이 빠지면 옛 회차의 **모든 참가자 화면**이 `no such column` 으로 죽는다.
+   */
+  it("★ 단계 안내 칸이 없던 회차의 참가자도 화면을 열고 안내를 확인할 수 있다", async () => {
+    const ev = await freshEvent();
+    const player = await join(ev);
+    await ageToV1(ev.id);
+
+    const me = await api<ParticipantState>(`/api/me?code=${ev.code}`, { cookie: player.cookie });
+    expect(me.status, JSON.stringify(me.body)).toBe(200);
+    expect(me.body.me.seenStage).toBeUndefined();
+
+    const seen = await api(`/api/stage/seen`, { method: "POST", cookie: player.cookie, body: { stage: "prevote" } });
+    expect(seen.status, JSON.stringify(seen.body)).toBe(200);
+    const after = await api<ParticipantState>(`/api/me?code=${ev.code}`, { cookie: player.cookie });
+    expect(after.body.me.seenStage).toBe("prevote");
   });
 
   it("★ 옛 참가자와 옛 명단이 그대로 남는다 — 되돌리며 지우지 않는다", async () => {

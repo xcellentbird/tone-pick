@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, FAIL, FORTUNE, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
-import type { MyPokeState, PublicAnnouncement, ParticipantState } from "../../shared/types.ts";
+import type { MyPokeState, PublicAnnouncement, ParticipantState, StageKey } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { voteClosed } from "../../shared/phase.ts";
 import { TICK_WINDOW } from "../../shared/time.ts";
@@ -22,6 +22,7 @@ import People from "./People.tsx";
 import Me from "./Me.tsx";
 import Home from "./Home.tsx";
 import SeatTakeover from "../ui/SeatTakeover.tsx";
+import StageTakeover from "../ui/StageTakeover.tsx";
 import Sheet from "../ui/Sheet.tsx";
 import Help from "../ui/Help.tsx";
 import { canOpenFortune } from "../../shared/phase.ts";
@@ -319,6 +320,31 @@ function Loaded({
   const needsSeatAck =
     !!state.seat && !state.seat.acked && !acked.includes(state.seat.round) && state.event.phase !== "done";
 
+  /**
+   * 단계가 열릴 때의 안내 (ADR-96, 슬라이스 34). 새 행동이 열리는 순간이 둘뿐이라 매력 투표와 파티만이다 —
+   * 등록 직후는 도움말이, 마감은 자리 화면이, 발표는 결과 카드가 이미 그 자리다.
+   *
+   * **자리 확인이 먼저다** — 몸을 옮기는 지시가 설명보다 앞이다. 둘 다 뜰 자리면 자리를 확인한 뒤에 온다.
+   * 봤다는 건 서버가 안다(`me.seenStage`, 사건이 아니라 상태다 — 예약이 여는 순간 앱을 켜둔 사람이 없다).
+   * 누른 즉시 감추고, 저장이 실패하면 되돌린다 — 자리 확인과 같다.
+   */
+  const stage: StageKey | null =
+    state.event.phase === "prevote" || state.event.phase === "party" ? state.event.phase : null;
+  const [seenLocal, setSeenLocal] = useState<StageKey | null>(null);
+  const needsStage = !!stage && state.me.seenStage !== stage && seenLocal !== stage && !needsSeatAck;
+  const seeStage = useCallback(async () => {
+    if (!stage) return;
+    setSeenLocal(stage);
+    try {
+      await source.markStage(stage);
+      reload();
+      // 버튼이 곧 다음 할 일이다 — 누르면 참가자 탭이다
+      onTab("people");
+    } catch {
+      setSeenLocal(null);
+    }
+  }, [stage, source, reload, onTab]);
+
   return (
     <Overlays>
       {welcome && <Greeting text={welcome} />}
@@ -394,6 +420,16 @@ function Loaded({
         {needsSeatAck && state.seat && <SeatTakeover seat={state.seat} started={started} onAck={ack} />}
         {!needsSeatAck && seatOpen && state.seat && (
           <SeatTakeover seat={state.seat} started={started} onClose={() => onSeat(false)} />
+        )}
+
+        {/* 단계가 열릴 때의 안내 — 자리 확인 뒤에 선다 (ADR-96). 도움말 시트보다 위다 (`z-index`) */}
+        {needsStage && stage && (
+          <StageTakeover
+            stage={stage}
+            count={state.poke.budget.party.max}
+            notify={!!state.event.config.pokeNotify}
+            onDone={seeStage}
+          />
         )}
 
         {/* 파티 룰 도움말. 어느 탭에서 열든 같은 것이 뜬다 */}
