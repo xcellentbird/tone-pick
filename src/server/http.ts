@@ -194,15 +194,20 @@ export async function hostScope(c: Ctx): Promise<AuthScope | null> {
   return readSession(token, c.env.SESSION_SECRET, serverNow());
 }
 
+/** 운영자 로그인의 시도를 셀 때 쓰는 자리 이름 (ADR-93). 회차 아이디와 겹치지 않는다 — 그건 16자리 16진수다 */
+export const HOST_SCOPE = "host";
+
 /**
- * 접속지 해시. 입장 시도 횟수를 세는 열쇠다.
+ * 접속지 해시. 문을 두드린 횟수를 세는 열쇠다.
  *
  * 원본 IP 를 저장하지 않는다 — 참가자 개인정보를 회차 DO 밖으로도, 안으로도
- * 필요 이상 들이지 않는다. 회차마다 다른 해시가 나오도록 회차 아이디를 섞는다.
+ * 필요 이상 들이지 않는다. 자리마다 다른 해시가 나오도록 `scope` 를 섞는다:
+ * 참가자 입장은 회차 아이디, 운영자 로그인은 `HOST_SCOPE` 다.
+ * **같은 사람이라도 자리가 다르면 다른 해시가 된다** — 한 곳의 실패가 다른 곳을 잠그지 않는다.
  */
-export async function ipHash(c: Ctx, eventId: string): Promise<string> {
+export async function ipHash(c: Ctx, scope: string): Promise<string> {
   const ip = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${eventId}:${ip}`));
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${scope}:${ip}`));
   return [...new Uint8Array(buf).slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
