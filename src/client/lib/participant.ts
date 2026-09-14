@@ -17,7 +17,7 @@ export interface ParticipantSource {
   /** 되돌리기 (ADR-34). 매력 투표는 언제나, 파티 콕은 회차 설정을 따른다 */
   unpoke(toId: string): Promise<MyPokeState>;
   ackSeat(round: number): Promise<void>;
-  /** 단계 안내를 봤다 (ADR-95). 어느 단계를 봤는지 보낸다 — 서버가 지금 단계를 대신 적지 않는다 */
+  /** 단계 안내를 봤다 (ADR-96). 어느 단계를 봤는지 보낸다 — 서버가 지금 단계를 대신 적지 않는다 */
   markStage(stage: StageKey): Promise<void>;
   /** 설문에 답한다 (슬라이스 27). 다시 부르면 옮겨간다. 돌려주는 건 갱신된 그 설문 하나다 */
   vote(id: string, choice: PollChoice): Promise<PublicAnnouncement>;

@@ -240,8 +240,10 @@ describe("위저드", () => {
     expect(config.allowSameGender, "고른 대상이 안 실렸다").toBe(false);
     expect(config.preNotify, "고른 알림이 안 실렸다").toBe(true);
     // 안 건드린 것은 기본값 그대로 나간다
-    expect(config.allowUndo).toBe(true);
     expect(config.pokeNotify).toBe(false);
+    // 되돌리기 칸은 아예 없다 (ADR-95) — 보내지도 않는다
+    expect("allowUndo" in config).toBe(false);
+    expect("allowUndoPre" in config).toBe(false);
   });
 
   it("★ 장소 기본값을 들고 시작한다 (ADR-38)", async () => {

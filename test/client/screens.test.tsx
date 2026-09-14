@@ -45,7 +45,7 @@ const POKE_STATE: MyPokeState = {
 };
 
 function participantState(over: Partial<ParticipantState> = {}): ParticipantState {
-  // 단계 안내(ADR-95)는 이미 본 사람으로 둔다 — 여기는 다른 걸 재는 자리다. 안내 자체는 `stage.test.tsx`
+  // 단계 안내(ADR-96)는 이미 본 사람으로 둔다 — 여기는 다른 걸 재는 자리다. 안내 자체는 `stage.test.tsx`
   const phase = over.event?.phase ?? "prevote";
   const seen = phase === "prevote" || phase === "party" ? { seenStage: phase } : {};
   return {

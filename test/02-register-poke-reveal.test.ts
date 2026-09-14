@@ -673,7 +673,7 @@ describe("콕", () => {
     const now = Date.now();
     for (const bad of [
       { allowSameGender: "false" },
-      { allowUndo: 0 },
+      { pokeNotify: 0 },
       { preNotify: "true" },
     ]) {
       const res = await api("/api/host/events", {

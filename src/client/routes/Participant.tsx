@@ -321,7 +321,7 @@ function Loaded({
     !!state.seat && !state.seat.acked && !acked.includes(state.seat.round) && state.event.phase !== "done";
 
   /**
-   * 단계가 열릴 때의 안내 (ADR-95, 슬라이스 34). 새 행동이 열리는 순간이 둘뿐이라 매력 투표와 파티만이다 —
+   * 단계가 열릴 때의 안내 (ADR-96, 슬라이스 34). 새 행동이 열리는 순간이 둘뿐이라 매력 투표와 파티만이다 —
    * 등록 직후는 도움말이, 마감은 자리 화면이, 발표는 결과 카드가 이미 그 자리다.
    *
    * **자리 확인이 먼저다** — 몸을 옮기는 지시가 설명보다 앞이다. 둘 다 뜰 자리면 자리를 확인한 뒤에 온다.
@@ -422,7 +422,7 @@ function Loaded({
           <SeatTakeover seat={state.seat} started={started} onClose={() => onSeat(false)} />
         )}
 
-        {/* 단계가 열릴 때의 안내 — 자리 확인 뒤에 선다 (ADR-95). 도움말 시트보다 위다 (`z-index`) */}
+        {/* 단계가 열릴 때의 안내 — 자리 확인 뒤에 선다 (ADR-96). 도움말 시트보다 위다 (`z-index`) */}
         {needsStage && stage && (
           <StageTakeover
             stage={stage}

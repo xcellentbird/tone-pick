@@ -199,7 +199,7 @@ export class EventDO extends DurableObject {
         "ALTER TABLE players ADD COLUMN pin_hash TEXT",
         "ALTER TABLE players ADD COLUMN pin_salt TEXT",
         "ALTER TABLE players ADD COLUMN pin_fails INTEGER NOT NULL DEFAULT 0",
-        // 단계 안내를 어디까지 봤나 (ADR-95). 옛 참가자는 비어 있다 — 다음에 열면 그 단계 안내가 뜬다. 인덱스 없음
+        // 단계 안내를 어디까지 봤나 (ADR-96). 옛 참가자는 비어 있다 — 다음에 열면 그 단계 안내가 뜬다. 인덱스 없음
         "ALTER TABLE players ADD COLUMN seen_stage TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token)",
         "CREATE INDEX IF NOT EXISTS players_token ON players(token)",
@@ -393,8 +393,6 @@ export class EventDO extends DurableObject {
       const { maxPre, maxParty } = patch.config;
       // 안 보내면 지금 값을 지킨다 — 콕 횟수만 고치다 알림 설정이 딸려 초기화되면 안 된다
       const allowSameGender = patch.config.allowSameGender ?? meta.config.allowSameGender;
-      const allowUndo = patch.config.allowUndo ?? meta.config.allowUndo;
-      const allowUndoPre = patch.config.allowUndoPre ?? meta.config.allowUndoPre;
       const preNotify = patch.config.preNotify ?? meta.config.preNotify;
       const pokeNotify = patch.config.pokeNotify ?? meta.config.pokeNotify;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
@@ -402,10 +400,10 @@ export class EventDO extends DurableObject {
       /*
        * 굳은 규칙은 못 고친다 (ADR-35). 일정과 같은 이유로 **달라졌을 때만** 막는다.
        * 비교는 '적혀 있나'가 아니라 **뜻**으로 한다 — 기본값과 같으면 아예 안 적히므로
-       * (`allowUndo` 없음 = 할 수 있음), 키 유무로 재면 저장할 때마다 달라 보인다.
+       * (`allowSameGender` 없음 = 모두에게), 키 유무로 재면 저장할 때마다 달라 보인다.
        */
       if (rulesLocked(meta.fired)) {
-        const next = { ...meta.config, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify };
+        const next = { ...meta.config, allowSameGender, preNotify, pokeNotify };
         if (frozenRules(next).some((v, i) => v !== frozenRules(meta.config)[i])) return fail("locked");
       }
 
@@ -423,14 +421,17 @@ export class EventDO extends DurableObject {
         )[0]?.n;
         if (used && next < used) return fail("conflict", used);
       }
-      // 기본과 다를 때만 적는다. 기본값을 굳이 써 넣으면 설정 모양이 회차마다 달라진다
+      /*
+       * 기본과 다를 때만 적는다. 기본값을 굳이 써 넣으면 설정 모양이 회차마다 달라진다.
+       *
+       * **여기서 다시 쓰지 않으니 옛 회차의 `allowUndo` 는 저장을 한 번 거치며 사라진다** (ADR-95).
+       * 읽는 코드가 없어 그때까지도 아무 일을 하지 않는다 — 옮겨 적을 것이 없다.
+       */
       meta.config = {
         maxPre,
         maxParty,
         ...(allowSameGender === false ? { allowSameGender: false } : {}),
-        // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
-        ...(allowUndo === false ? { allowUndo: false } : {}),
-        ...(allowUndoPre === false ? { allowUndoPre: false } : {}),
+        // 기본은 '알리지 않는다' 다 (ADR-34)
         ...(preNotify === true ? { preNotify: true } : {}),
         ...(pokeNotify === true ? { pokeNotify: true } : {}),
       };
@@ -832,7 +833,8 @@ export class EventDO extends DurableObject {
   /**
    * 콕 되돌리기 (ADR-34). **하나씩 무른다** — 그 사람에게 여러 번 찔렀으면 한 번만 준다.
    *
-   * **라운드마다 따로 정한다** — 매력 투표는 `allowUndoPre`, 파티 콕은 `allowUndo`.
+   * **두 라운드 다 언제나 된다** (ADR-95). 회차 설정으로 막던 때가 있었는데 걷어냈다 —
+   * 막는 회차를 만들 이유가 없었고, 막으면 다 쓴 사람이 손쓸 데가 없어진다.
    *
    * 알림은 저장하지 않고 `receivedCount` 에서 파생되므로(`noticesOf`),
    * 무르면 그 줄이 저절로 사라져 **받지 않았던 상태로 돌아간다.**
@@ -843,8 +845,6 @@ export class EventDO extends DurableObject {
     if (!canPoke(meta.phase, now, meta.schedule, meta.fired)) return fail("closed");
 
     const round = roundOf(meta.phase);
-    const allowed = round === "pre" ? meta.config.allowUndoPre !== false : meta.config.allowUndo !== false;
-    if (!allowed) return fail("closed");
 
     const one = this.rows<{ id: string }>(
       "SELECT id FROM pokes WHERE from_id = ? AND to_id = ? AND round = ? ORDER BY at DESC LIMIT 1",
@@ -948,7 +948,7 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * 단계 안내를 봤다 (ADR-95). **클라이언트가 어느 단계를 봤는지 보낸다** — 여기서 지금 단계를 적으면
+   * 단계 안내를 봤다 (ADR-96). **클라이언트가 어느 단계를 봤는지 보낸다** — 여기서 지금 단계를 적으면
    * 매력 투표 안내를 누르는 순간 파티가 시작된 사람에게 파티 안내가 영영 안 뜬다.
    * 자리 `acks` 와 같은 이유로 서버에 둔다 (ADR-4 의 예외): 사건에 붙일 수 없어서다.
    */
@@ -960,7 +960,7 @@ export class EventDO extends DurableObject {
     return ok(true);
   }
 
-  /** 본인에게만 내려가는 값이라 `Player` 에 싣지 않고 여기서 따로 읽는다 (ADR-95) */
+  /** 본인에게만 내려가는 값이라 `Player` 에 싣지 않고 여기서 따로 읽는다 (ADR-96) */
   private seenStageOf(playerId: string): StageKey | undefined {
     const v = this.rows<{ seen_stage: string | null }>("SELECT seen_stage FROM players WHERE id = ?", playerId)[0]?.seen_stage;
     return v === "prevote" || v === "party" ? v : undefined;
@@ -2130,17 +2130,17 @@ function notifyOn(config: EventConfig, round: PokeRound): boolean {
 const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt", "revealAt"] as const;
 
 /**
- * 굳는 규칙 다섯을 **뜻으로** 편다 (ADR-35·43).
+ * 굳는 규칙 셋을 **뜻으로** 편다 (ADR-35·43·95).
  *
- * 기본값이 항목마다 다르다 — 대상·되돌리기는 없으면 '열림', 알림은 없으면 '끔'.
+ * 기본값이 항목마다 다르다 — 대상은 없으면 '모두에게', 알림은 없으면 '끔'.
  * 그래서 `undefined` 를 그대로 견주면 안 되고, 저마다의 기본으로 접어서 본다.
  * 새 규칙을 굳히려면 이 배열에 한 줄을 더한다. 그게 잠금 목록의 전부다.
+ *
+ * 되돌리기 둘이 여기 있었다 (ADR-95 가 걷었다). 설정이 없으면 굳을 것도 없다.
  */
 function frozenRules(c: EventConfig): boolean[] {
   return [
     c.allowSameGender !== false,
-    c.allowUndo !== false,
-    c.allowUndoPre !== false,
     c.preNotify === true,
     c.pokeNotify === true,
   ];

@@ -190,12 +190,6 @@ export default function HostDefaults() {
  * `on` 쪽 라벨을 왼쪽에 둘지 오른쪽에 둘지는 부르는 쪽이 정한다 —
  * 기본값이 왼쪽에 오는 게 읽기 편하다.
  */
-/** 되돌리기 선택지. 기본(할 수 있음)이 왼쪽이다 */
-export const UNDO_OPTIONS = [
-  { on: true, label: HOST_UI.fields.undoOn },
-  { on: false, label: HOST_UI.fields.undoOff },
-] as const;
-
 /** 알림 선택지. 기본(안 보냄)이 왼쪽이다 */
 export const NOTIFY_OPTIONS = [
   { on: false, label: HOST_UI.fields.pokeNotifyOff },

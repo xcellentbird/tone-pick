@@ -1,5 +1,5 @@
 /**
- * 슬라이스 34 — 단계가 열릴 때의 안내 화면 (ADR-95). **서버 쪽 규칙만** 본다 —
+ * 슬라이스 34 — 단계가 열릴 때의 안내 화면 (ADR-96). **서버 쪽 규칙만** 본다 —
  * 언제 뜨고 무엇이 적혀 있는지는 `test/client/stage.test.tsx` 가 본다.
  *
  * 봤다는 표시는 **서버가** 안다 (ADR-4 의 예외 — 자리 `acks` 와 같은 이유).
@@ -16,7 +16,7 @@ const me = (cookie: string | null, code: string) => api<ParticipantState>(`/api/
 const seen = (cookie: string | null, stage: unknown) =>
   api(`/api/stage/seen`, { method: "POST", cookie, body: { stage } });
 
-describe("봤다는 표시는 서버가 안다 (ADR-95)", () => {
+describe("봤다는 표시는 서버가 안다 (ADR-96)", () => {
   it("★ 누르면 저장되고 내 정보에 실린다 — 새로 읽어도, 다시 들어와도 그대로다", async () => {
     const ev = await freshEvent();
     const p = await join(ev);

@@ -1,5 +1,5 @@
 /**
- * 슬라이스 34 — 단계가 열릴 때의 안내 화면 (ADR-95). **언제 뜨고 무엇이 적혀 있는지.**
+ * 슬라이스 34 — 단계가 열릴 때의 안내 화면 (ADR-96). **언제 뜨고 무엇이 적혀 있는지.**
  * 봤다는 표시가 서버에 남는지는 워커 테스트(`test/34-stage-guide.test.ts`)가 본다.
  *
  * 새 행동이 열리는 순간이 둘뿐이라 매력 투표와 파티만이다. 자리 확인이 먼저고, 발표 뒤에는 안 뜬다.
@@ -107,7 +107,7 @@ const none = () => expect(document.querySelector(".takeover")).toBeNull();
 
 const SEAT_UNACKED: ParticipantState["seat"] = { round: 1, table: 3, mates: 5, men: 3, acked: false, mateIds: [] };
 
-describe("언제 뜨나 (ADR-95)", () => {
+describe("언제 뜨나 (ADR-96)", () => {
   it("★ 매력 투표가 열렸고 아직 안 봤으면 그 단계 안내가 뜬다", async () => {
     mount(sourceOf(stateOf("prevote")));
     const t = await shown();

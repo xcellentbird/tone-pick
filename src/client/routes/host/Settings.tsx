@@ -30,7 +30,7 @@ import { LIMITS } from "../../../shared/constants.ts";
 import { rulesLocked, schedLocked } from "../../../shared/phase.ts";
 import { SCHEDULE_STEP_MIN, formatWhen, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, del, put } from "../../lib/api.ts";
-import { NOTIFY_OPTIONS, TARGET_OPTIONS, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
+import { NOTIFY_OPTIONS, TARGET_OPTIONS, Toggle } from "./HostDefaults.tsx";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import { Num } from "./HostDefaults.tsx";
 import { useConsole } from "./HostConsole.tsx";
@@ -48,8 +48,6 @@ export default function Settings() {
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
   const [allowSameGender, setAllowSameGender] = useState(meta.config.allowSameGender !== false);
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
-  const [allowUndo, setAllowUndo] = useState(meta.config.allowUndo !== false);
-  const [allowUndoPre, setAllowUndoPre] = useState(meta.config.allowUndoPre !== false);
   const [preNotify, setPreNotify] = useState(meta.config.preNotify === true);
   const [pokeNotify, setPokeNotify] = useState(meta.config.pokeNotify === true);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
@@ -65,8 +63,6 @@ export default function Settings() {
     setMaxPre(meta.config.maxPre);
     setMaxParty(meta.config.maxParty);
     setAllowSameGender(meta.config.allowSameGender !== false);
-    setAllowUndo(meta.config.allowUndo !== false);
-    setAllowUndoPre(meta.config.allowUndoPre !== false);
     setPreNotify(meta.config.preNotify === true);
     setPokeNotify(meta.config.pokeNotify === true);
     setPlace(meta.place ?? "");
@@ -105,10 +101,7 @@ export default function Settings() {
       meta.config.allowSameGender === false ? HOST_UI.fields.pokeTargetOpposite : HOST_UI.fields.pokeTargetAll,
       allowSameGender ? HOST_UI.fields.pokeTargetAll : HOST_UI.fields.pokeTargetOpposite,
     );
-    const undoWord = (on: boolean) => (on ? HOST_UI.fields.undoOn : HOST_UI.fields.undoOff);
     const notifyWord = (on: boolean) => (on ? HOST_UI.fields.pokeNotifyOn : HOST_UI.fields.pokeNotifyOff);
-    changed("rules", HOST_UI.fields.undoPre, undoWord(meta.config.allowUndoPre !== false), undoWord(allowUndoPre));
-    changed("rules", HOST_UI.fields.undoParty, undoWord(meta.config.allowUndo !== false), undoWord(allowUndo));
     changed("rules", HOST_UI.fields.preNotify, notifyWord(meta.config.preNotify === true), notifyWord(preNotify));
     changed("rules", HOST_UI.fields.pokeNotify, notifyWord(meta.config.pokeNotify === true), notifyWord(pokeNotify));
     // 시간 순으로 센다 — 확인창에 뜨는 순서가 화면 순서와 같아야 어디를 고쳤는지 짚인다
@@ -138,7 +131,7 @@ export default function Settings() {
         name,
         place,
         nickHint,
-        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify },
+        config: { maxPre, maxParty, allowSameGender, preNotify, pokeNotify },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
       toast(BTN.saved);
@@ -332,21 +325,7 @@ export default function Settings() {
             locked={frozen}
             onChange={setAllowSameGender}
           />
-          <Toggle
-            label={HOST_UI.fields.undoPre}
-            value={allowUndoPre}
-            options={UNDO_OPTIONS}
-            locked={frozen}
-            onChange={setAllowUndoPre}
-          />
-          <Toggle
-            label={HOST_UI.fields.undoParty}
-            value={allowUndo}
-            options={UNDO_OPTIONS}
-            locked={frozen}
-            onChange={setAllowUndo}
-          />
-          {/* 알림도 라운드마다 따로다 (ADR-43). 되돌리기와 같은 순서 — 매력 투표가 먼저 */}
+          {/* 알림은 라운드마다 따로다 (ADR-43) — 매력 투표가 먼저 */}
           <Toggle
             label={HOST_UI.fields.preNotify}
             value={preNotify}

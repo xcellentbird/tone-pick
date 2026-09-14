@@ -52,14 +52,14 @@ export type PinState = "set" | "none" | "locked";
  */
 export type MyProfile = Omit<Player, "phone" | "pin"> & {
   /**
-   * 단계 안내를 어디까지 봤나 (ADR-95). **본인에게만** 내려간다 — `Player` 에 두지 않는 이유가 그것이다.
+   * 단계 안내를 어디까지 봤나 (ADR-96). **본인에게만** 내려간다 — `Player` 에 두지 않는 이유가 그것이다.
    * 명단(`roster`)에도 운영자 응답에도 없다: 남이 안내를 봤는지는 남의 일이고,
    * 묻는 사람이 없는 값은 쓰이는 줄 알게 된다.
    */
   seenStage?: StageKey;
 };
 
-/** 안내 화면이 뜨는 단계 — 새 행동이 열리는 순간이 둘뿐이다 (ADR-95) */
+/** 안내 화면이 뜨는 단계 — 새 행동이 열리는 순간이 둘뿐이다 (ADR-96) */
 export type StageKey = "prevote" | "party";
 export const STAGE_KEYS: readonly StageKey[] = ["prevote", "party"];
 
@@ -250,14 +250,15 @@ export interface EventConfig {
    * 회차마다 정한다. 파티 성격이 회차마다 다르기 때문이다.
    */
   allowSameGender?: boolean;
-  /** 파티 콕을 되돌릴 수 있나 (ADR-34). **없으면 된다** — 잘못 누른 것을 못 무르게 할 이유가 없다 */
-  allowUndo?: boolean;
-  /** 매력 투표를 되돌릴 수 있나 (ADR-34). **없으면 된다**. 라운드마다 따로 정한다 */
-  allowUndoPre?: boolean;
+  /*
+   * ⚠️ **되돌리기 설정(`allowUndo`·`allowUndoPre`)을 되살리지 마라** (ADR-95).
+   * 두 라운드 다 **언제나 되돌릴 수 있다** — 잘못 누른 것을 못 무르게 할 이유가 없었고,
+   * 운영자가 실제로 끈 적도 없었다. 설정이 하나 줄면 도움말과 확인창도 한 가지로 말한다.
+   */
   /**
    * **매력 투표**를 받으면 참가자에게 알릴 것인가 (ADR-43). **없으면 알리지 않는다.**
    *
-   * 라운드마다 따로 정한다 — 되돌리기(`allowUndoPre`·`allowUndo`)와 같은 꼴이다.
+   * 라운드마다 따로 정한다 — 파티 콕 알림(`pokeNotify`)과 짝이다.
    * 한동안 `pokeNotify` 하나가 두 라운드를 다 덮었는데, 그 둘은 성격이 다르다:
    * 매력 투표는 **프로필만 보고** 고른 것이고 며칠에 걸쳐 쌓인다.
    * 그 숫자가 실시간으로 보이면 파티 전에 이미 순위가 생긴다.
