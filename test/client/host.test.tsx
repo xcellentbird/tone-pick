@@ -335,7 +335,7 @@ describe("운영자 콘솔", () => {
    * 단계 버튼이 하는 일은 **예약을 앞당기는 것**이다. 그래서 옆에 남은 시간이 함께 선다 —
    * 가만히 두면 언제 저절로 넘어가는지 모르면 "지금 눌러도 되나" 를 판단할 수 없다.
    *
-   * ★ **넷이 다 같은 뜻이 됐다** (ADR-92). 파티 시작만 "이 숫자는 그냥 파티 일시고
+   * ★ **넷이 다 같은 뜻이 됐다** (ADR-93). 파티 시작만 "이 숫자는 그냥 파티 일시고
    * 눌러야 열린다" 였는데, 이제 그것도 가만히 두면 그때 열린다 — 그래서 그 하나에만
    * 붙던 안내를 걷었다. **숫자 옆에 다른 뜻을 붙이지 마라.**
    */
@@ -348,7 +348,7 @@ describe("운영자 콘솔", () => {
     cleanup();
 
     /*
-     * 매력 투표가 닫힌 뒤 — 다음은 파티 시작이다. `partyAt` 이 예약이 되면서(ADR-92)
+     * 매력 투표가 닫힌 뒤 — 다음은 파티 시작이다. `partyAt` 이 예약이 되면서(ADR-93)
      * 이 숫자도 나머지 셋과 같은 뜻이 됐다: **가만히 두면 그때 넘어간다.**
      */
     stubFetch(
@@ -363,7 +363,7 @@ describe("운영자 콘솔", () => {
   });
 
   /**
-   * ★ **파티 시작도 예약을 앞당기는 것이다** (ADR-92). 그래서 확인창에 얼마나 이른지가
+   * ★ **파티 시작도 예약을 앞당기는 것이다** (ADR-93). 그래서 확인창에 얼마나 이른지가
    * 나머지 둘과 똑같이 붙는다 — 예약이 없던 시절에는 이 줄이 못 서던 자리다.
    */
   it("★ 파티를 일찍 시작하면 얼마나 이른지 확인창에 적는다", async () => {
@@ -997,10 +997,10 @@ describe("운영자 콘솔", () => {
       .filter((f) => f.querySelector('input[type="datetime-local"]'))
       .map((f) => f.querySelector("label")!.textContent);
     /*
-     * ⚠️ **파티 시작은 여기 없다** (ADR-54) — 예약이 되고도(ADR-92) `기본 정보` 묶음에
+     * ⚠️ **파티 시작은 여기 없다** (ADR-54) — 예약이 되고도(ADR-93) `기본 정보` 묶음에
      * 남는다. 위저드 1스텝과 같은 자리라, 옮기면 만들 때와 고칠 때가 어긋난다.
      *
-     * ⚠️ **등록 시작도 없다** (ADR-92). 회차를 만든 시각이라 고칠 수도 없고
+     * ⚠️ **등록 시작도 없다** (ADR-93). 회차를 만든 시각이라 고칠 수도 없고
      * 운영자가 볼 일도 없었다 — 못 누르는 칸이 맨 위에 서서 나머지를 한 칸씩 밀었다.
      */
     expect(labels, "예약 묶음에 예약 아닌 칸이 있다").toEqual([
@@ -1731,6 +1731,27 @@ describe("떨어뜨려 앉히기", () => {
     // 칩 밖 어디에도 없다 — 요약 문구·머리글을 두지 않는다
     const outside = document.body.textContent!.split(HOST_UI.seats.apartChip).length - 1;
     expect(outside, "칩 밖에 ⛔ 가 있다").toBe(2);
+  });
+
+  /**
+   * 서로 찌른 쌍인데 떼어 놓을 쌍이기도 하면 **짝으로 짚지 않는다.** 💔(`짝 따로`)는 *붙일 수 있다* 는
+   * 신호라, 떼어 놓은 두 사람을 다시 붙이라고 말하게 된다. 떼어 놓기가 이긴다 (ADR-90).
+   */
+  it("★ 떼어 놓을 쌍은 서로 찔렀어도 💘·💔 로 짚지 않는다", async () => {
+    stubFetch(
+      hostState(
+        { phase: "party" },
+        {
+          mutual: [["p1", "p2"]],
+          apart: [["p1", "p2"]],
+          seatings: [published([{ playerId: "p1", table: 1 }, { playerId: "p2", table: 2 }])],
+        },
+      ),
+    );
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(1));
+    expect(document.body.textContent, "떼어 놓은 쌍을 다시 붙이라고 짚었다").not.toContain(HOST_UI.seats.pairChip(0));
+    expect(document.body.textContent).not.toContain(HOST_UI.seats.pairChipNote(0));
   });
 
   it("★ 다른 테이블이면 아무 표시도 없다", async () => {

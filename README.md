@@ -53,6 +53,14 @@ npx wrangler secret put MASTER_PIN
 npx wrangler secret put SESSION_SECRET
 ```
 
+### 한국에서만 열립니다
+
+`/api` 와 `/ws` 는 `wrangler.jsonc` 의 `ALLOWED_COUNTRIES` 에 적힌 나라에서만 답합니다
+(ADR-92). 기본값은 `KR` 입니다.
+
+**파티 중에 로밍이나 VPN 때문에 못 들어오는 참가자가 생기면** 그 값을 `""` 로 비우고
+다시 배포하세요. 그것이 끄는 유일한 길입니다 — 운영자 콘솔에는 스위치가 없습니다.
+
 ## 두 환경
 
 | 환경 | 주소 | 무엇에 쓰나 |

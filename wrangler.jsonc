@@ -45,6 +45,21 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EventDO", "RegistryDO"] }],
 
   /*
+   * 들여보낼 나라 (ADR-92). `/api` 와 `/ws` 가 이 목록 밖에서 온 요청에 아무것도 주지 않는다.
+   *
+   * ⚠️ **여기가 끄는 자리다.** 파티 당일 로밍 중인 참가자가 막히면 값을 `""` 로 비우고
+   * 배포하는 것이 유일한 되돌리기다 — 운영자 콘솔에는 스위치가 없다.
+   * 회차 DO 에 두면 요청마다 DO 왕복이 생겨서 그렇게 하지 않았다.
+   *
+   * ⚠️ **`--var` 로 덮지 마라.** git 연동이 푸시마다 다시 배포하고, 그때는 이 파일의 vars 만 실린다.
+   *
+   * 시크릿은 여기 적지 않는다 (MASTER_PIN·SESSION_SECRET). `npm run check` 가 막는다.
+   */
+  "vars": {
+    "ALLOWED_COUNTRIES": "KR"
+  },
+
+  /*
    * 운영 카운터. 무엇을 넣는지가 곧 개인정보 경계라, 규칙은 `src/server/metrics.ts` 주석에 있다.
    * 운영 카운터는 넣고 결과 통계(매칭·콕·순위)는 넣지 않는다.
    */
@@ -101,6 +116,8 @@
        */
       "vars": {
         "ENV_LABEL": "QA",
+        // 프로덕션과 같은 값이어야 연습이 된다 (ADR-92). vars 는 환경에 상속되지 않는다
+        "ALLOWED_COUNTRIES": "KR",
         "MASTER_PIN": "0000",
         "SESSION_SECRET": "qa-not-a-secret",
         // 오늘의 연애운. 키(OPENAI_API_KEY)는 시크릿으로만 넣는다 — 여기 적으면 그대로 공개된다

@@ -14,10 +14,10 @@ export function dueTransition(ev: EventMeta, now: number): Phase | null {
   if (phase === "prep" && schedule.regOpenAt && !fired.reg && now >= schedule.regOpenAt) return "reg";
   if (phase === "reg" && schedule.prevoteAt && !fired.prevote && now >= schedule.prevoteAt) return "prevote";
   /*
-   * 파티 시작 (ADR-92). **`phase === "prevote"` 에서만 울린다** — 등록 중에 파티 일시가
+   * 파티 시작 (ADR-93). **`phase === "prevote"` 에서만 울린다** — 등록 중에 파티 일시가
    * 지났다고 뛰면 매력 투표가 통째로 사라진다. 예약은 저마다 *바로 앞 단계*에서만 운다.
    *
-   * ADR-14 는 이걸 운영자의 버튼으로 뒀었다. 걷어낸 이유는 ADR-92 에 있다 —
+   * ADR-14 는 이걸 운영자의 버튼으로 뒀었다. 걷어낸 이유는 ADR-93 에 있다 —
    * 요약하면 **시각을 적어두고도 그 시각에 폰을 꺼내야 하는** 쪽이 더 자주 걸렸다.
    * 버튼은 남아 있고, 미룰 일이면 `partyAt` 을 고친다 (`schedLocked` 이 열어 둔다).
    */
@@ -45,7 +45,7 @@ export function dueTransition(ev: EventMeta, now: number): Phase | null {
  * 서버는 알람을 걸 때, 운영자 화면은 단계 버튼 옆 카운트다운에 쓴다 —
  * 그 버튼이 하는 일이 **이 시각을 앞당기는 것**이라 옆에 남은 시간이 함께 서야 말이 된다.
  *
- * 넷이 다 여기 있다 (ADR-92). 매력 투표 마감(`voteEndAt`)만 없는데, 그건 전환이 아니라
+ * 넷이 다 여기 있다 (ADR-93). 매력 투표 마감(`voteEndAt`)만 없는데, 그건 전환이 아니라
  * **판정**이라서다 (ADR-39) — 단계가 안 바뀌니 걸 알람도 없다.
  */
 export function dueAt(ev: EventMeta): number | null {

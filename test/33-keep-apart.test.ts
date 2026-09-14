@@ -168,6 +168,11 @@ const addApart = (eventId: string, a: string, b: string, cookie: string | null =
 const removeApart = (eventId: string, a: string, b: string, cookie: string | null = master) =>
   api<{ apart: Pair[] }>(`/api/host/events/${eventId}/apart/${a}/${b}`, { method: "DELETE", cookie });
 
+const draftSeats = async (eventId: string) =>
+  (await api<HostState>(`/api/host/events/${eventId}/state`, { cookie: master })).body.seatings.find(
+    (s: SeatingRound) => s.status === "draft",
+  )!.seats;
+
 async function party(men = 2, women = 2) {
   const ev = await freshEvent();
   const m = [];
@@ -253,6 +258,57 @@ describe("자리 배정 · AI 섞기 · 섞기가 지킨다", () => {
       expect((await api(`/api/host/events/${ev.id}/seating/shuffle`, { method: "POST", cookie: master })).status).toBe(200);
       expect(together(await draftSeats(), pairs), "섞기가 같이 앉혔다").toBe(0);
     }
+  });
+
+  /**
+   * **섞기는 붙어 앉은 상호 쌍을 제자리에 둔다** (ADR-49). 그 쌍이 떼어 놓을 쌍이기도 하면
+   * 붙잡아 두는 것이 곧 같이 앉히는 것이다 — 떼어 놓기가 이긴다.
+   */
+  it("★ 서로 찌른 쌍이 떼어 놓을 쌍이면 섞기가 붙잡아 두지 않는다", async () => {
+    const { ev, m, w } = await party(2, 2);
+    await setPhase(ev.id, "party");
+    await api("/api/poke", { method: "POST", cookie: m[0].cookie, body: { toId: w[0].id } });
+    await api("/api/poke", { method: "POST", cookie: w[0].cookie, body: { toId: m[0].id } });
+    await api(`/api/host/events/${ev.id}/seating`, { method: "POST", cookie: master, body: { tableCount: 2 } });
+    const pair: Pair[] = [[m[0].id, w[0].id]];
+
+    // 떼어 놓기 전에 둘을 같은 테이블로 옮겨 둔다 — 섞기가 이 둘을 붙어 앉은 쌍으로 본다
+    const seats = await draftSeats(ev.id);
+    const tableOf = new Map(seats.map((s) => [s.playerId, s.table]));
+    if (tableOf.get(m[0].id) !== tableOf.get(w[0].id)) {
+      const mate = [w[1].id].find((id) => tableOf.get(id) === tableOf.get(m[0].id))!;
+      await api(`/api/host/events/${ev.id}/seating/swap`, { method: "POST", cookie: master, body: { a: mate, b: w[0].id } });
+    }
+    expect(together(await draftSeats(ev.id), pair)).toBe(1);
+
+    await addApart(ev.id, m[0].id, w[0].id);
+    for (let i = 0; i < 4; i++) {
+      await api(`/api/host/events/${ev.id}/seating/shuffle`, { method: "POST", cookie: master });
+      expect(together(await draftSeats(ev.id), pair), "섞기가 붙어 앉은 쌍으로 붙잡아 뒀다").toBe(0);
+    }
+  });
+
+  /**
+   * 늦게 온 사람을 **자동으로** 앉히는 규칙(`autoTable`)은 성비와 인원만 봤다. 떼어 놓을 상대가
+   * 있는 테이블을 먼저 피한다 — 운영자가 `N번에 앉혀요` 를 누르는 순간 규칙이 깨지면 안 된다.
+   */
+  it("★ 늦게 온 사람을 자동으로 앉힐 때 떼어 놓을 상대의 테이블을 피한다", async () => {
+    const { ev, m } = await party(2, 2);
+    await setPhase(ev.id, "party");
+    await api(`/api/host/events/${ev.id}/seating`, { method: "POST", cookie: master, body: { tableCount: 2 } });
+    // m0 을 1번에 둔다. 두 테이블이 동률이면 낮은 번호를 고르므로, 피하지 않으면 1번에 앉는다
+    const tableOf = new Map((await draftSeats(ev.id)).map((s) => [s.playerId, s.table]));
+    if (tableOf.get(m[0].id) !== 1) {
+      await api(`/api/host/events/${ev.id}/seating/swap`, { method: "POST", cookie: master, body: { a: m[0].id, b: m[1].id } });
+    }
+    const late = await join(ev, { gender: "F" });
+    await addApart(ev.id, late.id, m[0].id);
+
+    const res = await api(`/api/host/events/${ev.id}/seating/seat`, { method: "POST", cookie: master, body: { playerId: late.id } });
+    expect(res.status).toBe(200);
+    const after = new Map((await draftSeats(ev.id)).map((s) => [s.playerId, s.table]));
+    expect(after.get(m[0].id)).toBe(1);
+    expect(after.get(late.id), "떼어 놓을 상대의 테이블에 앉혔다").toBe(2);
   });
 
   it("운영자의 손 맞교환은 막지 않는다", async () => {

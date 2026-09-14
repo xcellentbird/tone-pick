@@ -25,6 +25,12 @@ const workerd = () =>
         SESSION_SECRET: "test-secret",
         // 테스트 전용 시간 이동 라우트를 켠다. 프로덕션에는 이 값이 없다
         ALLOW_TEST_ENDPOINTS: "1",
+        /*
+         * 국가 문은 **테스트에서 기본으로 꺼둔다** (ADR-92). `wrangler.jsonc` 의 값을 그대로
+         * 물려받으면, 테스트 런타임이 언젠가 나라를 채워주기 시작하는 날 600개가 한꺼번에 403 이 된다.
+         * 문을 보는 테스트(`92-region`)가 자기 값을 직접 넣는다.
+         */
+        ALLOWED_COUNTRIES: "",
       },
     },
   });
