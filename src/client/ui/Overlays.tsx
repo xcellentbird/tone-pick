@@ -65,10 +65,29 @@ export function Overlays({ children }: { children: ReactNode }) {
     }
   }, [dialogInHistory]);
 
+  /**
+   * **사라짐 타이머는 화면이 내려갈 때 지운다.** 토스트는 2.6초 뒤에 스스로 사라지는데,
+   * 그 사이에 화면이 통째로 내려가면 없는 화면에 `setState` 를 걸어 던진다.
+   * 효과가 아니라 콜백 안에서 거는 타이머라 정리가 따라오지 않는다 — 그래서 여기 모아 둔다.
+   * 토스트는 여럿이 겹칠 수 있으니 하나가 아니라 묶음이다.
+   */
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(
+    () => () => {
+      for (const t of timers.current) clearTimeout(t);
+      timers.current.clear();
+    },
+    [],
+  );
+
   const toast = useCallback((text: string) => {
     const id = Date.now() + Math.random();
     setToasts((list) => [...list, { id, text }]);
-    setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), 2600);
+    const timer = setTimeout(() => {
+      timers.current.delete(timer);
+      setToasts((list) => list.filter((t) => t.id !== id));
+    }, 2600);
+    timers.current.add(timer);
   }, []);
 
   const confirm = useCallback<Overlay["confirm"]>(
