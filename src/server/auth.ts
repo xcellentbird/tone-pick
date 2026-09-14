@@ -101,7 +101,7 @@ export function cookieName(base: string, ref: string | null | undefined): string
  * Safari ITP 의 7일 상한은 `document.cookie` 로 심은 것에 걸린다.
  * 이 쿠키는 서버가 `Set-Cookie` + `HttpOnly` 로 심으므로 대상이 아니다.
  *
- * **운영자 세션도 일주일이다** (ADR-93). 12시간이었는데, 회차를 만든 날과 파티 당일 사이에
+ * **운영자 세션도 일주일이다** (ADR-94). 12시간이었는데, 회차를 만든 날과 파티 당일 사이에
  * 매번 다시 로그인해야 했다 — 운영자가 가장 자주 하는 일이 PIN 을 치는 것이 됐다.
  *
  * 길게 두는 대가는 **훔친 쿠키가 그만큼 오래 산다**는 것이다. 그래서 세션을 늘리는 것과

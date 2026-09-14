@@ -240,7 +240,7 @@ export const FAIR = { c: 0.3, min: 0.5, max: 2 } as const;
 export const ENTRY_TRIES = { max: 8, windowMs: 10 * 60_000 } as const;
 
 /**
- * **운영자 PIN 을 대보는 횟수 제한** (ADR-93). 접속지마다 센다.
+ * **운영자 PIN 을 대보는 횟수 제한** (ADR-94). 접속지마다 센다.
  *
  * 이 문도 인증 없이 열려 있고, 넣어보는 값은 숫자 몇 자리다 — 제한이 없으면
  * 초당 수십 번을 두드려 언젠가 맞춘다. 그 PIN 하나가 모든 회차의 실명과 전화번호를 연다 (ADR-12).

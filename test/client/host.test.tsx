@@ -335,23 +335,21 @@ describe("운영자 콘솔", () => {
    * 단계 버튼이 하는 일은 **예약을 앞당기는 것**이다. 그래서 옆에 남은 시간이 함께 선다 —
    * 가만히 두면 언제 저절로 넘어가는지 모르면 "지금 눌러도 되나" 를 판단할 수 없다.
    *
-   * **파티 시작에는 붙지 않는다.** 예약이 없는 전환이라(ADR-14) 셀 시각이 없다.
-   * 없는 시각을 지어내면 현장이 그 숫자를 따라가게 되고, 그게 ADR-14 가 막으려던 일이다.
+   * ★ **넷이 다 같은 뜻이 됐다** (ADR-93). 파티 시작만 "이 숫자는 그냥 파티 일시고
+   * 눌러야 열린다" 였는데, 이제 그것도 가만히 두면 그때 열린다 — 그래서 그 하나에만
+   * 붙던 안내를 걷었다. **숫자 옆에 다른 뜻을 붙이지 마라.**
    */
-  it("★ 버튼 옆 카운트다운은 예약이 있는 전환에만 붙는다", async () => {
+  it("★ 버튼 옆 카운트다운은 네 전환에 모두 붙고, 뜻이 하나다", async () => {
     // 등록 중 — 다음은 매력 투표 시작이고, 예약이 걸려 있다
     stubFetch(hostState());
     renderConsole();
     await screen.findByText("테스트 회차");
     expect(document.querySelector(".phaseBtn > .due")).toBeTruthy();
-    // 예약이 저절로 넘어가는 전환에는 "눌러야 한다" 는 안내가 붙지 않는다
-    expect(screen.queryByText(HOST_UI.dash.partyManual)).toBeNull();
     cleanup();
 
     /*
-     * 매력 투표가 닫힌 뒤 — 다음은 파티 시작이다. 시각(`partyAt`)은 있지만
-     * **저절로 열리지 않는다** (ADR-14). 숫자만 두면 넷 다 자동인 줄로 읽혀서
-     * 파티가 영영 안 열린다 — 그래서 그 하나에만 안내가 붙는다.
+     * 매력 투표가 닫힌 뒤 — 다음은 파티 시작이다. `partyAt` 이 예약이 되면서(ADR-93)
+     * 이 숫자도 나머지 셋과 같은 뜻이 됐다: **가만히 두면 그때 넘어간다.**
      */
     stubFetch(
       hostState({
@@ -361,8 +359,33 @@ describe("운영자 콘솔", () => {
     );
     renderConsole();
     await screen.findByText(phaseAction("party", { maxPre: 3, maxParty: 3 })!.btn);
-    expect(document.querySelector(".phaseBtn > .due")).toBeTruthy();
-    expect(screen.getByText(HOST_UI.dash.partyManual)).toBeTruthy();
+    expect(document.querySelector(".phaseBtn > .due"), "파티 시작 옆에 남은 시간이 없다").toBeTruthy();
+  });
+
+  /**
+   * ★ **파티 시작도 예약을 앞당기는 것이다** (ADR-93). 그래서 확인창에 얼마나 이른지가
+   * 나머지 둘과 똑같이 붙는다 — 예약이 없던 시절에는 이 줄이 못 서던 자리다.
+   */
+  it("★ 파티를 일찍 시작하면 얼마나 이른지 확인창에 적는다", async () => {
+    const soon = Date.now() + 30 * 60_000;
+    stubFetch(
+      hostState({
+        phase: "prevote",
+        schedule: { partyAt: soon, regOpenAt: Date.now() - 3 * HOUR, prevoteAt: Date.now() - 2 * HOUR },
+        fired: { reg: Date.now() - 3 * HOUR, prevote: Date.now() - 2 * HOUR, voteEnd: Date.now() - HOUR },
+      }),
+    );
+    renderConsole();
+
+    const copy = phaseAction("party", { maxPre: 3, maxParty: 3 })!;
+    fireEvent.click(await screen.findByText(copy.btn));
+    await screen.findByText(copy.title);
+    const line = schedDiff("party", {
+      atText: formatWhen(soon),
+      gapText: formatGap(soon - Date.now()),
+      direction: "early",
+    })!;
+    expect(screen.getByText(line[1])).toBeTruthy();
   });
 
   /**
@@ -974,11 +997,13 @@ describe("운영자 콘솔", () => {
       .filter((f) => f.querySelector('input[type="datetime-local"]'))
       .map((f) => f.querySelector("label")!.textContent);
     /*
-     * ⚠️ **파티 시작은 여기 없다** (ADR-54). 그것만 예약이 아니라(ADR-14)
-     * `기본 정보` 묶음에 있다 — 위저드 1스텝과 같은 자리다.
+     * ⚠️ **파티 시작은 여기 없다** (ADR-54) — 예약이 되고도(ADR-93) `기본 정보` 묶음에
+     * 남는다. 위저드 1스텝과 같은 자리라, 옮기면 만들 때와 고칠 때가 어긋난다.
+     *
+     * ⚠️ **등록 시작도 없다** (ADR-93). 회차를 만든 시각이라 고칠 수도 없고
+     * 운영자가 볼 일도 없었다 — 못 누르는 칸이 맨 위에 서서 나머지를 한 칸씩 밀었다.
      */
     expect(labels, "예약 묶음에 예약 아닌 칸이 있다").toEqual([
-      HOST_UI.fields.regOpenAt,
       HOST_UI.fields.prevoteAt,
       HOST_UI.fields.voteEndAt,
       HOST_UI.fields.revealAt,
@@ -1067,7 +1092,7 @@ describe("운영자 콘솔", () => {
 
     // 일정도 함께 굳는다 — 다른 묶음이라 옮겨가서 본다
     fireEvent.click(screen.getByText(HOST_UI.settings.schedule));
-    for (const label of [HOST_UI.fields.regOpenAt, HOST_UI.fields.prevoteAt]) {
+    for (const label of [HOST_UI.fields.prevoteAt, HOST_UI.fields.voteEndAt]) {
       expect((row(label).querySelector("input") as HTMLInputElement).disabled, label).toBe(true);
     }
     // 파티 시작도 굳는다 — 다만 `기본 정보` 묶음에 있다 (ADR-54)

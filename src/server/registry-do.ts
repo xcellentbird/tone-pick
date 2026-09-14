@@ -104,7 +104,7 @@ export class RegistryDO extends DurableObject {
     return offset;
   }
 
-  // ─────────────────────────── 운영자 PIN 시도 (ADR-93)
+  // ─────────────────────────── 운영자 PIN 시도 (ADR-94)
 
   /**
    * 이 접속지가 지금 PIN 을 대볼 수 있나. **대보는 것 자체를 한 번으로 센다** —

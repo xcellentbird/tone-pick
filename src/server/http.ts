@@ -194,7 +194,7 @@ export async function hostScope(c: Ctx): Promise<AuthScope | null> {
   return readSession(token, c.env.SESSION_SECRET, serverNow());
 }
 
-/** 운영자 로그인의 시도를 셀 때 쓰는 자리 이름 (ADR-93). 회차 아이디와 겹치지 않는다 — 그건 16자리 16진수다 */
+/** 운영자 로그인의 시도를 셀 때 쓰는 자리 이름 (ADR-94). 회차 아이디와 겹치지 않는다 — 그건 16자리 16진수다 */
 export const HOST_SCOPE = "host";
 
 /**

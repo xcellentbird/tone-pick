@@ -34,6 +34,71 @@ async function phaseNow(id: string): Promise<string> {
   return res.body.phase;
 }
 
+// ─────────────────────────────────────────── 파티 시작 예약
+
+/**
+ * **파티 일시가 파티를 연다** (ADR-93). 예전에는 운영자가 눌러야만 열렸다 (ADR-14) —
+ * 사람이 다 모였는지는 시계가 모른다는 이유였는데, 운영자가 **시각을 적어두고도 그 시각에
+ * 폰을 꺼내야 하는** 것이 실제로 더 자주 걸렸다.
+ *
+ * 버튼은 그대로 있다. 예약을 **앞당기는** 자리로 남고, 미룰 일이면 `partyAt` 을 고친다.
+ */
+describe("파티 시작 예약", () => {
+  it("★ 매력 투표 중에 파티 일시가 지나면 저절로 시작된다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await join(ev, { gender: "F" });
+    await setPhase(ev.id, "prevote");
+    expect((await putSchedule(ev.id, { partyAt: Date.now() - 1000 })).status).toBe(200);
+
+    expect(await phaseNow(ev.id), "시각이 지났는데 아직 매력 투표다").toBe("party");
+
+    /*
+     * **손으로 연 파티와 같아야 한다.** 단계만 넘어가고 나이·MBTI 가 안 열리면
+     * 예약으로 시작한 회차만 반쪽이 된다 (ADR-21).
+     */
+    const state = await api<ParticipantState>("/api/me", { cookie: me.cookie });
+    expect(state.body.roster[0]?.age, "나이가 안 열렸다").toBeGreaterThan(0);
+    expect(state.body.roster[0]?.mbti, "MBTI 가 안 열렸다").toBeTruthy();
+  });
+
+  /**
+   * **매력 투표를 건너뛰지 않는다.** 다른 전환들과 같은 규율이다 — 예약은 저마다
+   * *바로 앞 단계*에서만 울린다. 등록 중에 파티 일시가 지났다고 표 한 장 없이
+   * 파티로 뛰면 매력 투표가 통째로 사라진다.
+   */
+  it("★ 등록 중에는 파티 일시가 지나도 시작되지 않는다", async () => {
+    const ev = await freshEvent();
+    expect((await putSchedule(ev.id, { partyAt: Date.now() - 1000 })).status).toBe(200);
+
+    expect(await phaseNow(ev.id), "등록 중에 시계가 파티를 열었다").toBe("reg");
+  });
+
+  /** 예약은 한 번만 울린다 (ADR-2). `fired.party` 가 남아 있어 되돌려도 다시 안 민다 */
+  it("★ 되돌리면 예약이 다시 시작시키지 않는다", async () => {
+    const ev = await freshEvent();
+    await setPhase(ev.id, "prevote");
+    expect((await putSchedule(ev.id, { partyAt: Date.now() - 1000 })).status).toBe(200);
+    expect(await phaseNow(ev.id)).toBe("party");
+
+    await setPhase(ev.id, "prevote");
+    expect(await phaseNow(ev.id), "되돌리자마자 예약이 다시 밀었다").toBe("prevote");
+  });
+
+  /**
+   * **이제 아무 버튼도 안 눌러도 발표까지 간다.** 발표 예약이 `phase === "party"` 를
+   * 보는데(ADR-43), 그 `party` 를 시계가 놓을 수 있게 됐다 — 두 예약이 이어진다.
+   */
+  it("★ 파티도 발표도 예약만으로 이어진다", async () => {
+    const ev = await freshEvent();
+    await setPhase(ev.id, "prevote");
+    const past = Date.now() - 1000;
+    expect((await putSchedule(ev.id, { partyAt: past - HOUR, revealAt: past })).status).toBe(200);
+
+    expect(await phaseNow(ev.id), "두 예약이 이어지지 않았다").toBe("done");
+  });
+});
+
 // ─────────────────────────────────────────── 커플 발표 예약
 
 describe("커플 발표 예약", () => {

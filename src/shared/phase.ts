@@ -14,13 +14,21 @@ export function dueTransition(ev: EventMeta, now: number): Phase | null {
   if (phase === "prep" && schedule.regOpenAt && !fired.reg && now >= schedule.regOpenAt) return "reg";
   if (phase === "reg" && schedule.prevoteAt && !fired.prevote && now >= schedule.prevoteAt) return "prevote";
   /*
+   * 파티 시작 (ADR-93). **`phase === "prevote"` 에서만 울린다** — 등록 중에 파티 일시가
+   * 지났다고 뛰면 매력 투표가 통째로 사라진다. 예약은 저마다 *바로 앞 단계*에서만 운다.
+   *
+   * ADR-14 는 이걸 운영자의 버튼으로 뒀었다. 걷어낸 이유는 ADR-93 에 있다 —
+   * 요약하면 **시각을 적어두고도 그 시각에 폰을 꺼내야 하는** 쪽이 더 자주 걸렸다.
+   * 버튼은 남아 있고, 미룰 일이면 `partyAt` 을 고친다 (`schedLocked` 이 열어 둔다).
+   */
+  if (phase === "prevote" && schedule.partyAt && !fired.party && now >= schedule.partyAt) return "party";
+  /*
    * 커플 발표 (ADR-43). **`phase === "party"` 인 것이 이 줄의 전부다.**
    *
-   * ADR-14 가 막은 건 현장이 시계를 따라가는 것이고, 그중 가장 나쁜 건 아무도 안 온 자리에서
-   * 발표가 뜨는 것이다. 파티가 시작된 뒤에만 울리게 하면 그 일이 일어나지 않는다 —
-   * 운영자가 `파티 시작` 을 안 눌렀으면 이 시각이 지나도 아무 일이 없다.
+   * 막으려던 건 아무도 안 온 자리에서 발표가 뜨는 것이다. 파티가 시작된 뒤에만 울리게 하면
+   * 그 일이 일어나지 않는다 — 위의 파티 예약과 이어져야 여기까지 온다.
    *
-   * ⚠️ **`phase === "prevote"` 를 여기 더하지 마라.** 시계가 혼자 파티를 끝내게 된다.
+   * ⚠️ **`phase === "prevote"` 를 여기 더하지 마라.** 파티를 건너뛰고 발표가 뜬다.
    */
   if (phase === "party" && schedule.revealAt && !fired.done && now >= schedule.revealAt) return "done";
   return null;
@@ -37,13 +45,14 @@ export function dueTransition(ev: EventMeta, now: number): Phase | null {
  * 서버는 알람을 걸 때, 운영자 화면은 단계 버튼 옆 카운트다운에 쓴다 —
  * 그 버튼이 하는 일이 **이 시각을 앞당기는 것**이라 옆에 남은 시간이 함께 서야 말이 된다.
  *
- * 파티 시작(`prevote` → `party`)에는 예약이 없다 (ADR-14). 셀 것이 없는 게 맞다 —
- * 없는 시각을 지어내면 현장이 그 숫자를 따라가게 된다.
+ * 넷이 다 여기 있다 (ADR-93). 매력 투표 마감(`voteEndAt`)만 없는데, 그건 전환이 아니라
+ * **판정**이라서다 (ADR-39) — 단계가 안 바뀌니 걸 알람도 없다.
  */
 export function dueAt(ev: EventMeta): number | null {
   const { phase, fired, schedule } = ev;
   if (phase === "prep" && schedule.regOpenAt && !fired.reg) return schedule.regOpenAt;
   if (phase === "reg" && schedule.prevoteAt && !fired.prevote) return schedule.prevoteAt;
+  if (phase === "prevote" && schedule.partyAt && !fired.party) return schedule.partyAt;
   if (phase === "party" && schedule.revealAt && !fired.done) return schedule.revealAt;
   return null;
 }
