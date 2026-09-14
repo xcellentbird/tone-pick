@@ -226,9 +226,9 @@ export default function Settings() {
           </div>
           {/*
             **파티 시작이 여기 있다** (ADR-54) — 위저드 1스텝과 같은 자리다.
-            예약이 아니라 운영자가 현황 탭에서 누르는 것이고(ADR-14),
-            나머지 일정이 여기서 거꾸로 계산되는 기준점이다.
-            ⚠️ `예약` 묶음으로 되돌리지 마라 — 거기 있으면 저절로 넘어가는 줄로 읽힌다.
+            나머지 일정이 여기서 거꾸로 계산되는 기준점이라 **먼저 정해져야 하는 값**이다.
+            ⚠️ 예약이 된 뒤에도(ADR-92) `예약` 묶음으로 옮기지 마라 —
+            거기 있으면 자기 자신을 기준으로 계산하는 칸이 되고, 위저드와도 어긋난다.
           */}
           <When
             label={HOST_UI.fields.partyAt}
@@ -249,22 +249,19 @@ export default function Settings() {
       )}
 
       {/*
-        **예약. 위저드 2스텝과 같은 시간 순이다** — 등록 시작 → 매력 투표 시작 → 마감 → 커플 발표.
+        **예약. 위저드 2스텝과 같은 시간 순이다** — 매력 투표 시작 → 마감 → 커플 발표.
         두 화면이 다른 순서면 고치러 온 사람이 어느 칸인지 다시 찾는다.
-        (위저드에 없는 `등록 시작` 만 맨 앞에 더 있다. 이미 지나간 기록이라 늘 잠겨 있다.)
 
-        **파티 시작은 여기 없다** (ADR-54). 예약이 아니라 운영자가 누르는 것이라
-        `기본 정보` 묶음으로 갔다 — 위저드와 같은 자리다.
+        **파티 시작은 여기 없다** (ADR-54). 예약이 되고도(ADR-92) `기본 정보` 묶음에 남는다 —
+        위저드 1스텝과 같은 자리라, 옮기면 만들 때와 고칠 때가 어긋난다.
 
-        잠긴 줄도 지우지 않는다 — "예약은 21:00 이었는데 20:45 에 진행했다" 를 보여줄 수 있어야 한다.
+        **등록 시작도 없다** (ADR-92). 회차를 만든 시각이라(ADR-38) 고칠 수도 없고
+        운영자가 볼 일도 없었다 — 못 누르는 칸이 맨 위에 서서 나머지를 한 칸씩 밀었다.
+
+        잠긴 줄은 지우지 않는다 — "예약은 21:00 이었는데 20:45 에 진행했다" 를 보여줄 수 있어야 한다.
       */}
       {group === "schedule" && (
         <>
-          {/*
-            등록 시작은 **회차를 만든 시각**이라 늘 잠겨 있다 (ADR-38) —
-            고칠 길이 없으니 고치는 손잡이도 두지 않는다. 줄은 기록으로 남긴다.
-          */}
-          <When label={HOST_UI.fields.regOpenAt} value={schedule.regOpenAt} locked />
           <When
             label={HOST_UI.fields.prevoteAt}
             value={schedule.prevoteAt}
@@ -395,8 +392,11 @@ export default function Settings() {
 const GROUPS = ["identity", "schedule", "rules", "danger"] as const;
 type Group = (typeof GROUPS)[number];
 
-/** 예약 칸의 **시간 순.** 화면도 확인창도 이 순서를 쓴다 */
-const SCHED_ORDER = ["regOpenAt", "prevoteAt", "voteEndAt", "partyAt", "revealAt"] as const;
+/**
+ * 예약 칸의 **시간 순.** 화면도 확인창도 이 순서를 쓴다.
+ * `regOpenAt` 은 없다 (ADR-92) — 화면에 줄이 없으니 확인창에 뜰 일도 없다.
+ */
+const SCHED_ORDER = ["prevoteAt", "voteEndAt", "partyAt", "revealAt"] as const;
 
 function When({
   label,

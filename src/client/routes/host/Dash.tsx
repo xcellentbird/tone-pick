@@ -63,18 +63,17 @@ export default function Dash() {
    * |---|---|---|---|
    * | `prep`·`reg` | 등록/매력 투표 시작 | `dueAt` | 저절로 넘어간다 (알람) |
    * | `prevote` · 투표 열림 | **매력 투표 마감** | `voteEndAt` | 저절로 닫힌다 (ADR-39) |
-   * | `prevote` · 투표 닫힘 | 파티 시작 | `partyAt` | **아무 일도 없다** (ADR-14) |
+   * | `prevote` · 투표 닫힘 | 파티 시작 | `dueAt`(`partyAt`) | 저절로 넘어간다 (ADR-92) |
    * | `party` | 결과 발표 | `dueAt`(`revealAt`) | 저절로 넘어간다 (ADR-43) |
    *
-   * 마지막 줄만 `auto` 가 아니다. 그 하나 때문에 아래 안내가 붙는다 —
-   * 넷 다 저절로 넘어가는 줄로 읽으면 **파티가 영영 안 열린다.**
+   * **넷이 다 같다** (ADR-92). 파티 시작만 `아무 일도 없다` 였고 그래서 숫자 옆에
+   * 안내가 한 줄 붙어 있었는데, 예약이 되면서 그 예외가 없어졌다.
+   * 마감만 단계가 아니라 행동이라 `voteEnd` 로 따로 온다.
    */
-  const step: { to: Phase | "voteEnd"; at?: number; auto: boolean } =
+  const step: { to: Phase | "voteEnd"; at?: number } =
     meta.phase === "prevote" && !closed
-      ? { to: "voteEnd", at: meta.schedule.voteEndAt, auto: true }
-      : meta.phase === "prevote"
-        ? { to: "party", at: meta.schedule.partyAt, auto: false }
-        : { to: nextPhase!, at: dueAt(meta) ?? undefined, auto: true };
+      ? { to: "voteEnd", at: meta.schedule.voteEndAt }
+      : { to: nextPhase!, at: dueAt(meta) ?? undefined };
 
   const until = (step.at ?? 0) - now();
   const counting = until > 0;
@@ -118,11 +117,15 @@ export default function Dash() {
 
     const facts = [...copy.facts];
     /*
-     * 예약을 앞당기는 것이면 얼마나 이른지 한 줄 붙는다. 여기서 비교하는 건 둘이다 —
-     * 매력 투표 **시작**(ADR-38 이 등록 시작을 걷어내 하나가 됐다)과 **마감**(ADR-39 후기).
-     * 파티 시작에는 예약이 없고(ADR-14), 발표는 `revealAt` 이 있지만 이 버튼으로 앞당기지 않는다.
+     * 예약을 앞당기는 것이면 얼마나 이른지 한 줄 붙는다. 이제 셋이다 —
+     * 매력 투표 **시작** · **마감**(ADR-39 후기) · **파티 시작**(ADR-92 이 예약으로 만들었다).
+     * 발표는 `revealAt` 이 있지만 이 버튼으로 앞당기는 자리가 아니다.
      */
-    const scheduled = to === "prevote" ? meta.schedule.prevoteAt : to === "voteEnd" ? meta.schedule.voteEndAt : undefined;
+    const scheduled =
+      to === "prevote" ? meta.schedule.prevoteAt
+      : to === "voteEnd" ? meta.schedule.voteEndAt
+      : to === "party" ? meta.schedule.partyAt
+      : undefined;
     if (scheduled) {
       const gap = scheduled - now();
       const line = schedDiff(to, {
@@ -151,12 +154,6 @@ export default function Dash() {
           {counting && <span className="due">{remain(until)}</span>}
         </button>
       )}
-      {/*
-        **파티 시작 옆 숫자만 뜻이 다르다** — 나머지는 "가만히 두면 그때 넘어간다" 인데
-        이건 그냥 파티 일시다 (ADR-14). 그 사실을 여기서 말하지 않으면 넷 다 저절로
-        넘어가는 줄로 읽히고, 그러면 **파티가 영영 안 열린다.**
-      */}
-      {counting && !step.auto && <p className="tiny dim">{HOST_UI.dash.partyManual}</p>}
       {/* 마감된 뒤에는 **다음에 할 수 있는 일**을 말한다. 시각만으로는 무엇을 하라는지 모른다 */}
       {meta.phase === "prevote" && closed && <p className="tiny dim">{HOST_UI.dash.voteClosed}</p>}
       {/* 마감 시각이 없는 옛 회차 — 버튼을 눌러야 닫힌다는 걸 그 자리에서 알린다 */}
