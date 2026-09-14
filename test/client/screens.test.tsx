@@ -2743,7 +2743,7 @@ describe("내 정보 고치기", () => {
     const src = fakeSource({
       load: async () => participantState(reg),
       saveProfile: async () => {
-        throw new ApiError(409, "nick_taken", REGISTER.err.nickTaken("겹친닉"));
+        throw new ApiError(409, "nick_taken", REGISTER.err.nickTaken);
       },
     });
     renderMe(reg, src);
@@ -2753,7 +2753,7 @@ describe("내 정보 고치기", () => {
     fireEvent.change(input, { target: { value: "겹친닉" } });
     fireEvent.click(screen.getByText(BTN.save));
 
-    await screen.findByText(REGISTER.err.nickTaken("겹친닉"));
+    await screen.findByText(REGISTER.err.nickTaken);
     // 고치던 화면 그대로다 — 입력값이 살아 있어야 한 글자만 바꿔 다시 저장한다
     expect(input.value).toBe("겹친닉");
   });

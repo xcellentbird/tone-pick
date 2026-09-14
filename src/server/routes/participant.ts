@@ -172,7 +172,7 @@ participantRoutes.post("/register", async (c) => {
   if (!validPin(input.pin)) return apiError(c, "bad_request", ENTRY.pinFormat);
   // 회차 DO 는 요청을 순차 처리한다. 등록이 몰리는 순간을 위해 왕복을 한 번으로 줄였다
   const result = await eventStub(c.env, scope.eventId).registerAndLoad(input, scope.token, serverNow());
-  const { value, response } = unwrap(c, result, registerMessage(String(input.nickname ?? "")));
+  const { value, response } = unwrap(c, result, registerMessage);
   if (response) return response;
 
   /*
@@ -376,11 +376,10 @@ participantRoutes.put("/me", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");
   const input = (await c.req.json().catch(() => ({}))) as RegisterInput;
-  const nickTaken = registerMessage(String(input.nickname ?? ""));
   const { value, response } = unwrap(
     c,
     await seat.stub.editProfile(seat.playerId, input, serverNow()),
-    (error) => (error === "closed" ? ME.locked : nickTaken(error)),
+    (error) => (error === "closed" ? ME.locked : registerMessage(error)),
   );
   return response ?? c.json(value);
 });
