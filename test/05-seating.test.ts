@@ -303,15 +303,31 @@ describe("같은 성별 쌍은 나이차 벌점을 받지 않는다 (ADR-80)", (
   };
   const at = (seats: Seat[], id: string) => seats.find((s) => s.playerId === id)?.table;
 
-  it("★ 동성 콕 하나가 20살차를 이긴다 — 이성 쌍이 상수인 판", () => {
+  it("★ 동성 표 하나가 20살차를 이긴다 — 이성 쌍이 상수인 판", () => {
     const players = board(); // p0 = 20세 남 A · p4 = 40세 남 B
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
       const seats = buildSeating({
         players, tableCount: 2, round: 1, history: [],
-        votes: {}, pokes: sent(["p0", "p4", 1]), maxVote: 2, maxPoke: 2, seed,
+        votes: sent(["p0", "p4", 2]), pokes: {}, maxVote: 2, maxPoke: 2, seed,
       });
       expect({ seed, together: at(seats, "p0") === at(seats, "p4") }).toEqual({ seed, together: true });
     }
+  });
+
+  /**
+   * ★ **한쪽만 찌른 콕은 상호가 쌓이기 전에 자리를 못 움직인다** (ADR-91).
+   *
+   * 콕 가중치가 진행도에 비례하므로(`1.5 × 진행도`) 상호 쌍이 하나도 없는 판에서는 **0** 이다.
+   * 그래서 위 테스트가 콕이 아니라 표를 쓴다 — 표는 진행도와 무관하게 0.5 로 일정하다.
+   *
+   * 콕을 넣은 판과 안 넣은 판의 자리가 **글자 그대로 같아야** 한다. 이 줄이 깨지면
+   * `POKE_BASE` 가 0 이 아니게 된 것이다.
+   */
+  it("★ 상호가 없으면 한쪽 콕은 자리를 바꾸지 않는다", () => {
+    const players = board();
+    const seatFor = (pokes: Sent) =>
+      buildSeating({ players, tableCount: 2, round: 1, history: [], votes: {}, pokes, maxVote: 2, maxPoke: 2, seed: 3 });
+    expect(seatFor(sent(["p0", "p4", 1]))).toEqual(seatFor({}));
   });
 
   it("★ 콕이 없으면 동성 나이차는 자리를 가르지 않는다 — 20세끼리·40세끼리 붙는 건 시작점 때문이다", () => {
@@ -393,7 +409,7 @@ describe("동성 재회 벌점은 이성보다 가볍다 (ADR-81)", () => {
     }
   });
 
-  it("★ 이성 재회와 부딪히면 진다 — 지난 테이블의 남자 셋이 그대로 붙어 있다", () => {
+  it("★ 이성 재회를 만들어서라도 흩는다 — 지난 테이블의 남자 셋이 갈린다", () => {
     /*
      * 남자 여섯(전원 30세)·여자 둘(전원 45세)·2테이블 → 테이블마다 남 3 · 여 1.
      * 이성 쌍은 전부 15살 차라 상수고 새 만남도 없다. 1라운드에 {p0,p1,p2}+W1 · {p3,p4,p5}+W2 로 앉았다.
@@ -404,7 +420,10 @@ describe("동성 재회 벌점은 이성보다 가볍다 (ADR-81)", () => {
      *   셋 그대로 = 동성 6쌍       ·  섞기 = 동성 2쌍 + 이성 2쌍
      *
      * 동성 값이 무거우면 섞는 편이 싸서 셋이 흩어지고, 충분히 가벼우면 그대로다.
-     * **이 테스트가 상한을 잡는다** — 0.2 는 통과하고 **0.3 부터 빨개진다** (실측). 씨앗 8개 전부.
+     *
+     * ⚠️ **ADR-91 이 이걸 뒤집었다.** 예전에는 동성이 0.2 라 *이성 재회와 부딪히면 지는* 쪽이었고
+     * (ADR-81), 이 테스트가 `셋이 그대로 붙어 있다` 를 잠갔다. 지금은 0.5 에 상한도 없어서
+     * **어느 쪽이든 두 번째 만남이 비싸다** — 셋은 2+1 로 흩어진다. 씨앗 8개 전부.
      */
     const players = makePlayers(6, 2).map((pl, i) => ({ ...pl, age: i < 6 ? 30 : 45 }));
     const r1: Seat[] = [
@@ -417,7 +436,7 @@ describe("동성 재회 벌점은 이성보다 가볍다 (ADR-81)", () => {
         votes: {}, pokes: {}, maxVote: 2, maxPoke: 2, seed,
       });
       const trio = new Set(["p0", "p1", "p2"].map((id) => at(seats, id)));
-      expect({ seed, together: trio.size === 1 }).toEqual({ seed, together: true });
+      expect({ seed, split: trio.size > 1 }).toEqual({ seed, split: true });
     }
   });
 });
@@ -426,8 +445,8 @@ describe("재회 회피", () => {
   it("2라운드는 1라운드와 다른 자리를 만든다", () => {
     const players = makePlayers(10, 10);
     const [r1, r2] = runRounds(players, 5, 2);
-    // 이성 쌍만 센다 — 동성 재회 벌점은 1/3 이라(ADR-81) 여기 기준으로 삼을 크기가 아니다.
-    // 동성 쪽은 ADR-81 의 판 둘이 따로 잡는다
+    // 이성 쌍만 센다 — 동성 재회 벌점은 절반이라 여기 기준으로 삼을 크기가 아니다.
+    // 동성 쪽은 위 describe 의 판 둘이 따로 잡는다
     const by = new Map(players.map((p) => [p.id, p]));
     const met = (seats: Seat[]) => {
       const s = new Set<string>();
@@ -496,10 +515,18 @@ describe("서로 찌른 쌍", () => {
     expect(rate(rounds.at(-1)!, mutual)).toBeGreaterThan(rate(rounds[0], mutual));
   });
 
-  it("★ 라운드가 쌓여도 대부분은 붙어 있다 — 재회 벌점이 쌍을 떼지 않는다", () => {
+  /**
+   * ★ **새로 만날 사람이 고갈되면 쌍이 다시 붙는다** (ADR-57 의 성질, ADR-91 이후로 더 뚜렷하다).
+   *
+   * 재회 벌점이 상한 없이 자라면서 **중반에는 쌍이 거의 다 흩어진다** — 실측 R1 0.63 ·
+   * R2 0.00 · R3 0.25 · R4 1.00. 새 만남이 남아 있는 동안은 다양성이 이기고, 다 만나고 나면
+   * 흩을 이유가 없어져 전부 붙는다. **중반의 낮은 값은 의도한 것이라 여기서 재지 않는다** —
+   * 재는 것은 *끝에 가서 붙는가* 하나다.
+   */
+  it("★ 만날 사람이 고갈된 뒤에는 쌍이 전부 붙는다", () => {
     const { players, mutual, pokes } = fixture();
-    const last = runRounds(players, 4, 3, { pokes }).at(-1)!;
-    expect(rate(last, mutual)).toBeGreaterThanOrEqual(0.7);
+    const last = runRounds(players, 4, 4, { pokes }).at(-1)!;
+    expect(rate(last, mutual)).toBeGreaterThanOrEqual(0.9);
   });
 
   it("쌍을 붙여도 성비는 그대로다", () => {
@@ -751,7 +778,7 @@ describe("어느 라운드가 마지막이 되어도 (ADR-57)", () => {
     }).filter((x): x is number => x !== null);
 
     expect(rates.length).toBeGreaterThan(SEEDS.length / 2);
-    // 확률적 규칙이라 씨앗 하나로는 못 잰다 — 평균으로 본다 (실측 0.97)
+    // 확률적 규칙이라 씨앗 하나로는 못 잰다 — 평균으로 본다 (실측 1.00, ADR-91 이후)
     expect(rates.reduce((a, b) => a + b, 0) / rates.length).toBeGreaterThanOrEqual(0.9);
   });
 
