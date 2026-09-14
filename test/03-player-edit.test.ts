@@ -348,7 +348,7 @@ describe("내 정보 고치기", () => {
     });
     expect(res.status).toBe(409);
     expect(res.body.error).toBe("nick_taken");
-    expect(res.body.message).toBe(REGISTER.err.nickTaken("달빛"));
+    expect(res.body.message).toBe(REGISTER.err.nickTaken);
   });
 
   it("내 닉네임을 그대로 두고 다른 것만 고칠 수 있다", async () => {

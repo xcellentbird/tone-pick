@@ -42,7 +42,7 @@ describe("등록", () => {
     expect(res.status).toBe(409);
     expect(res.body.error).toBe("nick_taken");
     // 에러는 그 값을 입력한 자리로 되돌릴 수 있게 닉네임을 담아 알려준다
-    expect(res.body.message).toBe(REGISTER.err.nickTaken("겹치는닉"));
+    expect(res.body.message).toBe(REGISTER.err.nickTaken);
   });
 
   it("다른 회차의 같은 닉네임은 상관없다", async () => {

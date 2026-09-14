@@ -34,9 +34,8 @@ export function enterMessage(error: string, detail?: number): string | undefined
   return undefined;
 }
 
-export function registerMessage(nickname: string) {
-  return (error: string): string | undefined =>
-    error === "nick_taken" ? REGISTER.err.nickTaken(nickname) : undefined;
+export function registerMessage(error: string): string | undefined {
+  return error === "nick_taken" ? REGISTER.err.nickTaken : undefined;
 }
 
 /**
