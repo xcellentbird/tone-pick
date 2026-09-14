@@ -243,12 +243,13 @@ export const REGISTER = {
     nickChars: "닉네임에는 한글·영문만 쓸 수 있어요.",
     name: "이름(실명)을 입력해주세요.",
     nameDigit: "이름에는 숫자를 쓸 수 없어요.",
-    age: "나이는 18~99 사이로 입력해주세요.",
+    /** 범위는 `AGE_RANGE` 가 정한다 — 문구가 규칙보다 넓게 말하면 그 순간부터 거짓말이다 */
+    age: (min: number, max: number) => `나이는 ${min}~${max} 사이로 입력해주세요.`,
     gender: "성별을 선택해주세요.",
     /** 전화번호 오류 문구는 여기 없다 — 번호는 입장 확인창(`ENTRY`)이 받고, 등록 폼에는 칠 칸이 없다 (ADR-31·75) */
     /** 인스타는 필수다 — **운영자가 사람을 확인하는 자리**라서다 (ADR-42) */
     instaRequired: "인스타 아이디를 입력해주세요.",
-    insta: "인스타 아이디는 영문·숫자·마침표·밑줄만 쓸 수 있어요.",
+    insta: "인스타 아이디는 영문, 숫자, 마침표, 밑줄만 쓸 수 있어요.",
     instaLen: (max: number) => `인스타 아이디는 ${max}자까지예요.`,
     pin: "PIN 번호는 숫자 4자리예요.",
     nameLen: (max: number) => `이름은 ${max}자까지예요.`,
@@ -894,6 +895,7 @@ export const FORTUNE = {
   /** 띠 이름. 순서는 `animalIndex` (0=쥐 … 11=돼지) 와 맞물린다 */
   animal: ["쥐", "소", "호랑이", "토끼", "용", "뱀", "말", "양", "원숭이", "닭", "개", "돼지"],
 
+  // korean-ok-start — LLM 프롬프트다. 화면 문구가 아니라 검사에서 뺀다
   prompt: {
     /**
      * ⚠️ **모호하게 쓰라고 하지 마라** (ADR-60).
@@ -978,6 +980,7 @@ export const FORTUNE = {
       );
     },
   },
+  // korean-ok-end
 
   /**
    * LLM 없이 만드는 문구. 키가 없을 때만 쓰는 임시가 아니라,
@@ -1021,6 +1024,7 @@ export const FORTUNE = {
  * 화면에서는 여전히 **운세 카드 안**에 있다. 호출이 둘이라고 카드가 둘일 이유는 없다.
  */
 export const MISSION = {
+  // korean-ok-start — LLM 프롬프트다. 화면 문구가 아니라 검사에서 뺀다
   prompt: {
     system:
       "당신은 오늘 파티에 가는 사람에게 **오늘 그 자리에서 해볼 행동 하나**를 정해 주는 사람입니다.\n" +
@@ -1083,6 +1087,7 @@ export const MISSION = {
       `본인이 쓴 매력: ${v.charms.join(" / ")}\n\n` +
       `방금 이 사람이 읽은 운세 한 줄\n${v.fortune.headline}`,
   },
+  // korean-ok-end
   /**
    * LLM 이 없어도 미션은 떠야 한다. **지금 이 파티장 안에서** 하는 동작 하나 —
    * 마음가짐("편하게 있어보세요")도, 나중에 할 일도 미션이 아니다.
@@ -1236,6 +1241,12 @@ export const NOTICE = {
     title: "파티가 시작됐어요",
     body: `파티 라운드 콕 ${maxParty}회를 새로 받았어요`,
   }),
+  /**
+   * 운영자가 보낸 것 (슬라이스 14·27). 설문은 홈에 카드로 따로 그리므로 이 줄은 **배너용**이다 —
+   * 3분 안이면 배너로 뜨고, 누르면 홈으로 간다. 배너에 답 버튼은 없다(사라지는 것 위에 손가락을 올리지 않는다).
+   */
+  poll: { icon: "📋", title: "운영자가 설문을 보냈어요" },
+  announce: { icon: "📢", title: "운영자 알림" },
   done: {
     icon: "🎊",
     title: "결과가 발표됐어요",
@@ -1245,6 +1256,16 @@ export const NOTICE = {
      */
     body: "참가자 탭에서 확인해보세요",
   },
+} as const;
+
+/**
+ * 참가자 홈의 설문 카드 (슬라이스 27, ADR-88). **숫자가 없다** — 몇 명이 골랐는지는 참가자가 알 일이 아니다.
+ * 선택지 둘이 버튼이고, 마감되면 버튼 대신 내 답만 남는다.
+ */
+export const POLL = {
+  section: "설문",
+  closed: "마감됐어요",
+  closedMine: (answer: string) => `마감됐어요. 내 답은 '${answer}'`,
 } as const;
 
 // ─────────────────────────────────────────── 운영자 · 단계 전환
@@ -1469,7 +1490,7 @@ export const HOST = {
      * `AI 섞기` 를 눌렀을 때. **무엇을 다시 쟀는지 말한다** — 옆의 랜덤 섞기와
      * 결과가 비슷해 보이는 날이 있어서, 다르게 계산했다는 말이 없으면 같은 버튼으로 보인다.
      */
-    reseated: "끌림·재회·공정성을 다시 재서 앉혔어요",
+    reseated: "끌림과 재회, 공정성을 다시 계산해서 앉혔어요",
     /**
      * 붙어 앉은 쌍이 있는 초안에 `AI 섞기` 를 눌렀을 때.
      *
@@ -1797,13 +1818,19 @@ export const HOST_UI = {
      */
     ages: {
       /**
-       * `26~34세 · 중앙 29세` — 나이대와 중앙값을 **한 줄로** 준다. 가운뎃점까지 여기 있다.
+       * `26~34세 · 평균 29.7세` — 나이대와 평균을 **한 줄로** 준다. 가운뎃점까지 여기 있다.
        *
-       * **나이가 하나뿐이면 `30세` 로 끝난다.** `30~30세 · 중앙 30세` 는 같은 말을 세 번 하는
+       * **평균이다** (ADR-86 후기). 중앙값으로 시작했던 건 장난으로 적은 한 살이 평균을
+       * 세 살씩 밀어서였는데, 등록 상한이 48 로 내려가며(ADR-87) 그 값이 애초에 못 들어온다.
+       *
+       * **소수 한 자리를 남긴다** — 정수로 자르면 27.5 와 27.0 이 같아 보여서 두 줄을 견줄 수 없다.
+       * 마침 떨어지면 `.0` 은 달지 않는다.
+       *
+       * **나이가 하나뿐이면 `30세` 로 끝난다.** `30~30세 · 평균 30세` 는 같은 말을 세 번 하는
        * 것이고, 범위가 없는 것을 범위처럼 적으면 읽는 사람이 폭을 한 번 재보게 된다.
        */
-      summary: (min: number, max: number, median: number) =>
-        min === max ? `${min}세` : `${min}~${max}세 · 중앙 ${median}세`,
+      summary: (min: number, max: number, mean: number) =>
+        min === max ? `${min}세` : `${min}~${max}세 · 평균 ${mean}세`,
     },
     /**
      * 참가자 PIN 번호 (ADR-75). **`참가자` 가 앞에 붙는다** — 운영자 PIN 과 같은 화면에 서는 자리라
@@ -1811,6 +1838,20 @@ export const HOST_UI = {
      */
     pinLabel: "참가자 PIN 번호",
     pinState: { set: "정함", none: "안 정함", locked: "잠김" } as Record<PinState, string>,
+    /**
+     * 떨어뜨려 앉히기 (ADR-90). **운영자 문구에만 있다** — 참가자는 이런 기능이 있는지 모른다.
+     * 참가자 쪽 문구(등록·도움말·알림)로 옮기지 마라. `test/33-keep-apart.test.ts` 가 `HOST_UI` 밖을 훑는다.
+     *
+     * 사유를 적는 칸도, 누가 부탁했는지도 없다 — 쌍에는 방향이 없다.
+     * 운영자에게도 요약 문구(`N쌍을 못 떼었어요`)를 두지 않는다. 자리 칩이 말한다 (`seats.apartNote`).
+     */
+    apart: {
+      title: "떨어뜨려 앉히기",
+      add: "떨어뜨릴 사람 고르기",
+      remove: "빼기",
+      pickTitle: (nickname: string) => `${nickname} 님과 떨어뜨릴 사람`,
+      noOne: "더 고를 사람이 없어요",
+    },
     pinReset: "참가자 PIN 번호 초기화",
     pinResetTitle: "PIN 번호를 초기화할까요?",
     /** 초기화는 지우기만 한다 — 새 값은 참가자가 정한다. 콕·자리가 그대로라는 것도 여기서 말한다 */
@@ -1865,6 +1906,46 @@ export const HOST_UI = {
     tooMany: (max: number) => `한 회차에 최대 ${max}명까지 넣을 수 있어요.`,
     /** 명단에서 빼도 이미 등록한 사람은 그대로 남는다 — 지우는 건 참가자 삭제다 */
     removeNote: "이미 등록한 사람은 명단에서 빼도 파티에 남아 있어요.",
+  },
+
+  /**
+   * 설문 탭 (슬라이스 27, ADR-88). 두 선택지 설문을 보내고, 누가 무엇을 골랐는지 본다.
+   *
+   * `설문` 이라고 부른다 — `투표` 는 매력 투표가 이미 쓰는 말이라 두 화면이 같은 사건처럼 읽힌다.
+   * 뒤풀이 수요조사가 첫 쓰임이라 힌트 문구가 그 예를 든다.
+   */
+  polls: {
+    empty: "아직 보낸 설문이 없어요",
+    newBtn: "새 설문",
+    question: "질문",
+    questionHint: "예) 2차 뒷풀이 가실 분?",
+    optionA: "선택지 1",
+    optionB: "선택지 2",
+    optionHintA: "예) 갈래요",
+    optionHintB: "예) 못 가요",
+    send: "설문 보내기",
+    /** 시나리오 14 의 첫 규칙 — 코드가 못 막는 것을 이 한 줄이 막는다. 은유 없이 그대로 말한다 */
+    note: "등록한 참가자 모두에게 바로 보여요. 참가자 이름을 고르게 하는 설문은 만들지 마세요.",
+    open: "진행 중",
+    closedBadge: "마감",
+    /** 목록 카드의 한 줄. 선택지 이름이 곧 답이라 그대로 쓴다 */
+    summary: (aLabel: string, a: number, bLabel: string, b: number, rest: number) =>
+      `${aLabel} ${a}명 / ${bLabel} ${b}명 / 미응답 ${rest}명`,
+    back: "설문 목록",
+    /** 셋째 칩. `아직` 은 무엇이 아직인지 말하지 않아서 설문 화면에서 흔히 쓰는 말로 */
+    notYet: "미응답",
+    noOne: "아직 아무도 답하지 않았어요",
+    emptyFiltered: "이 답을 고른 사람이 없어요",
+    everyoneAnswered: "모두 답했어요",
+    close: "마감하기",
+    reopen: "다시 열기",
+    remove: "지우기",
+    removeTitle: "이 설문을 지울까요?",
+    removeFacts: (answers: number): Fact[] => [
+      ["받은 답", `${answers}개 → 사라져요`],
+      ["참가자 화면", "설문이 사라져요"],
+    ],
+    removeNote: "지운 설문은 되돌릴 수 없어요.",
   },
 
   seats: {
@@ -1994,6 +2075,13 @@ export const HOST_UI = {
      */
     pairChip: (together: number) => (together > 1 ? `💘×${together}` : together > 0 ? "💘" : "💔"),
     pairChipNote: (together: number) => (together > 0 ? "짝과 함께" : "짝 따로"),
+    /**
+     * 떼어 놓을 상대와 같은 테이블에 앉은 자리 칩 (ADR-90). **알리는 자리는 칩 하나다** —
+     * 요약 문구·토스트·테이블 머리글을 두지 않는다. 그림만으로 말하지 않게 둘째 줄에 누구와 걸리는지 적는다.
+     */
+    apartChip: "⛔",
+    // 여럿이면 쉼표로 잇는다 — 가운뎃점으로 셋 이상을 이으면 번역투다 (ADR-89)
+    apartNote: (nicknames: string[]) => `${nicknames.join(", ")} 님과 떨어뜨려야 해요`,
     /** 붙어 앉은 쌍을 떼는 맞교환. 막지는 않는다 — 현장 사정은 운영자가 안다 */
     breakTitle: "이 맞교환은 이어진 쌍을 떼어놓습니다",
     breakNote: "서로 콕을 주고받아 같은 테이블에 앉은 쌍이에요.\n그래도 바꾸시겠어요?",
@@ -2189,5 +2277,7 @@ export const TABS_HOST = [
   { key: "dash", label: "현황", path: "" },
   { key: "players", label: "참가자", path: "players" },
   { key: "seats", label: "자리", path: "seats" },
+  /** 설문 탭 (슬라이스 27). 자리 옆이다 — 파티 중에 쓰는 둘이 나란히 선다 */
+  { key: "polls", label: "설문", path: "polls" },
   { key: "settings", label: "설정", path: "settings" },
 ] as const;

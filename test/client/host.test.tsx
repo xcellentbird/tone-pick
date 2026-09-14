@@ -69,6 +69,7 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
     seatings: [],
     invites: [],
     announcements: [],
+    apart: [],
     ...more,
   };
 }
@@ -1572,9 +1573,10 @@ describe("참가자 탭 · 나이 띠", () => {
   /**
    * ★ **남녀 나이가 얼마나 겹치는지 눈으로 본다.**
    *
-   * 운영자가 조절하려는 것은 *남녀 나이차* 인데, 평균 비교는 그 답을 못 준다 —
+   * 운영자가 조절하려는 것은 *남녀 나이차* 인데, 숫자 하나로는 그 답을 못 준다 —
    * 쌍봉이면 평균 차이가 0 으로 나오고, 다 겹치는 판이 한쪽 끝에 혼자 있는 판보다
-   * 평균 차이가 더 크게 나온다. 그래서 **같은 축 위의 띠 두 줄**로 보여준다.
+   * 평균 차이가 더 크게 나온다. 그래서 **같은 축 위의 띠 두 줄**로 보여주고,
+   * 숫자는 그 옆에 거드는 자리다 (ADR-86 후기 — 중앙값에서 평균으로).
    *
    * 인원 수는 여기 없다 — 바로 위 성별 칩이 이미 말한다.
    */
@@ -1596,17 +1598,30 @@ describe("참가자 탭 · 나이 띠", () => {
     return { left: i.style.left, width: i.style.width };
   }
 
-  it("★ 남녀 각각 나이대와 중앙값이 보인다", async () => {
+  it("★ 남녀 각각 나이대와 평균이 보인다", async () => {
     stubFetch(hostState({}, {
       players: [mk("a", 26, "M"), mk("b", 29, "M"), mk("c", 34, "M"),
                 mk("d", 23, "F"), mk("e", 27, "F"), mk("f", 31, "F")],
     }));
     renderPlayers("/host/e1/players");
-    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29));
+    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29.7));
 
     // **줄마다** 본다 — 두 줄을 한꺼번에 훑으면 남녀가 뒤바뀌어도 통과한다
-    expect(within(row(GENDER.M)).getByText(HOST_UI.players.ages.summary(26, 34, 29))).toBeTruthy();
+    expect(within(row(GENDER.M)).getByText(HOST_UI.players.ages.summary(26, 34, 29.7))).toBeTruthy();
     expect(within(row(GENDER.F)).getByText(HOST_UI.players.ages.summary(23, 31, 27))).toBeTruthy();
+  });
+
+  it("★ 평균은 한 자리까지 남긴다 — 정수로 자르면 두 줄이 같아 보인다", async () => {
+    // 남 27.5 · 여 27.0. 반올림해 버리면 둘 다 `28세` 와 `27세` 로 갈리거나 같아진다
+    stubFetch(hostState({}, {
+      players: [mk("a", 27, "M"), mk("b", 28, "M"), mk("d", 26, "F"), mk("e", 28, "F")],
+    }));
+    renderPlayers("/host/e1/players");
+    await waitFor(() => expect(card()).toBeTruthy());
+
+    expect(within(row(GENDER.M)).getByText(HOST_UI.players.ages.summary(27, 28, 27.5))).toBeTruthy();
+    // 27.0 은 `.0` 을 달지 않는다
+    expect(within(row(GENDER.F)).getByText(HOST_UI.players.ages.summary(26, 28, 27))).toBeTruthy();
   });
 
   it("★ 두 띠가 같은 축을 쓴다 — 그래야 겹침이 보인다", async () => {
@@ -1615,7 +1630,7 @@ describe("참가자 탭 · 나이 띠", () => {
                 mk("d", 23, "F"), mk("e", 27, "F"), mk("f", 31, "F")],
     }));
     renderPlayers("/host/e1/players");
-    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29));
+    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29.7));
 
     /*
      * 축은 23~34 (폭 11). 줄마다 제 범위로 늘이면 두 띠가 똑같이 꽉 차서
@@ -1643,5 +1658,83 @@ describe("참가자 탭 · 나이 띠", () => {
 
     // 여성 줄을 빈 띠로 두면 `0명` 이 아니라 `0세` 로 읽힌다
     expect(card().querySelectorAll(".ageRow")).toHaveLength(1);
+  });
+});
+
+/**
+ * 떨어뜨려 앉히기 (ADR-90, 슬라이스 33). **운영자 화면에만 있다.**
+ *
+ * 알리는 자리는 **자리 칩 하나**다 — 요약 문구·토스트·테이블 머리글이 없다.
+ * 되돌릴 수 있는 일이라 넣기도 빼기도 확인창이 없다 (ADR-6).
+ */
+describe("떨어뜨려 앉히기", () => {
+  const published = (seats: SeatingRound["seats"]): SeatingRound => ({
+    round: 1, tableCount: 2, status: "published", seats, acks: [], createdAt: 1, publishedAt: 1,
+  });
+
+  it("★ 떼어 놓을 상대와 같은 테이블이면 두 사람 자리 칩에만 ⛔ 와 상대 닉네임이 뜬다", async () => {
+    stubFetch(
+      hostState(
+        { phase: "party" },
+        { seatings: [published([{ playerId: "p1", table: 1 }, { playerId: "p2", table: 1 }])], apart: [["p1", "p2"]] },
+      ),
+    );
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(1));
+
+    const chips = [...document.querySelectorAll(".seatChip")];
+    const chipOf = (nick: string) => chips.find((c) => c.textContent?.includes(nick) && c.querySelector(".ellipsis")?.textContent?.endsWith(nick))!;
+    expect(chipOf("가").textContent).toContain(HOST_UI.seats.apartChip);
+    expect(chipOf("가").textContent, "그림만으로 말했다").toContain(HOST_UI.seats.apartNote(["나"]));
+    expect(chipOf("나").textContent).toContain(HOST_UI.seats.apartNote(["가"]));
+    // 칩 밖 어디에도 없다 — 요약 문구·머리글을 두지 않는다
+    const outside = document.body.textContent!.split(HOST_UI.seats.apartChip).length - 1;
+    expect(outside, "칩 밖에 ⛔ 가 있다").toBe(2);
+  });
+
+  it("★ 다른 테이블이면 아무 표시도 없다", async () => {
+    stubFetch(
+      hostState(
+        { phase: "party" },
+        { seatings: [published([{ playerId: "p1", table: 1 }, { playerId: "p2", table: 2 }])], apart: [["p1", "p2"]] },
+      ),
+    );
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(1));
+    expect(document.body.textContent).not.toContain(HOST_UI.seats.apartChip);
+  });
+
+  it("★ 상세 시트에서 고르면 그 쌍으로 간다 — 확인창 없이", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/players/p1");
+
+    fireEvent.click(await screen.findByText(HOST_UI.players.apart.add));
+    await screen.findByText(HOST_UI.players.apart.pickTitle("가"));
+    const sheet = screen.getByRole("dialog", { name: HOST_UI.players.apart.pickTitle("가") });
+    // 자기 자신은 고를 수 없다
+    expect(within(sheet).queryByText(`김가 · 가 · ${UNIT.age(28)}`)).toBeNull();
+    fireEvent.click(within(sheet).getByText(`김나 · 나 · ${UNIT.age(27)}`));
+
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/host/events/e1/apart"))).toBe(true));
+    expect(calls.find((c) => c.url.endsWith("/host/events/e1/apart"))!.body).toEqual({ a: "p1", b: "p2" });
+    expect(document.querySelector(".dialog"), "되돌릴 수 있는데 확인창이 떴다").toBeNull();
+    expect(document.querySelector(".toast"), "줄이 생기는 것이 알림인데 토스트가 떴다").toBeNull();
+  });
+
+  it("★ 이미 넣은 쌍은 상세 시트에 줄로 있고, 빼기도 확인창 없이 간다", async () => {
+    stubFetch(hostState({}, { apart: [["p1", "p2"]] }));
+    renderConsole("/host/e1/players/p2");
+
+    await screen.findByText("김가 · 가");
+    fireEvent.click(screen.getByText(HOST_UI.players.apart.remove));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/host/events/e1/apart/p2/p1"))).toBe(true));
+    expect(document.querySelector(".dialog")).toBeNull();
+  });
+
+  it("★ 발표 뒤에는 더하는 버튼이 없다", async () => {
+    stubFetch(hostState({ phase: "done" }));
+    renderConsole("/host/e1/players/p1");
+    await screen.findByText(HOST_UI.players.apart.title);
+    expect(screen.queryByText(HOST_UI.players.apart.add)).toBeNull();
   });
 });

@@ -610,16 +610,16 @@ export interface Announcement {
   at: number;
   /** 텍스트 알림이면 이게 전부. 투표면 질문이다 */
   text: string;
-  /** 있으면 A/B 투표다. **선택지에 사람을 넣지 마라** — 시나리오 14 의 첫 규칙이다 */
+  /** 있으면 두 선택지 설문이다. **선택지에 사람을 넣지 마라** — 시나리오 14 의 첫 규칙이다 */
   poll?: { a: string; b: string; closedAt?: number };
 }
 
 /**
  * 참가자에게 내려가는 모양.
  *
- * **누가 무엇을 골랐는지는 여기 없다** — 숫자 둘과 *내* 선택뿐이다.
- * 한 사람 한 표를 지키려 `playerId → choice` 를 저장하긴 하지만,
- * 그 짝은 **어떤 응답에도 실리지 않는다. 운영자 응답에도.**
+ * **남의 답도, 몇 명이 골랐는지도 여기 없다** (ADR-88). 선택지 둘과 *내* 답, 마감 여부뿐이다.
+ * 숫자를 빼는 이유는 둘이다 — 참가자에게는 필요한 정보가 아니고(운영자가 정하려고 묻는 것이다),
+ * 사람을 묻는 설문이 올라왔을 때 `27 대 1` 이 화면에서 흉기가 되는 일을 처음부터 막는다.
  * 응답에 없으면 화면이 실수로라도 보여줄 수 없다.
  */
 export interface PublicAnnouncement {
@@ -629,19 +629,25 @@ export interface PublicAnnouncement {
   poll?: {
     a: string;
     b: string;
-    count: { a: number; b: number };
     /** 아직 안 골랐으면 없다 */
     mine?: PollChoice;
     closed: boolean;
   };
 }
 
-/** 운영자 화면용. 집계만 더 붙는다 — 표의 주인은 여전히 아무 데도 안 나온다 */
+/**
+ * 운영자 화면용 (ADR-88). **누가 무엇을 골랐는지가 여기 실린다** — `choices` 는 참가자 아이디 → 답이다.
+ * 뒤풀이 인원을 세려면 몇 명이 아니라 **누가** 간다고 했는지 알아야 한다. 운영자의 공개 범위는
+ * 원래 전체라(원칙 2) 새 권한이 아니다. 참가자 응답(`PublicAnnouncement`)에는 여전히 없다.
+ *
+ * 나간 사람의 답은 세지 않는다 — `choices` 도 `count` 도 지금 있는 사람만이다 (ADR-29 와 같은 정리).
+ */
 export interface HostAnnouncement extends Announcement {
   count: { a: number; b: number };
+  choices: Record<string, PollChoice>;
 }
 
-/** 운영자가 보낼 때 넘기는 값. `poll` 이 없으면 텍스트 알림이다 */
+/** 운영자가 보낼 때 넘기는 값. `poll` 이 없으면 텍스트 알림이다 (화면은 아직 설문만 만든다 — 슬라이스 27) */
 export interface AnnounceInput {
   text: string;
   poll?: { a: string; b: string };
@@ -708,6 +714,11 @@ export interface HostState {
   invites: Invite[];
   /** 운영자가 보낸 알림. 최신순 */
   announcements: HostAnnouncement[];
+  /**
+   * 같은 테이블에 앉히지 않을 쌍 (ADR-90). **운영자 응답에만 있다** — 참가자는 이런 기능이 있는지 모른다.
+   * 방향이 없다: 한 쌍 안의 두 아이디는 정렬돼 있고 순서는 아무 뜻이 없다.
+   */
+  apart: Array<[string, string]>;
 }
 
 /**
