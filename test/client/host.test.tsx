@@ -1578,7 +1578,7 @@ describe("참가자 탭 · 나이 띠", () => {
    * 평균 차이가 더 크게 나온다. 그래서 **같은 축 위의 띠 두 줄**로 보여주고,
    * 숫자는 그 옆에 거드는 자리다 (ADR-86 후기 — 중앙값에서 평균으로).
    *
-   * 인원 수는 여기 없다 — 바로 위 성별 칩이 이미 말한다.
+   * 인원 수는 여기 없다 — 바로 아래 성별 칩이 이미 말한다.
    */
   const mk = (id: string, age: number, gender: "M" | "F") => ({
     id, nickname: id, realName: `김${id}`, age, gender,
@@ -1588,7 +1588,7 @@ describe("참가자 탭 · 나이 띠", () => {
 
   /**
    * 성별 줄 하나를 집어온다 — 어느 줄에 무엇이 적혔는지까지 봐야 한다.
-   * **띠 카드 안으로 좁힌다** — `남성`·`여성` 은 바로 위 필터 칩에도 있다.
+   * **띠 카드 안으로 좁힌다** — `남성`·`여성` 은 바로 아래 필터 칩에도 있다.
    */
   const card = () => document.querySelector<HTMLElement>(".ageBand")!;
   const row = (label: string) => within(card()).getByText(label).closest<HTMLElement>(".ageRow")!;
@@ -1649,6 +1649,22 @@ describe("참가자 탭 · 나이 띠", () => {
     for (const g of [GENDER.M, GENDER.F]) expect(band(g).width).not.toBe("0%");
     // 범위가 없으면 범위처럼 적지 않는다 — `30~30세 · 중앙 30세` 는 같은 말을 세 번 한다
     expect(within(row(GENDER.M)).getByText(UNIT.age(30))).toBeTruthy();
+  });
+
+  it("★ 띠는 성별 칩 **위**에 있다 — 칩 아래에는 칩이 거르는 것만 온다", async () => {
+    stubFetch(hostState({}, { players: [mk("a", 26, "M"), mk("d", 31, "F")] }));
+    renderPlayers("/host/e1/players");
+    await waitFor(() => expect(card()).toBeTruthy());
+
+    /*
+     * 띠는 **필터를 안 탄다** — `남성` 을 눌러도 두 줄이 그대로다. 그런 것이 칩과 목록
+     * 사이에 끼면 칩이 가리키는 곳이 칩이 거르는 것이 아니게 된다.
+     *
+     * `Node.DOCUMENT_POSITION_FOLLOWING` = 4. 앞뒤만 재고 **누가 누구의 형제인지는
+     * 묻지 않는다** — 사이에 무엇을 더 끼워도 순서만 맞으면 통과한다.
+     */
+    const chips = document.querySelector<HTMLElement>(".choice")!;
+    expect(card().compareDocumentPosition(chips) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("★ 한쪽 성별만 있으면 그 줄만 선다", async () => {

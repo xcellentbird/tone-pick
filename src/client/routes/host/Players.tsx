@@ -306,6 +306,25 @@ export default function Players() {
         <span className="dim">{"›"}</span>
       </button>
 
+      {/*
+        **나이 띠** (ADR-86) — 운영자가 남녀 나이차를 눈으로 재는 자리다.
+
+        **성별 칩 위**에 둔다 (ADR-86 후기). 띠는 필터를 타지 않아서 — `남성` 을 눌러도 두 줄이
+        그대로다 — 칩과 목록 사이에 끼면 **칩이 가리키는 곳이 칩이 거르는 것이 아니게 된다.**
+        칩 아래는 칩이 거르는 것만의 자리다.
+
+        인원 수는 여기 없다 — 바로 아래 칩이 말한다. 평균 *차이* 도 없다: 운영자가 답하려는
+        질문은 *두 쪽이 겹치는가* 인데 그 숫자는 쌍봉을 0.0 으로 적어 거짓말을 한다.
+        겹침은 **띠가 말한다** — 그래서 두 줄이 같은 축을 쓴다.
+      */}
+      {ageAxis && (
+        <div className="card ageBand">
+          {ageAxis.rows.map(([g, ages]) => (
+            <AgeRow key={g} gender={g} ages={ages} lo={ageAxis.lo} span={ageAxis.span} />
+          ))}
+        </div>
+      )}
+
       {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
       <div className="choice">
         {(
@@ -320,22 +339,6 @@ export default function Players() {
           </button>
         ))}
       </div>
-
-      {/*
-        **나이 띠** (ADR-86) — 운영자가 남녀 나이차를 눈으로 재는 자리다. 성별 칩 바로 아래에 둔다:
-        칩이 *몇 명인가* 를 말하고 이 띠가 *어느 나이대인가* 를 말해서 한 덩어리로 읽힌다.
-
-        인원 수는 여기 없다 — 칩이 이미 말한다. 평균도 없다: 운영자가 답하려는 질문은
-        *두 쪽이 겹치는가* 인데 평균은 쌍봉을 0.0 으로 적어 그 질문에 거짓말을 한다.
-        겹침은 **띠가 말한다** — 그래서 두 줄이 같은 축을 쓴다.
-      */}
-      {ageAxis && (
-        <div className="card ageBand">
-          {ageAxis.rows.map(([g, ages]) => (
-            <AgeRow key={g} gender={g} ages={ages} lo={ageAxis.lo} span={ageAxis.span} />
-          ))}
-        </div>
-      )}
 
       {state.players.length === 0 && <p className="dim center">{HOST_UI.players.empty}</p>}
       {state.players.length > 0 && shown.length === 0 && (
