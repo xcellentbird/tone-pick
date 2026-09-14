@@ -298,6 +298,11 @@ class World {
       for (let j = 0; j < n; j++) {
         if (j === i || this.male[i] === this.male[j]) continue;
         if (Math.abs(this.age[i] - this.age[j]) > MEET_GAP) continue;
+        /*
+         * 떼어 놓을 상대는 **만나야 할 사람에서 뺀다** (ADR-90). 세면 영영 못 채우는 칸이 남아
+         * 그 사람의 결핍이 줄지 않고, 공정성 가중이 그를 계속 앞에 세운다 — 떼어 놓았다고 우선권을 받는 셈이다.
+         */
+        if (this.apart[i * n + j]) continue;
         all++;
         if (met[i * n + j] > 0) seen++;
       }

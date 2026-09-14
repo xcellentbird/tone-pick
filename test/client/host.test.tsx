@@ -1708,6 +1708,27 @@ describe("떨어뜨려 앉히기", () => {
     expect(outside, "칩 밖에 ⛔ 가 있다").toBe(2);
   });
 
+  /**
+   * 서로 찌른 쌍인데 떼어 놓을 쌍이기도 하면 **짝으로 짚지 않는다.** 💔(`짝 따로`)는 *붙일 수 있다* 는
+   * 신호라, 떼어 놓은 두 사람을 다시 붙이라고 말하게 된다. 떼어 놓기가 이긴다 (ADR-90).
+   */
+  it("★ 떼어 놓을 쌍은 서로 찔렀어도 💘·💔 로 짚지 않는다", async () => {
+    stubFetch(
+      hostState(
+        { phase: "party" },
+        {
+          mutual: [["p1", "p2"]],
+          apart: [["p1", "p2"]],
+          seatings: [published([{ playerId: "p1", table: 1 }, { playerId: "p2", table: 2 }])],
+        },
+      ),
+    );
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(1));
+    expect(document.body.textContent, "떼어 놓은 쌍을 다시 붙이라고 짚었다").not.toContain(HOST_UI.seats.pairChip(0));
+    expect(document.body.textContent).not.toContain(HOST_UI.seats.pairChipNote(0));
+  });
+
   it("★ 다른 테이블이면 아무 표시도 없다", async () => {
     stubFetch(
       hostState(
