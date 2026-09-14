@@ -45,7 +45,7 @@ import type {
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
 import { rosterOpen, toMe, toPublic } from "../shared/types.ts";
-import { apartClashes, autoTable } from "../shared/seats.ts";
+import { apartClashes, apartFrom, autoTable } from "../shared/seats.ts";
 import { appendPokeLog, pokeLogLine, type PokeLogEntry } from "./poke-log.ts";
 import { ENTRY } from "../shared/copy.ts";
 import {
@@ -1324,7 +1324,8 @@ export class EventDO extends DurableObject {
     const gender = new Map(
       this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
     );
-    const best = table ?? autoTable(target.seats, target.tableCount, (id) => gender.get(id), me.gender);
+    const best =
+      table ?? autoTable(target.seats, target.tableCount, (id) => gender.get(id), me.gender, apartFrom(playerId, this.apartPairs()));
 
     target.seats.push({ playerId, table: best });
     if (target.status === "published" && !target.acks.includes(playerId)) target.acks.push(playerId);
@@ -1454,7 +1455,10 @@ export class EventDO extends DurableObject {
   private pairedSeatIds(round: SeatingRound): Set<string> {
     const table = new Map(round.seats.map((s) => [s.playerId, s.table]));
     const held = new Set<string>();
+    const apart = new Set(this.apartPairs().map(([a, b]) => `${a}|${b}`));
     for (const [a, b] of this.pairs("party").mutual) {
+      // 떼어 놓을 쌍은 서로 찔렀어도 붙잡아 두지 않는다 — 붙잡는 것이 곧 같이 앉히는 것이다 (ADR-90)
+      if (apart.has(a < b ? `${a}|${b}` : `${b}|${a}`)) continue;
       if (table.has(a) && table.get(a) === table.get(b)) {
         held.add(a);
         held.add(b);

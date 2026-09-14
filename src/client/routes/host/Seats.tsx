@@ -21,7 +21,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { GENDER, HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Player, SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
-import { autoTable } from "../../../shared/seats.ts";
+import { apartFrom, autoTable } from "../../../shared/seats.ts";
 import { apartClashes } from "../../../shared/seats.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
@@ -93,8 +93,15 @@ export default function Seats() {
    * 그래서 짝은 하나가 아니라 **집합**이다 — 하나만 들고 있으면 나중 것이 앞의 것을 덮어
    * A-B 가 화면에서 조용히 사라진다 (ADR-24).
    */
+  /*
+   * **떼어 놓을 쌍은 짝으로 짚지 않는다** (ADR-90). 서로 찔렀어도 운영자가 떼어 놓은 두 사람에게
+   * 💔(`짝 따로`)를 띄우면 다시 붙이라고 말하는 셈이고, 떼어 놓는 맞교환에 `이어진 쌍을 떼어놓습니다` 가 뜬다.
+   * 이 화면에서 짝을 세는 곳(칩·맞교환 경고·쌍 보고·섞기 알림)은 전부 이 목록을 쓴다.
+   */
+  const apartKeys = new Set(state.apart.map(([a, b]) => `${a}|${b}`));
+  const couples = state.mutual.filter(([a, b]) => !apartKeys.has(a < b ? `${a}|${b}` : `${b}|${a}`));
   const partners = new Map<string, Set<string>>();
-  for (const [a, b] of state.mutual) {
+  for (const [a, b] of couples) {
     for (const [one, other] of [[a, b], [b, a]] as const) {
       const set = partners.get(one) ?? new Set<string>();
       set.add(other);
@@ -126,7 +133,7 @@ export default function Seats() {
      * **붙어 앉은 쌍은 섞어도 제자리다** (ADR-23). 그 사실은 붙은 쌍이 있을 때만 말한다 —
      * 없을 때 말하면 있지도 않은 일을 알리는 것이 된다.
      */
-    const held = draft ? pairStats(draft, state.mutual).together : 0;
+    const held = draft ? pairStats(draft, couples).together : 0;
     toast(held > 0 ? HOST_UI.seats.shuffleKeepsPairs : HOST.seating.shuffled);
     setPicked(null);
     reload();
@@ -144,7 +151,7 @@ export default function Seats() {
    * 붙여둔 손이 말없이 풀리면 그게 가장 나쁜 종류의 놀람이다.
    */
   async function reseat() {
-    const held = draft ? pairStats(draft, state.mutual).together : 0;
+    const held = draft ? pairStats(draft, couples).together : 0;
     await post(`${base}/reseat`);
     toast(held > 0 ? HOST.seating.reseatedPairs : HOST.seating.reseated);
     setPicked(null);
@@ -243,7 +250,7 @@ export default function Seats() {
 
   function askPublish(round: SeatingRound) {
     const perTable = round.seats.length / round.tableCount;
-    const pairs = pairStats(round, state.mutual);
+    const pairs = pairStats(round, couples);
     confirm(
       {
         btn: HOST.seating.publish,
@@ -342,6 +349,7 @@ export default function Seats() {
             person={seatTarget.person}
             round={seatTarget.round}
             players={state.players}
+            apart={state.apart}
             onSeat={(table) => seat(seatTarget.round!, seatTarget.person!.id, table)}
           />
         )}
@@ -354,7 +362,7 @@ export default function Seats() {
             쌍 성적표. **모든 라운드에서 보인다** (ADR-51) — 떨어진 쌍의 이름이
             운영자가 맞교환으로 손볼 목록 그 자체다.
           */}
-          <PairReport round={draft} mutual={state.mutual} state={state} />
+          <PairReport round={draft} mutual={couples} state={state} />
           {editBar(draft)}
           <Tables
             round={draft}
@@ -463,7 +471,7 @@ export default function Seats() {
               **작업 목록**이다 — 떨어진 쌍의 이름이 곧 맞교환할 대상이다.
               읽으러 연 사람에게는 테이블이 먼저라는 이 카드의 규칙을 그대로 따른다.
             */}
-            {editing && <PairReport round={round} mutual={state.mutual} state={state} />}
+            {editing && <PairReport round={round} mutual={couples} state={state} />}
             <Tables
               round={round}
               picked={picked?.round === round.round ? picked.playerId : null}
@@ -926,16 +934,19 @@ function SeatPicker({
   person,
   round,
   players,
+  apart,
   onSeat,
 }: {
   person: Player;
   round: SeatingRound;
   players: Player[];
+  /** 떼어 놓을 쌍 (ADR-90). 서버와 **같은 함수**에 넘겨야 미리 말한 번호가 실제로 앉는 번호다 */
+  apart: Array<[string, string]>;
   onSeat: (table?: number) => void;
 }) {
   const genderOf = (id: string) => players.find((p) => p.id === id)?.gender;
   /** 화면과 서버가 **같은 함수**를 쓴다 — 그래서 여기 적힌 번호가 실제로 앉는 번호다 */
-  const auto = autoTable(round.seats, round.tableCount, genderOf, person.gender);
+  const auto = autoTable(round.seats, round.tableCount, genderOf, person.gender, apartFrom(person.id, apart));
   const tables = Array.from({ length: round.tableCount }, (_, i) => {
     const no = i + 1;
     const here = round.seats.filter((s) => s.table === no);
