@@ -16,7 +16,7 @@ import type {
   SeatingInput,
 } from "../../shared/types.ts";
 import { HOST, HOST_UI } from "../../shared/copy.ts";
-import { LIMITS } from "../../shared/constants.ts";
+import { HOST_PIN_TRIES, LIMITS } from "../../shared/constants.ts";
 import { pulse, type SeatingKey } from "../metrics.ts";
 import { PHASE_ORDER } from "../../shared/phase.ts";
 import { HOST_COOKIE, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
@@ -24,6 +24,8 @@ import {
   apiError,
   eventStub,
   hostScope,
+  ipHash,
+  HOST_SCOPE,
   isMaster,
   isSecure,
   registry,
@@ -40,11 +42,40 @@ hostRoutes.use("*", timed("host"));
 
 // ─────────────────────────────────── 인증
 
+/**
+ * 운영자 로그인. **접속지마다 다섯 번까지만 대볼 수 있다** (ADR-94, `HOST_PIN_TRIES`).
+ *
+ * 한도를 넘겼으면 **PIN 을 대보지도 않는다.** 비교까지 가면 틀린 답에만 429 를 주는 셈이라
+ * 맞는 답은 그대로 통과하고, 그러면 제한이 하는 일이 없다 — 다 두드려보면 언젠가 맞는다.
+ *
+ * 세션은 일주일이다. 자주 안 치게 만든 대신 치는 자리를 좁힌 것이라 **둘은 한 몸이다**
+ * (`sessionTtl` 주석).
+ */
 hostRoutes.post("/pin", async (c) => {
+  const at = await ipHash(c, HOST_SCOPE);
+  const gate = await registry(c.env).hostPinTry(at, serverNow());
+  if (!gate.ok) return apiError(c, "too_many", HOST.pin.tooMany(HOST_PIN_TRIES.windowMs / 60_000));
+
   const body = await json<{ pin?: string }>(c);
   const scope = resolvePin(String(body.pin ?? ""), c.env.MASTER_PIN);
-  // 응답 어디에도 올바른 PIN 을 싣지 않는다
-  if (!scope) return apiError(c, "unauthorized", HOST.pin.wrong);
+  /*
+   * 응답 어디에도 올바른 PIN 을 싣지 않는다. 남은 횟수는 얼마 안 남았을 때만 말한다.
+   *
+   * **다 쓴 순간은 `tooMany` 다.** `0번 더 틀리면 막혀요` 는 말이 안 되고, 사실도 아니다 —
+   * 이미 막혔다. 참가자 쪽도 마지막 한 번은 `pin_wrong` 이 아니라 `pin_locked` 로 답한다.
+   * 상태는 401 그대로다. **막힌 것과 틀린 것을 뭉개지 않는다** — 이번 건 둘 다이고, 틀린 쪽이 원인이다.
+   */
+  if (!scope) {
+    const left = gate.left;
+    const msg =
+      left === 0
+        ? HOST.pin.tooMany(HOST_PIN_TRIES.windowMs / 60_000)
+        : left <= HOST_PIN_TRIES.warnAt
+          ? HOST.pin.wrongLeft(left)
+          : HOST.pin.wrong;
+    return apiError(c, "unauthorized", msg);
+  }
+  await registry(c.env).hostPinPassed(at);
 
   const token = await signSession(scope, c.env.SESSION_SECRET, serverNow());
   c.header("set-cookie", setCookie(HOST_COOKIE, token, isSecure(c), sessionTtl(scope)));

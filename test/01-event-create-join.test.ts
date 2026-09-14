@@ -65,12 +65,20 @@ function baseCookie(res: Response): string | null {
   return one ?? res.headers.get("set-cookie")?.split(";")[0] ?? null;
 }
 
-/** 운영자 PIN 으로 로그인하고 세션 쿠키를 돌려준다. PIN 은 하나뿐이다 (ADR-12) */
+/**
+ * 운영자 PIN 으로 로그인하고 세션 쿠키를 돌려준다. PIN 은 하나뿐이다 (ADR-12)
+ *
+ * **호출마다 다른 접속지에서 들어온다.** 틀린 PIN 은 접속지마다 다섯 번까지만 세어지므로
+ * (ADR-94), 한 자리에서 여러 번 틀리는 테스트는 여기가 아니라 `94-host-pin` 의 일이다.
+ * 여기 테스트들이 보는 것은 *틀리면 401* 이지 *여섯 번째가 막히는 것* 이 아니다.
+ */
+let loginSeq = 0;
 async function login(pin: string, eventId?: string) {
   // eventId 는 옛 회차 PIN 시절의 입력이다. 지금은 서버가 무시해야 한다 — 그걸 확인하려고 남겨둔다
   const res = await api<{ scope: unknown }>("/api/host/pin", {
     method: "POST",
     body: eventId ? { pin, eventId } : { pin },
+    headers: { "cf-connecting-ip": `10.1.0.${++loginSeq}` },
   });
   return res;
 }

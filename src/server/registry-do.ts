@@ -9,7 +9,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import type { Defaults } from "../shared/types.ts";
-import { DEFAULTS, LIMITS, withDefaults } from "../shared/constants.ts";
+import { DEFAULTS, HOST_PIN_TRIES, LIMITS, withDefaults } from "../shared/constants.ts";
 import { genCode, randomHex } from "./auth.ts";
 
 export interface EventIndexEntry {
@@ -40,6 +40,27 @@ const EMPTY: Snapshot = {
   requests: {},
   clockOffset: 0,
 };
+
+/**
+ * 운영자 PIN 을 틀린 시각. 접속지 해시마다 창(`HOST_PIN_TRIES.windowMs`) 안의 것만 남는다.
+ *
+ * ⚠️ **`snap` 과 같은 칸에 두지 마라.** 회차 목록·입장 코드를 읽을 때마다 이게 딸려 오고,
+ * 그건 앱에서 가장 잦은 읽기다. 자물쇠 하나가 모든 요청에 무게를 붙이면 안 된다.
+ */
+type PinTries = Record<string, number[]>;
+const PIN_TRIES_KEY = "hostPinTries";
+
+/**
+ * 들고 있을 접속지 수의 상한.
+ *
+ * **이건 성능이 아니라 안전장치다.** DO 스토리지의 값 하나는 128 KiB 까지다 —
+ * 접속지를 바꿔가며 두드리면 이 칸이 그 한도를 넘고, 넘는 순간 `put` 이 던져서
+ * **운영자 로그인이 통째로 죽는다.** 막으려고 만든 것이 문을 부수는 꼴이다.
+ *
+ * 넘으면 최근 것부터 남기고 오래된 것을 버린다. 버려진 접속지는 횟수가 0 으로 돌아가지만,
+ * **접속지를 바꾸면 어차피 이 제한은 넘어간다** (`HOST_PIN_TRIES` 주석) — 새로 잃는 것이 없다.
+ */
+const PIN_TRIES_CAP = 500;
 
 /**
  * 상태를 메모리에 캐시하지 않고 매번 스토리지에서 읽는다.
@@ -81,6 +102,46 @@ export class RegistryDO extends DurableObject {
     snap.clockOffset = offset;
     await this.save(snap);
     return offset;
+  }
+
+  // ─────────────────────────── 운영자 PIN 시도 (ADR-94)
+
+  /**
+   * 이 접속지가 지금 PIN 을 대볼 수 있나. **대보는 것 자체를 한 번으로 센다** —
+   * 맞았으면 `hostPinPassed` 가 지운다.
+   *
+   * 세고 나서 판단하는 게 아니라 **판단하고 나서 센다.** 한도를 넘긴 시도는 세지 않는다 —
+   * 두드릴수록 창이 밀리면 잠금이 영영 안 풀리고, 그건 운영자를 잠그는 길이 된다.
+   */
+  async hostPinTry(ipHash: string, now: number): Promise<{ ok: boolean; left: number }> {
+    const all = (await this.ctx.storage.get<PinTries>(PIN_TRIES_KEY)) ?? {};
+    const since = now - HOST_PIN_TRIES.windowMs;
+
+    // 창이 지난 접속지는 통째로 버린다. 이 칸이 자라는 것을 막는 건 여기와 상한 둘이다
+    for (const [key, times] of Object.entries(all)) {
+      const kept = times.filter((at) => at > since);
+      if (kept.length) all[key] = kept;
+      else delete all[key];
+    }
+
+    const mine = all[ipHash] ?? [];
+    if (mine.length >= HOST_PIN_TRIES.max) {
+      await this.ctx.storage.put(PIN_TRIES_KEY, all);
+      return { ok: false, left: 0 };
+    }
+
+    mine.push(now);
+    all[ipHash] = mine;
+    await this.ctx.storage.put(PIN_TRIES_KEY, capped(all, ipHash));
+    return { ok: true, left: HOST_PIN_TRIES.max - mine.length };
+  }
+
+  /** 맞았다. 이 접속지의 실패를 지운다 — 손이 떨렸던 것을 다음 파티까지 들고 있지 않는다 */
+  async hostPinPassed(ipHash: string): Promise<void> {
+    const all = (await this.ctx.storage.get<PinTries>(PIN_TRIES_KEY)) ?? {};
+    if (!(ipHash in all)) return;
+    delete all[ipHash];
+    await this.ctx.storage.put(PIN_TRIES_KEY, all);
   }
 
   // ─────────────────────────── 기본 설정
@@ -166,6 +227,20 @@ export class RegistryDO extends DurableObject {
     }
     await this.save(snap);
   }
+}
+
+/**
+ * 상한을 넘으면 최근에 두드린 것부터 남긴다. **방금 센 접속지는 반드시 남긴다** —
+ * 그걸 버리면 이번 시도가 세어지지 않은 것과 같아져서, 상한이 곧 우회 수단이 된다.
+ */
+function capped(all: PinTries, keep: string): PinTries {
+  const keys = Object.keys(all);
+  if (keys.length <= PIN_TRIES_CAP) return all;
+  const newest = (k: string) => Math.max(...all[k]);
+  const survivors = keys
+    .sort((a, b) => (a === keep ? -1 : b === keep ? 1 : newest(b) - newest(a)))
+    .slice(0, PIN_TRIES_CAP);
+  return Object.fromEntries(survivors.map((k) => [k, all[k]]));
 }
 
 function freeCode(snap: Snapshot): string {
