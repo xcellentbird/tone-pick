@@ -50,7 +50,18 @@ export type PinState = "set" | "none" | "locked";
  * 인스타는 남는다: 고치는 폼이 그 값을 칸에 다시 채워야 하고, 그 칸이 없으면
  * 오타를 낸 사람이 영영 못 고친다. 다만 **읽기 화면에는 그리지 않는다.**
  */
-export type MyProfile = Omit<Player, "phone" | "pin">;
+export type MyProfile = Omit<Player, "phone" | "pin"> & {
+  /**
+   * 단계 안내를 어디까지 봤나 (ADR-95). **본인에게만** 내려간다 — `Player` 에 두지 않는 이유가 그것이다.
+   * 명단(`roster`)에도 운영자 응답에도 없다: 남이 안내를 봤는지는 남의 일이고,
+   * 묻는 사람이 없는 값은 쓰이는 줄 알게 된다.
+   */
+  seenStage?: StageKey;
+};
+
+/** 안내 화면이 뜨는 단계 — 새 행동이 열리는 순간이 둘뿐이다 (ADR-95) */
+export type StageKey = "prevote" | "party";
+export const STAGE_KEYS: readonly StageKey[] = ["prevote", "party"];
 
 /**
  * 참가자에게 내려가는 형태. 이 타입 밖의 필드를 참가자 응답에 넣지 말 것.
@@ -86,10 +97,10 @@ export function toPublic(p: MyProfile, phase: Phase): PublicPlayer {
  * 반환 타입이 `Omit<Player, "phone">` 이라, 칸을 늘리고 여기 안 적으면 **빌드가 깨진다.**
  * 그때 하는 일은 한 줄 더 적는 게 아니라 *이 값이 본인에게 가도 되나* 를 정하는 것이다.
  */
-export function toMe(p: Player): MyProfile {
+export function toMe(p: Player, seenStage?: StageKey): MyProfile {
   // `pin` 은 본인에게도 안 간다 — 화면이 쓸 데가 없고, 안 보내면 실수로도 못 보여준다
   const { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt } = p;
-  return { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt };
+  return { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt, ...(seenStage ? { seenStage } : {}) };
 }
 
 // ─────────────────────────── 콕

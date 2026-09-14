@@ -45,6 +45,9 @@ const POKE_STATE: MyPokeState = {
 };
 
 function participantState(over: Partial<ParticipantState> = {}): ParticipantState {
+  // 단계 안내(ADR-95)는 이미 본 사람으로 둔다 — 여기는 다른 걸 재는 자리다. 안내 자체는 `stage.test.tsx`
+  const phase = over.event?.phase ?? "prevote";
+  const seen = phase === "prevote" || phase === "party" ? { seenStage: phase } : {};
   return {
     event: {
       id: "e1",
@@ -65,7 +68,8 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
       instagram: "na_gram",
       mbti: "ENFP",
       charms: ["하나", "둘", "셋"],
-        createdAt: 1,
+      createdAt: 1,
+      ...seen,
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE_STATE,
@@ -90,6 +94,7 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
       calls.poke.push(`-${toId}`);
       return POKE_STATE;
     },
+    markStage: async () => {},
     ackSeat: async (round) => {
       calls.ack.push(round);
     },
@@ -1183,6 +1188,7 @@ describe("참가자 화면 · 자리", () => {
      */
     const source = fakeSource({
       load: async () => participantState({ seat }),
+      markStage: async () => {},
       ackSeat: async () => {
         throw new Error("network");
       },

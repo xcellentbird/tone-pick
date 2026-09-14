@@ -115,6 +115,7 @@ describe("참가자 설문 카드", () => {
     load: async () => state(),
     poke: async () => state().poke,
     unpoke: async () => state().poke,
+    markStage: async () => {},
     ackSeat: async () => {},
     vote: async (id, choice) => {
       voted.push([id, choice]);

@@ -1713,6 +1713,28 @@ button.fact { text-align: left; }
 
 .takeover .table { font-size: 34px; font-weight: 700; }
 
+/*
+ * 단계 안내의 카드 (ADR-95). 카드 하나가 내용이라 가운데에 홀로 선다 — 두 칸으로 나누지 마라.
+ * 이모지 한 줄만 손잡이(1)이고 나머지는 글이라 본문 간격을 받는다 (ADR-62) —
+ * `콕 찔러보세요` 는 좁은 폰에서 두 줄이 된다.
+ */
+.takeover .stageCard {
+  width: 100%;
+  max-width: 260px;
+  margin: 0 auto;
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: calc(var(--pad) * 1.25) var(--pad);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.takeover .stageCard .emoji { font-size: 60px; line-height: 1; margin: 6px 0; }
+.takeover .stageCard .what { font-size: 19px; font-weight: 700; }
+.takeover .stageCard .effect { font-size: 15px; color: var(--dim); }
+
 /* ─────────────────────────── 토스트 */
 
 .toasts {

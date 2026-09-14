@@ -38,13 +38,14 @@ import type {
   RegisterResult,
   Seat,
   SeatingRound,
+  StageKey,
   ServerEvent,
   HostState,
   MySeat,
 } from "../shared/types.ts";
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
-import { rosterOpen, toMe, toPublic } from "../shared/types.ts";
+import { STAGE_KEYS, rosterOpen, toMe, toPublic } from "../shared/types.ts";
 import { apartClashes, apartFrom, autoTable } from "../shared/seats.ts";
 import { appendPokeLog, pokeLogLine, type PokeLogEntry } from "./poke-log.ts";
 import { ENTRY } from "../shared/copy.ts";
@@ -198,6 +199,8 @@ export class EventDO extends DurableObject {
         "ALTER TABLE players ADD COLUMN pin_hash TEXT",
         "ALTER TABLE players ADD COLUMN pin_salt TEXT",
         "ALTER TABLE players ADD COLUMN pin_fails INTEGER NOT NULL DEFAULT 0",
+        // 단계 안내를 어디까지 봤나 (ADR-95). 옛 참가자는 비어 있다 — 다음에 열면 그 단계 안내가 뜬다. 인덱스 없음
+        "ALTER TABLE players ADD COLUMN seen_stage TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token)",
         "CREATE INDEX IF NOT EXISTS players_token ON players(token)",
       ]) {
@@ -678,7 +681,7 @@ export class EventDO extends DurableObject {
      */
     this.toHosts({ type: "roster" });
     // 저장 응답도 참가자에게 그대로 간다 — 여기서도 번호를 싣지 않는다 (ADR-47)
-    return ok(toMe(saved.value));
+    return ok(toMe(saved.value, this.seenStageOf(playerId)));
   }
 
   /**
@@ -897,7 +900,7 @@ export class EventDO extends DurableObject {
         schedule: meta.schedule,
         config: meta.config,
       },
-      me: toMe(me),
+      me: toMe(me, this.seenStageOf(playerId)),
       // 명단은 사전 투표부터 열린다. 그 전에는 몇 명이 왔는지만 안다 (ADR-21)
       roster: rosterOpen(meta.phase)
         ? this.players()
@@ -942,6 +945,25 @@ export class EventDO extends DurableObject {
       me,
       ...(row ? { fortune: readFortune(JSON.parse(row.json)) } : {}),
     });
+  }
+
+  /**
+   * 단계 안내를 봤다 (ADR-95). **클라이언트가 어느 단계를 봤는지 보낸다** — 여기서 지금 단계를 적으면
+   * 매력 투표 안내를 누르는 순간 파티가 시작된 사람에게 파티 안내가 영영 안 뜬다.
+   * 자리 `acks` 와 같은 이유로 서버에 둔다 (ADR-4 의 예외): 사건에 붙일 수 없어서다.
+   */
+  markStageSeen(playerId: string, stage: StageKey): Result<true> {
+    if (!STAGE_KEYS.includes(stage)) return fail("bad_request");
+    const row = this.rows<{ id: string }>("SELECT id FROM players WHERE id = ?", playerId)[0];
+    if (!row) return fail("not_found");
+    this.ctx.storage.sql.exec("UPDATE players SET seen_stage = ? WHERE id = ?", stage, playerId);
+    return ok(true);
+  }
+
+  /** 본인에게만 내려가는 값이라 `Player` 에 싣지 않고 여기서 따로 읽는다 (ADR-95) */
+  private seenStageOf(playerId: string): StageKey | undefined {
+    const v = this.rows<{ seen_stage: string | null }>("SELECT seen_stage FROM players WHERE id = ?", playerId)[0]?.seen_stage;
+    return v === "prevote" || v === "party" ? v : undefined;
   }
 
   async ackSeat(playerId: string, round: number): Promise<Result<true>> {
