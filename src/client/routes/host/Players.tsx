@@ -21,7 +21,7 @@
  *
  * 상세 시트는 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md).
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Invite, PinState } from "../../../shared/types.ts";
@@ -550,11 +550,18 @@ function Invites({
    * 아래에 띄우면 명단을 덮으므로 **누른 그 버튼**이 잠깐 바뀐다.
    */
   const [copied, setCopied] = useState<string | null>(null);
+  /*
+   * 표시를 끄는 타이머는 **화면이 내려가면 같이 지운다.** 안 지우면 2초 뒤에 없는 화면에 상태를 쓰려 들고,
+   * 테스트에서는 그게 `window is not defined` 로 터져 CI 를 빨갛게 만들었다 (통과한 테스트 뒤에서).
+   * 같은 버튼을 다시 누르면 앞 타이머를 지우고 새로 센다 — 두 번째 누름이 첫 타이머에 꺼지지 않게.
+   */
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => clearTimeout(copyTimer.current ?? undefined), []);
   async function flashCopy(key: string, run: () => Promise<boolean>) {
     if (!(await run())) return;
     setCopied(key);
-    // 같은 버튼을 다시 눌렀을 때 앞 타이머가 새 표시를 꺼버리지 않게 자기 것만 지운다
-    setTimeout(() => setCopied((c) => (c === key ? null : c)), 2000);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopied((c) => (c === key ? null : c)), 2000);
   }
   const known = new Set(invites.map((i) => i.phone));
 
