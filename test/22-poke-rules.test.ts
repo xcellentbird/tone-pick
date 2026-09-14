@@ -222,44 +222,43 @@ describe("콕 되돌리기", () => {
     expect(seen.body.poke.budget.pre.used).toBe(1);
   });
 
-  it("★ 못 무르게 한 회차에서는 파티 콕이 되돌려지지 않는다", async () => {
-    const ev = await freshEvent({ allowUndo: false });
+  /**
+   * ★ **되돌리기에는 설정이 없다** (ADR-95).
+   *
+   * 라운드마다 막을 수 있던 때가 있었다 (`allowUndoPre`·`allowUndo`). 걷어낸 이유는
+   * 막는 회차를 만들 이유가 없어서다 — 잘못 누른 것을 못 무르게 하면 다 쓴 사람이
+   * 손쓸 데가 없고, 운영자는 설정 하나를 더 읽어야 했다.
+   *
+   * **되살리려면 이 테스트부터 갈아야 한다.** 그게 되돌리기가 회차마다 갈리지 않는다는 약속이다.
+   */
+  it("★ 두 라운드 다 언제나 되돌릴 수 있다 — 회차가 막을 수 없다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const her = await join(ev, "F");
+
+    // 매력 투표
+    await setPhase(ev.id, "prevote");
+    await poke(her.cookie, me.id);
+    const pre = await unpoke(her.cookie, me.id);
+    expect(pre.status, JSON.stringify(pre.body)).toBe(200);
+    expect(pre.body.budget.pre.used).toBe(0);
+
+    // 파티 콕
+    await setPhase(ev.id, "party");
+    await poke(her.cookie, me.id);
+    const party = await unpoke(her.cookie, me.id);
+    expect(party.status, JSON.stringify(party.body)).toBe(200);
+    expect(party.body.budget.party.used).toBe(0);
+  });
+
+  it("★ 막아달라고 보낸 설정은 저장되지 않는다 — 그런 칸이 없다", async () => {
+    // 옛 화면이나 손으로 만든 요청이 `allowUndo: false` 를 보내도 되돌리기는 열려 있어야 한다
+    const ev = await freshEvent({ allowUndo: false } as Partial<EventConfig>);
     const me = await join(ev);
     const her = await join(ev, "F");
     await setPhase(ev.id, "party");
     await poke(her.cookie, me.id);
 
-    const back = await unpoke(her.cookie, me.id);
-    expect(back.status).not.toBe(200);
-    const state = await api<ParticipantState>("/api/me", { cookie: her.cookie });
-    expect(state.body.poke.budget.party.used).toBe(1);
-  });
-
-  it("★ 되돌리기는 라운드마다 따로 정한다", async () => {
-    // 파티 콕만 막은 회차에서 매력 투표는 그대로 무를 수 있다 (ADR-34)
-    const ev = await freshEvent({ allowUndo: false });
-    const me = await join(ev);
-    const her = await join(ev, "F");
-    await setPhase(ev.id, "prevote");
-    await poke(her.cookie, me.id);
-
-    const back = await unpoke(her.cookie, me.id);
-    expect(back.status, JSON.stringify(back.body)).toBe(200);
-    expect(back.body.budget.pre.used).toBe(0);
-  });
-
-  it("★ 매력 투표만 막을 수도 있다", async () => {
-    const ev = await freshEvent({ allowUndoPre: false });
-    const me = await join(ev);
-    const her = await join(ev, "F");
-
-    await setPhase(ev.id, "prevote");
-    await poke(her.cookie, me.id);
-    expect((await unpoke(her.cookie, me.id)).status).not.toBe(200);
-
-    // 파티 콕은 그대로 무를 수 있다 — 설정이 갈려 있다
-    await setPhase(ev.id, "party");
-    await poke(her.cookie, me.id);
     expect((await unpoke(her.cookie, me.id)).status).toBe(200);
   });
 
@@ -291,14 +290,13 @@ describe("굳는 설정", () => {
   const putSchedule = (id: string, schedule: Record<string, number>) =>
     api(`/api/host/events/${id}/schedule`, { method: "PUT", cookie: master, body: schedule });
 
-  it("★ 콕이 오가기 시작하면 되돌리기·알림·대상을 못 바꾼다", async () => {
+  it("★ 콕이 오가기 시작하면 알림·대상을 못 바꾼다", async () => {
+    // 되돌리기 둘이 여기 있었다 — 설정이 없어졌으니 굳을 것도 없다 (ADR-95)
     const ev = await freshEvent();
     await setPhase(ev.id, "prevote");
 
     for (const over of [
       { pokeNotify: true },
-      { allowUndo: false },
-      { allowUndoPre: false },
       { allowSameGender: false },
     ]) {
       const res = await putConfig(ev.id, fullConfig(over));
@@ -337,10 +335,10 @@ describe("굳는 설정", () => {
      * 설정 탭은 저장할 때마다 설정과 일정을 **통째로** 다시 보낸다.
      * 막는 기준이 '보냈나' 였다면 굳은 회차에서는 이름조차 못 고친다.
      */
-    const ev = await freshEvent({ pokeNotify: true, allowUndo: false });
+    const ev = await freshEvent({ pokeNotify: true, allowSameGender: false });
     await setPhase(ev.id, "party");
 
-    const res = await putConfig(ev.id, fullConfig({ pokeNotify: true, allowUndo: false }), "새 이름");
+    const res = await putConfig(ev.id, fullConfig({ pokeNotify: true, allowSameGender: false }), "새 이름");
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body.name).toBe("새 이름");
     expect((await putSchedule(ev.id, ev.schedule as Record<string, number>)).status).toBe(200);
