@@ -4,13 +4,37 @@ import { RegistryDO } from "./registry-do.ts";
 import { hostRoutes } from "./routes/host.ts";
 import { participantRoutes } from "./routes/participant.ts";
 import { PLAYER_COOKIE, cookieName, readCookie, readSession } from "./auth.ts";
-import { eventStub, missingSecrets, moveServerClock, registry, serverNow, syncClock, type Env } from "./http.ts";
+import {
+  apiError,
+  eventStub,
+  missingSecrets,
+  moveServerClock,
+  regionBlocked,
+  registry,
+  serverNow,
+  syncClock,
+  type Env,
+} from "./http.ts";
+import { FAIL } from "../shared/copy.ts";
 import { withOgFor } from "./og.ts";
 
 export { EventDO, RegistryDO };
 export type { Env };
 
 const app = new Hono<{ Bindings: Env }>();
+
+/**
+ * **허용한 나라 밖에서는 아무것도 안 준다** (ADR-92).
+ *
+ * 맨 앞에 둔다 — 시크릿 검사보다도 앞이다. 뒤에 두면 못 들어올 요청이 설정 상태를 먼저 알아낸다.
+ * 문은 `/api` 와 `/ws` 둘뿐이다. 그 이유는 `regionBlocked` 주석에 있다.
+ *
+ * 값이 비어 있으면 이 미들웨어는 아무 일도 하지 않는다. 끄는 길이 그것이다.
+ */
+app.use("/api/*", async (c, next) => {
+  if (regionBlocked(c)) return apiError(c, "region_blocked", FAIL.region);
+  await next();
+});
 
 /**
  * 시크릿이 없으면 아무것도 하지 않는다.
@@ -45,6 +69,8 @@ app.route("/api", participantRoutes);
  * 누구의 소켓인지는 쿠키로만 판단해서 DO 에 알려준다 — 콕 알림은 수신자에게만 가야 한다.
  */
 app.get("/ws/:code", async (c) => {
+  // 문구는 없다 — 소켓은 사람이 읽는 자리가 아니고, 화면은 이미 `/api` 에서 막혀 있다
+  if (regionBlocked(c)) return c.text("blocked", 403);
   await syncClock(c.env);
   const eventId = await registry(c.env).idByCode(c.req.param("code"));
   if (!eventId) return c.text("not found", 404);
