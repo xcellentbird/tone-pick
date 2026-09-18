@@ -13,13 +13,13 @@ import { useRef, useState } from "react";
 import { ACT, BTN, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
 import type { MatchInfo, MyPokeState, MyProfile, ParticipantState, Phase, PokeRound, PublicPlayer } from "../../shared/types.ts";
 import type { Tab } from "./Participant.tsx";
-import { canPoke } from "../../shared/phase.ts";
+import { canPoke, roundOf } from "../../shared/phase.ts";
 import { afterPoke } from "../../shared/poke.ts";
 import { useCovered } from "../lib/covered.ts";
 import { tap } from "../lib/pulse.ts";
 import { rosterOpen, toPublic } from "../../shared/types.ts";
 import { orderRoster } from "../../shared/roster.ts";
-import { ApiError } from "../lib/api.ts";
+import { messageOf } from "../lib/api.ts";
 import { now } from "../lib/serverTime.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
@@ -44,7 +44,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
   const [onlyOpposite, setOnlyOpposite] = useState(!sameGenderOk);
   const { confirm, toast } = useOverlay();
 
-  const round = state.event.phase === "prevote" ? "pre" : "party";
+  const round = roundOf(state.event.phase);
   const budget = state.poke.budget[round];
   /*
    * 매력 투표는 **시각으로** 닫힌다 (ADR-39). 서버 시각으로 재고, 폰 시계는 쓰지 않는다.
@@ -109,7 +109,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       toast(POKE.undo.done(target.nickname));
     } catch (e) {
       setPoke(before);
-      toast(e instanceof ApiError && e.userMessage ? e.userMessage : closedWhy);
+      toast(messageOf(e, closedWhy));
     } finally {
       sending.current = false;
     }
@@ -199,7 +199,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
         } catch (e) {
           // 되돌리지 않으면 **쓰지도 않은 콕이 쓴 것으로 보인다**
           setPoke(before);
-          toast(e instanceof ApiError && e.userMessage ? e.userMessage : closedWhy);
+          toast(messageOf(e, closedWhy));
         } finally {
           sending.current = false;
         }

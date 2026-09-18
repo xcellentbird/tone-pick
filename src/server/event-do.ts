@@ -45,8 +45,8 @@ import type {
 } from "../shared/types.ts";
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
-import { STAGE_KEYS, rosterOpen, toMe, toPublic } from "../shared/types.ts";
-import { apartClashes, apartFrom, autoTable } from "../shared/seats.ts";
+import { isStageKey, rosterOpen, toMe, toPublic } from "../shared/types.ts";
+import { apartClashes, apartFrom, autoTable, isApart, pairKey, sortPair } from "../shared/seats.ts";
 import { appendPokeLog, pokeLogLine, type PokeLogEntry } from "./poke-log.ts";
 import { ENTRY } from "../shared/copy.ts";
 import {
@@ -62,7 +62,7 @@ import {
   realNameProblem,
   validPin,
 } from "../shared/constants.ts";
-import { PHASE_ORDER, canPoke, dueAt, dueTransition, rulesLocked, schedLocked, voteClosed } from "../shared/phase.ts";
+import { PHASE_ORDER, canPoke, dueAt, dueTransition, roundOf, rulesLocked, schedLocked, scheduleInOrder, voteClosed } from "../shared/phase.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
 
@@ -181,6 +181,8 @@ export class EventDO extends DurableObject {
   private logQueue: Promise<void> = Promise.resolve();
   private logLines: string[] = [];
   private logArmed = false;
+  /** 마지막으로 쓴 파일 내용. 쓰는 쪽이 이 DO 하나라 매번 다시 읽지 않는다 — 쓰기가 실패하면 비워 다음에 다시 읽는다 */
+  private logBody: string | undefined;
 
   constructor(ctx: DurableObjectState, env: unknown) {
     super(ctx as never, env as never);
@@ -362,21 +364,8 @@ export class EventDO extends DurableObject {
     if (SCHEDULE_KEYS.some((k) => next[k] !== meta.schedule[k] && schedLocked(meta.fired, k))) {
       return fail("locked");
     }
-    /*
-     * **아직 오지 않은 예약 전환끼리는 순서를 지켜야 한다** — 매력 투표 시작 → 파티 시작 → 커플 발표
-     * (ADR-93 후기). 셋 다 시계가 따라가는 예약이라 어긋난 채 저장되면 그대로 일어난다: 파티가 매력 투표보다
-     * 앞이면 매력 투표가 열리는 그 시각에 파티까지 한 번에 넘어가 투표가 통째로 사라지고, 발표가 파티보다
-     * 앞이면 파티가 열리는 순간 발표까지 간다. 회차를 만들 때와 같은 검사다 — 설정 탭만 그 문이 열려 있었다.
-     *
-     * **지난 것은 견주지 않는다** (`schedLocked` 이 잠근 키). 앞당겨 연 예약의 시각은 기록이라 그 앞으로
-     * 다음 것을 옮기는 건 정당하다 — 한때 등록 시각까지 통째로 견주다가 *매력 투표를 지금 열려는* 조작이
-     * 거절당했다. 마감(`voteEndAt`)은 전환이 아니라 여기 없다 (ADR-39) — 어긋나도 파티 전까지 고칠 수 있다.
-     */
-    const live = TRANSITION_KEYS.filter((k) => !schedLocked(meta.fired, k)).map((k) => next[k]);
-    for (let i = 1; i < live.length; i++) {
-      const [before, after] = [live[i - 1], live[i]];
-      if (before !== undefined && after !== undefined && after <= before) return fail("order");
-    }
+    // 아직 오지 않은 예약 전환끼리의 순서 (ADR-93 후기). 만들 때와 **같은 함수**다 — 설정 탭만 그 문이 열려 있었다
+    if (!scheduleInOrder(next, meta.fired)) return fail("order");
     meta.schedule = next;
     await this.ctx.storage.put("meta", meta);
     await this.rearm(meta, now);
@@ -699,7 +688,7 @@ export class EventDO extends DurableObject {
      */
     this.toHosts({ type: "roster" });
     // 저장 응답도 참가자에게 그대로 간다 — 여기서도 번호를 싣지 않는다 (ADR-47)
-    return ok(toMe(saved.value, this.seenStageOf(playerId)));
+    return ok(toMe(saved.value, stageOf(mine.seen_stage)));
   }
 
   /**
@@ -901,8 +890,9 @@ export class EventDO extends DurableObject {
         this.logArmed = false;
         const lines = this.logLines.splice(0).join("");
         try {
-          await appendPokeLog(bucket, eventId, lines);
+          this.logBody = await appendPokeLog(bucket, eventId, lines, this.logBody);
         } catch (e) {
+          this.logBody = undefined;
           console.error("poke log failed", e instanceof Error ? e.message : String(e));
         }
       });
@@ -915,8 +905,10 @@ export class EventDO extends DurableObject {
   async participantState(playerId: string, now: number): Promise<Result<ParticipantState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    const me = this.player(playerId);
-    if (!me) return fail("not_found");
+    // 한 줄을 한 번만 읽는다 — `seen_stage` 도 같은 줄에 있다. 앱에서 가장 잦은 읽기다
+    const row = this.rows<PlayerRow>("SELECT * FROM players WHERE id = ?", playerId)[0];
+    if (!row) return fail("not_found");
+    const me = toPlayer(row);
     const saved = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
 
     return ok({
@@ -929,7 +921,7 @@ export class EventDO extends DurableObject {
         schedule: meta.schedule,
         config: meta.config,
       },
-      me: toMe(me, this.seenStageOf(playerId)),
+      me: toMe(me, stageOf(row.seen_stage)),
       // 명단은 사전 투표부터 열린다. 그 전에는 몇 명이 왔는지만 안다 (ADR-21)
       roster: rosterOpen(meta.phase)
         ? this.players()
@@ -981,18 +973,12 @@ export class EventDO extends DurableObject {
    * 매력 투표 안내를 누르는 순간 파티가 시작된 사람에게 파티 안내가 영영 안 뜬다.
    * 자리 `acks` 와 같은 이유로 서버에 둔다 (ADR-4 의 예외): 사건에 붙일 수 없어서다.
    */
-  markStageSeen(playerId: string, stage: StageKey): Result<true> {
-    if (!STAGE_KEYS.includes(stage)) return fail("bad_request");
-    const row = this.rows<{ id: string }>("SELECT id FROM players WHERE id = ?", playerId)[0];
-    if (!row) return fail("not_found");
-    this.ctx.storage.sql.exec("UPDATE players SET seen_stage = ? WHERE id = ?", stage, playerId);
+  /** 요청 본문 값을 그대로 받는다 — 값 검사는 여기서 한다 (상태를 바꾸는 쪽이 문지기다) */
+  markStageSeen(playerId: string, stage: unknown): Result<true> {
+    if (!isStageKey(stage)) return fail("bad_request");
+    const cur = this.ctx.storage.sql.exec("UPDATE players SET seen_stage = ? WHERE id = ?", stage, playerId);
+    if (cur.rowsWritten === 0) return fail("not_found");
     return ok(true);
-  }
-
-  /** 본인에게만 내려가는 값이라 `Player` 에 싣지 않고 여기서 따로 읽는다 (ADR-96) */
-  private seenStageOf(playerId: string): StageKey | undefined {
-    const v = this.rows<{ seen_stage: string | null }>("SELECT seen_stage FROM players WHERE id = ?", playerId)[0]?.seen_stage;
-    return v === "prevote" || v === "party" ? v : undefined;
   }
 
   async ackSeat(playerId: string, round: number): Promise<Result<true>> {
@@ -1107,26 +1093,19 @@ export class EventDO extends DurableObject {
 
   /**
    * 운영자에게는 **누가 무엇을 골랐는지**까지 간다 (ADR-88). 뒤풀이 인원을 세려면 이름이 필요하다.
-   * 나간 사람의 답은 빼고 센다 — 명단에 없는 아이디가 화면에 빈 카드로 서면 안 된다.
+   * 나간 사람의 답은 뺀다 — 명단에 없는 아이디가 화면에 빈 카드로 서면 안 된다. JOIN 이 거른다.
+   * 숫자는 싣지 않는다 — 화면이 `choices` 에서 센다. 같은 수를 두 곳에 두면 한쪽이 어긋난다.
    */
   private hostAnnouncements(): HostAnnouncement[] {
-    // 아이디만 필요하다 — 운영자 화면의 가장 잦은 읽기라 사람을 통째로 만들 일이 아니다
-    const here = new Set(this.rows<{ id: string }>("SELECT id FROM players").map((r) => r.id));
     const choices = new Map<string, Record<string, PollChoice>>();
     for (const r of this.rows<{ ann_id: string; player_id: string; choice: PollChoice }>(
-      "SELECT ann_id, player_id, choice FROM votes",
+      "SELECT v.ann_id, v.player_id, v.choice FROM votes v JOIN players p ON p.id = v.player_id",
     )) {
-      if (!here.has(r.player_id)) continue;
       const cur = choices.get(r.ann_id) ?? {};
       cur[r.player_id] = r.choice;
       choices.set(r.ann_id, cur);
     }
-    return this.announcementRows().map((r) => {
-      const mine = choices.get(r.id) ?? {};
-      const count = { a: 0, b: 0 };
-      for (const c of Object.values(mine)) count[c]++;
-      return { ...toAnnouncement(r), count, choices: mine };
-    });
+    return this.announcementRows().map((r) => ({ ...toAnnouncement(r), choices: choices.get(r.id) ?? {} }));
   }
 
   /**
@@ -1424,8 +1403,8 @@ export class EventDO extends DurableObject {
     const gender = new Map(
       this.rows<{ id: string; gender: Gender }>("SELECT id, gender FROM players").map((r) => [r.id, r.gender]),
     );
-    const held = this.pairedSeatIds(draft);
     const apart = this.apartPairs();
+    const held = this.pairedSeatIds(draft, apart);
 
     /*
      * **떼어 놓을 쌍이 같이 앉게 섞지 않는다** (ADR-90). 섞기는 가중식을 안 돌리므로 여러 번 섞어
@@ -1504,13 +1483,13 @@ export class EventDO extends DurableObject {
   }
 
   /** 이 배정에서 **같은 테이블에 앉은** 상호 매칭 쌍의 사람들 */
-  private pairedSeatIds(round: SeatingRound): Set<string> {
+  private pairedSeatIds(round: SeatingRound, apart: ReadonlyArray<readonly [string, string]>): Set<string> {
     const table = new Map(round.seats.map((s) => [s.playerId, s.table]));
     const held = new Set<string>();
-    const apart = new Set(this.apartPairs().map(([a, b]) => `${a}|${b}`));
+    const keptApart = isApart(apart);
     for (const [a, b] of this.pairs("party").mutual) {
       // 떼어 놓을 쌍은 서로 찔렀어도 붙잡아 두지 않는다 — 붙잡는 것이 곧 같이 앉히는 것이다 (ADR-90)
-      if (apart.has(a < b ? `${a}|${b}` : `${b}|${a}`)) continue;
+      if (keptApart(a, b)) continue;
       if (table.has(a) && table.get(a) === table.get(b)) {
         held.add(a);
         held.add(b);
@@ -1532,7 +1511,7 @@ export class EventDO extends DurableObject {
     if (!(await this.seatsOpen())) return fail("closed");
     if (a === b) return fail("bad_request");
     if (!this.player(a) || !this.player(b)) return fail("not_found");
-    const [x, y] = a < b ? [a, b] : [b, a];
+    const [x, y] = sortPair(a, b);
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO apart (a, b) VALUES (?, ?)", x, y);
     this.toHosts({ type: "roster" });
     return ok(this.apartPairs());
@@ -1540,7 +1519,7 @@ export class EventDO extends DurableObject {
 
   /** 뺀다. 발표 뒤에도 된다 — 남겨 둘 이유가 없다. 없는 쌍을 빼도 같은 답이다 */
   async removeApart(a: string, b: string): Promise<Result<Array<[string, string]>>> {
-    const [x, y] = a < b ? [a, b] : [b, a];
+    const [x, y] = sortPair(a, b);
     this.ctx.storage.sql.exec("DELETE FROM apart WHERE a = ? AND b = ?", x, y);
     this.toHosts({ type: "roster" });
     return ok(this.apartPairs());
@@ -1882,7 +1861,7 @@ export class EventDO extends DurableObject {
     const oneWay: Array<[string, string]> = [];
     const votes: Record<string, number> = {};
     const add = (a: string, b: string, n: number) => {
-      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+      const key = pairKey(a, b);
       votes[key] = (votes[key] ?? 0) + n;
     };
     for (const [key, n] of sent) {
@@ -2010,7 +1989,12 @@ interface PlayerRow {
   pin_hash?: string | null;
   pin_salt?: string | null;
   pin_fails?: number | null;
+  /** 단계 안내를 어디까지 봤나 (ADR-96). 본인에게만 내려가므로 `Player` 에는 싣지 않는다 — `stageOf` 로 따로 꺼낸다 */
+  seen_stage?: string | null;
 }
+
+/** `seen_stage` 칸 → 단계. 옛 회차와 아직 안 본 사람은 비어 있다 */
+const stageOf = (v: string | null | undefined): StageKey | undefined => (isStageKey(v) ? v : undefined);
 
 interface SeatingRow {
   round: number;
@@ -2137,10 +2121,6 @@ function shuffle<T>(list: T[]): T[] {
   return out;
 }
 
-function roundOf(phase: Phase): PokeRound {
-  return phase === "prevote" ? "pre" : "party";
-}
-
 function inRange(n: number, r: { min: number; max: number }): boolean {
   return Number.isInteger(n) && n >= r.min && n <= r.max;
 }
@@ -2157,12 +2137,6 @@ function notifyOn(config: EventConfig, round: PokeRound): boolean {
  * 일정 칸의 이름들. `setSchedule` 이 "무엇이 잠겼나" 를 훑는 데 쓴다 (`schedLocked`).
  */
 const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt", "revealAt"] as const;
-
-/**
- * 그중 **시계가 단계를 넘기는 셋**, 일어나는 순서대로 (ADR-93). `setSchedule` 이 아직 오지 않은 것끼리
- * 순서를 검사한다 — 마감(`voteEndAt`)은 판정이지 전환이 아니라 여기 없다 (ADR-39).
- */
-const TRANSITION_KEYS = ["prevoteAt", "partyAt", "revealAt"] as const;
 
 /**
  * 굳는 규칙 셋을 **뜻으로** 편다 (ADR-35·43·95).

@@ -100,7 +100,8 @@ export default function Dash() {
     reload();
   }
 
-  function ask(to: Phase | "voteEnd") {
+  function ask() {
+    const to = step.to;
     // 마지막으로 발행한 라운드에 몇 명이 앉아 있나. 초안은 아직 참가자에게 안 나갔으므로 세지 않는다
     const published = state.seatings.filter((s) => s.status === "published");
     const copy =
@@ -117,15 +118,11 @@ export default function Dash() {
 
     const facts = [...copy.facts];
     /*
-     * 예약을 앞당기는 것이면 얼마나 이른지 한 줄 붙는다. 이제 셋이다 —
-     * 매력 투표 **시작** · **마감**(ADR-39 후기) · **파티 시작**(ADR-93 이 예약으로 만들었다).
-     * 발표는 `revealAt` 이 있지만 이 버튼으로 앞당기는 자리가 아니다.
+     * 예약을 앞당기는 것이면 얼마나 이른지 한 줄 붙는다. `step.at` 이 곧 이 버튼이 앞당기는 예약 시각이다
+     * (마감은 `voteEndAt`, 나머지는 `dueAt`) — 어느 전환에 줄이 붙는지는 `schedDiff` 하나가 정한다 (발표에는 없다).
+     * 되돌린 회차는 알람이 없어(`fired` 가 남아 `dueAt` 이 비다) 줄도 없다 — 없는 예약을 앞당긴다고 말하지 않는다.
      */
-    const scheduled =
-      to === "prevote" ? meta.schedule.prevoteAt
-      : to === "voteEnd" ? meta.schedule.voteEndAt
-      : to === "party" ? meta.schedule.partyAt
-      : undefined;
+    const scheduled = step.at;
     if (scheduled) {
       const gap = scheduled - now();
       const line = schedDiff(to, {
@@ -148,7 +145,7 @@ export default function Dash() {
   return (
     <div className="stack">
       {stepCopy && (
-        <button className="btn primary block phaseBtn" onClick={() => ask(step.to)}>
+        <button className="btn primary block phaseBtn" onClick={ask}>
           <span>{stepCopy.btn}</span>
           {/* 셀 시각이 없으면 자리도 만들지 않는다 — 빈 칸은 무엇을 세다 멈춘 것처럼 보인다 */}
           {counting && <span className="due">{remain(until)}</span>}

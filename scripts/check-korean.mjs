@@ -13,7 +13,7 @@
  *   node scripts/check-korean.mjs
  */
 import { readFileSync } from "node:fs";
-import { scan } from "./lib/scan.mjs";
+import { markedBy, scan } from "./lib/scan.mjs";
 
 const FILE = new URL("../src/shared/copy.ts", import.meta.url);
 const KOREAN = /[가-힣]/;
@@ -42,7 +42,8 @@ lines.forEach((l, i) => {
   if (inside) skipped.add(i + 1);
   if (l.includes("korean-ok-end")) inside = false;
 });
-const exempt = (ln) => skipped.has(ln) || [lines[ln - 1], lines[ln - 2]].some((l) => l && l.includes("korean-ok"));
+const marked = markedBy(lines, "korean-ok");
+const exempt = (ln) => skipped.has(ln) || marked(ln);
 
 const hits = [];
 for (const s of scan(text).strings) {

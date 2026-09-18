@@ -47,10 +47,10 @@ export interface Notice {
   bannerable: boolean;
   tab: NoticeTab;
   /**
-   * 설문이면 그 아이디 (슬라이스 27). 설문은 홈에 **카드로 따로 그리므로** 소식 목록은 이 줄을 건너뛴다 —
-   * 이 줄이 있는 이유는 배너 하나다. 같은 설문이 카드와 소식 줄에 두 번 서면 안 된다.
+   * 설문이면 참 (슬라이스 27). 설문은 홈에 **카드로 따로 그리므로** 소식 목록은 이 줄을 건너뛴다 —
+   * 이 줄이 있는 이유는 배너 하나다. 같은 설문이 카드와 소식 줄에 두 번 서면 안 된다. 아이디는 `key` 에 있다.
    */
-  poll?: { id: string };
+  poll?: true;
 }
 
 /** 최근 3분 안의 변화만 배너로 띄운다. 그보다 오래된 건 알림 탭에만 (UI.md) */
@@ -129,17 +129,11 @@ export function noticesOf(state: ParticipantState, now: number): Notice[] {
    * 설문은 닫히면 배너로 안 뜬다 — 답할 수 없는 것을 3분 동안 위에 세워두지 않는다.
    */
   for (const a of state.announcements) {
-    if (a.poll) {
-      list.push({
-        key: `poll:${a.id}`, icon: NOTICE.poll.icon, title: NOTICE.poll.title, body: a.text,
-        at: a.at, order: a.at, bannerable: !a.poll.closed, tab: "home", poll: { id: a.id },
-      });
-    } else {
-      list.push({
-        key: `announce:${a.id}`, icon: NOTICE.announce.icon, title: NOTICE.announce.title, body: a.text,
-        at: a.at, order: a.at, bannerable: true, tab: "home",
-      });
-    }
+    const kind = a.poll ? NOTICE.poll : NOTICE.announce;
+    list.push({
+      key: `${a.poll ? "poll" : "announce"}:${a.id}`, icon: kind.icon, title: kind.title, body: a.text,
+      at: a.at, order: a.at, bannerable: !a.poll?.closed, tab: "home", ...(a.poll ? { poll: true as const } : {}),
+    });
   }
   /**
    * 받은 콕은 **한 번에 하나씩** 쌓인다. 합쳐서 "지금까지 N회" 로 세어 주면

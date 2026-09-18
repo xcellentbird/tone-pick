@@ -21,14 +21,16 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { GENDER, HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Player, SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
-import { apartFrom, autoTable } from "../../../shared/seats.ts";
-import { apartClashes } from "../../../shared/seats.ts";
+import { apartClashes, apartFrom, autoTable, isApart } from "../../../shared/seats.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
 import { Num } from "./HostDefaults.tsx";
 import { useConsole } from "./HostConsole.tsx";
+
+/** 아이디 → 닉네임. 이 화면 곳곳이 같은 찾기를 한다 — 없는 사람은 빈 글자다 */
+const nickOf = (players: Player[], id: string) => players.find((p) => p.id === id)?.nickname ?? "";
 
 export default function Seats() {
   const { state, reload } = useConsole();
@@ -98,8 +100,8 @@ export default function Seats() {
    * 💔(`짝 따로`)를 띄우면 다시 붙이라고 말하는 셈이고, 떼어 놓는 맞교환에 `이어진 쌍을 떼어놓습니다` 가 뜬다.
    * 이 화면에서 짝을 세는 곳(칩·맞교환 경고·쌍 보고·섞기 알림)은 전부 이 목록을 쓴다.
    */
-  const apartKeys = new Set(state.apart.map(([a, b]) => `${a}|${b}`));
-  const couples = state.mutual.filter(([a, b]) => !apartKeys.has(a < b ? `${a}|${b}` : `${b}|${a}`));
+  const keptApart = isApart(state.apart);
+  const couples = state.mutual.filter(([a, b]) => !keptApart(a, b));
   const partners = new Map<string, Set<string>>();
   for (const [a, b] of couples) {
     for (const [one, other] of [[a, b], [b, a]] as const) {
@@ -125,7 +127,7 @@ export default function Seats() {
     }
   }
 
-  const nameOf = (id: string) => state.players.find((p) => p.id === id)?.nickname ?? "";
+  const nameOf = (id: string) => nickOf(state.players, id);
 
   async function shuffle() {
     await post(`${base}/shuffle`);
@@ -727,7 +729,7 @@ function PairReport({
   state: ReturnType<typeof useConsole>["state"];
 }) {
   const { total, together, split } = pairStats(round, mutual);
-  const name = (id: string) => state.players.find((p) => p.id === id)?.nickname ?? "";
+  const name = (id: string) => nickOf(state.players, id);
   if (total === 0) return <p className="small dim">{HOST_UI.seats.pairNone}</p>;
   return (
     <div className="stack">
@@ -790,9 +792,7 @@ function Tables({
                */
               const mates = [...(partners.get(person.id) ?? [])].filter((id) => seatedAt.has(id));
               const together = mates.filter((id) => seatedAt.get(id) === t).length;
-              const avoid = (clashes.get(person.id) ?? []).map(
-                (id) => state.players.find((p) => p.id === id)?.nickname ?? "",
-              );
+              const avoid = (clashes.get(person.id) ?? []).map((id) => nickOf(state.players, id));
               return (
               <button
                 className={`seatChip ${person.gender === "M" ? "m" : "f"} ${picked === person.id ? "picked" : ""}`}
@@ -856,7 +856,7 @@ function NotAcked({
   const done = new Set(round.acks);
   const left = round.seats
     .filter((s) => !done.has(s.playerId))
-    .map((s) => ({ table: s.table, nickname: state.players.find((p) => p.id === s.playerId)?.nickname ?? "" }))
+    .map((s) => ({ table: s.table, nickname: nickOf(state.players, s.playerId) }))
     .sort((a, b) => a.table - b.table || a.nickname.localeCompare(b.nickname));
   if (left.length === 0) return null;
   return (

@@ -55,3 +55,6 @@ export function scan(text) {
   flush(state === "str" ? strings : code);
   return { strings, code };
 }
+
+/** 그 줄이나 바로 윗줄에 표식이 있으면 건너뛴다 (`copy-ok` · `korean-ok`). 줄 번호는 1부터다 */
+export const markedBy = (lines, marker) => (ln) => [lines[ln - 1], lines[ln - 2]].some((l) => l && l.includes(marker));

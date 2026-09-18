@@ -16,9 +16,9 @@ import type {
   SeatingInput,
 } from "../../shared/types.ts";
 import { HOST, HOST_UI } from "../../shared/copy.ts";
-import { HOST_PIN_TRIES, LIMITS } from "../../shared/constants.ts";
+import { LIMITS } from "../../shared/constants.ts";
 import { pulse, type SeatingKey } from "../metrics.ts";
-import { PHASE_ORDER } from "../../shared/phase.ts";
+import { PHASE_ORDER, scheduleInOrder } from "../../shared/phase.ts";
 import { HOST_COOKIE, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
 import {
   apiError,
@@ -33,7 +33,7 @@ import {
   unwrap,
   type Ctx,
   type Env, timed,} from "../http.ts";
-import { apartMessage, seatingMessage, settingsMessage } from "../messages.ts";
+import { apartMessage, hostPinMessage, seatingMessage, settingsMessage } from "../messages.ts";
 
 export const hostRoutes = new Hono<{ Bindings: Env }>();
 
@@ -54,27 +54,16 @@ hostRoutes.use("*", timed("host"));
 hostRoutes.post("/pin", async (c) => {
   const at = await ipHash(c, HOST_SCOPE);
   const gate = await registry(c.env).hostPinTry(at, serverNow());
-  if (!gate.ok) return apiError(c, "too_many", HOST.pin.tooMany(HOST_PIN_TRIES.windowMs / 60_000));
+  if (!gate.ok) return apiError(c, "too_many", hostPinMessage(0));
 
   const body = await json<{ pin?: string }>(c);
   const scope = resolvePin(String(body.pin ?? ""), c.env.MASTER_PIN);
   /*
-   * 응답 어디에도 올바른 PIN 을 싣지 않는다. 남은 횟수는 얼마 안 남았을 때만 말한다.
-   *
-   * **다 쓴 순간은 `tooMany` 다.** `0번 더 틀리면 막혀요` 는 말이 안 되고, 사실도 아니다 —
-   * 이미 막혔다. 참가자 쪽도 마지막 한 번은 `pin_wrong` 이 아니라 `pin_locked` 로 답한다.
+   * 응답 어디에도 올바른 PIN 을 싣지 않는다. 남은 횟수는 얼마 안 남았을 때만 말한다 (`hostPinMessage`).
+   * 참가자 쪽도 마지막 한 번은 `pin_wrong` 이 아니라 `pin_locked` 로 답한다.
    * 상태는 401 그대로다. **막힌 것과 틀린 것을 뭉개지 않는다** — 이번 건 둘 다이고, 틀린 쪽이 원인이다.
    */
-  if (!scope) {
-    const left = gate.left;
-    const msg =
-      left === 0
-        ? HOST.pin.tooMany(HOST_PIN_TRIES.windowMs / 60_000)
-        : left <= HOST_PIN_TRIES.warnAt
-          ? HOST.pin.wrongLeft(left)
-          : HOST.pin.wrong;
-    return apiError(c, "unauthorized", msg);
-  }
+  if (!scope) return apiError(c, "unauthorized", hostPinMessage(gate.left));
   await registry(c.env).hostPinPassed(at);
 
   const token = await signSession(scope, c.env.SESSION_SECRET, serverNow());
@@ -146,14 +135,8 @@ hostRoutes.post("/events", async (c) => {
   const voteEndAt = Number(body.voteEndAt);
   const revealAt = Number(body.revealAt);
   if (![partyAt, prevoteAt, voteEndAt, revealAt].every(Number.isFinite)) return apiError(c, "bad_request");
-  /*
-   * **예약 전환 셋은 순서대로여야 한다** — 매력 투표 시작 → 파티 시작 → 커플 발표 (ADR-93 후기).
-   * 셋 다 시계가 따라가는 예약이라 어긋난 채 저장되면 그대로 일어난다: 파티가 매력 투표보다 앞이면
-   * 매력 투표가 열리는 그 시각에 파티까지 한 번에 넘어가 투표가 통째로 사라지고, 발표가 파티보다 앞이면
-   * 파티가 열리는 순간 발표까지 간다 (ADR-43). 마감은 전환이 아니라 여기 없다 (ADR-39) — 어긋나도 되돌릴 수 있다.
-   * 고칠 때도 같은 검사다 (`EventDO.setSchedule`).
-   */
-  if (!(prevoteAt < partyAt && partyAt < revealAt)) return apiError(c, "order", HOST_UI.scheduleOrder);
+  // 예약 전환 셋의 순서 (ADR-93 후기). 고칠 때(`EventDO.setSchedule`)와 **같은 함수**다 — 여기서는 아직 아무것도 안 울렸다
+  if (!scheduleInOrder({ prevoteAt, partyAt, revealAt }, {})) return apiError(c, "order", HOST_UI.scheduleOrder);
 
   const reserved = await registry(c.env).reserve({
     code: body.code,

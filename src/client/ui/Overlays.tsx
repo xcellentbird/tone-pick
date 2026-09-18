@@ -10,6 +10,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { BTN, type ActionCopy } from "../../shared/copy.ts";
+import { useTimeouts } from "../lib/useLoad.ts";
 import Sheet from "./Sheet.tsx";
 
 interface Pending {
@@ -65,30 +66,17 @@ export function Overlays({ children }: { children: ReactNode }) {
     }
   }, [dialogInHistory]);
 
-  /**
-   * **사라짐 타이머는 화면이 내려갈 때 지운다.** 토스트는 2.6초 뒤에 스스로 사라지는데,
-   * 그 사이에 화면이 통째로 내려가면 없는 화면에 `setState` 를 걸어 던진다.
-   * 효과가 아니라 콜백 안에서 거는 타이머라 정리가 따라오지 않는다 — 그래서 여기 모아 둔다.
-   * 토스트는 여럿이 겹칠 수 있으니 하나가 아니라 묶음이다.
-   */
-  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
-  useEffect(
-    () => () => {
-      for (const t of timers.current) clearTimeout(t);
-      timers.current.clear();
-    },
-    [],
-  );
+  // 사라짐 타이머는 콜백 안에서 걸린다 — 화면이 내려갈 때 지우는 건 `useTimeouts` 가 맡는다
+  const later = useTimeouts();
 
-  const toast = useCallback((text: string) => {
-    const id = Date.now() + Math.random();
-    setToasts((list) => [...list, { id, text }]);
-    const timer = setTimeout(() => {
-      timers.current.delete(timer);
-      setToasts((list) => list.filter((t) => t.id !== id));
-    }, 2600);
-    timers.current.add(timer);
-  }, []);
+  const toast = useCallback(
+    (text: string) => {
+      const id = Date.now() + Math.random();
+      setToasts((list) => [...list, { id, text }]);
+      later(() => setToasts((list) => list.filter((t) => t.id !== id)), 2600);
+    },
+    [later],
+  );
 
   const confirm = useCallback<Overlay["confirm"]>(
     (copy, run) => {

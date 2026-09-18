@@ -13,6 +13,7 @@
  */
 import { ACT, STAGE } from "../../shared/copy.ts";
 import type { StageKey } from "../../shared/types.ts";
+import { roundOf } from "../../shared/phase.ts";
 
 export default function StageTakeover({
   stage,
@@ -33,7 +34,7 @@ export default function StageTakeover({
       <div className="kicker">{c.title}</div>
       <div className="stageCard">
         <div className="emoji" aria-hidden>
-          {ACT.emoji(stage === "prevote" ? "pre" : "party")}
+          {ACT.emoji(roundOf(stage))}
         </div>
         <div className="what">{c.what}</div>
         <div className="effect">{c.why}</div>

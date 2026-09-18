@@ -118,15 +118,19 @@ export class RegistryDO extends DurableObject {
     const since = now - HOST_PIN_TRIES.windowMs;
 
     // 창이 지난 접속지는 통째로 버린다. 이 칸이 자라는 것을 막는 건 여기와 상한 둘이다
+    let pruned = false;
     for (const [key, times] of Object.entries(all)) {
       const kept = times.filter((at) => at > since);
+      if (kept.length === times.length) continue;
+      pruned = true;
       if (kept.length) all[key] = kept;
       else delete all[key];
     }
 
     const mine = all[ipHash] ?? [];
     if (mine.length >= HOST_PIN_TRIES.max) {
-      await this.ctx.storage.put(PIN_TRIES_KEY, all);
+      // 막힌 시도는 세지 않는다 (CLAUDE.md) — 버린 것이 있을 때만 쓴다. 두드릴수록 쓰기가 늘면 그게 곧 문이다
+      if (pruned) await this.ctx.storage.put(PIN_TRIES_KEY, all);
       return { ok: false, left: 0 };
     }
 

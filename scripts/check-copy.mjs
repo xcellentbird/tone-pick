@@ -8,7 +8,7 @@
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { scan } from "./lib/scan.mjs";
+import { markedBy, scan } from "./lib/scan.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const SRC = join(ROOT, "src");
@@ -31,7 +31,7 @@ for (const file of walk(SRC)) {
   const src = readFileSync(file, "utf8");
   const lines = src.split("\n");
   // 같은 줄이나 바로 윗줄에 `copy-ok` 가 있으면 건너뛴다 (SQL·정규식 등 화면 문구가 아닌 것)
-  const exempt = (ln) => [lines[ln - 1], lines[ln - 2]].some((l) => l && l.includes("copy-ok"));
+  const exempt = markedBy(lines, "copy-ok");
   const { strings, code } = scan(src);
   for (const s of strings) {
     if (KOREAN.test(s.text) && !exempt(s.line)) hits.push({ rel, line: s.line, kind: "문자열", text: s.text.trim() });

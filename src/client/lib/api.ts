@@ -38,6 +38,13 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 실패를 화면에 말할 문장. 서버가 실은 문장(`copy.ts` 에서 골라 담은 것)이 있으면 그것, 없으면 부르는 화면의
+ * 기본 문장이다. 닿지 못한 실패(`offline`)는 이미 문장을 실어 온다 — 화면마다 다시 가르지 않는다.
+ */
+export const messageOf = (e: unknown, fallback: string): string =>
+  e instanceof ApiError && e.userMessage ? e.userMessage : fallback;
+
 /** 서버가 어느 세션을 읽을지 고르는 헤더. `src/server/auth.ts` 의 `REF_HEADER` 와 같은 값이다 */
 const REF_HEADER = "x-tp-ref";
 

@@ -11,22 +11,23 @@
  */
 import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
-import { HOST_UI, UNIT } from "../../../shared/copy.ts";
-import { formatPhone } from "../../../shared/constants.ts";
+import { HOST_UI } from "../../../shared/copy.ts";
 import type { HostAnnouncement, Player, PollChoice } from "../../../shared/types.ts";
 import { formatWhen } from "../../../shared/time.ts";
-import { ApiError, del, post, put } from "../../lib/api.ts";
+import { del, messageOf, post, put } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
-import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
 import { useConsole } from "./HostConsole.tsx";
+import PersonCard from "./PersonCard.tsx";
 
 /** 답 둘과 '미응답'. 셋 중 하나가 늘 켜져 있다 — 참가자 탭의 성별 칩과 같은 꼴이다 */
 type Filter = PollChoice | "none";
 
+/** 답 둘과 미응답 — 지금 명단에 있는 사람만 센다. 나간 사람의 답은 서버가 이미 뺐다. 카드와 상세가 같은 셈이다 */
 function tally(a: HostAnnouncement, players: Player[]) {
-  const answered = players.filter((p) => a.choices[p.id]).length;
-  return { a: a.count.a, b: a.count.b, rest: players.length - answered };
+  const n = { a: 0, b: 0, none: 0 };
+  for (const p of players) n[a.choices[p.id] ?? "none"]++;
+  return n;
 }
 
 export default function Polls() {
@@ -59,7 +60,7 @@ export default function Polls() {
               <span className="name pre grow">{a.text}</span>
               <span className="badge">{closed ? HOST_UI.polls.closedBadge : HOST_UI.polls.open}</span>
             </div>
-            <div className="small dim">{HOST_UI.polls.summary(a.poll!.a, n.a, a.poll!.b, n.b, n.rest)}</div>
+            <div className="small dim">{HOST_UI.polls.summary(a.poll!.a, n.a, a.poll!.b, n.b, n.none)}</div>
           </button>
         );
       })}
@@ -93,7 +94,7 @@ function NewPoll({ eventId, onDone }: { eventId: string; onDone: () => void }) {
       onDone();
     } catch (e) {
       // 조용히 실패하면 운영자가 다시 누른다 — 같은 설문이 둘 선다
-      toast(e instanceof ApiError && e.userMessage ? e.userMessage : HOST_UI.saveFailed);
+      toast(messageOf(e, HOST_UI.saveFailed));
     } finally {
       setBusy(false);
     }
@@ -148,7 +149,8 @@ function Detail({
 
   const by = (f: Filter) => players.filter((p) => (f === "none" ? !ann.choices[p.id] : ann.choices[p.id] === f));
   const shown = by(filter);
-  const answered = players.length - by("none").length;
+  const n = tally(ann, players);
+  const answered = n.a + n.b;
 
   /** 마감·다시 열기. 되돌릴 수 있으므로 확인창이 없다 — 배지가 바뀌는 것이 곧 알림이다. 거절만 토스트로 말한다 */
   async function toggle() {
@@ -156,7 +158,7 @@ function Detail({
       await put(`/host/events/${eventId}/announcements/${ann.id}`, { open: closed });
       reload();
     } catch (e) {
-      toast(e instanceof ApiError && e.userMessage ? e.userMessage : HOST_UI.saveFailed);
+      toast(messageOf(e, HOST_UI.saveFailed));
     }
   }
 
@@ -194,9 +196,9 @@ function Detail({
       <div className="choice">
         {(
           [
-            ["a", poll.a, ann.count.a],
-            ["b", poll.b, ann.count.b],
-            ["none", HOST_UI.polls.notYet, players.length - answered],
+            ["a", poll.a, n.a],
+            ["b", poll.b, n.b],
+            ["none", HOST_UI.polls.notYet, n.none],
           ] as const
         ).map(([key, label, n]) => (
           <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>
@@ -205,29 +207,21 @@ function Detail({
         ))}
       </div>
 
-      {answered === 0 && filter !== "none" && <p className="dim center">{HOST_UI.polls.noOne}</p>}
-      {answered > 0 && shown.length === 0 && filter !== "none" && <p className="dim center">{HOST_UI.polls.emptyFiltered}</p>}
-      {filter === "none" && shown.length === 0 && <p className="dim center">{HOST_UI.polls.everyoneAnswered}</p>}
+      {/* 빈 자리는 하나다 — 어느 문장인지만 고른다 */}
+      {shown.length === 0 && (
+        <p className="dim center">
+          {filter === "none" ? HOST_UI.polls.everyoneAnswered : answered === 0 ? HOST_UI.polls.noOne : HOST_UI.polls.emptyFiltered}
+        </p>
+      )}
 
+      {/*
+        참가자 탭의 카드와 같다 — 누르면 그 탭의 상세 시트가 열린다(인스타는 거기서 본다).
+        카드에는 전화번호까지만 — 뒤풀이 자리를 잡고 나면 이 목록을 보며 연락한다. 운영자 화면이라 된다 (원칙 3).
+        인스타까지 넣었더니 카드가 세 줄이 되어 목록이 길어졌다.
+      */}
       {shown.map((p) => (
-        <div className="person" key={p.id}>
-          {/*
-            참가자 탭의 카드와 같다 — 누르면 그 탭의 상세 시트가 열린다(인스타는 거기서 본다).
-            카드에는 전화번호까지만 — 뒤풀이 자리를 잡고 나면 이 목록을 보며 연락한다. 운영자 화면이라 된다 (원칙 3).
-            인스타까지 넣었더니 카드가 세 줄이 되어 목록이 길어졌다.
-          */}
-          <button type="button" className="open" onClick={() => navigate(`/host/${eventId}/players/${p.id}`)}>
-            <Avatar nickname={p.nickname} gender={p.gender} />
-            <span className="meta">
-              <span className="name ellipsis">
-                {p.realName} · {p.nickname} · {UNIT.age(p.age)}
-              </span>
-              <span className="charm ellipsis">{formatPhone(p.phone)}</span>
-            </span>
-          </button>
-        </div>
+        <PersonCard key={p.id} p={p} phone onOpen={() => navigate(`/host/${eventId}/players/${p.id}`)} />
       ))}
-
       <div className="row mt">
         <button className="btn wide ghost" onClick={toggle}>
           {closed ? HOST_UI.polls.reopen : HOST_UI.polls.close}

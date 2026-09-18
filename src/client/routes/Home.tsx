@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { HOME, POLL, REVEAL, SEAT, STATUS } from "../../shared/copy.ts";
 import type { EventSchedule, ParticipantState, PollChoice } from "../../shared/types.ts";
-import { canPoke } from "../../shared/phase.ts";
+import { canPoke, roundOf } from "../../shared/phase.ts";
 import { TICK_WINDOW, formatCountdown, formatDayHour, formatWhen } from "../../shared/time.ts";
 import { noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
@@ -70,7 +70,7 @@ export default function Home({
   const untilNext = mark?.at ? mark.at - now() : 0;
   useTicker(untilNext > 0 && untilNext <= TICK_WINDOW);
   const revealed = phase === "done";
-  const budget = state.poke.budget[phase === "prevote" ? "pre" : "party"];
+  const budget = state.poke.budget[roundOf(phase)];
   const left = budget.max - budget.used;
   /**
    * 콕을 다 썼으면 **다른 문장**이다. 남은 게 없는데 "찔러보세요" 라고 하면
@@ -135,7 +135,7 @@ export default function Home({
         {poking && (
           <>
             {/* 남은 게 있을 때만 센다. 0 은 제목이 이미 말했다 */}
-            {left > 0 && <div className="kicker">{STATUS.pokeLeft(phase === "prevote" ? "pre" : "party", left)}</div>}
+            {left > 0 && <div className="kicker">{STATUS.pokeLeft(roundOf(phase), left)}</div>}
             {/* 다 썼어도 명단 구경은 된다 — 버튼은 그대로 */}
             <button className="btn primary block" onClick={() => onTab("people")}>
               {HOME.goPeople}
