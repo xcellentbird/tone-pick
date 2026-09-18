@@ -76,17 +76,20 @@ if (!qa) {
     problems.push(`QA 와 프로덕션이 같은 로그 버킷(${logs(qa)})을 씁니다. 연습 콕이 진짜 파티 로그에 섞입니다`);
   }
   /*
-   * 국가 문 (ADR-92). **빠지면 조용히 열린다** — 배포는 되고 앱도 멀쩡히 돌고, 문만 없어진다.
+   * 국가 문 (ADR-92). **키가 빠지면 조용히 열린다** — 배포는 되고 앱도 멀쩡히 돌고, 문만 없어진다.
    * `vars` 도 환경에 상속되지 않아서 QA 에 따로 적어야 한다.
    *
-   * 값이 무엇인지는 보지 않는다. 나라를 바꾸는 건 설정이고, **비어 있는 것만** 사고다.
+   * **빈 값은 사고가 아니라 끄는 길이다** (ADR-92 후기). 파티 당일 로밍 참가자가 막히면 이 값을 비우고
+   * 배포하는 것이 유일한 되돌리기인데, 그때 이 검사가 빨개지면 CI 가 바로 그 배포를 막는다.
+   * 그래서 값이 아니라 **키가 있는지**를 본다 — 없는 것은 손이 미끄러진 것이고, 비운 것은 고른 것이다.
    * 문을 걷어내기로 했다면 이 검사도 함께 걷어내라 — 안 그러면 검사가 없는 문을 지킨다.
    */
-  if (!config.vars?.ALLOWED_COUNTRIES) {
-    problems.push("프로덕션 vars 에 ALLOWED_COUNTRIES 가 없습니다. 국가 문이 조용히 열립니다 (ADR-92)");
+  const hasGate = (env) => !!env.vars && "ALLOWED_COUNTRIES" in env.vars;
+  if (!hasGate(config)) {
+    problems.push("프로덕션 vars 에 ALLOWED_COUNTRIES 키가 없습니다. 국가 문이 조용히 열립니다 (ADR-92). 끄려면 지우지 말고 비우세요");
   }
-  if (!qa.vars?.ALLOWED_COUNTRIES) {
-    problems.push("env.qa 에 ALLOWED_COUNTRIES 가 없습니다. 환경에 상속되지 않으니 그대로 다시 적어야 합니다 (ADR-92)");
+  if (!hasGate(qa)) {
+    problems.push("env.qa 에 ALLOWED_COUNTRIES 키가 없습니다. 환경에 상속되지 않으니 그대로 다시 적어야 합니다 (ADR-92)");
   }
 
   const names = (qa.durable_objects?.bindings ?? []).map((b) => b.name).sort();

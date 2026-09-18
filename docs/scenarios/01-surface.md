@@ -75,7 +75,7 @@ POST /api/host/events/:id/phase      { to: Phase } → EventMeta
 |---|---|
 | `code` 를 지정했는데 이미 쓰는 코드 | `409 { error: "code_taken", message: HOST.pin.codeTaken }` |
 | `code` 생략 | 서버가 생성. 기존 코드와 겹치지 않을 때까지 다시 뽑는다 |
-| 발표가 파티보다 앞 | `400 { error: "bad_request" }` (ADR-43). **그 밖의 순서는 검사하지 않는다** (ADR-36) |
+| 매력 투표 시작 → 파티 시작 → 커플 발표 순이 아니다 | `400 { error: "order", message: HOST_UI.scheduleOrder }` (ADR-93 후기). 마감은 검사하지 않는다 (ADR-39) |
 | 언제나 | 만드는 순간 `phase: "reg"`, `fired.reg` 기록 (ADR-38). `regOpenAt` 은 그 시각의 **기록**이다 |
 | 같은 `requestId` 로 재요청 | 새로 만들지 않고 **같은 회차**를 200 으로 돌려준다 (S-B7) |
 

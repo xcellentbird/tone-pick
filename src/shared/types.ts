@@ -464,7 +464,8 @@ export type ErrorCode =
   | "same_gender"    // 409 · 이성에게만 찌를 수 있다
   | "locked"         // 409 · 콕이 오가기 시작해 굳은 설정이다 (ADR-35)
   | "region_blocked" // 403 · 허용한 나라 밖에서 들어왔다 (ADR-92)
-  | "conflict";      // 409 · 그 밖의 충돌
+  | "conflict"       // 409 · 그 밖의 충돌
+  | "order";         // 400 · 아직 오지 않은 예약 전환의 순서가 어긋났다 (ADR-93 후기)
 
 export interface ApiErrorBody {
   error: ErrorCode;

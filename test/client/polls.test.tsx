@@ -7,7 +7,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
-import { HOST_UI, POLL } from "../../src/shared/copy.ts";
+import { FAIL, HOST_UI, POLL } from "../../src/shared/copy.ts";
 import type { HostState, ParticipantState, PublicAnnouncement } from "../../src/shared/types.ts";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
 import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
@@ -94,6 +94,36 @@ describe("운영자 설문 탭", () => {
     // 카드를 누르면 참가자 탭의 상세 시트다 — 인스타는 거기서 본다
     fireEvent.click(screen.getByText(/김다/));
     await waitFor(() => expect(router.state.location.pathname).toBe("/host/e1/players/p3"));
+  });
+
+  /**
+   * ★ **거절은 화면이 말한다.** 보내기가 닿지 못했는데 조용히 끝나면 운영자가 다시 누른다 —
+   * 그러면 같은 설문이 둘 선다 (ADR-8). 시트는 그대로고 토스트가 이유를 말한다.
+   */
+  it("★ 설문 보내기가 실패하면 토스트로 말한다 — 조용히 끝나면 같은 설문이 둘 선다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes("/announcements") && init?.method === "POST") throw new TypeError("Failed to fetch");
+        return new Response(JSON.stringify(url.includes("/state") ? hostState() : { ok: true }), {
+          status: 200, headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    const router = createMemoryRouter(
+      [{ path: "/host/:id", element: <HostConsole />, children: HOST_CONSOLE_ROUTES }],
+      { initialEntries: ["/host/e1/polls/new"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    fireEvent.change(await screen.findByLabelText(HOST_UI.polls.question), { target: { value: "2차 갈래요?" } });
+    fireEvent.change(screen.getByLabelText(HOST_UI.polls.optionA), { target: { value: "갈래요" } });
+    fireEvent.change(screen.getByLabelText(HOST_UI.polls.optionB), { target: { value: "못 가요" } });
+    fireEvent.click(screen.getByRole("button", { name: HOST_UI.polls.send }));
+
+    await waitFor(() => expect(document.querySelector(".toast")?.textContent).toContain(FAIL.offline.split("\n")[0]));
+    // 시트는 그대로다 — 쓰던 설문이 날아가지 않는다
+    expect(router.state.location.pathname).toBe("/host/e1/polls/new");
   });
 });
 

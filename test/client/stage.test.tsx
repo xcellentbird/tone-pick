@@ -29,7 +29,14 @@ type Phase = ParticipantState["event"]["phase"];
 
 function stateOf(
   phase: Phase,
-  over: { seenStage?: StageKey; pokeNotify?: boolean; seat?: ParticipantState["seat"] } = {},
+  over: {
+    seenStage?: StageKey;
+    pokeNotify?: boolean;
+    seat?: ParticipantState["seat"];
+    /** 매력 투표 마감 — 시각이 지났거나(`voteEndAt`), 운영자가 앞당겨 닫았거나(`voteEnd`). 닫는 길이 둘이다 (ADR-39) */
+    voteEndAt?: number;
+    voteEnd?: boolean;
+  } = {},
 ): ParticipantState {
   return {
     event: {
@@ -37,8 +44,13 @@ function stateOf(
       name: "테스트 파티",
       code: "ABCDEF",
       phase,
-      fired: { reg: 1, prevote: 2, ...(phase === "party" || phase === "done" ? { party: 3 } : {}) },
-      schedule: { partyAt: Date.now() + 3600_000 },
+      fired: {
+        reg: 1,
+        prevote: 2,
+        ...(over.voteEnd ? { voteEnd: 3 } : {}),
+        ...(phase === "party" || phase === "done" ? { party: 3 } : {}),
+      },
+      schedule: { partyAt: Date.now() + 3600_000, ...(over.voteEndAt ? { voteEndAt: over.voteEndAt } : {}) },
       config: { maxPre: 3, maxParty: 2, ...(over.pokeNotify === undefined ? {} : { pokeNotify: over.pokeNotify }) },
     },
     me: {
@@ -165,6 +177,24 @@ describe("언제 뜨나 (ADR-96)", () => {
       none();
       unmount();
     }
+  });
+
+  /**
+   * 등록은 발표 전까지 열려 있어서 마감과 파티 사이에 등록한 사람이 여기 온다. 그때 `투표해보세요` 는
+   * 할 수 없는 일을 시키는 것이다 — 참가자 탭의 버튼이 전부 `마감됐어요` 로 답한다.
+   * 문구가 코드보다 넓게 말하면 그 순간부터 거짓말이다.
+   */
+  it("★ 매력 투표가 마감된 뒤에는 뜨지 않는다 — 시각이 지났든, 운영자가 닫았든", async () => {
+    for (const over of [{ voteEndAt: Date.now() - 60_000 }, { voteEnd: true }]) {
+      const { unmount } = mount(sourceOf(stateOf("prevote", over)));
+      await loaded();
+      none();
+      unmount();
+    }
+    // 아직 안 닫혔으면 그대로 뜬다 — 마감을 적어 둔 것만으로 사라지면 안 된다
+    mount(sourceOf(stateOf("prevote", { voteEndAt: Date.now() + 3600_000 })));
+    const t = await shown();
+    expect(t.getByText(STAGE.prevote.what)).toBeTruthy();
   });
 });
 

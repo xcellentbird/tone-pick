@@ -29,6 +29,7 @@ import type { Defaults } from "../../../shared/types.ts";
 import { LIMITS, PHONE_SEED, formatPhone, typedPhone } from "../../../shared/constants.ts";
 import { INVITE_TEMPLATE } from "../../../shared/copy.ts";
 import { renderInvite } from "../../../shared/invite.ts";
+import { apartFrom } from "../../../shared/seats.ts";
 import { formatWhen } from "../../../shared/time.ts";
 import { api } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
@@ -242,22 +243,31 @@ export default function Players() {
   /**
    * 떨어뜨려 앉히기 (ADR-90). **되돌릴 수 있어 확인창이 없다** (ADR-6) — 목록에 줄이 생기고 사라지는 것이 곧 알림이다.
    * 방향이 없어 누구 시트에서 넣었든 같은 쌍이다.
+   * **거절만 토스트로 말한다** — 시트를 열어 둔 사이 발표가 났거나 망이 끊겼을 때. 조용히 실패하면 운영자가 다시 누른다.
    */
+  const failed = (e: unknown) => toast(e instanceof ApiError && e.userMessage ? e.userMessage : HOST_UI.saveFailed);
   const apartOf = (playerId: string) =>
-    state.apart
-      .filter(([a, b]) => a === playerId || b === playerId)
-      .map(([a, b]) => state.players.find((p) => p.id === (a === playerId ? b : a)))
+    [...apartFrom(playerId, state.apart)]
+      .map((id) => state.players.find((p) => p.id === id))
       .filter((p): p is NonNullable<typeof p> => !!p);
 
   async function addApart(a: string, b: string) {
-    await post(`/host/events/${state.meta.id}/apart`, { a, b });
-    reload();
-    navigate(-1);
+    try {
+      await post(`/host/events/${state.meta.id}/apart`, { a, b });
+      reload();
+      navigate(-1);
+    } catch (e) {
+      failed(e);
+    }
   }
 
   async function removeApart(a: string, b: string) {
-    await del(`/host/events/${state.meta.id}/apart/${a}/${b}`);
-    reload();
+    try {
+      await del(`/host/events/${state.meta.id}/apart/${a}/${b}`);
+      reload();
+    } catch (e) {
+      failed(e);
+    }
   }
 
   function askDelete(playerId: string) {
@@ -390,7 +400,7 @@ export default function Players() {
               <Row label={HOST_UI.players.sent(state.sent.party[picked.id] ?? 0)} value="" />
             </div>
 
-            <p className="kicker" style={{ marginTop: 16 }}>
+            <p className="kicker mt">
               {ME.labels.charms}
             </p>
             <div className="stack">
@@ -405,7 +415,7 @@ export default function Players() {
               **떨어뜨려 앉히기** (ADR-90). 참가자가 현장에서 부탁한 것을 운영자 손에 옮겨 두는 자리다.
               사유 칸은 없다. 발표가 자리를 끝내므로 그 뒤에는 더하는 버튼이 없고, 빼기만 남는다.
             */}
-            <p className="kicker" style={{ marginTop: 16 }}>
+            <p className="kicker mt">
               {HOST_UI.players.apart.title}
             </p>
             <div className="stack">
@@ -422,7 +432,7 @@ export default function Players() {
               ))}
             </div>
             {state.meta.phase !== "done" && (
-              <button className="btn ghost block" style={{ marginTop: 8 }} onClick={() => navigate(`${base}/${picked.id}/apart`)}>
+              <button className="btn ghost block mtSm" onClick={() => navigate(`${base}/${picked.id}/apart`)}>
                 {HOST_UI.players.apart.add}
               </button>
             )}
@@ -432,11 +442,11 @@ export default function Players() {
               새 값은 그 사람이 다음 입장에서 정한다. 콕·자리·운세는 그대로다 (S-C1·C2).
               되돌릴 수 없는 일이라 확인창이 무엇이 어떻게 바뀌는지 항목으로 보여준다 (S-C4).
             */}
-            <button className="btn ghost block" style={{ marginTop: 16 }} onClick={() => askPinReset(picked.id, picked.pin)}>
+            <button className="btn ghost block mt" onClick={() => askPinReset(picked.id, picked.pin)}>
               {HOST_UI.players.pinReset}
             </button>
 
-            <div className="row" style={{ marginTop: 16 }}>
+            <div className="row mt">
               <button className="btn wide ghost" onClick={() => navigate(-1)}>
                 {BTN.close}
               </button>

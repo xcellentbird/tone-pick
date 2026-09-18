@@ -46,16 +46,17 @@ export function pokeLogLine(e: PokeLogEntry): string {
 }
 
 /**
- * 한 줄 덧붙인다. R2 에는 덧붙이기가 없어 읽고 → 붙여 → 다시 쓴다.
+ * 줄을 덧붙인다 — 한 줄이든, 쓰는 동안 모인 여럿이든 (EventDO.logPoke). R2 에는 덧붙이기가 없어
+ * 읽고 → 붙여 → 다시 쓴다.
  *
  * ⚠️ **부르는 쪽이 한 줄로 세워야 한다** (EventDO.logPoke). R2 를 기다리는 동안 DO 는 다음 요청을
  * 받으므로, 두 콕이 같은 파일을 나란히 읽으면 뒤에 쓴 쪽이 앞의 줄을 덮는다.
  * 읽기가 실패하면 던져서 **쓰지 않는다** — 빈 파일로 덮으면 지난 줄이 전부 사라진다.
  */
-export async function appendPokeLog(bucket: R2Bucket, eventId: string, line: string): Promise<void> {
+export async function appendPokeLog(bucket: R2Bucket, eventId: string, lines: string): Promise<void> {
   const key = pokeLogKey(eventId);
   const prev = await bucket.get(key);
   // 엑셀이 한글을 읽도록 BOM 을 앞에 둔다 — 파일이 처음 생길 때 한 번
   const head = prev ? await prev.text() : "\uFEFF" + csvLine(POKE_LOG.headers);
-  await bucket.put(key, head + line, { httpMetadata: { contentType: "text/csv; charset=utf-8" } });
+  await bucket.put(key, head + lines, { httpMetadata: { contentType: "text/csv; charset=utf-8" } });
 }
