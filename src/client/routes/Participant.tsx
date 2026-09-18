@@ -8,7 +8,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, FAIL, FORTUNE, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { MyPokeState, PublicAnnouncement, ParticipantState, StageKey } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
-import { voteClosed } from "../../shared/phase.ts";
+import { canPoke, voteClosed } from "../../shared/phase.ts";
 import { TICK_WINDOW } from "../../shared/time.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
@@ -329,14 +329,14 @@ function Loaded({
    * 누른 즉시 감추고, 저장이 실패하면 되돌린다 — 자리 확인과 같다.
    *
    * **마감 뒤에는 뜨지 않는다.** 등록은 발표 전까지 열려 있어서 마감과 파티 사이에 등록한 사람이 여기 오는데,
-   * 그때 `투표해보세요` 는 할 수 없는 일을 시키는 것이다 — 참가자 탭의 버튼이 전부 `마감됐어요` 로 답한다.
+   * 그때 `투표해보세요` 는 할 수 없는 일을 시키는 것이다. 문은 참가자 탭의 버튼과 **같은 판정**(`canPoke`)이다 —
+   * 닫는 길이 하나 더 생겨도 여기와 거기가 따로 갈 수 없다.
    */
-  const stage: StageKey | null =
-    state.event.phase === "party"
+  const stage: StageKey | null = !canPoke(state.event.phase, now(), state.event.schedule, state.event.fired)
+    ? null
+    : state.event.phase === "party"
       ? "party"
-      : state.event.phase === "prevote" && !voteClosed(state.event.schedule, state.event.fired, now())
-        ? "prevote"
-        : null;
+      : "prevote";
   const [seenLocal, setSeenLocal] = useState<StageKey | null>(null);
   const needsStage = !!stage && state.me.seenStage !== stage && seenLocal !== stage && !needsSeatAck;
   const seeStage = useCallback(async () => {

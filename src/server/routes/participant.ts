@@ -9,8 +9,7 @@
  *    새 화면이 필요해도 여기서 자료를 조립하지 말고 그쪽을 넓혀라.
  */
 import { Hono } from "hono";
-import type { EnterProbe, EnterResult, RegisterInput, StageKey } from "../../shared/types.ts";
-import { STAGE_KEYS } from "../../shared/types.ts";
+import type { EnterProbe, EnterResult, RegisterInput } from "../../shared/types.ts";
 import { ENTRY, FORTUNE, ME } from "../../shared/copy.ts";
 import { validPin } from "../../shared/constants.ts";
 import { canOpenFortune, canOpenMission } from "../../shared/phase.ts";
@@ -400,8 +399,8 @@ participantRoutes.post("/stage/seen", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");
   const body = (await c.req.json().catch(() => ({}))) as { stage?: unknown };
-  if (!STAGE_KEYS.includes(body.stage as StageKey)) return apiError(c, "bad_request");
-  const { response } = unwrap(c, await seat.stub.markStageSeen(seat.playerId, body.stage as StageKey));
+  // 값 검사는 DO 가 한다 (`markStageSeen`) — 상태를 바꾸는 쪽이 문지기다
+  const { response } = unwrap(c, await seat.stub.markStageSeen(seat.playerId, body.stage));
   return response ?? c.json({ ok: true });
 });
 

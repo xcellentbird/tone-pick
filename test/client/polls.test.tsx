@@ -44,7 +44,6 @@ function hostState(): HostState {
       {
         id: "q1", at: Date.now() - 600_000, text: "2차 갈래요?",
         poll: { a: "갈래요", b: "못 가요" },
-        count: { a: 1, b: 1 },
         choices: { p1: "a", p2: "b" },
       },
     ],

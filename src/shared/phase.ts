@@ -1,6 +1,9 @@
-import type { EventMeta, EventSchedule, FiredMap, Phase } from "./types.ts";
+import type { EventMeta, EventSchedule, FiredMap, Phase, PokeRound } from "./types.ts";
 
 export const PHASE_ORDER: Phase[] = ["prep", "reg", "prevote", "party", "done"];
+
+/** 이 단계의 콕이 어느 라운드에 쌓이나. 매력 투표만 `pre` 다 — 화면과 서버가 같은 답을 낸다 */
+export const roundOf = (phase: Phase): PokeRound => (phase === "prevote" ? "pre" : "party");
 
 // 단계 이름을 포함해 화면에 나가는 모든 문구는 `copy.ts` 에 있다. 이 파일은 로직만 담는다.
 
@@ -96,6 +99,27 @@ export function schedLocked(fired: FiredMap, key: string): boolean {
   if (key === "prevoteAt") return !!fired.prevote;
   // voteEndAt · partyAt — 파티가 시작될 때까지 고칠 수 있다
   return false;
+}
+
+/** 시계가 단계를 넘기는 셋, 일어나는 순서대로 (ADR-93). 마감(`voteEndAt`)은 판정이지 전환이 아니라 여기 없다 (ADR-39) */
+export const TRANSITION_KEYS = ["prevoteAt", "partyAt", "revealAt"] as const;
+
+/**
+ * 아직 오지 않은 예약 전환끼리 순서가 맞나 — 매력 투표 시작 → 파티 시작 → 커플 발표 (ADR-93 후기).
+ * 셋 다 시계가 따라가는 예약이라 어긋난 채 저장되면 그대로 일어난다: 파티가 매력 투표보다 앞이면 매력 투표가
+ * 열리는 그 시각에 파티까지 한 번에 넘어가 투표가 통째로 사라지고, 발표가 파티보다 앞이면 파티가 열리는 순간
+ * 발표까지 간다. 회차를 만들 때(`fired` 가 비어 셋 다 산다)와 고칠 때가 **같은 함수**를 쓴다.
+ *
+ * **지난 것은 견주지 않는다** (`schedLocked` 이 잠근 키). 앞당겨 연 예약의 시각은 기록이라, 그 앞으로
+ * 다음 것을 옮기는 건 정당하다 — 한때 등록 시각까지 통째로 견주다가 *매력 투표를 지금 열려는* 조작이 거절당했다.
+ */
+export function scheduleInOrder(schedule: EventSchedule, fired: FiredMap): boolean {
+  const live = TRANSITION_KEYS.filter((k) => !schedLocked(fired, k)).map((k) => schedule[k]);
+  for (let i = 1; i < live.length; i++) {
+    const [before, after] = [live[i - 1], live[i]];
+    if (before !== undefined && after !== undefined && after <= before) return false;
+  }
+  return true;
 }
 
 /**

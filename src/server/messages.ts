@@ -5,6 +5,7 @@
  * 같은 실패에는 어디서 오든 같은 문장이 나가야 해서 한 곳에 모았다.
  */
 import { ENTRY, HOST, HOST_UI, POKE, REGISTER } from "../shared/copy.ts";
+import { HOST_PIN_TRIES } from "../shared/constants.ts";
 
 export function pokeMessage(error: string, detail?: number): string | undefined {
   // 서버는 라운드를 모른다. 중립 문구를 쓴다 (ADR-34)
@@ -36,6 +37,15 @@ export function enterMessage(error: string, detail?: number): string | undefined
 
 export function registerMessage(error: string): string | undefined {
   return error === "nick_taken" ? REGISTER.err.nickTaken : undefined;
+}
+
+/**
+ * 운영자 PIN 이 틀렸을 때 (ADR-94). 남은 횟수는 `warnAt` 이하부터 말한다 — 참가자의 `enterMessage` 와 같은 자리다.
+ * **다 쓴 순간은 `tooMany` 다.** `0번 더 틀리면 막혀요` 는 말이 안 되고 사실도 아니다 — 이미 막혔다.
+ */
+export function hostPinMessage(left: number): string {
+  if (left === 0) return HOST.pin.tooMany(HOST_PIN_TRIES.windowMs / 60_000);
+  return left <= HOST_PIN_TRIES.warnAt ? HOST.pin.wrongLeft(left) : HOST.pin.wrong;
 }
 
 /**

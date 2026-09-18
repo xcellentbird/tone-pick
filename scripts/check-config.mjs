@@ -4,8 +4,8 @@
  * 다섯 다 사람 눈으로는 잘 안 잡히는 종류다.
  *  1. **프로덕션 비밀값이 저장소에 들어오는 것** — vars 에 MASTER_PIN 을 적으면 그대로 공개된다
  *  2. **QA 공통 PIN 이 흔들리는 것** — 연습용은 언제나 0000 이어야 한다는 약속
- *  3. **환경에 상속되지 않는 키를 빠뜨리는 것** — durable_objects·assets 는 상속되지 않는다.
- *     빠뜨리면 배포는 되고 첫 요청에서야 터진다
+ *  3. **환경에 상속되지 않는 것을 빠뜨리는 것** — durable_objects, assets, vars, r2_buckets 가 다 그렇다.
+ *     빠뜨리면 배포는 되고 첫 요청에서야 터지거나, 아예 조용히 어긋난다
  *  4. **preload 한 파일에 캐시 규칙이 없는 것** — preload 는 그 파일을 첫 그림의 조건으로 만든다.
  *     기본값은 `max-age=0, must-revalidate` 라 두 번째 방문부터 **그림이 왕복 뒤에** 뜬다
  *  5. **화면에 뜨는 버전이 package.json 과 어긋나는 것** — 운영자가 그 숫자를 보고
@@ -60,36 +60,40 @@ if (!qa) {
   if (qa.vars?.MASTER_PIN !== "0000") {
     problems.push(`QA 공통 PIN 이 "${qa.vars?.MASTER_PIN}" 입니다. 연습용은 언제나 0000 입니다`);
   }
-  if (!qa.vars?.ENV_LABEL) {
-    problems.push("env.qa 에 ENV_LABEL 이 없습니다. 화면 위 띠와 리허설 스크립트의 안전장치가 이 값으로 돕니다");
+
+  /*
+   * ③ 환경에 상속되지 않는 것들. 빠뜨리면 배포는 되고 첫 요청에서야 터지거나 조용히 어긋난다 —
+   * 이름과 읽는 법만 표에 적는다. 새 바인딩이 생기면 줄 하나다.
+   */
+  const logs = (env) => (env.r2_buckets ?? []).find((b) => b.binding === "LOGS")?.bucket_name;
+  // 국가 문은 **키가 있는지**를 본다 (ADR-92 후기). 빈 값은 사고가 아니라 끄는 길이다 — 아래 프로덕션 쪽 주석
+  const gate = (env) => !!env.vars && "ALLOWED_COUNTRIES" in env.vars;
+  const NOT_INHERITED = [
+    { what: "durable_objects", read: (e) => e.durable_objects },
+    { what: "assets", read: (e) => e.assets },
+    { what: "ENV_LABEL", read: (e) => e.vars?.ENV_LABEL, why: "화면 위 띠와 리허설 스크립트의 안전장치가 이 값으로 돕니다" },
+    { what: "LOGS 버킷(r2_buckets)", read: logs, why: "콕 로그가 쌓이지 않습니다 (ADR-84)" },
+    { what: "ALLOWED_COUNTRIES 키(vars)", read: gate, why: "국가 문이 조용히 열립니다 (ADR-92)" },
+  ];
+  for (const { what, read, why } of NOT_INHERITED) {
+    if (read(qa)) continue;
+    problems.push(`env.qa 에 ${what} 가 없습니다. 환경에 상속되지 않으니 그대로 다시 적어야 합니다${why ? ` — ${why}` : ""}`);
   }
 
-  // ③ 환경에 상속되지 않는 키들
-  for (const key of ["durable_objects", "assets"]) {
-    if (!qa[key]) problems.push(`env.qa 에 ${key} 가 없습니다. 환경에 상속되지 않으니 그대로 다시 적어야 합니다`);
-  }
-  // 콕 로그 버킷 (ADR-84). 빠져도 배포는 되고 콕도 된다 — **로그만 조용히 빈다**
-  const logs = (env) => (env.r2_buckets ?? []).find((b) => b.binding === "LOGS")?.bucket_name;
+  // 프로덕션 쪽 규칙 — 상속의 문제가 아니라 그 자체로 있어야 하는 것
   if (!logs(config)) problems.push("프로덕션에 LOGS 버킷(r2_buckets)이 없습니다. 콕 로그가 쌓이지 않습니다 (ADR-84)");
-  if (!logs(qa)) problems.push("env.qa 에 LOGS 버킷(r2_buckets)이 없습니다. 환경에 상속되지 않으니 그대로 다시 적어야 합니다");
   if (logs(config) && logs(config) === logs(qa)) {
     problems.push(`QA 와 프로덕션이 같은 로그 버킷(${logs(qa)})을 씁니다. 연습 콕이 진짜 파티 로그에 섞입니다`);
   }
   /*
    * 국가 문 (ADR-92). **키가 빠지면 조용히 열린다** — 배포는 되고 앱도 멀쩡히 돌고, 문만 없어진다.
-   * `vars` 도 환경에 상속되지 않아서 QA 에 따로 적어야 한다.
-   *
    * **빈 값은 사고가 아니라 끄는 길이다** (ADR-92 후기). 파티 당일 로밍 참가자가 막히면 이 값을 비우고
    * 배포하는 것이 유일한 되돌리기인데, 그때 이 검사가 빨개지면 CI 가 바로 그 배포를 막는다.
-   * 그래서 값이 아니라 **키가 있는지**를 본다 — 없는 것은 손이 미끄러진 것이고, 비운 것은 고른 것이다.
+   * 그래서 값이 아니라 키가 있는지를 본다 — 없는 것은 손이 미끄러진 것이고, 비운 것은 고른 것이다.
    * 문을 걷어내기로 했다면 이 검사도 함께 걷어내라 — 안 그러면 검사가 없는 문을 지킨다.
    */
-  const hasGate = (env) => !!env.vars && "ALLOWED_COUNTRIES" in env.vars;
-  if (!hasGate(config)) {
+  if (!gate(config)) {
     problems.push("프로덕션 vars 에 ALLOWED_COUNTRIES 키가 없습니다. 국가 문이 조용히 열립니다 (ADR-92). 끄려면 지우지 말고 비우세요");
-  }
-  if (!hasGate(qa)) {
-    problems.push("env.qa 에 ALLOWED_COUNTRIES 키가 없습니다. 환경에 상속되지 않으니 그대로 다시 적어야 합니다 (ADR-92)");
   }
 
   const names = (qa.durable_objects?.bindings ?? []).map((b) => b.name).sort();

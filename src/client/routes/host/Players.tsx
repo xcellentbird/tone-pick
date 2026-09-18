@@ -21,7 +21,7 @@
  *
  * 상세 시트는 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md).
  */
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Invite, PinState } from "../../../shared/types.ts";
@@ -32,13 +32,14 @@ import { renderInvite } from "../../../shared/invite.ts";
 import { apartFrom } from "../../../shared/seats.ts";
 import { formatWhen } from "../../../shared/time.ts";
 import { api } from "../../lib/api.ts";
-import { useLoad } from "../../lib/useLoad.ts";
+import { useLoad, useTimeouts } from "../../lib/useLoad.ts";
 import { keepPhoneSeed } from "../../lib/phoneField.ts";
-import { ApiError, del, post } from "../../lib/api.ts";
+import { ApiError, del, messageOf, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
 import { useConsole } from "./HostConsole.tsx";
+import PersonCard from "./PersonCard.tsx";
 
 /**
  * 필터는 **성별 축**이다. 카드 목록은 등록한 사람만 담으므로 상태로 나눌 것이 없고,
@@ -58,9 +59,8 @@ type Filter = "all" | Gender;
  * `Number()` 가 `27.0` 의 `.0` 을 떼어 준다.
  */
 function ageOf(ages: number[]) {
-  const sorted = [...ages].sort((a, b) => a - b);
-  const mean = Number((sorted.reduce((a, b) => a + b, 0) / sorted.length).toFixed(1));
-  return { min: sorted[0], max: sorted.at(-1)!, mean };
+  const mean = Number((ages.reduce((a, b) => a + b, 0) / ages.length).toFixed(1));
+  return { min: Math.min(...ages), max: Math.max(...ages), mean };
 }
 
 /**
@@ -245,7 +245,7 @@ export default function Players() {
    * 방향이 없어 누구 시트에서 넣었든 같은 쌍이다.
    * **거절만 토스트로 말한다** — 시트를 열어 둔 사이 발표가 났거나 망이 끊겼을 때. 조용히 실패하면 운영자가 다시 누른다.
    */
-  const failed = (e: unknown) => toast(e instanceof ApiError && e.userMessage ? e.userMessage : HOST_UI.saveFailed);
+  const failed = (e: unknown) => toast(messageOf(e, HOST_UI.saveFailed));
   const apartOf = (playerId: string) =>
     [...apartFrom(playerId, state.apart)]
       .map((id) => state.players.find((p) => p.id === id))
@@ -362,18 +362,7 @@ export default function Players() {
         카드 전체가 상세를 여는 손잡이다. 오른쪽에 붙던 참석 칩은 걷어냈다 (ADR-45).
       */}
       {shown.map((p) => (
-        <div className="person" key={p.id}>
-          <button type="button" className="open" onClick={() => navigate(`${base}/${p.id}`)}>
-            <Avatar nickname={p.nickname} gender={p.gender} />
-            <span className="meta">
-              <span className="name ellipsis">
-                {p.realName} · {p.nickname} · {UNIT.age(p.age)}
-              </span>
-              {/* 받은 콕은 보여주지 않는다 — 알면 그 사람을 다르게 대하게 된다 (ADR-22) */}
-              <span className="charm ellipsis">{formatPhone(p.phone)}</span>
-            </span>
-          </button>
-        </div>
+        <PersonCard key={p.id} p={p} phone onOpen={() => navigate(`${base}/${p.id}`)} />
       ))}
 
       <Sheet open={!!picked && !atApart} onClose={() => navigate(-1)} title={picked?.nickname ?? ""}>
@@ -471,16 +460,7 @@ export default function Players() {
           return (
             <div className="stack">
               {candidates.map((p) => (
-                <div className="person" key={p.id}>
-                  <button type="button" className="open" onClick={() => addApart(picked.id, p.id)}>
-                    <Avatar nickname={p.nickname} gender={p.gender} />
-                    <span className="meta">
-                      <span className="name ellipsis">
-                        {p.realName} · {p.nickname} · {UNIT.age(p.age)}
-                      </span>
-                    </span>
-                  </button>
-                </div>
+                <PersonCard key={p.id} p={p} onOpen={() => addApart(picked.id, p.id)} />
               ))}
             </div>
           );
@@ -561,17 +541,17 @@ function Invites({
    */
   const [copied, setCopied] = useState<string | null>(null);
   /*
-   * 표시를 끄는 타이머는 **화면이 내려가면 같이 지운다.** 안 지우면 2초 뒤에 없는 화면에 상태를 쓰려 들고,
-   * 테스트에서는 그게 `window is not defined` 로 터져 CI 를 빨갛게 만들었다 (통과한 테스트 뒤에서).
+   * 표시를 끄는 타이머. 콜백 안에서 걸리므로 화면이 내려갈 때 지우는 건 `useTimeouts` 가 맡는다 —
+   * 안 지우면 2초 뒤에 없는 화면에 상태를 쓰려 들고, 테스트에서는 `window is not defined` 로 CI 가 빨개졌다.
    * 같은 버튼을 다시 누르면 앞 타이머를 지우고 새로 센다 — 두 번째 누름이 첫 타이머에 꺼지지 않게.
    */
-  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => clearTimeout(copyTimer.current ?? undefined), []);
+  const later = useTimeouts();
+  const cancelFlash = useRef<(() => void) | null>(null);
   async function flashCopy(key: string, run: () => Promise<boolean>) {
     if (!(await run())) return;
     setCopied(key);
-    if (copyTimer.current) clearTimeout(copyTimer.current);
-    copyTimer.current = setTimeout(() => setCopied((c) => (c === key ? null : c)), 2000);
+    cancelFlash.current?.();
+    cancelFlash.current = later(() => setCopied((c) => (c === key ? null : c)), 2000);
   }
   const known = new Set(invites.map((i) => i.phone));
 

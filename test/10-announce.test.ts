@@ -188,7 +188,6 @@ describe("설문 — 두 선택지", () => {
 
     const host = (await hostState(ev)).body.announcements[0];
     expect(host.choices).toEqual({ [p.id]: "a", [q.id]: "b" });
-    expect(host.count).toEqual({ a: 1, b: 1 });
 
     const mine = (await me(p.cookie, ev)).body.announcements[0];
     expect(mine.poll?.mine).toBe("a");
@@ -210,8 +209,7 @@ describe("설문 — 두 선택지", () => {
     expect(again.status).toBe(200);
     expect(again.body.poll?.mine).toBe("b");
     const host = (await hostState(ev)).body.announcements[0];
-    expect(host.choices[p.id]).toBe("b");
-    expect(host.count).toEqual({ a: 0, b: 1 });
+    expect(host.choices).toEqual({ [p.id]: "b" });
   });
 
   it("★ 닫으면 더 못 고른다. 답은 남는다", async () => {
@@ -233,7 +231,7 @@ describe("설문 — 두 선택지", () => {
     const seen = (await me(p.cookie, ev)).body.announcements[0];
     expect(seen.poll?.closed).toBe(true);
     expect(seen.poll?.mine).toBe("a");
-    expect((await hostState(ev)).body.announcements[0].count).toEqual({ a: 1, b: 0 });
+    expect((await hostState(ev)).body.announcements[0].choices).toEqual({ [p.id]: "a" });
   });
 
   it("★ 닫은 것을 다시 열 수 있다 — 되돌릴 수 있어야 확인창이 없다", async () => {
@@ -302,7 +300,6 @@ describe("설문 — 두 선택지", () => {
 
     const host = (await hostState(ev)).body.announcements[0];
     expect(host.choices).toEqual({ [p.id]: "a" });
-    expect(host.count).toEqual({ a: 1, b: 0 });
   });
 });
 
@@ -342,6 +339,6 @@ describe("경계", () => {
     const seen = (await me(p.cookie, ev)).body.announcements[0];
     expect(seen.id).toBe(next.body.id);
     expect(seen.poll?.mine).toBeUndefined();
-    expect((await hostState(ev)).body.announcements[0].count).toEqual({ a: 0, b: 0 });
+    expect((await hostState(ev)).body.announcements[0].choices).toEqual({});
   });
 });

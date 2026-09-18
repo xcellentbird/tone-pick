@@ -17,8 +17,8 @@ export function autoTable(
   tableCount: number,
   genderOf: (playerId: string) => Gender | undefined,
   mine: Gender,
-  /** 이 사람과 떼어 놓을 사람들 (ADR-90). 없으면 성비만 본다 */
-  avoid: ReadonlySet<string> = new Set(),
+  /** 이 사람과 떼어 놓을 사람들 (ADR-90) — `apartFrom`. 기본값을 두지 않는다: 빠뜨리면 그 규칙이 조용히 사라진다 */
+  avoid: ReadonlySet<string>,
 ): number {
   let best = 1;
   let bestKey: [number, number, number] = [Infinity, Infinity, Infinity];
@@ -66,4 +66,17 @@ export function apartFrom(playerId: string, pairs: ReadonlyArray<readonly [strin
     else if (b === playerId) out.add(a);
   }
   return out;
+}
+
+/** 쌍의 정규형 — 방향이 없어 정렬한다 (ADR-90). `apart` 표에 넣을 때도 견줄 때도 이 하나를 거친다 */
+export const sortPair = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
+export const pairKey = (a: string, b: string): string => sortPair(a, b).join("|");
+
+/**
+ * "이 둘은 떼어 놓을 쌍인가". 서버의 섞기(`pairedSeatIds`)와 운영자 자리 화면(`couples`)이 **같은 함수**를 쓴다 —
+ * 한쪽이 정렬 안 한 키로 찾으면 그쪽만 조용히 `아니다` 라고 답하고, 그때 붙잡아 둔 쌍과 화면의 쌍이 갈린다.
+ */
+export function isApart(pairs: ReadonlyArray<readonly [string, string]>): (a: string, b: string) => boolean {
+  const keys = new Set(pairs.map(([a, b]) => pairKey(a, b)));
+  return (a, b) => keys.has(pairKey(a, b));
 }

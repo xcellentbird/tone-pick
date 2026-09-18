@@ -57,6 +57,14 @@ describe("봤다는 표시는 서버가 안다 (ADR-96)", () => {
     expect((await seen(null, "prevote")).status).toBe(401);
   });
 
+  it("★ 지워진 참가자의 표시는 남길 곳이 없다 — 404", async () => {
+    const ev = await freshEvent();
+    const p = await join(ev);
+    await setPhase(ev.id, "prevote");
+    await api(`/api/host/events/${ev.id}/players/${p.id}`, { method: "DELETE", cookie: master });
+    expect((await seen(p.cookie, "prevote")).status).toBe(404);
+  });
+
   it("★ 본인에게만 간다 — 명단에도 운영자 응답에도 없다", async () => {
     const ev = await freshEvent();
     const a = await join(ev);

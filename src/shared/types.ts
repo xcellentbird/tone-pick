@@ -62,6 +62,8 @@ export type MyProfile = Omit<Player, "phone" | "pin"> & {
 /** 안내 화면이 뜨는 단계 — 새 행동이 열리는 순간이 둘뿐이다 (ADR-96) */
 export type StageKey = "prevote" | "party";
 export const STAGE_KEYS: readonly StageKey[] = ["prevote", "party"];
+/** 값이 그 둘 중 하나인가 — 요청 본문과 저장된 칸 둘 다 이걸로 거른다 */
+export const isStageKey = (v: unknown): v is StageKey => STAGE_KEYS.includes(v as StageKey);
 
 /**
  * 참가자에게 내려가는 형태. 이 타입 밖의 필드를 참가자 응답에 넣지 말 것.
@@ -662,8 +664,8 @@ export interface PublicAnnouncement {
  *
  * 나간 사람의 답은 세지 않는다 — `choices` 도 `count` 도 지금 있는 사람만이다 (ADR-29 와 같은 정리).
  */
+/** 운영자에게는 **누가 무엇을 골랐는지**까지 간다 (ADR-88). 숫자는 화면이 여기서 센다 — 같은 수를 두 곳에 두지 않는다 */
 export interface HostAnnouncement extends Announcement {
-  count: { a: number; b: number };
   choices: Record<string, PollChoice>;
 }
 
