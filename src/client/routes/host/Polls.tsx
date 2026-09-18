@@ -15,7 +15,7 @@ import { HOST_UI, UNIT } from "../../../shared/copy.ts";
 import { formatPhone } from "../../../shared/constants.ts";
 import type { HostAnnouncement, Player, PollChoice } from "../../../shared/types.ts";
 import { formatWhen } from "../../../shared/time.ts";
-import { del, post, put } from "../../lib/api.ts";
+import { ApiError, del, post, put } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
@@ -79,6 +79,7 @@ export default function Polls() {
 }
 
 function NewPoll({ eventId, onDone }: { eventId: string; onDone: () => void }) {
+  const { toast } = useOverlay();
   const [text, setText] = useState("");
   const [a, setA] = useState("");
   const [b, setB] = useState("");
@@ -90,6 +91,9 @@ function NewPoll({ eventId, onDone }: { eventId: string; onDone: () => void }) {
     try {
       await post(`/host/events/${eventId}/announcements`, { text: text.trim(), poll: { a: a.trim(), b: b.trim() } });
       onDone();
+    } catch (e) {
+      // 조용히 실패하면 운영자가 다시 누른다 — 같은 설문이 둘 선다
+      toast(e instanceof ApiError && e.userMessage ? e.userMessage : HOST_UI.saveFailed);
     } finally {
       setBusy(false);
     }
@@ -137,7 +141,7 @@ function Detail({
   reload: () => void;
 }) {
   const navigate = useNavigate();
-  const { confirm } = useOverlay();
+  const { confirm, toast } = useOverlay();
   const [filter, setFilter] = useState<Filter>("a");
   const poll = ann.poll!;
   const closed = !!poll.closedAt;
@@ -146,10 +150,14 @@ function Detail({
   const shown = by(filter);
   const answered = players.length - by("none").length;
 
-  /** 마감·다시 열기. 되돌릴 수 있으므로 확인창이 없다 — 배지가 바뀌는 것이 곧 알림이다 */
+  /** 마감·다시 열기. 되돌릴 수 있으므로 확인창이 없다 — 배지가 바뀌는 것이 곧 알림이다. 거절만 토스트로 말한다 */
   async function toggle() {
-    await put(`/host/events/${eventId}/announcements/${ann.id}`, { open: closed });
-    reload();
+    try {
+      await put(`/host/events/${eventId}/announcements/${ann.id}`, { open: closed });
+      reload();
+    } catch (e) {
+      toast(e instanceof ApiError && e.userMessage ? e.userMessage : HOST_UI.saveFailed);
+    }
   }
 
   /** 지우기. 받은 답이 함께 사라지므로 확인창이 그 수를 말한다 */
@@ -220,7 +228,7 @@ function Detail({
         </div>
       ))}
 
-      <div className="row" style={{ marginTop: 16 }}>
+      <div className="row mt">
         <button className="btn wide ghost" onClick={toggle}>
           {closed ? HOST_UI.polls.reopen : HOST_UI.polls.close}
         </button>

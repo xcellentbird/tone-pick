@@ -19,6 +19,8 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import type { EventConfig, EventMeta, ParticipantState } from "../src/shared/types.ts";
+import { HOST_UI } from "../src/shared/copy.ts";
+import { dueTransition } from "../src/shared/phase.ts";
 import { signInMaster, api, freshEvent, join, master, setPhase } from "./helpers/party.ts";
 
 beforeAll(signInMaster);
@@ -67,11 +69,18 @@ describe("파티 시작 예약", () => {
    * *바로 앞 단계*에서만 울린다. 등록 중에 파티 일시가 지났다고 표 한 장 없이
    * 파티로 뛰면 매력 투표가 통째로 사라진다.
    */
-  it("★ 등록 중에는 파티 일시가 지나도 시작되지 않는다", async () => {
-    const ev = await freshEvent();
-    expect((await putSchedule(ev.id, { partyAt: Date.now() - 1000 })).status).toBe(200);
-
-    expect(await phaseNow(ev.id), "등록 중에 시계가 파티를 열었다").toBe("reg");
+  it("★ 등록 중에는 파티 일시가 지나도 시작되지 않는다", () => {
+    /*
+     * 순서 검사(아래 `순서`)가 파티를 매력 투표 앞으로 못 옮기게 하므로 API 로는 이 일정을 만들 수 없다.
+     * 그래도 판정은 지킨다 — 되돌린 회차처럼 지난 시각이 남아 있어도 예약은 바로 앞 단계에서만 운다.
+     */
+    const now = Date.now();
+    const meta = {
+      phase: "reg",
+      fired: { reg: now - 2 * HOUR },
+      schedule: { regOpenAt: now - 2 * HOUR, prevoteAt: now + HOUR, partyAt: now - 1000, revealAt: now + 5 * HOUR },
+    } as unknown as EventMeta;
+    expect(dueTransition(meta, now), "등록 중에 시계가 파티를 열었다").toBeNull();
   });
 
   /** 예약은 한 번만 울린다 (ADR-2). `fired.party` 가 남아 있어 되돌려도 다시 안 민다 */
@@ -119,13 +128,24 @@ describe("커플 발표 예약", () => {
    * 여기가 깨지면 아직 아무도 안 온 자리에서 결과가 뜬다 —
    * 콕은 열린 적도 없으니 매칭이 0인 채로 파티가 끝난 것이 된다.
    */
-  it("★ 파티를 시작하지 않았으면 시각이 지나도 아무 일이 없다", async () => {
+  it("★ 파티를 시작하지 않았으면 시각이 지나도 아무 일이 없다", () => {
+    /*
+     * 순서 검사(`순서`)가 발표를 파티 앞으로 못 옮기게 하므로 API 로는 이 일정을 만들 수 없다.
+     * 그래도 판정은 지킨다 — 되돌린 회차처럼 지난 시각이 남아 있어도 발표는 파티 뒤에만 운다.
+     */
+    const now = Date.now();
     for (const before of ["reg", "prevote"] as const) {
-      const ev = await freshEvent();
-      if (before === "prevote") await setPhase(ev.id, "prevote");
-      expect((await putSchedule(ev.id, { revealAt: Date.now() - 1000 })).status).toBe(200);
-
-      expect(await phaseNow(ev.id), `${before} 에서 시계가 혼자 발표했다`).toBe(before);
+      const meta = {
+        phase: before,
+        fired: { reg: now - 2 * HOUR, ...(before === "prevote" ? { prevote: now - HOUR } : {}) },
+        schedule: {
+          regOpenAt: now - 2 * HOUR,
+          prevoteAt: before === "prevote" ? now - HOUR : now + HOUR,
+          partyAt: now + 5 * HOUR,
+          revealAt: now - 1000,
+        },
+      } as unknown as EventMeta;
+      expect(dueTransition(meta, now), `${before} 에서 시계가 혼자 발표했다`).toBeNull();
     }
   });
 
@@ -166,6 +186,65 @@ describe("커플 발표 예약", () => {
       },
     });
     expect(res.status, JSON.stringify(res.body)).toBe(400);
+  });
+
+  /**
+   * **예약 전환 셋은 순서대로여야 한다** — 매력 투표 시작 → 파티 시작 → 커플 발표 (ADR-93 후기).
+   * 셋 다 시계가 따라가는 예약이라 어긋난 채 저장되면 그대로 일어난다: 파티가 매력 투표보다 앞이면
+   * 매력 투표가 열리는 그 시각에 등록→투표→파티가 한 번에 넘어가 **투표가 통째로 사라지고**, 발표가 파티보다
+   * 앞이면 파티가 열리는 순간 발표까지 간다. 마감은 전환이 아니라 검사하지 않는다 (ADR-39).
+   */
+  it("★ 순서가 어긋난 일정으로는 회차를 못 만든다 — 어디가 틀렸는지 말한다", async () => {
+    const now = Date.now();
+    const good = {
+      prevoteAt: now + 24 * HOUR,
+      voteEndAt: now + 3 * 24 * HOUR - HOUR,
+      partyAt: now + 3 * 24 * HOUR,
+      revealAt: now + 3 * 24 * HOUR + 3 * HOUR,
+    };
+    const bad = [
+      { partyAt: good.prevoteAt - HOUR }, // 파티가 매력 투표 시작보다 앞
+      { partyAt: good.prevoteAt }, // 같은 시각도 안 된다 — 한 번의 판정에서 둘이 이어진다
+      { prevoteAt: good.revealAt + HOUR }, // 매력 투표가 발표보다 뒤
+    ];
+    for (const patch of bad) {
+      const res = await api<{ message?: string }>("/api/host/events", {
+        method: "POST",
+        cookie: master,
+        body: { name: "거꾸로", ...good, ...patch, config: { maxPre: 2, maxParty: 3 }, requestId: `ord-${now}-${Math.random()}` },
+      });
+      expect(res.status, JSON.stringify(patch)).toBe(400);
+      expect(res.body.message).toBe(HOST_UI.scheduleOrder);
+    }
+    // 마감은 검사하지 않는다 — 어긋나도 파티 전까지 고칠 수 있다
+    const odd = await api("/api/host/events", {
+      method: "POST",
+      cookie: master,
+      body: { name: "마감만", ...good, voteEndAt: good.partyAt + HOUR, config: { maxPre: 2, maxParty: 3 }, requestId: `ord-v-${now}` },
+    });
+    expect(odd.status, JSON.stringify(odd.body)).toBe(200);
+  });
+
+  it("★ 고칠 때도 순서를 지킨다 — 발표를 파티 앞으로, 파티를 매력 투표 앞으로 옮길 수 없다", async () => {
+    const ev = await freshEvent();
+    const s = ev.schedule;
+    const late = await putSchedule(ev.id, { revealAt: s.partyAt! - HOUR });
+    expect(late.status, JSON.stringify(late.body)).toBe(400);
+    expect((late.body as { message?: string }).message).toBe(HOST_UI.scheduleOrder);
+    expect((await putSchedule(ev.id, { partyAt: s.prevoteAt! - HOUR })).status).toBe(400);
+    // 그대로 보내면 통과한다 — 설정 탭은 저장할 때마다 일정을 통째로 보낸다
+    expect((await putSchedule(ev.id, { prevoteAt: s.prevoteAt!, partyAt: s.partyAt!, revealAt: s.revealAt! })).status).toBe(200);
+  });
+
+  /**
+   * **지난 것은 견주지 않는다.** 매력 투표를 앞당겨 열었으면 그 예약 시각은 기록일 뿐이라,
+   * 파티를 그보다 앞으로 옮기는 건 정당하다 — 이걸 막으면 순서 검사가 옳은 조작을 거절한다.
+   */
+  it("★ 앞당겨 연 예약 앞으로는 옮길 수 있다 — 기록과 예약을 견주지 않는다", async () => {
+    const ev = await freshEvent(); // 매력 투표 예약은 내일이다
+    await setPhase(ev.id, "prevote"); // 지금 연다
+    const res = await putSchedule(ev.id, { partyAt: Date.now() + 2 * HOUR });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
   });
 
   /**

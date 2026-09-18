@@ -327,9 +327,16 @@ function Loaded({
    * **자리 확인이 먼저다** — 몸을 옮기는 지시가 설명보다 앞이다. 둘 다 뜰 자리면 자리를 확인한 뒤에 온다.
    * 봤다는 건 서버가 안다(`me.seenStage`, 사건이 아니라 상태다 — 예약이 여는 순간 앱을 켜둔 사람이 없다).
    * 누른 즉시 감추고, 저장이 실패하면 되돌린다 — 자리 확인과 같다.
+   *
+   * **마감 뒤에는 뜨지 않는다.** 등록은 발표 전까지 열려 있어서 마감과 파티 사이에 등록한 사람이 여기 오는데,
+   * 그때 `투표해보세요` 는 할 수 없는 일을 시키는 것이다 — 참가자 탭의 버튼이 전부 `마감됐어요` 로 답한다.
    */
   const stage: StageKey | null =
-    state.event.phase === "prevote" || state.event.phase === "party" ? state.event.phase : null;
+    state.event.phase === "party"
+      ? "party"
+      : state.event.phase === "prevote" && !voteClosed(state.event.schedule, state.event.fired, now())
+        ? "prevote"
+        : null;
   const [seenLocal, setSeenLocal] = useState<StageKey | null>(null);
   const needsStage = !!stage && state.me.seenStage !== stage && seenLocal !== stage && !needsSeatAck;
   const seeStage = useCallback(async () => {

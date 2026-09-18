@@ -33,7 +33,7 @@ import {
   unwrap,
   type Ctx,
   type Env, timed,} from "../http.ts";
-import { seatingMessage, settingsMessage } from "../messages.ts";
+import { apartMessage, seatingMessage, settingsMessage } from "../messages.ts";
 
 export const hostRoutes = new Hono<{ Bindings: Env }>();
 
@@ -146,8 +146,14 @@ hostRoutes.post("/events", async (c) => {
   const voteEndAt = Number(body.voteEndAt);
   const revealAt = Number(body.revealAt);
   if (![partyAt, prevoteAt, voteEndAt, revealAt].every(Number.isFinite)) return apiError(c, "bad_request");
-  // 발표가 파티보다 앞이면 파티가 시작되자마자 끝난다 (ADR-43)
-  if (revealAt <= partyAt) return apiError(c, "bad_request");
+  /*
+   * **예약 전환 셋은 순서대로여야 한다** — 매력 투표 시작 → 파티 시작 → 커플 발표 (ADR-93 후기).
+   * 셋 다 시계가 따라가는 예약이라 어긋난 채 저장되면 그대로 일어난다: 파티가 매력 투표보다 앞이면
+   * 매력 투표가 열리는 그 시각에 파티까지 한 번에 넘어가 투표가 통째로 사라지고, 발표가 파티보다 앞이면
+   * 파티가 열리는 순간 발표까지 간다 (ADR-43). 마감은 전환이 아니라 여기 없다 (ADR-39) — 어긋나도 되돌릴 수 있다.
+   * 고칠 때도 같은 검사다 (`EventDO.setSchedule`).
+   */
+  if (!(prevoteAt < partyAt && partyAt < revealAt)) return apiError(c, "order", HOST_UI.scheduleOrder);
 
   const reserved = await registry(c.env).reserve({
     code: body.code,
@@ -303,7 +309,7 @@ hostRoutes.post("/events/:id/apart", async (c) => {
   if (gate.response) return gate.response;
   const body = await json<{ a?: string; b?: string }>(c);
   if (!body.a || !body.b) return apiError(c, "bad_request");
-  const { value, response } = unwrap(c, await gate.stub.addApart(body.a, body.b));
+  const { value, response } = unwrap(c, await gate.stub.addApart(body.a, body.b), apartMessage);
   return response ?? c.json({ apart: value });
 });
 

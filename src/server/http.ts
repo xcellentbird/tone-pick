@@ -132,6 +132,7 @@ const STATUS: Record<ErrorCode, number> = {
   conflict: 409,
   region_blocked: 403,
   bad_request: 400,
+  order: 400,
 };
 
 export function apiError(c: Ctx, error: ErrorCode, message?: string) {

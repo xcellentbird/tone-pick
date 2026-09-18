@@ -155,6 +155,7 @@ type Fail =
   | "closed"
   | "same_gender"
   | "locked"
+  | "order"
   | "no_budget"
   | "pin_wrong"     // PIN 번호가 틀렸다. detail = 남은 횟수 (ADR-75)
   | "pin_locked";   // 다섯 번 틀려 잠겼다. 운영자만 푼다 (ADR-75)
@@ -172,8 +173,14 @@ interface Attachment {
 }
 
 export class EventDO extends DurableObject {
-  /** 콕 로그 쓰기를 한 줄로 세운다 (ADR-84). 나란히 쓰면 뒤엣것이 앞의 줄을 덮는다 — `appendPokeLog` */
+  /**
+   * 콕 로그 쓰기를 한 줄로 세운다 (ADR-84). 나란히 쓰면 뒤엣것이 앞의 줄을 덮는다 — `appendPokeLog`.
+   * 쓰는 동안 들어온 줄은 `logLines` 에 모였다가 **다음 한 번에** 붙는다 (ADR-84 후기) —
+   * 마흔 명이 한꺼번에 찌를 때 콕마다 R2 왕복을 줄 세우면 마지막 사람이 앞선 왕복 전부를 기다린다.
+   */
   private logQueue: Promise<void> = Promise.resolve();
+  private logLines: string[] = [];
+  private logArmed = false;
 
   constructor(ctx: DurableObjectState, env: unknown) {
     super(ctx as never, env as never);
@@ -346,11 +353,6 @@ export class EventDO extends DurableObject {
     if (!meta) return fail("not_found");
     const next: EventSchedule = { ...meta.schedule, ...patch };
     /*
-     * **순서는 검사하지 않는다** (ADR-36). 등록이 늘 열려 있는 지금, "사전 투표가 등록보다
-     * 먼저 열렸다" 는 위반이 성립하지 않는다. 검사를 남겨두면 오히려 **매력 투표를
-     * 지금 당장 열려는 정당한 조작**이 회차 만든 시각에 걸려 거절당했다.
-     */
-    /*
      * 잠긴 항목은 못 고친다. **키마다 따로 본다** (ADR-39) — 매력 투표 마감과 파티 일시는
      * 파티가 시작될 때까지 열려 있어야 한다. 파티가 늦어지면 마감도 미뤄야 하기 때문이다.
      *
@@ -359,6 +361,21 @@ export class EventDO extends DurableObject {
      */
     if (SCHEDULE_KEYS.some((k) => next[k] !== meta.schedule[k] && schedLocked(meta.fired, k))) {
       return fail("locked");
+    }
+    /*
+     * **아직 오지 않은 예약 전환끼리는 순서를 지켜야 한다** — 매력 투표 시작 → 파티 시작 → 커플 발표
+     * (ADR-93 후기). 셋 다 시계가 따라가는 예약이라 어긋난 채 저장되면 그대로 일어난다: 파티가 매력 투표보다
+     * 앞이면 매력 투표가 열리는 그 시각에 파티까지 한 번에 넘어가 투표가 통째로 사라지고, 발표가 파티보다
+     * 앞이면 파티가 열리는 순간 발표까지 간다. 회차를 만들 때와 같은 검사다 — 설정 탭만 그 문이 열려 있었다.
+     *
+     * **지난 것은 견주지 않는다** (`schedLocked` 이 잠근 키). 앞당겨 연 예약의 시각은 기록이라 그 앞으로
+     * 다음 것을 옮기는 건 정당하다 — 한때 등록 시각까지 통째로 견주다가 *매력 투표를 지금 열려는* 조작이
+     * 거절당했다. 마감(`voteEndAt`)은 전환이 아니라 여기 없다 (ADR-39) — 어긋나도 파티 전까지 고칠 수 있다.
+     */
+    const live = TRANSITION_KEYS.filter((k) => !schedLocked(meta.fired, k)).map((k) => next[k]);
+    for (let i = 1; i < live.length; i++) {
+      const [before, after] = [live[i - 1], live[i]];
+      if (before !== undefined && after !== undefined && after <= before) return fail("order");
     }
     meta.schedule = next;
     await this.ctx.storage.put("meta", meta);
@@ -869,15 +886,27 @@ export class EventDO extends DurableObject {
    * 콕 로그 파일에 한 줄 (ADR-84). **콕이 이미 저장된 뒤에** 부른다 — 로그는 일어난 일만 적는다.
    *
    * 기다리는 이유는 순서다. 참가자 화면은 낙관적으로 먼저 바뀌므로(슬라이스 09·17) 이 왕복이 체감되지 않는다.
+   * **기다림은 많아야 두 왕복이다** — 지금 쓰는 중이면 줄을 모아 두고, 그 쓰기가 끝나면 모인 줄을 한 번에 붙인다.
+   * 돌려주는 약속은 **내 줄이 실리는 그 쓰기**다. 모이는 순서가 곧 파일의 순서라 순서는 그대로다.
    * 실패는 삼킨다 — 로그 때문에 콕이 깨지면 안 된다. 남기는 말에 이름을 싣지 마라, Workers Logs 로 나간다.
    */
   private logPoke(eventId: string, entry: PokeLogEntry): Promise<void> {
     const bucket = (this.env as { LOGS?: R2Bucket }).LOGS;
     if (!bucket) return Promise.resolve();
-    const line = pokeLogLine(entry);
-    this.logQueue = this.logQueue
-      .then(() => appendPokeLog(bucket, eventId, line))
-      .catch((e) => console.error("poke log failed", e instanceof Error ? e.message : String(e)));
+    this.logLines.push(pokeLogLine(entry));
+    if (!this.logArmed) {
+      this.logArmed = true;
+      this.logQueue = this.logQueue.then(async () => {
+        // 여기부터 들어오는 줄은 다음 쓰기의 몫이다 — 걷는 것과 푸는 것이 한 틱이라 사이에 낄 수 없다
+        this.logArmed = false;
+        const lines = this.logLines.splice(0).join("");
+        try {
+          await appendPokeLog(bucket, eventId, lines);
+        } catch (e) {
+          console.error("poke log failed", e instanceof Error ? e.message : String(e));
+        }
+      });
+    }
     return this.logQueue;
   }
 
@@ -1081,7 +1110,8 @@ export class EventDO extends DurableObject {
    * 나간 사람의 답은 빼고 센다 — 명단에 없는 아이디가 화면에 빈 카드로 서면 안 된다.
    */
   private hostAnnouncements(): HostAnnouncement[] {
-    const here = new Set(this.players().map((p) => p.id));
+    // 아이디만 필요하다 — 운영자 화면의 가장 잦은 읽기라 사람을 통째로 만들 일이 아니다
+    const here = new Set(this.rows<{ id: string }>("SELECT id FROM players").map((r) => r.id));
     const choices = new Map<string, Record<string, PollChoice>>();
     for (const r of this.rows<{ ann_id: string; player_id: string; choice: PollChoice }>(
       "SELECT ann_id, player_id, choice FROM votes",
@@ -2124,10 +2154,15 @@ function notifyOn(config: EventConfig, round: PokeRound): boolean {
 }
 
 /**
- * 일정 칸의 이름들. **순서는 검사하지 않는다** (ADR-36) — `setSchedule` 은 `schedLocked` 만 본다.
- * 이 배열이 하는 일은 "무엇이 잠겼나" 를 훑는 것 하나다.
+ * 일정 칸의 이름들. `setSchedule` 이 "무엇이 잠겼나" 를 훑는 데 쓴다 (`schedLocked`).
  */
 const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt", "revealAt"] as const;
+
+/**
+ * 그중 **시계가 단계를 넘기는 셋**, 일어나는 순서대로 (ADR-93). `setSchedule` 이 아직 오지 않은 것끼리
+ * 순서를 검사한다 — 마감(`voteEndAt`)은 판정이지 전환이 아니라 여기 없다 (ADR-39).
+ */
+const TRANSITION_KEYS = ["prevoteAt", "partyAt", "revealAt"] as const;
 
 /**
  * 굳는 규칙 셋을 **뜻으로** 편다 (ADR-35·43·95).

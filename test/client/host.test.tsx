@@ -1814,4 +1814,30 @@ describe("떨어뜨려 앉히기", () => {
     await screen.findByText(HOST_UI.players.apart.title);
     expect(screen.queryByText(HOST_UI.players.apart.add)).toBeNull();
   });
+
+  /**
+   * ★ **거절은 화면이 말한다.** 고르는 시트를 열어 둔 사이 발표가 나면 서버가 409 로 거절하는데,
+   * 조용히 실패하면 시트가 그대로 열린 채 아무 말이 없어 운영자가 다시 누른다 (ADR-8).
+   */
+  it("★ 거절되면 토스트로 말한다 — 시트를 열어 둔 사이 발표가 났을 때", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/apart") && init?.method === "POST") {
+          return new Response(JSON.stringify({ error: "closed", message: HOST_UI.players.apart.afterReveal }), {
+            status: 409,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return json(url.includes("/state") ? hostState() : { ok: true });
+      }),
+    );
+    renderConsole("/host/e1/players/p1");
+
+    fireEvent.click(await screen.findByText(HOST_UI.players.apart.add));
+    const sheet = await screen.findByRole("dialog", { name: HOST_UI.players.apart.pickTitle("가") });
+    fireEvent.click(within(sheet).getByText(`김나 · 나 · ${UNIT.age(27)}`));
+
+    await screen.findByText(HOST_UI.players.apart.afterReveal);
+  });
 });
