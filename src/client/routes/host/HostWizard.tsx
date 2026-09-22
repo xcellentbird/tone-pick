@@ -64,6 +64,8 @@ export default function HostWizard() {
   const [touched, setTouched] = useState<{ prevote?: boolean; voteEnd?: boolean; reveal?: boolean }>({});
   const [maxPre, setMaxPre] = useState(DEFAULTS.maxPre);
   const [maxParty, setMaxParty] = useState(DEFAULTS.maxParty);
+  /** 익명 쪽지 (슬라이스 36). 기본값 화면에서 가져온다 — 0 이면 그 회차에는 없다 */
+  const [maxNotes, setMaxNotes] = useState(DEFAULTS.maxNotes ?? 0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -77,6 +79,7 @@ export default function HostWizard() {
     if (!d) return;
     setMaxPre(d.maxPre);
     setMaxParty(d.maxParty);
+    setMaxNotes(d.maxNotes ?? 0);
     // 장소는 **비어 있을 때만** 채운다. 운영자가 이미 적었으면 기본값이 덮지 않는다
     setPlace((prev) => prev || d.place);
     setPrevoteAt((prev) => (touched.prevote ? prev : partyAt - d.prevoteBeforeH * HOUR));
@@ -118,7 +121,7 @@ export default function HostWizard() {
         prevoteAt,
         voteEndAt,
         revealAt,
-        config: { maxPre, maxParty, allowSameGender, preNotify, pokeNotify },
+        config: { maxPre, maxParty, maxNotes, allowSameGender, preNotify, pokeNotify },
         requestId,
       };
       const made = await post<EventMeta>("/host/events", body);
@@ -282,6 +285,18 @@ export default function HostWizard() {
               value={pokeNotify}
               options={NOTIFY_OPTIONS}
               onChange={setPokeNotify}
+            />
+            {/*
+              익명 쪽지는 묶음의 **맨 끝에 혼자** 선다 (슬라이스 36) — 콕이 아니고 굳지도 않는다.
+              **설명 줄은 여기 없다** (ADR-54): `0~5` 가 0 을 말하고, 0 이 무엇을 하는지는
+              설정 탭에 적혀 있다. 여기서 아직 아무도 안 보냈으니 바닥도 없다.
+            */}
+            <Num
+              label={HOST_UI.fields.maxNotes}
+              value={maxNotes}
+              min={LIMITS.maxNotes.min}
+              max={LIMITS.maxNotes.max}
+              onChange={setMaxNotes}
             />
           </>
         )}

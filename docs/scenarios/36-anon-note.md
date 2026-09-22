@@ -601,14 +601,20 @@ A  아니요. 끝까지 익명이에요. 답장이 없어서 읽기만 하면 �
 interface MyNoteState {
   budget: { max: number; used: number };          // max 는 회차의 maxNotes (없으면 0)
   sent: Record<string, Array<{ text: string; read: boolean }>>;  // 받는 사람별. 내 것이라 담아도 된다
-  received: Array<{ id: string; text: string; seen: boolean }>;  // fromId 없음. at 없음. 최신이 앞
+  received: Array<{ id: string; text: string }>;                 // fromId 없음. at 없음. 최신이 앞
 }
 ```
 
 - **담을 자리가 없는 것이 방어다** (`MatchInfo` 의 논리). `received` 에 발신자를 넣을 칸이 아예 없다
 - `read` 는 boolean 이지 시각이 아니다. 그리고 **`read_at` 이 5분보다 오래됐을 때만 참**이다 (S-B6) —
-  서버가 그 판정을 하고 응답에는 boolean 만 나간다. `seen` 은 받는 쪽이 안 본 것이 있는지 가리는 값이라
-  화면에 안 그린다 — 홈이 안 본 것이 있을 때만 `/note/seen` 을 한 번 부른다
+  서버가 그 판정을 하고 응답에는 boolean 만 나간다
+- ⚠️ **`received` 에 `seen` 을 두지 마라.** 안 본 줄을 가려 `/note/seen` 호출을 아끼려고
+  넣었다가 뺐다 — `seen: false` 는 **이 줄이 내가 마지막으로 홈을 연 뒤에 왔다**를 응답이
+  확정해 주는 값이다. 참가자 탭 URL 이 유지되므로(`Participant.tsx`) 콕을 찌르러 참가자 탭에
+  머문 사람은 `false` 로 남고 홈에 들른 순간 한꺼번에 `true` 가 되는데, 홈과 참가자 탭을
+  오가면 그 창이 **초 단위까지 좁아진다.** 그때 누가 폰을 들고 있었는지와 맞추면 발신자가 좁혀진다 —
+  `받은 콕에 시각을 붙이지 마라` 와 **같은 누출이 칸 이름만 바꿔 들어온 것**이다.
+  아끼려던 호출은 `received.length` 로 똑같이 아끼고, 서버는 바뀐 것이 없으면 아무것도 안 쓴다
 - `id` 는 지우기에만 쓴다. **추측할 수 없는 값**이어야 한다 — 차례로 만들면 남의 것을 지워볼 수 있다
 - ⚠️ **`used` 는 줄이 사라져도 안 줄어든다.** `sent` 와 `budget.used` 는 `hidden_at` 을 무시하고
   `from_id` 가 나인 줄을 전부 센다 (아래 S-C3 의 이유)
@@ -631,7 +637,7 @@ interface MyNoteState {
 | | |
 |---|---|
 | `POST /api/note` `{ toId, text }` | → `MyNoteState`. 409 `closed` · 409 `no_budget`(`max` 를 실어) · 400(비었거나 120자 초과, 자기 자신, 없는 사람) |
-| `POST /api/note/seen` | 안 본 것 전부 읽음으로. 바뀐 것이 없으면 아무것도 안 쓴다 (`rowsWritten`). **덮개가 덮고 있거나 가리기가 켜져 있으면 부르지 않는다** |
+| `POST /api/note/seen` | → `MyNoteState`. 안 본 것 전부 읽음으로 (`read_at IS NULL` 에만 찍는다 — 다시 열 때마다 새로 찍으면 5분이 영영 안 지난다). **덮개가 덮고 있거나 가리기가 켜져 있으면 부르지 않는다** |
 | `POST /api/note/remove` `{ id }` | **받는 사람만.** `to_id` 가 나인 줄에 `hidden_at` 만 찍는다 (**지우지 않는다**) → `MyNoteState` |
 | `PUT /host/events/:id` `config.maxNotes` | 1~5 로 내릴 때만 바닥을 본다. **0 은 언제나 통과** |
 

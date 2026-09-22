@@ -1679,6 +1679,54 @@ h1,
  */
 button.fact { text-align: left; }
 
+/* ─────────────────────────── 익명 쪽지 (슬라이스 36, ADR-98) */
+
+/*
+ * 프로필 시트의 `내가 보낸 익명 쪽지` 한 줄 — 본문과 읽음 배지.
+ * `.fact` 는 `align-items` 가 기본(stretch)이라 배지가 세로로 늘어난다.
+ * **글줄에 맞춘다** — 배지가 본문 **첫 줄 옆**에 서야 여러 줄짜리 쪽지에서도 짝이 보인다.
+ */
+.fact.anonSent { align-items: baseline; }
+
+/*
+ * `읽음` / `읽지 않음`. **둘 다 같은 흐린 글씨다** — 색으로 좋고 나쁨을 말하지 않는다.
+ * 읽지 않은 것이 빨갛거나 읽은 것이 초록이면, 그 순간 배지가 **답장의 대용품**이 된다.
+ *
+ * 한 줄짜리 손잡이라 `line-height: 1.3` 이다 (ADR-62) — 1 로 두면 한글 위아래가 딱 붙는다.
+ */
+.anonSent .readBadge {
+  flex: none;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/*
+ * 소식 줄의 `지우기`. `.coverToggle` 과 같은 수다 — 보이는 건 12px 이고 손가락은 44px 을 받는다.
+ * **눈에 띄면 안 되는 버튼**이다: 답장도 반응도 없는 줄에서 혼자 누를 수 있는 것이라,
+ * 크게 그리면 그것이 곧 반응 버튼으로 읽힌다.
+ *
+ * ⚠️ **`.banner` 의 직계로 두고 위쪽에 정렬한다.** 제목 줄 안에 넣으면 `button` 의
+ * `min-height: 44px` 가 그 줄을 21px → 44px 로 부풀려 쪽지 줄만 다른 소식보다 커지고,
+ * 음수 여백으로 눌러 담으면 **44px 타겟이 본문 첫 줄 위로 겹쳐서** 본문 오른쪽 끝을 짚은
+ * 손가락이 지우기 확인창을 연다. 직계로 빼면 제 칸을 가져 겹치지 않는다.
+ */
+.anonDel {
+  flex: none;
+  align-self: flex-start;
+  margin: -12px -12px -12px 0;
+  padding: 12px;
+  min-height: 0;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+}
+
 /* ─────────────────────────── 전체 화면 자리 안내 */
 
 /*

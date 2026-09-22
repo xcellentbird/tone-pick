@@ -145,6 +145,9 @@ describe("참가자 설문 카드", () => {
   const source: ParticipantSource = {
     key: "test",
     load: async () => state(),
+    sendNote: async () => state().note,
+    seeNotes: async () => state().note,
+    removeNote: async () => state().note,
     poke: async () => state().poke,
     unpoke: async () => state().poke,
     markStage: async () => {},
@@ -159,7 +162,7 @@ describe("참가자 설문 카드", () => {
   it("★ 선택지 둘이 버튼이고 숫자는 없다 — 고르면 눌린 채로 남는다", async () => {
     render(
       <MemoryRouter>
-        <ParticipantView source={source} tab="home" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={false} onHelp={() => {}} />
+        <ParticipantView source={source} tab="home" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={false} onHelp={() => {}} />
       </MemoryRouter>,
     );
     await screen.findByText("2차 갈래요?");

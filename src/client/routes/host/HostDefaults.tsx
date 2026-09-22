@@ -62,6 +62,8 @@ export default function HostDefaults() {
         facts: [
           [HOST_UI.fields.maxPre, `${UNIT.times(form!.maxPre)} → ${UNIT.times(DEFAULTS.maxPre)}`],
           [HOST_UI.fields.maxParty, `${UNIT.times(form!.maxParty)} → ${UNIT.times(DEFAULTS.maxParty)}`],
+          // 익명 쪽지는 **장**이다 (`UNIT.sheets`) — 콕의 `회` 와 갈라야 두 줄이 다른 것으로 읽힌다
+          [HOST_UI.fields.maxNotes, `${UNIT.sheets(form!.maxNotes ?? 0)} → ${UNIT.sheets(DEFAULTS.maxNotes ?? 0)}`],
           [HOST_UI.fields.prevoteAt, `${form!.prevoteBeforeH}h → ${DEFAULTS.prevoteBeforeH}h`],
           [HOST_UI.fields.voteEndAt, `${form!.voteEndBeforeH}h → ${DEFAULTS.voteEndBeforeH}h`],
           [HOST_UI.fields.revealAt, `${form!.revealAfterH}h → ${DEFAULTS.revealAfterH}h`],
@@ -100,6 +102,14 @@ export default function HostDefaults() {
           min={LIMITS.maxParty.min}
           max={LIMITS.maxParty.max}
           onChange={(v) => set("maxParty", v)}
+        />
+        {/* 익명 쪽지 (슬라이스 36). 여기는 기본값이라 바닥이 없다 — 아직 아무도 안 보냈다 */}
+        <Num
+          label={HOST_UI.fields.maxNotes}
+          value={form.maxNotes ?? 0}
+          min={LIMITS.maxNotes.min}
+          max={LIMITS.maxNotes.max}
+          onChange={(v) => set("maxNotes", v)}
         />
         <Num
           label={HOST_UI.fields.prevoteBeforeH}
@@ -244,6 +254,10 @@ export function Toggle({
   );
 }
 
+/**
+ * 숫자 스테퍼. **칸 밑에 곁설명을 달 자리가 없다** — 일부러 없다 (ADR-54 후기 2).
+ * 고른 결과가 무엇을 뜻하는지는 **누를 때 확인창이** 말한다 (규칙 4).
+ */
 export function Num({
   label,
   value,
