@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
 import { ACT, BTN, ENTRY, ENV_BANNER, FAIL, GENDER, HELP, FORTUNE, HOME, MBTI_AXES, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
-import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
+import type { MyNoteState, MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
 import Register from "../../src/client/routes/Register.tsx";
@@ -43,6 +43,9 @@ const POKE_STATE: MyPokeState = {
   received: { pre: 0, party: 0 },
   matches: [],
 };
+
+/** 익명 쪽지가 없는 회차 (슬라이스 36). 버튼도 kicker 도 안 서는 기본값이다 */
+const NOTE_STATE: MyNoteState = { budget: { max: 0, used: 0 }, sent: {}, received: [] };
 
 function participantState(over: Partial<ParticipantState> = {}): ParticipantState {
   // 단계 안내(ADR-96)는 이미 본 사람으로 둔다 — 여기는 다른 걸 재는 자리다. 안내 자체는 `stage.test.tsx`
@@ -73,6 +76,7 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE_STATE,
+    note: NOTE_STATE,
     announcements: [],
     ...over,
   };
@@ -85,6 +89,10 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
   return {
     key: "test",
     calls,
+    /* 익명 쪽지는 여기서 재지 않는다 — 규칙은 `test/36-anon-note.test.ts` 가 본다 */
+    sendNote: async () => NOTE_STATE,
+    seeNotes: async () => NOTE_STATE,
+    removeNote: async () => NOTE_STATE,
     load: async () => participantState(),
     poke: async (toId) => {
       calls.poke.push(toId);
@@ -129,7 +137,7 @@ function renderParticipant(
 ) {
   return render(
     <MemoryRouter>
-      <ParticipantView source={source} tab={tab} profileId={profileId} onTab={onTab} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={helpOpen} onHelp={onHelp} />
+      <ParticipantView source={source} tab={tab} profileId={profileId} onTab={onTab} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={helpOpen} onHelp={onHelp} />
     </MemoryRouter>,
   );
 }
@@ -1215,7 +1223,7 @@ describe("참가자 화면 · 자리", () => {
           source={source}
           tab="home"
           onTab={() => {}}
-          onProfile={() => {}}
+          onProfile={() => {}} onNote={() => {}}
           onEdit={() => {}}
           onSeat={(on) => opened.push(on)}
         />
@@ -1245,7 +1253,7 @@ describe("참가자 화면 · 자리", () => {
           tab="home"
           seatOpen
           onTab={() => {}}
-          onProfile={() => {}}
+          onProfile={() => {}} onNote={() => {}}
           onEdit={() => {}}
           onSeat={(on, opts) => calls.push([on, opts?.replace])}
         />
@@ -1266,7 +1274,7 @@ describe("참가자 화면 · 자리", () => {
           tab="home"
           seatOpen
           onTab={() => {}}
-          onProfile={() => {}}
+          onProfile={() => {}} onNote={() => {}}
           onEdit={() => {}}
           onSeat={() => {}}
         />
@@ -1304,7 +1312,7 @@ describe("재미 탭 · 운세 카드", () => {
   function renderFortune(source: ParticipantSource) {
     return render(
       <MemoryRouter>
-        <ParticipantView source={source} tab="fun" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
+        <ParticipantView source={source} tab="fun" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
   }
@@ -1657,7 +1665,7 @@ describe("한 폰으로 두 회차", () => {
     });
     render(
       <MemoryRouter initialEntries={["/e/ABCDEF"]}>
-        <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
+        <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
 
@@ -2251,7 +2259,7 @@ describe("상단 바", () => {
     // 내 정보 탭으로 옮겨도 여전히 한 곳뿐이다 (예전에는 그 탭 안에 또 있었다)
     rerender(
       <MemoryRouter>
-        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getAllByText("테스트 파티")).toHaveLength(1));
@@ -2261,7 +2269,7 @@ describe("상단 바", () => {
     // 라운드는 상단 바가, 콕 숫자는 참가자 탭이 맡는다
     render(
       <MemoryRouter>
-        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
     await screen.findByText(ME.labels.nickname);
@@ -2553,7 +2561,7 @@ describe("내 정보 고치기", () => {
                 : navigate(-1)
           }
           onTab={() => {}}
-          onProfile={() => {}}
+          onProfile={() => {}} onNote={() => {}}
         />
       );
     }
@@ -2782,7 +2790,7 @@ describe("탭 역할 분담", () => {
           source={fakeSource({ load: async () => participantState(over) })}
           tab={t}
           onTab={() => {}}
-          onProfile={() => {}}
+          onProfile={() => {}} onNote={() => {}}
           onEdit={() => {}} onSeat={() => {}}
         />
       </MemoryRouter>,

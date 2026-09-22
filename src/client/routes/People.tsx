@@ -9,14 +9,14 @@
  * 가린 동안 그 버튼이 "이 사람을 골랐다" 를 그대로 흘린다. 닫아둔 회차에서는
  * 창이 "되돌릴 수 없다" 고 분명히 말한다 (`POKE.confirm.note`).
  */
-import { useRef, useState } from "react";
-import { ACT, BTN, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
-import type { MatchInfo, MyPokeState, MyProfile, ParticipantState, Phase, PokeRound, PublicPlayer } from "../../shared/types.ts";
+import { useEffect, useRef, useState } from "react";
+import { ACT, BTN, NOTE, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
+import type { MatchInfo, MyNoteState, MyPokeState, MyProfile, ParticipantState, Phase, PokeRound, PublicPlayer, SentNote } from "../../shared/types.ts";
 import type { Tab } from "./Participant.tsx";
-import { canPoke, roundOf } from "../../shared/phase.ts";
+import { canNote, canPoke, roundOf } from "../../shared/phase.ts";
 import { afterPoke } from "../../shared/poke.ts";
-import { useCovered } from "../lib/covered.ts";
 import { tap } from "../lib/pulse.ts";
+import { LIMITS } from "../../shared/constants.ts";
 import { rosterOpen, toPublic } from "../../shared/types.ts";
 import { orderRoster } from "../../shared/roster.ts";
 import { messageOf } from "../lib/api.ts";
@@ -33,12 +33,37 @@ interface Props {
   reload: () => void;
   /** 내 콕 한 칸만 갈아끼운다. 서버를 기다리지 않고 화면을 먼저 바꾸는 통로다 */
   setPoke: (poke: MyPokeState) => void;
+  /** 익명 쪽지 한 칸만 갈아끼운다. 콕과 달리 **화면을 먼저 바꾸지 않는다** — 서버 답이 묶음을 채운다 */
+  setNote: (note: MyNoteState) => void;
   profileId?: string;
   onProfile: (playerId: string | null) => void;
+  /** 익명 쪽지 작성 시트 (슬라이스 36). 프로필 시트 **대신** 선다 — 시트는 겹치지 않는다 */
+  noteOpen?: boolean;
+  onNote: (on: boolean, opts?: { replace?: boolean }) => void;
   onTab: (tab: Tab) => void;
+  /**
+   * 어깨너머 가리기 (슬라이스 16). **상태는 위에서 온다** — 익명 쪽지가 생기면서
+   * 홈에도 같은 토글이 서고, 읽음 판정도 이 값을 본다 (`Participant`).
+   * 각자 `useCovered()` 를 부르면 한 화면에서 켠 것이 다른 화면에 안 보인다.
+   */
+  covered: boolean;
+  setCovered: (on: boolean) => void;
 }
 
-export default function People({ state, source, reload, setPoke, profileId, onProfile, onTab }: Props) {
+export default function People({
+  state,
+  source,
+  reload,
+  setPoke,
+  setNote,
+  profileId,
+  onProfile,
+  noteOpen,
+  onNote,
+  onTab,
+  covered,
+  setCovered,
+}: Props) {
   // 동성에게도 찌를 수 있는 회차라면 처음부터 전체를 보여준다 — 반쪽만 보이면 설정이 무색해진다
   const sameGenderOk = state.event.config.allowSameGender !== false;
   const [onlyOpposite, setOnlyOpposite] = useState(!sameGenderOk);
@@ -95,7 +120,67 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
    * 즉시 바뀌게 만들면 그 우연이 사라진다.
    */
   const sending = useRef(false);
-  const [covered, setCovered] = useCovered();
+
+  // ── 익명 쪽지 (슬라이스 36, ADR-98)
+  const noteBudget = state.note.budget;
+  /** 이 회차에 익명 쪽지가 있고, 지금이 그 창인가. **파티 중에만이다** */
+  const noteOn = noteBudget.max > 0 && canNote(state.event.phase);
+  const noteLeft = Math.max(0, noteBudget.max - noteBudget.used);
+  const [draft, setDraft] = useState("");
+  /**
+   * 읽음 배지는 **시트를 연 순간의 값으로 굳는다** (S-B4, ADR-64).
+   *
+   * `broadcast` 를 안 하는 것만으로는 모자라다 — `realtime.ts` 가 화면이 다시 보일 때마다
+   * 소켓을 다시 붙이고 `Participant` 가 그 신호로 다시 읽는다. 공지·설문·자리 발행·단계 전환도
+   * 같은 재조회를 태운다. 그래서 발신자 화면은 가만히 있어도 최신값을 받는다 —
+   * 막는 자리는 소켓이 아니라 **여기**다. 열 때 한 번 읽고 그 값으로 그린다.
+   *
+   * ⚠️ **작성 시트가 닫히는 것도 '다시 여는 것'이다.** 굳히는 열쇠를 참가자 아이디 하나에만
+   * 묶으면 방금 보낸 줄이 안 떠서, 보낸 사람이 안 갔다고 읽는다.
+   */
+  const [frozenSent, setFrozenSent] = useState<SentNote[]>([]);
+  const openKey = profileId && !noteOpen ? profileId : null;
+  useEffect(() => {
+    if (!openKey) return;
+    setFrozenSent(state.note.sent[openKey] ?? []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openKey]);
+
+  /**
+   * 지금 작성 시트를 열어도 되나. 넷을 다 본다 — 이 회차에 있나, 지금이 그 창인가,
+   * 가리기가 켜져 있나(S-B5), 남은 장이 있나.
+   */
+  const composing = !!noteOpen && !!profile && noteOn && !covered && noteLeft > 0;
+  /**
+   * **조건이 안 맞는 주소를 직접 열면 프로필 시트로 갈아끼운다** — `/seat` 와 같은 규칙이다.
+   * 뒤로 가기가 아니라 갈아끼움인 이유는, 주소를 직접 연 사람에게는 **뒤로 갈 자리가 없어서**다.
+   */
+  useEffect(() => {
+    if (noteOpen && !composing) onNote(false, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteOpen, composing]);
+
+  /**
+   * 한 장 보낸다. **되돌릴 수 없어서 확인을 거친다** (규칙 4) —
+   * 창이 말하는 것은 둘이다: 누구에게, 그리고 남은 장 수가 어떻게 바뀌나.
+   */
+  async function sendNote(target: PublicPlayer, text: string) {
+    if (sending.current) return;
+    tap("note_send");
+    sending.current = true;
+    try {
+      setNote(await source.sendNote(target.id, text));
+      setDraft("");
+      // 성공하면 작성 시트를 닫아 프로필 시트로 돌아간다 — 거기 생긴 줄이 곧 알림이다 (ADR-65)
+      onNote(false);
+    } catch (e) {
+      // 실패하면 작성 시트에 남는다. 쓰던 글은 그대로다
+      setNoteErr(messageOf(e, NOTE.blocked.closed));
+    } finally {
+      sending.current = false;
+    }
+  }
+  const [noteErr, setNoteErr] = useState("");
 
   /** 되돌리기. **확인창을 붙이지 않는다** — 되돌리는 것 자체가 되돌리기다 */
   async function undo(target: PublicPlayer) {
@@ -377,7 +462,12 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       </div>
 
       <Sheet
-        open={!!profile}
+        /*
+         * ⚠️ **작성 시트가 열리면 프로필 시트는 닫힌다** — 이 저장소의 시트는 겹치지 않는다
+         * (운영자 콘솔의 떨어뜨리기 시트가 `!!picked && !atApart` 로 같은 일을 한다).
+         * 뒤로 가면 작성 시트가 닫히고 프로필 시트가 되살아난다.
+         */
+        open={!!profile && !composing}
         onClose={() => onProfile(null)}
         title={profile?.nickname ?? ""}
         titleHidden
@@ -431,8 +521,108 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
               ))}
             </div>
 
-            <button className="btn block ghost" onClick={() => onProfile(null)}>
-              {BTN.close}
+            {/*
+              내가 보낸 익명 쪽지 (슬라이스 36). **보낸 적이 있을 때만 선다.**
+              ⚠️ **가리기 중에는 묶음이 없다** — 본문에는 내가 누구에게 무슨 말을 했는지가
+              통째로 들어 있다. 옆자리 한 번에 발신자와 내용과 상대가 함께 샌다.
+            */}
+            {!covered && frozenSent.length > 0 && (
+              <>
+                <p className="kicker" style={{ margin: 0 }}>
+                  {NOTE.sentTitle}
+                </p>
+                <div className="stack">
+                  {frozenSent.map((n, i) => (
+                    <div className="fact anonSent" key={i}>
+                      <span className="grow pre">{n.text}</span>
+                      {/* 둘 다 같은 흐린 글씨다 — 색으로 좋고 나쁨을 말하지 않는다 */}
+                      <span className="readBadge">{n.read ? NOTE.read : NOTE.unread}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/*
+              버튼 둘을 **시트 바닥에 붙인다.** 매력 100자 셋 + 쪽지 120자 다섯이면 시트가
+              1151px 이라 한도(743px)를 넘는데, 그냥 두면 셋이 함께 깨진다 —
+              한 장 더 보내려는 사람이 자기가 쓴 글을 전부 지나쳐야 버튼에 닿고,
+              `닫기` 가 화면 밖으로 내려가고, 한 칸이라도 스크롤하면 끌어서 닫기가 안 먹는다.
+            */}
+            <div className="sheetFoot stack">
+              {noteOn && (
+                <button
+                  className="btn block"
+                  /*
+                   * ⚠️ **가리기 중에는 잠근다** (S-B5). 묶음만 감추면 모자라다 — 누르면 시트 제목이
+                   * `달빛님에게 익명 쪽지` 이고 확인창이 `받는 사람 · 달빛` 이며 그 사이 내내 글을 친다.
+                   * **콕 한 번보다 훨씬 오래, 훨씬 또렷하게 상대가 드러난다.**
+                   * 글자는 그대로 두고 잠그기만 한다 — 🙈 는 옆의 콕 버튼이 이미 말한다.
+                   */
+                  disabled={covered || noteLeft === 0}
+                  onClick={() => {
+                    setNoteErr("");
+                    onNote(true);
+                  }}
+                >
+                  {/* 다 썼으면 글자가 바뀐다 — 왜 못 누르는지를 스스로 말하므로 죽은 버튼이 아니다 */}
+                  {noteLeft > 0 ? NOTE.write(noteLeft) : NOTE.writeSpent}
+                </button>
+              )}
+              <button className="btn block ghost" onClick={() => onProfile(null)}>
+                {BTN.close}
+              </button>
+            </div>
+          </>
+        )}
+      </Sheet>
+
+      {/*
+        익명 쪽지 작성 시트. **제목과 칸과 버튼뿐이다** — 글자수 안내도, 하단 안심 문구도 없다.
+        안심은 **이름이 한다**: `익명 쪽지` 라는 말이 *누가 보냈는지 안 보인다* 를 그 자리에서 말한다.
+
+        **열릴 때 글 칸에 커서를 준다** — ADR-63 예외 2호. 입장 확인창처럼 칠 것밖에 없는 창이고,
+        사람이 `익명 쪽지 쓰기` 를 눌러 들어왔다. 시트는 `--kb` 만큼 올라와 키보드 위에 선다.
+      */}
+      <Sheet
+        open={composing}
+        onClose={() => onNote(false)}
+        title={profile ? NOTE.compose.title(profile.nickname) : ""}
+        autoFocus
+      >
+        {profile && (
+          <>
+            <label className="srOnly" htmlFor="noteText">
+              {NOTE.compose.label}
+            </label>
+            <textarea
+              id="noteText"
+              rows={4}
+              /* 글자수는 화면이 말하지 않는다 — `maxLength` 가 조용히 막는다 */
+              maxLength={LIMITS.noteMax}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+            {noteErr && <p className="err">{noteErr}</p>}
+            <button
+              className="btn block"
+              disabled={!draft.trim()}
+              onClick={() =>
+                confirm(
+                  {
+                    btn: NOTE.confirm.submit,
+                    title: NOTE.confirm.title(frozenSent.length),
+                    note: NOTE.confirm.note,
+                    facts: [
+                      [NOTE.confirm.rowTo, profile.nickname],
+                      [NOTE.confirm.rowBudget, NOTE.confirm.change(noteLeft, noteLeft - 1)],
+                    ],
+                  },
+                  () => sendNote(profile, draft.trim()),
+                )
+              }
+            >
+              {NOTE.compose.submit}
             </button>
           </>
         )}

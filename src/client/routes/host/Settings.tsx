@@ -46,6 +46,8 @@ export default function Settings() {
   const [nickHint, setNickHint] = useState("");
   const [maxPre, setMaxPre] = useState(meta.config.maxPre);
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
+  /** 익명 쪽지 (슬라이스 36). 옛 회차는 키가 없고 그게 0 이다 — 값을 채워 넣지 않는다 */
+  const [maxNotes, setMaxNotes] = useState(meta.config.maxNotes ?? 0);
   const [allowSameGender, setAllowSameGender] = useState(meta.config.allowSameGender !== false);
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
   const [preNotify, setPreNotify] = useState(meta.config.preNotify === true);
@@ -62,6 +64,7 @@ export default function Settings() {
     setName(meta.name);
     setMaxPre(meta.config.maxPre);
     setMaxParty(meta.config.maxParty);
+    setMaxNotes(meta.config.maxNotes ?? 0);
     setAllowSameGender(meta.config.allowSameGender !== false);
     setPreNotify(meta.config.preNotify === true);
     setPokeNotify(meta.config.pokeNotify === true);
@@ -95,6 +98,8 @@ export default function Settings() {
     changed("identity", HOST_UI.fields.nickHint, meta.nickHint ?? "—", nickHint || "—");
     changed("rules", HOST_UI.fields.maxPre, UNIT.times(meta.config.maxPre), UNIT.times(maxPre));
     changed("rules", HOST_UI.fields.maxParty, UNIT.times(meta.config.maxParty), UNIT.times(maxParty));
+    // 단위가 **장**이다 — 콕의 `회` 와 갈라야 확인창에서 두 줄이 다른 것으로 읽힌다
+    changed("rules", HOST_UI.fields.maxNotes, UNIT.sheets(meta.config.maxNotes ?? 0), UNIT.sheets(maxNotes));
     changed(
       "rules",
       HOST_UI.fields.pokeTarget,
@@ -121,7 +126,17 @@ export default function Settings() {
 
     // 아무것도 안 바꾸고 누른 경우. 빈 확인창을 띄우느니 그렇다고 말한다
     if (facts.length === 0) return toast(HOST_UI.applyNothing);
-    confirm({ btn: HOST_UI.applySettings, title: HOST_UI.applyTitle, facts }, save);
+    /*
+     * 익명 쪽지를 **0 으로 내리는 것은 숫자가 아니라 스위치다** (슬라이스 36).
+     * `익명 쪽지 · 2장 → 0장` 만으로는 그게 안 보인다 — 규칙 4 가 말하는 *무엇이 어떻게 바뀌나* 가
+     * 여기서는 숫자가 아니라서다. 그리고 **이미 간 것은 안 사라진다**를 함께 적어야
+     * 운영자가 이 버튼을 *없던 일로 만드는 것* 으로 오해하지 않는다.
+     */
+    const off = maxNotes === 0 && (meta.config.maxNotes ?? 0) > 0;
+    confirm(
+      { btn: HOST_UI.applySettings, title: HOST_UI.applyTitle, facts: off ? [...facts, ...HOST_UI.noteOffFacts] : facts },
+      save,
+    );
   }
 
   async function save() {
@@ -131,7 +146,7 @@ export default function Settings() {
         name,
         place,
         nickHint,
-        config: { maxPre, maxParty, allowSameGender, preNotify, pokeNotify },
+        config: { maxPre, maxParty, maxNotes, allowSameGender, preNotify, pokeNotify },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
       toast(BTN.saved);
@@ -153,6 +168,8 @@ export default function Settings() {
           votes: state.pokeCount.pre,
           pokes: state.pokeCount.party,
           rounds: state.seatings.filter((s) => s.status === "published").length,
+          // 익명 쪽지 (슬라이스 36). 오간 것이 없으면 줄도 안 선다 — 안 쓴 회차에 없는 기능을 적지 않는다
+          notes: Object.values(state.noteSent).reduce((a, b) => a + b, 0),
         }),
       },
       async () => {
@@ -340,6 +357,23 @@ export default function Settings() {
             locked={frozen}
             onChange={setPokeNotify}
           />
+          {/*
+            익명 쪽지는 **묶음의 맨 끝에 혼자 선다** (슬라이스 36). 콕의 다섯은 콕 하나의
+            규칙이라 붙어 있어야 하고, 굳는 셋이 한 덩어리로 잠기는 모양도 그대로 남는다 —
+            익명 쪽지는 콕이 아니고 **굳지도 않는다** (`locked` 를 주지 않는다).
+
+            ⚠️ **바닥은 1~5 에만 있다. 0 으로는 언제나 내려간다** — 0 이 이 회차의 익명 쪽지를
+            닫는 스위치이고, 운영자가 본문도 발신자도 못 보므로 **남은 유일한 레버**다.
+            이미 보낸 사람이 있다고 막으면 사고가 났을 때 쓸 수 있는 것이 없어진다.
+            그래서 스테퍼는 0 과 `noteUsedMax` 위로만 오갈 수 있게 하고, 그 사이 값은 서버가 거절한다.
+          */}
+          <Num
+            label={HOST_UI.fields.maxNotes}
+            value={maxNotes}
+            min={LIMITS.maxNotes.min}
+            max={LIMITS.maxNotes.max}
+            onChange={(v) => setMaxNotes(stepNotes(v, maxNotes, state.noteUsedMax))}
+          />
         </>
       )}
 
@@ -376,6 +410,19 @@ type Group = (typeof GROUPS)[number];
  * `regOpenAt` 은 없다 (ADR-93) — 화면에 줄이 없으니 확인창에 뜰 일도 없다.
  */
 const SCHED_ORDER = ["prevoteAt", "voteEndAt", "partyAt", "revealAt"] as const;
+
+/**
+ * 익명 쪽지 스테퍼의 다음 값. **0 은 바닥 아래의 한 칸**이다 (슬라이스 36 S-D2).
+ *
+ * 이미 N장 보낸 사람이 있으면 1~N−1 은 서버가 거절한다 — 화면에서도 서지 않게 건너뛴다.
+ * 바닥에서 한 번 더 내리면 **0(이 회차의 익명 쪽지 닫기)** 이고, 0 에서 올리면 바닥으로 돌아온다.
+ * 건너뛰지 않으면 운영자가 고를 수 없는 숫자를 고른 뒤 저장에서 거절당한다 —
+ * 콕 스테퍼가 `min` 으로 막는 그 일을, 여기서는 **0 을 살려 두면서** 해야 한다.
+ */
+export function stepNotes(next: number, cur: number, floor: number): number {
+  if (next >= floor || next === 0) return next;
+  return next < cur ? 0 : floor;
+}
 
 function When({
   label,

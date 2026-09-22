@@ -270,6 +270,15 @@ export default function Players() {
     }
   }
 
+  /**
+   * 익명 쪽지 줄은 **있는 회차에만** 선다 (슬라이스 36).
+   *
+   * ⚠️ **설정값만 보고 가르지 마라.** 0 으로 내린 뒤에도 이미 오간 것은 남으므로
+   * (`noteUsedMax`), 그러면 사고가 난 회차 — 하필 운영자가 내보내기를 누르는 그 회차 —
+   * 에서 **사라지는 것 하나가 확인창에서 빠진다.**
+   */
+  const hasNotes = (state.meta.config.maxNotes ?? 0) > 0 || state.noteUsedMax > 0;
+
   function askDelete(playerId: string) {
     const rounds = state.seatings.filter((s) => s.seats.some((x) => x.playerId === playerId)).length;
     confirm(
@@ -277,11 +286,12 @@ export default function Players() {
         btn: DELETE_PLAYER.btn,
         title: DELETE_PLAYER.title,
         danger: true,
-        note: DELETE_PLAYER.note,
+        note: DELETE_PLAYER.note(hasNotes),
         facts: DELETE_PLAYER.facts({
           sentPre: state.sent.pre[playerId] ?? 0,
           sent: state.sent.party[playerId] ?? 0,
           rounds,
+          ...(hasNotes ? { notes: { sent: state.noteSent[playerId] ?? 0 } } : {}),
         }),
       },
       async () => {
@@ -387,6 +397,8 @@ export default function Players() {
               {/* 두 라운드를 갈라 적는다 — 합치면 콕을 안 찌른 사람이 찌른 것으로 읽힌다 (ADR-34) */}
               <Row label={HOST_UI.players.sentPre(state.sent.pre[picked.id] ?? 0)} value="" />
               <Row label={HOST_UI.players.sent(state.sent.party[picked.id] ?? 0)} value="" />
+              {/* 익명 쪽지가 있는 회차에만 (슬라이스 36). **받은 장 수 줄은 없다** */}
+              {hasNotes && <Row label={HOST_UI.players.noteSent(state.noteSent[picked.id] ?? 0)} value="" />}
             </div>
 
             <p className="kicker mt">

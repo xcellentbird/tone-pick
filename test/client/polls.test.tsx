@@ -37,6 +37,8 @@ function hostState(): HostState {
     mutual: [],
     pokeCount: { pre: 0, party: 0 },
     pokeUsedMax: { pre: 0, party: 0 },
+    noteSent: {},
+    noteUsedMax: 0,
     seatings: [],
     invites: [],
     apart: [],
@@ -136,12 +138,16 @@ describe("참가자 설문 카드", () => {
     me: { id: "me", nickname: "달빛", realName: "김나", age: 30, gender: "M", instagram: "", mbti: "ENFP", charms: ["하나", "둘", "셋"], createdAt: 1 },
     roster: [],
     poke: { budget: { pre: { max: 3, used: 0 }, party: { max: 3, used: 0 } }, sentTo: {}, received: { pre: 0, party: 0 }, matches: [] },
+    note: { budget: { max: 0, used: 0 }, sent: {}, received: [] },
     announcements: [poll],
   });
   const voted: Array<[string, string]> = [];
   const source: ParticipantSource = {
     key: "test",
     load: async () => state(),
+    sendNote: async () => state().note,
+    seeNotes: async () => state().note,
+    removeNote: async () => state().note,
     poke: async () => state().poke,
     unpoke: async () => state().poke,
     markStage: async () => {},
@@ -156,7 +162,7 @@ describe("참가자 설문 카드", () => {
   it("★ 선택지 둘이 버튼이고 숫자는 없다 — 고르면 눌린 채로 남는다", async () => {
     render(
       <MemoryRouter>
-        <ParticipantView source={source} tab="home" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={false} onHelp={() => {}} />
+        <ParticipantView source={source} tab="home" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={false} onHelp={() => {}} />
       </MemoryRouter>,
     );
     await screen.findByText("2차 갈래요?");

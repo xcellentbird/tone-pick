@@ -6,13 +6,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, FAIL, FORTUNE, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
-import type { MyPokeState, PublicAnnouncement, ParticipantState, StageKey } from "../../shared/types.ts";
+import type { MyNoteState, MyPokeState, PublicAnnouncement, ParticipantState, StageKey } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
 import { canPoke, voteClosed } from "../../shared/phase.ts";
 import { TICK_WINDOW } from "../../shared/time.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
 import { sessionSource, type ParticipantSource } from "../lib/participant.ts";
+import { useCovered } from "../lib/covered.ts";
 import { useLoad, useTicker } from "../lib/useLoad.ts";
 import { ApiError } from "../lib/api.ts";
 import { nav, startPulse } from "../lib/pulse.ts";
@@ -42,6 +43,12 @@ interface ViewProps {
   /** 프로필 시트도 라우트다 — 뒤로 가기로 닫힌다 */
   profileId?: string;
   onProfile: (playerId: string | null) => void;
+  /**
+   * 익명 쪽지 작성 시트 (슬라이스 36). **프로필 시트 위에 쌓이지 않고 대신 선다** —
+   * 이 저장소의 시트는 겹치지 않는다 (운영자 콘솔의 떨어뜨리기 시트와 같다).
+   */
+  noteOpen?: boolean;
+  onNote: (on: boolean, opts?: { replace?: boolean }) => void;
   /**
    * 내 정보 편집도 라우트다 — 뒤로 가기가 곧 취소다 (ADR-31).
    *
@@ -120,9 +127,14 @@ export default function Participant() {
       : location.pathname.endsWith("/people") || location.pathname.includes("/p/")
         ? "people"
         : "home";
-  const profileId = location.pathname.includes("/p/")
-    ? decodeURIComponent(location.pathname.split("/p/")[1])
-    : undefined;
+  /*
+   * ⚠️ **뒤 조각을 갈라야 한다.** `/p/:pid` 뒤에 `/note` 가 붙을 수 있어서(슬라이스 36),
+   * `split("/p/")[1]` 을 통째로 아이디로 쓰면 `abc/note` 가 되어 **프로필을 못 찾는다.**
+   */
+  const afterP = location.pathname.includes("/p/") ? location.pathname.split("/p/")[1] : undefined;
+  const profileId = afterP ? decodeURIComponent(afterP.replace(/\/note$/, "")) : undefined;
+  /** 익명 쪽지 작성 시트. 조건이 안 맞으면 `People` 이 프로필 시트로 갈아끼운다 */
+  const noteOpen = !!afterP && afterP.endsWith("/note");
   // 자리 화면을 **다시 여는** 길. 자동으로 뜨는 쪽은 라우트가 아니다 — 참가자가 연 게 아니다
   const seatOpen = location.pathname.endsWith("/seat");
   // 도움말도 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md)
@@ -158,6 +170,19 @@ export default function Participant() {
       profileId={profileId}
       // 시트 열기는 push, 닫기는 뒤로 가기 — 안드로이드 백 버튼으로 닫혀야 한다
       onProfile={(id) => (id ? navigate(`${base}/p/${id}`) : navigate(-1))}
+      noteOpen={noteOpen}
+      /*
+       * 작성 시트도 push 다 — 뒤로 가기가 곧 취소이고 쓰던 글은 버려진다 (내 정보 고치기와 같다).
+       * 닫을 때 `replace` 는 **갈아끼움**이다: 조건이 안 맞는 주소를 직접 연 사람에게는
+       * 뒤로 갈 자리가 없다 (`/seat` 와 같은 규칙).
+       */
+      onNote={(on, opts) =>
+        on
+          ? navigate(`${base}/p/${profileId}/note`)
+          : opts?.replace
+            ? navigate(`${base}/p/${profileId}`, { replace: true })
+            : navigate(-1)
+      }
       seatOpen={seatOpen}
       helpOpen={helpOpen}
       onHelp={(on) => (on ? navigate(`${base}/help`) : navigate(-1))}
@@ -211,6 +236,12 @@ export function ParticipantView(props: ViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.set],
   );
+  /** 익명 쪽지 한 칸만 갈아끼운다 (슬라이스 36). `setPoke` 와 같은 이유로 통로가 좁다 */
+  const setNote = useCallback(
+    (note: MyNoteState) => state.set((cur) => (cur ? { ...cur, note } : cur)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.set],
+  );
   /** 설문 답 한 칸만 갈아끼운다 (슬라이스 27). `setPoke` 와 같은 이유로 통로가 좁다 */
   const setAnnouncement = useCallback(
     (a: PublicAnnouncement) =>
@@ -227,7 +258,16 @@ export function ParticipantView(props: ViewProps) {
 
   if (state.error) return <Failed error={state.error} code={code} onRetry={state.reload} busy={state.loading} />;
   if (!state.data) return <div className="screen" />;
-  return <Loaded {...props} state={state.data} reload={state.reload} setPoke={setPoke} setAnnouncement={setAnnouncement} />;
+  return (
+    <Loaded
+      {...props}
+      state={state.data}
+      reload={state.reload}
+      setPoke={setPoke}
+      setNote={setNote}
+      setAnnouncement={setAnnouncement}
+    />
+  );
 }
 
 function Loaded({
@@ -236,6 +276,8 @@ function Loaded({
   onTab,
   profileId,
   onProfile,
+  noteOpen,
+  onNote,
   editing,
   onEdit,
   seatOpen,
@@ -244,6 +286,7 @@ function Loaded({
   state,
   reload,
   setPoke,
+  setNote,
   setAnnouncement,
   helpOpen,
   onHelp,
@@ -251,6 +294,7 @@ function Loaded({
   state: ParticipantState;
   reload: () => void;
   setPoke: (poke: MyPokeState) => void;
+  setNote: (note: MyNoteState) => void;
   setAnnouncement: (a: PublicAnnouncement) => void;
 }) {
   const [acked, setAcked] = useState<number[]>([]);
@@ -339,6 +383,43 @@ function Loaded({
       : "prevote";
   const [seenLocal, setSeenLocal] = useState<StageKey | null>(null);
   const needsStage = !!stage && state.me.seenStage !== stage && seenLocal !== stage && !needsSeatAck;
+
+  /**
+   * 어깨너머 가리기 (슬라이스 16). **여기서 한 번만 읽는다.**
+   *
+   * 예전에는 참가자 탭이 혼자 `useCovered()` 를 불렀다. 익명 쪽지가 생기면서 홈에도 같은 토글이
+   * 서고 읽음 판정까지 이 값을 보므로, 각자 부르면 **한 화면에서 켠 것이 다른 화면에 안 보인다** —
+   * 두 집 살림이 된다. 저장은 여전히 localStorage 하나다 (서버로 보내지 않는다).
+   */
+  const [covered, setCovered] = useCovered();
+
+  /**
+   * 받은 익명 쪽지를 **읽음으로 찍는다** (슬라이스 36). 여기 있는 이유는 셋을 한자리에서 보기 때문이다 —
+   * 홈 탭인가, 덮개가 덮고 있나(`needsSeatAck`·`needsStage`), 어깨너머 가리기가 켜져 있나.
+   *
+   * ⚠️ **덮개는 홈을 가리지만 언마운트하지 않는다** (`{tab === "home" && <Home/>}` 이 덮개와 나란히 산다).
+   * 그대로 두면 **본문을 볼 수 없는 사람이 읽은 것으로 찍히고**, 배지가 말하는 것과 코드가 재는 것이
+   * 갈린다 — `문구가 코드보다 넓게 말하면 거짓말` 에 걸린다.
+   *
+   * ⚠️ **가리기 중에도 찍지 않는다.** 가리면 제목만 보이는데, 제목만 본 것은 읽은 것이 아니다.
+   * 이것이 **안 읽고 지우는 길**을 실제로 열어 둔다 (ADR-98) — 그 길이 없으면 괴롭히는 쪽은
+   * 언제나 `읽음` 을 받고, 읽음이 거절 신호가 되지 않게 하는 장치가 글로만 남는다.
+   *
+   * 안 본 것이 있는지는 **묻지 않는다.** 그 값을 응답에 실으면 도착 시각의 창이 새기 때문이다
+   * (`ReceivedNote`) — 줄이 하나라도 있으면 부르고, 바뀐 것이 없으면 서버가 아무것도 안 쓴다.
+   */
+  const notesShown = tab === "home" && !needsSeatAck && !needsStage && !covered && state.note.received.length > 0;
+  useEffect(() => {
+    if (!notesShown) return;
+    let alive = true;
+    void source.seeNotes().then((note) => {
+      if (alive) setNote(note);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notesShown, state.note.received.length]);
   const seeStage = useCallback(async () => {
     if (!stage) return;
     setSeenLocal(stage);
@@ -397,6 +478,9 @@ function Loaded({
               onHelp={() => onHelp(true)}
               // 서버가 방금 준 답을 버리고 다시 묻지 않는다 (슬라이스 17 과 같은 이유)
               onVote={async (id, choice) => setAnnouncement(await source.vote(id, choice))}
+              onRemoveNote={async (id: string) => setNote(await source.removeNote(id))}
+              covered={covered}
+              setCovered={setCovered}
             />
           )}
           {tab === "people" && (
@@ -405,9 +489,14 @@ function Loaded({
               source={source}
               reload={reload}
               setPoke={setPoke}
+              setNote={setNote}
               profileId={profileId}
               onProfile={onProfile}
+              noteOpen={noteOpen}
+              onNote={onNote}
               onTab={onTab}
+              covered={covered}
+              setCovered={setCovered}
             />
           )}
           {/* 재미 탭. 지금은 운세 카드 하나뿐이다 — 이상형 찾기가 여기 두 번째로 붙는다 */}

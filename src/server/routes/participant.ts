@@ -42,7 +42,7 @@ import {
   unwrap,
   type Ctx,
   type Env, timed,} from "../http.ts";
-import { enterMessage, pokeMessage, registerMessage } from "../messages.ts";
+import { enterMessage, noteMessage, pokeMessage, registerMessage } from "../messages.ts";
 
 export const participantRoutes = new Hono<{ Bindings: Env }>();
 
@@ -263,6 +263,50 @@ participantRoutes.post("/unpoke", async (c) => {
     await seat.stub.unpoke(seat.playerId, body.toId, serverNow()),
     pokeMessage,
   );
+  return response ?? c.json(value);
+});
+
+// ─────────────────────────── 익명 쪽지 (슬라이스 36, ADR-98)
+//
+// 셋 다 갱신된 `MyNoteState` 하나를 돌려준다 — 화면은 그 값을 그대로 쓰고 다시 읽지 않는다.
+// ⚠️ **어느 응답에도 발신자가 없다.** `received` 에 담을 칸 자체가 없다 (`ReceivedNote`).
+
+participantRoutes.post("/note", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const body = (await c.req.json().catch(() => ({}))) as { toId?: string; text?: unknown };
+  if (!body.toId) return apiError(c, "bad_request");
+  const { value, response } = unwrap(
+    c,
+    await seat.stub.sendNote(seat.playerId, body.toId, body.text, serverNow()),
+    noteMessage,
+  );
+  return response ?? c.json(value);
+});
+
+/**
+ * 받는 사람이 홈을 열었다 — 안 본 줄에 읽은 시각을 찍는다.
+ *
+ * **화면이 문지기다.** 덮개(자리 확인·단계 안내)가 덮고 있거나 어깨너머 가리기가 켜져 있으면
+ * 부르지 않는다 — 본문을 볼 수 없는 사람을 읽은 것으로 찍으면 배지가 거짓말을 한다.
+ * 서버는 그 둘을 알 수 없어 여기서 다시 막을 수 없다.
+ */
+participantRoutes.post("/note/seen", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const { value, response } = unwrap(c, await seat.stub.markNotesSeen(seat.playerId, serverNow()));
+  return response ?? c.json(value);
+});
+
+/**
+ * 받는 사람이 자기 줄을 지운다. **발신자에게는 아무것도 안 간다** (ADR-98) —
+ * 예산도 보낸 줄도 읽음도 그대로다. 지우는 것은 고르는 것이라 돌아가지 않는다.
+ */
+participantRoutes.post("/note/remove", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const body = (await c.req.json().catch(() => ({}))) as { id?: unknown };
+  const { value, response } = unwrap(c, await seat.stub.removeNote(seat.playerId, body.id, serverNow()));
   return response ?? c.json(value);
 });
 

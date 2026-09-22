@@ -46,6 +46,11 @@ export const DEFAULTS: Defaults = {
    * 비어 있으면 지금과 똑같은 화면이라 옛 회차도 달라지지 않는다.
    */
   nickHint: "",
+  /**
+   * 익명 쪽지 장 수 (ADR-98). 기본 **2장** — 한 사람에게 몰아 보내도 둘이 끝이다.
+   * 회차에서 0 으로 내리면 그 회차에는 익명 쪽지가 없다.
+   */
+  maxNotes: 2,
   inviteTemplate: INVITE_TEMPLATE,
 };
 
@@ -65,6 +70,9 @@ export function withDefaults(saved: Partial<Defaults> | null | undefined): Defau
   return {
     maxPre: num(saved?.maxPre, DEFAULTS.maxPre),
     maxParty: num(saved?.maxParty, DEFAULTS.maxParty),
+    // 익명 쪽지 (ADR-98). 0 도 고른 값이라 `num` 이 그대로 받는다 — 비어 있을 때만 기본값이다
+    // `?? 0` 은 타입이 선택값이라 붙는다 — 없으면 0 이 이 기능의 '없다' 이기도 하다
+    maxNotes: num(saved?.maxNotes, DEFAULTS.maxNotes ?? 0),
     // 장소는 **비워두는 것도 뜻이 있다** — 회차마다 다른 곳에서 연다는 뜻이다
     place: text(saved?.place, DEFAULTS.place),
     // 닉네임 문구도 **비워두는 것에 뜻이 있다** — 안내 없이 칸만 두겠다는 뜻이다
@@ -80,9 +88,27 @@ export function withDefaults(saved: Partial<Defaults> | null | undefined): Defau
   };
 }
 
+/**
+ * 읽음이 **발신자에게 보이기까지 늦추는 시간** (ADR-98, S-B6).
+ *
+ * 배지가 답할 질문은 *갔고 봤나* 이지 *지금 보고 있나* 가 아니다 — 늦춰도 그 답은 그대로고,
+ * **방금 폰을 든 사람을 눈으로 찾는 길**만 사라진다. 화면만으로는 못 막는다:
+ * `realtime.ts` 가 앱으로 돌아올 때마다 다시 읽어서, 30초마다 시트를 여닫으면
+ * 읽은 시각이 30초까지 좁혀진다 — `21:05에 읽음` 을 버린 이유가 절반쯤 되살아난다.
+ *
+ * ⚠️ **0 으로 내리지 마라.** 이 값이 곧 `읽음` 이 거절 신호가 되지 않게 하는 폭이다.
+ */
+export const NOTE_READ_DELAY = 5 * 60_000;
+
 export const LIMITS = {
   maxPre: { min: 1, max: 5 },
   maxParty: { min: 1, max: 10 },
+  /**
+   * 익명 쪽지 장 수 (ADR-98). **최솟값이 0 인 유일한 상한**이다 — 0 은 *이 회차에는 없다* 이고,
+   * 그것이 운영자에게 남은 유일한 레버다 (본문도 발신자도 못 보므로).
+   * 최댓값이 5 인 것은 **한 사람에게 갈 수 있는 최대**이기도 하다 — 뒤쫓기를 막는 것이 이 숫자다.
+   */
+  maxNotes: { min: 0, max: 5 },
   charms: 3,
   nicknameMin: 1,
   nicknameMax: 15,
@@ -92,6 +118,11 @@ export const LIMITS = {
   realNameMax: 20,
   /** 매력 한 줄 상한. 문장으로 써도 좋지만 명단 카드가 견디는 크기까지만 */
   charmMax: 100,
+  /**
+   * 익명 쪽지 본문 상한 (ADR-98). **화면은 이 숫자를 말하지 않는다** — `maxLength` 가 조용히 막는다.
+   * 짧아야 쪽지고, 길어지면 편지다.
+   */
+  noteMax: 120,
   tableMax: 12,
   /**
    * 한 회차 초대 명단 상한. 붙여넣기 사고로 수만 줄이 들어오는 걸 막는다.

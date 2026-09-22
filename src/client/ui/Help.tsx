@@ -39,6 +39,18 @@ export default function Help({ state }: { state: ParticipantState }) {
    * 덜 알리는 것보다 **더 알리는 쪽이 안전하다** — 상대가 알게 되는 걸 안 알리면 그게 거짓이다.
    */
   const notify = !!config.preNotify || !!config.pokeNotify;
+  /**
+   * 익명 쪽지 문답이 서나 (슬라이스 36).
+   *
+   * ⚠️ **조건이 `maxNotes > 0` 이 아니다.** 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던
+   * 회차인데(ADR-98 의 유일한 레버), 거기서도 이미 온 쪽지는 소식에 남고 읽음도 계속 돈다.
+   * 설정값만 보면 **고지가 통째로 사라져서**, 피해자가 앱을 열 때마다 상대 화면에 `읽음` 이
+   * 서는데 그 말이 앱 어디에도 없게 된다. 그래서 **내가 주고받은 것이 하나라도 있으면** 함께 본다.
+   */
+  const noteOn =
+    (config.maxNotes ?? 0) > 0 ||
+    state.note.received.length > 0 ||
+    state.note.budget.used > 0;
 
   return (
     <div className="stack">
@@ -67,6 +79,12 @@ export default function Help({ state }: { state: ParticipantState }) {
           { q: qa.prevote.q, a: qa.prevote.a },
           { q: qa.poke.q, a: qa.poke.a },
           { q: qa.secret.q, a: qa.secret.a(notify) },
+          /*
+           * 익명 쪽지는 **같은 질문(익명)의 자리**라 `상대가 아나요` 바로 아래다.
+           * 셋째 문장이 읽음 표시의 유일한 고지다 — 작성 시트에서 하단 문구를 뺐으므로
+           * 여기가 그 자리이고, 안 적으면 **앱이 문구보다 넓게 하는 일**이 생긴다.
+           */
+          ...(noteOn ? [{ q: qa.note.q, a: qa.note.a }] : []),
           /*
            * **운영자가 무엇까지 보나** 는 여기서 답하지 않는다 (ADR-76 — 걷어낸 이유가 거기 있다).
            * 한동안 `상대` 다음 줄이었다.

@@ -91,6 +91,8 @@ export const PARTICIPANT_ROUTES = [
   { path: "/e/:code/me/edit", element: chunk(<Participant />) },
   // 프로필 시트도 라우트다 — 뒤로 가기로 닫히게 하기 위해
   { path: "/e/:code/p/:pid", element: chunk(<Participant />) },
+  // 익명 쪽지 작성 시트 (슬라이스 36). 프로필 시트 위가 아니라 **대신** 선다 — 시트는 겹치지 않는다
+  { path: "/e/:code/p/:pid/note", element: chunk(<Participant />) },
   // 자리 확인 화면을 **다시 여는** 길 (슬라이스 12). 자동으로 뜨는 쪽은 주소가 없다
   { path: "/e/:code/seat", element: chunk(<Participant />) },
   // 파티 룰 도움말. 시트도 라우트라 **여기 없으면 "찾을 수 없어요" 로 떨어진다**

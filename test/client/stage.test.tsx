@@ -67,6 +67,7 @@ function stateOf(
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE,
+    note: { budget: { max: 0, used: 0 }, sent: {}, received: [] },
     ...(over.seat ? { seat: over.seat } : {}),
     announcements: [],
   };
@@ -77,6 +78,9 @@ function sourceOf(state: ParticipantState) {
   const src: ParticipantSource & { seen: StageKey[] } = {
     key: "t",
     seen,
+    sendNote: async () => state.note,
+    seeNotes: async () => state.note,
+    removeNote: async () => state.note,
     load: async () => state,
     poke: async () => POKE,
     unpoke: async () => POKE,
@@ -93,7 +97,7 @@ function sourceOf(state: ParticipantState) {
 function mount(src: ParticipantSource, onTab: (t: string) => void = () => {}) {
   return render(
     <MemoryRouter>
-      <ParticipantView source={src} tab="home" onTab={onTab} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={false} onHelp={() => {}} />
+      <ParticipantView source={src} tab="home" onTab={onTab} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={false} onHelp={() => {}} />
     </MemoryRouter>,
   );
 }

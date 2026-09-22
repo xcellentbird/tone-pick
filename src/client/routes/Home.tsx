@@ -12,13 +12,15 @@
  *     받은편지함이 아니라 타임라인이고, 그건 "지금 무슨 일인가"의 과거형이다 (ADR-4)
  */
 import { useState } from "react";
-import { HOME, POLL, REVEAL, SEAT, STATUS } from "../../shared/copy.ts";
+import { HOME, NOTE, PEOPLE, POLL, REVEAL, SEAT, STATUS } from "../../shared/copy.ts";
 import type { EventSchedule, ParticipantState, PollChoice } from "../../shared/types.ts";
-import { canPoke, roundOf } from "../../shared/phase.ts";
+import { canNote, canPoke, roundOf } from "../../shared/phase.ts";
 import { TICK_WINDOW, formatCountdown, formatDayHour, formatWhen } from "../../shared/time.ts";
 import { noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
 import { useTicker } from "../lib/useLoad.ts";
+import { tap } from "../lib/pulse.ts";
+import { useOverlay } from "../ui/Overlays.tsx";
 import type { Tab } from "./Participant.tsx";
 
 /**
@@ -50,6 +52,9 @@ export default function Home({
   onSeat,
   onHelp,
   onVote,
+  onRemoveNote,
+  covered,
+  setCovered,
 }: {
   state: ParticipantState;
   onTab: (tab: Tab) => void;
@@ -57,6 +62,18 @@ export default function Home({
   onSeat: () => void;
   /** 진행 방식을 다시 여는 길 (슬라이스 21). 등록 중에만 카드에 붙는다 */
   onHelp: () => void;
+  /**
+   * 받은 익명 쪽지를 지운다 (슬라이스 36). **발신자에게는 아무것도 안 간다** —
+   * 줄이 사라지는 것이 곧 알림이다 (토스트 없음, ADR-65).
+   */
+  onRemoveNote: (id: string) => Promise<void>;
+  /**
+   * 어깨너머 가리기 (슬라이스 16). **홈에도 온 이유는 익명 쪽지다** — 120자짜리 글이
+   * 소식 목록에 상시로 서 있고, 거기에는 발신자를 좁히는 말이 들어갈 수 있다.
+   * 상태는 위에서 하나로 온다 — 참가자 탭과 두 집 살림이 되지 않게.
+   */
+  covered: boolean;
+  setCovered: (on: boolean) => void;
   /** 설문에 답한다 (슬라이스 27). 서버가 돌려준 그 설문 하나로 화면이 바뀐다 */
   onVote: (id: string, choice: PollChoice) => Promise<void>;
 }) {
@@ -72,6 +89,8 @@ export default function Home({
   const revealed = phase === "done";
   const budget = state.poke.budget[roundOf(phase)];
   const left = budget.max - budget.used;
+  /** 남은 익명 쪽지 (슬라이스 36). 이 회차에 없거나(0) 파티 중이 아니면 줄이 안 선다 */
+  const noteLeft = canNote(phase) ? Math.max(0, state.note.budget.max - state.note.budget.used) : 0;
   /**
    * 콕을 다 썼으면 **다른 문장**이다. 남은 게 없는데 "찔러보세요" 라고 하면
    * 할 수 없는 일을 시키는 것이고, 그 아래 "콕 0회 남음" 은 0을 들이대는 일이다.
@@ -136,6 +155,11 @@ export default function Home({
           <>
             {/* 남은 게 있을 때만 센다. 0 은 제목이 이미 말했다 */}
             {left > 0 && <div className="kicker">{STATUS.pokeLeft(roundOf(phase), left)}</div>}
+            {/*
+              익명 쪽지도 예산이라 콕 줄과 나란히 선다 (슬라이스 36).
+              0 이면 줄이 없다 — 참가자에게 `0장` 을 들이대지 않는다 (`copy.ts` 규칙 3).
+            */}
+            {noteLeft > 0 && <div className="kicker">{NOTE.left(noteLeft)}</div>}
             {/* 다 썼어도 명단 구경은 된다 — 버튼은 그대로 */}
             <button className="btn primary block" onClick={() => onTab("people")}>
               {HOME.goPeople}
@@ -185,7 +209,7 @@ export default function Home({
       )}
 
       <Polls state={state} onVote={onVote} />
-      <News state={state} />
+      <News state={state} onRemoveNote={onRemoveNote} covered={covered} setCovered={setCovered} />
     </div>
   );
 }
@@ -247,24 +271,93 @@ function Polls({ state, onVote }: { state: ParticipantState; onVote: (id: string
  * 예약대로 닫히는 마감은 아무도 밀어주지 않아서 찍힌 시각이 없다.
  * 그래서 읽음 플래그도 알림 테이블도 없다 — 상태가 바뀌면 목록이 그 자리에서 따라간다.
  */
-function News({ state }: { state: ParticipantState }) {
+function News({
+  state,
+  onRemoveNote,
+  covered,
+  setCovered,
+}: {
+  state: ParticipantState;
+  onRemoveNote: (id: string) => Promise<void>;
+  covered: boolean;
+  setCovered: (on: boolean) => void;
+}) {
+  const { confirm } = useOverlay();
   // 설문은 위 카드가 그린다 — 소식 줄은 배너용이라 여기서는 건너뛴다 (`Notice.poll`)
   const list = noticesOf(state, now()).filter((n) => !n.poll);
   if (list.length === 0) return null;
+  /*
+   * 가리기 토글은 **덮을 것이 있을 때만** 선다 (슬라이스 36). 익명 쪽지 줄이 하나도 없으면
+   * 이 목록에서 가릴 것이 없다 — 받은 콕 줄에는 본문이 없고 제목이 곧 전부다.
+   */
+  const hasNotes = list.some((n) => n.noteId);
 
   return (
     <>
-      <div className="kicker">{HOME.news}</div>
+      <div className="noteRow">
+        <span className="kicker grow">{HOME.news}</span>
+        {hasNotes && (
+          <button
+            type="button"
+            className="coverToggle"
+            aria-pressed={covered}
+            onClick={() => {
+              tap("cover");
+              setCovered(!covered);
+            }}
+          >
+            {covered ? PEOPLE.uncover : PEOPLE.cover}
+          </button>
+        )}
+      </div>
       <div className="stack">
         {list.map((n) => (
           <div className="banner" key={n.key}>
             <span className="icon">{n.icon}</span>
             <span className="grow">
               <span className="name">{n.title}</span>
-              {/* 몸글이 빈 알림이 있다 (ADR-53). 빈 칸도 flex 항목이라 자리를 먹는다 */}
-              {n.body && <div className="small dim pre">{n.body}</div>}
+              {/*
+                몸글이 빈 알림이 있다 (ADR-53). 빈 칸도 flex 항목이라 자리를 먹는다.
+
+                익명 쪽지의 본문은 **`dim` 이 아니다** — 다른 소식의 몸글은 곁설명이지만
+                이건 내용이다. 그리고 가리면 **줄을 지우지 말고 본문만 덮는다** —
+                제목(`익명 쪽지가 왔어요`)은 남긴다. 가린 사람이 온 줄도 모르면 안 된다.
+              */}
+              {n.body && !(n.noteId && covered) && (
+                <div className={n.noteId ? "small pre" : "small dim pre"}>{n.body}</div>
+              )}
               {n.at > 0 && <div className="tiny dim">{formatWhen(n.at)}</div>}
             </span>
+            {/*
+              누를 수 있는 것은 지우기 하나다 — 답장도 반응도 신고도 없다 (ADR-98).
+              ⚠️ **제목 줄 안이 아니라 `.banner` 의 직계로 둔다.** 제목 줄에 넣으면
+              `button` 의 `min-height: 44px` 가 그 줄을 부풀려 쪽지 줄만 다른 소식보다 커지고,
+              음수 여백으로 눌러 담으면 **44px 타겟이 본문 첫 줄 위로 겹쳐서** 본문 오른쪽 끝을
+              짚은 손가락이 지우기 확인창을 연다.
+            */}
+            {n.noteId && (
+              <button
+                type="button"
+                className="anonDel"
+                onClick={() =>
+                  confirm(
+                    {
+                      btn: NOTE.remove,
+                      danger: true,
+                      title: NOTE.removeConfirm.title,
+                      note: NOTE.removeConfirm.note,
+                      facts: NOTE.removeConfirm.facts,
+                    },
+                    async () => {
+                      tap("note_remove");
+                      await onRemoveNote(n.noteId!);
+                    },
+                  )
+                }
+              >
+                {NOTE.remove}
+              </button>
+            )}
           </div>
         ))}
       </div>

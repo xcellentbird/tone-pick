@@ -41,6 +41,7 @@ const STATE: ParticipantState = {
   },
   roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["가", "나", "다"] }],
   poke: { budget: { pre: { max: 3, used: 1 }, party: { max: 3, used: 0 } }, sentTo: {}, received: { pre: 0, party: 0 }, matches: [] },
+  note: { budget: { max: 0, used: 0 }, sent: {}, received: [] },
   announcements: [],
 };
 
