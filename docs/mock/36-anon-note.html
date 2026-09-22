@@ -1,0 +1,339 @@
+<!doctype html>
+<!--
+  슬라이스 36 쪽지 — 화면 시안 (docs/scenarios/36-anon-note.md 의 E 절).
+
+  구현이 아니다. 앱의 theme.css 를 그대로 읽어 그린 정적 HTML 이라, 실제 부품(Sheet·confirm·Num)과
+  같은 클래스를 쓴다. 파일로 바로 열린다 — 화면은 `?v=` 로 고른다:
+    wizard · settings · profile · profile-sent · compose · confirm · home-send · home-recv · host-detail
+  `&mark=1` 을 붙이면 새로 더한 자리에 노란 점선이 둘린다.
+  폰 폭(390px)에서 보는 그림이다 — 브라우저 개발자 도구의 기기 모드로 열어라.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>쪽지 시안</title>
+<link rel="stylesheet" href="../../src/client/styles/theme.css">
+<style>
+  /* 파일로 열면 theme.css 의 절대 경로(/fonts/)가 안 닿는다 — 같은 파일을 상대 경로로 다른 이름으로 싣고 그 이름을 앞에 세운다 */
+  @font-face { font-family: SUITMock; src: url("../../public/fonts/SUIT-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+  @font-face { font-family: SUITMock; src: url("../../public/fonts/SUIT-Bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+  html, body { font-family: SUITMock, SUIT, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", sans-serif; }
+</style>
+<style>
+  /* 시안 전용 — 실제 구현에서는 theme.css 에 변수로 옮긴다 */
+  .noteFact { flex-direction: column; gap: 4px; }
+  .noteFact .head { display: flex; align-items: center; gap: 8px; width: 100%; }
+  .noteFact .head .who { flex: 1; min-width: 0; }
+  .noteFact .head .at { font-variant-numeric: tabular-nums; }
+  section[hidden] { display: none; }
+  .btn.ghost.compact { min-height: 32px; }
+  /* 소식 줄의 쪽지 본문 — 흐리지 않다. 내용이라 */
+  .banner .noteBody { margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ───────────── 1. 운영자 위저드 3스텝 ───────────── -->
+<section id="wizard" hidden>
+<div class="screen">
+  <header>
+    <button class="btn ghost">이전</button>
+    <div class="grow"><h1>새 회차 만들기</h1><div class="sub">3/3 · 투표·콕 설정</div></div>
+  </header>
+  <div class="body stack">
+    <div class="field"><label>매력 투표 횟수 (1~5)</label>
+      <div class="row"><button class="btn" disabled>−</button><span class="grow center">1</span><button class="btn">+</button></div></div>
+    <div class="field"><label>파티 콕 (1~10)</label>
+      <div class="row"><button class="btn">−</button><span class="grow center">2</span><button class="btn">+</button></div></div>
+    <p class="small okText">적당해요</p>
+    <div class="field"><label>고를 수 있는 대상</label>
+      <div class="choice"><button aria-pressed="false">이성만</button><button aria-pressed="true">모두에게</button></div></div>
+    <div class="field"><label>매력 투표 알림</label>
+      <div class="choice"><button aria-pressed="true">안 보냄</button><button aria-pressed="false">보냄</button></div></div>
+    <div class="field"><label>콕 알림</label>
+      <div class="choice"><button aria-pressed="true">안 보냄</button><button aria-pressed="false">보냄</button></div></div>
+    <div class="field" data-new><label>쪽지 (0~5)</label>
+      <div class="row"><button class="btn">−</button><span class="grow center">2</span><button class="btn">+</button></div></div>
+  </div>
+  <div class="row" style="padding:0 16px 16px"><button class="btn wide primary">새 회차 만들기</button></div>
+</div>
+</section>
+
+<!-- ───────────── 2. 운영자 설정 탭 (파티 중 — 토글 셋은 굳었다) ───────────── -->
+<section id="settings" hidden>
+<div class="screen">
+  <header>
+    <button class="btn ghost">회차 목록</button>
+    <div class="grow"><h1 class="ellipsis">9월 솔로 파티</h1><div class="sub">3SELD6 · 파티 진행 · <span>등록 16명</span></div></div>
+  </header>
+  <nav class="tabs"><a>현황</a><a>참가자</a><a>자리</a><a>설문</a><a class="active">설정</a></nav>
+  <div class="body"><div class="stack">
+    <nav class="segmented"><button>기본 정보</button><button>예약</button><button class="active">투표·콕 설정<span class="dot">•</span></button><button>삭제</button></nav>
+    <div class="field"><label>매력 투표 횟수 (1~5)</label>
+      <div class="row"><button class="btn" disabled>−</button><span class="grow center">1</span><button class="btn">+</button></div></div>
+    <div class="field"><label>파티 콕 (1~10)</label>
+      <div class="row"><button class="btn" disabled>−</button><span class="grow center">2</span><button class="btn">+</button></div></div>
+    <div class="field"><label>고를 수 있는 대상</label>
+      <div class="choice"><button aria-pressed="false" disabled>이성만</button><button aria-pressed="true" disabled>모두에게</button></div>
+      <span class="tiny dim">표와 콕이 오가기 시작해서 바꿀 수 없어요</span></div>
+    <div class="field"><label>매력 투표 알림</label>
+      <div class="choice"><button aria-pressed="true" disabled>안 보냄</button><button aria-pressed="false" disabled>보냄</button></div>
+      <span class="tiny dim">표와 콕이 오가기 시작해서 바꿀 수 없어요</span></div>
+    <div class="field"><label>콕 알림</label>
+      <div class="choice"><button aria-pressed="false" disabled>안 보냄</button><button aria-pressed="true" disabled>보냄</button></div>
+      <span class="tiny dim">표와 콕이 오가기 시작해서 바꿀 수 없어요</span></div>
+    <div class="field"><label>쪽지 (0~5)</label>
+      <div class="row"><button class="btn">−</button><span class="grow center">3</span><button class="btn">+</button></div></div>
+    <button class="btn primary block">설정 적용</button>
+  </div></div>
+</div>
+</section>
+
+<!-- ───────────── 3. 참가자 탭 + 프로필 시트 (쪽지 줄) ───────────── -->
+<section id="profile" hidden>
+<div class="screen">
+  <header class="bar"><div class="statusbar phase-party"><button class="where"><span class="event">9월 솔로 파티</span><span class="phase">파티 진행</span></button><button class="helpBtn"><span>?</span></button></div></header>
+  <div class="body stack">
+    <div class="row">
+      <button class="person grow"><span class="avatarMine"><span class="avatar md m">🦊</span><span class="mineTag">나</span></span>
+        <span class="meta"><span class="name"><span class="who">하늘</span><span class="age">31</span><span class="badge mbti-nt">INTJ</span></span>
+        <span class="charms"><span class="chip">요리를 잘해요</span><span class="chip">잘 들어줘요</span><span class="chip">산책</span></span></span></button>
+      <div class="mineCell"><span class="n">1회</span><span class="t">남은 콕</span></div>
+    </div>
+    <div class="choice"><button aria-pressed="true">전체</button><button aria-pressed="false">이성만</button></div>
+    <div class="noteRow"><span class="small dim ellipsis"></span><button class="coverToggle">가리기</button></div>
+    <div class="stack">
+      <div class="row"><button class="person grow"><span class="avatar md f">🐰</span><span class="meta"><span class="name"><span class="who">달빛</span><span class="age">28</span><span class="badge mbti-nf">ENFP</span></span><span class="charms"><span class="chip">웃음이 많아요</span><span class="chip">여행 이야기</span><span class="chip">커피</span></span></span></button><div class="pokeCell"><button class="pokeBtn on"><span>👉</span><span class="n">1</span></button></div></div>
+      <div class="row"><button class="person grow"><span class="avatar md f">🐱</span><span class="meta"><span class="name"><span class="who">별빛</span><span class="age">27</span><span class="badge mbti-sp">ESFP</span></span><span class="charms"><span class="chip">노래</span><span class="chip">맛집 지도</span></span></span></button><div class="pokeCell"><button class="pokeBtn"><span>👉</span></button></div></div>
+      <div class="row"><button class="person grow"><span class="avatar md m">🐻</span><span class="meta"><span class="name"><span class="who">바다</span><span class="age">30</span><span class="badge mbti-sj">ISTJ</span></span><span class="charms"><span class="chip">등산</span><span class="chip">사진</span></span></span></button><div class="pokeCell"><button class="pokeBtn"><span>👉</span></button></div></div>
+    </div>
+  </div>
+  <nav class="tabbar"><button><span class="icon">🏠</span><span>홈</span></button><button class="active"><span class="icon">👥</span><span>참가자</span></button><button><span class="icon">🙋</span><span>내 정보</span></button><button><span class="icon">🎲</span><span>재미</span></button></nav>
+
+  <div class="scrim" data-state="open"></div>
+  <div class="sheet" data-state="open">
+    <h2 class="sheetTitle srOnly">달빛</h2>
+    <div class="row">
+      <span class="avatar lg f">🐰</span>
+      <div class="grow"><div class="name">달빛</div><div class="row" style="gap:6px;margin-top:4px"><span class="small dim">28세</span><span class="badge mbti-nf">ENFP</span></div></div>
+      <div class="pokeCell"><button class="pokeBtn on"><span>👉</span><span class="n">1</span></button></div>
+    </div>
+    <p class="kicker" style="margin:0">이 사람의 매력</p>
+    <div class="stack">
+      <div class="fact"><span class="grow pre">웃음이 많아요. 같이 있으면 분위기가 밝아진대요</span></div>
+      <div class="fact"><span class="grow pre">여행 이야기라면 밤새 할 수 있어요</span></div>
+      <div class="fact"><span class="grow pre">커피 내리는 걸 좋아해요</span></div>
+    </div>
+    <div class="stack" style="gap:6px" data-new>
+      <button class="btn block">쪽지 쓰기</button>
+      <p class="small dim center" style="margin:0">쪽지 2장 남았어요</p>
+    </div>
+    <button class="btn block ghost">닫기</button>
+  </div>
+</div>
+</section>
+
+<!-- ───────────── 3b. 같은 시트 — 한 장 보낸 뒤 ───────────── -->
+<section id="profile-sent" hidden>
+<div class="screen">
+  <header class="bar"><div class="statusbar phase-party"><button class="where"><span class="event">9월 솔로 파티</span><span class="phase">파티 진행</span></button><button class="helpBtn"><span>?</span></button></div></header>
+  <div class="body stack"></div>
+  <nav class="tabbar"><button><span class="icon">🏠</span><span>홈</span></button><button class="active"><span class="icon">👥</span><span>참가자</span></button><button><span class="icon">🙋</span><span>내 정보</span></button><button><span class="icon">🎲</span><span>재미</span></button></nav>
+  <div class="scrim" data-state="open"></div>
+  <div class="sheet" data-state="open">
+    <h2 class="sheetTitle srOnly">달빛</h2>
+    <div class="row">
+      <span class="avatar lg f">🐰</span>
+      <div class="grow"><div class="name">달빛</div><div class="row" style="gap:6px;margin-top:4px"><span class="small dim">28세</span><span class="badge mbti-nf">ENFP</span></div></div>
+      <div class="pokeCell"><button class="pokeBtn on"><span>👉</span><span class="n">1</span></button></div>
+    </div>
+    <p class="kicker" style="margin:0">이 사람의 매력</p>
+    <div class="stack">
+      <div class="fact"><span class="grow pre">웃음이 많아요. 같이 있으면 분위기가 밝아진대요</span></div>
+      <div class="fact"><span class="grow pre">여행 이야기라면 밤새 할 수 있어요</span></div>
+      <div class="fact"><span class="grow pre">커피 내리는 걸 좋아해요</span></div>
+    </div>
+    <div class="stack" style="gap:6px" data-new>
+      <button class="btn block">쪽지 쓰기</button>
+      <p class="small center" style="margin:0">이 사람에게 1장 보냈어요 · <span class="dim">1장 남았어요</span></p>
+    </div>
+    <button class="btn block ghost">닫기</button>
+  </div>
+</div>
+</section>
+
+<!-- ───────────── 4. 작성 시트 ───────────── -->
+<section id="compose" hidden>
+<div class="screen">
+  <header class="bar"><div class="statusbar phase-party"><button class="where"><span class="event">9월 솔로 파티</span><span class="phase">파티 진행</span></button><button class="helpBtn"><span>?</span></button></div></header>
+  <div class="body stack"></div>
+  <nav class="tabbar"><button><span class="icon">🏠</span><span>홈</span></button><button class="active"><span class="icon">👥</span><span>참가자</span></button><button><span class="icon">🙋</span><span>내 정보</span></button><button><span class="icon">🎲</span><span>재미</span></button></nav>
+  <div class="scrim" data-state="open"></div>
+  <div class="sheet" data-state="open">
+    <h2 class="sheetTitle">달빛님에게 쪽지</h2>
+    <div class="stack">
+      <div class="field"><label for="note">쪽지 (120자까지)</label>
+        <textarea id="note" rows="4">아까 웃는 모습이 좋았어요. 오늘 재밌게 보내세요 🙂</textarea></div>
+      <p class="tiny dim pre" style="margin:0">상대에게는 누가 보냈는지 보이지 않아요.
+답장은 오지 않아요.</p>
+      <button class="btn primary block">쪽지 보내기</button>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ───────────── 5. 확인창 ───────────── -->
+<section id="confirm" hidden>
+<div class="screen">
+  <header class="bar"><div class="statusbar phase-party"><button class="where"><span class="event">9월 솔로 파티</span><span class="phase">파티 진행</span></button><button class="helpBtn"><span>?</span></button></div></header>
+  <div class="body stack"></div>
+  <nav class="tabbar"><button><span class="icon">🏠</span><span>홈</span></button><button class="active"><span class="icon">👥</span><span>참가자</span></button><button><span class="icon">🙋</span><span>내 정보</span></button><button><span class="icon">🎲</span><span>재미</span></button></nav>
+  <div class="scrim" data-state="open"></div>
+  <div class="sheet" data-state="open">
+    <h2 class="sheetTitle">달빛님에게 쪽지</h2>
+    <div class="stack">
+      <div class="field"><label>쪽지 (120자까지)</label>
+        <textarea rows="4">아까 웃는 모습이 좋았어요. 오늘 재밌게 보내세요 🙂</textarea></div>
+      <p class="tiny dim pre" style="margin:0">상대에게는 누가 보냈는지 보이지 않아요.
+답장은 오지 않아요.</p>
+      <button class="btn primary block">쪽지 보내기</button>
+    </div>
+  </div>
+  <div class="scrim" data-state="open"></div>
+  <div class="dialog" data-state="open">
+    <h2 class="sheetTitle">쪽지를 보낼까요?</h2>
+    <div class="facts">
+      <div class="fact"><b>받는 사람</b><span class="grow">달빛</span></div>
+      <div class="fact"><b>남은 쪽지</b><span class="grow">2장 → 1장</span></div>
+    </div>
+    <p class="small dim pre">보낸 뒤에는 되돌릴 수 없어요.</p>
+    <div class="row"><button class="btn wide primary">보내기</button></div>
+    <button class="btn ghost block">취소</button>
+  </div>
+</div>
+</section>
+
+<!-- ───────────── 6. 홈 — 보내는 쪽 ───────────── -->
+<section id="home-send" hidden>
+<div class="screen">
+  <header class="bar"><div class="statusbar phase-party"><span class="where"><span class="event">9월 솔로 파티</span><span class="phase">파티 진행</span></span><button class="helpBtn"><span>?</span></button></div></header>
+  <div class="body stack">
+    <div class="stack">
+      <div class="card stack">
+        <h2 class="cardTitle">이제 직접 만나보고 콕 찔러보세요</h2>
+        <p class="dim small pre" style="margin:0">나이와 MBTI 도 함께 볼 수 있어요.
+발표 때 이어지는 건 여기서 보낸 콕이에요.</p>
+        <div class="kicker">콕 1회 남음</div>
+        <div class="kicker" data-new>쪽지 1장 남음</div>
+        <button class="btn primary block">참가자 보러 가기</button>
+      </div>
+      <button class="card stack seatCard"><div class="kicker">🪑 자리 안내</div><div class="table">3번 테이블</div><div class="small dim">같은 테이블 6명 · 남 3 / 여 3</div></button>
+      <div class="kicker">지금까지의 소식</div>
+      <div class="stack">
+        <div class="banner"><span class="icon">🎉</span><span class="grow"><span class="name">파티가 시작됐어요</span><div class="small dim pre">파티 라운드 콕 2회를 새로 받았어요
+쪽지 2장도 보낼 수 있어요</div><div class="tiny dim">오늘 20:00</div></span></div>
+        <div class="banner"><span class="icon">🗳️</span><span class="grow"><span class="name">매력 투표가 시작됐어요</span><div class="small dim pre">1인당 1회씩 투표할 수 있어요</div><div class="tiny dim">어제 00:00</div></span></div>
+      </div>
+    </div>
+  </div>
+  <nav class="tabbar"><button class="active"><span class="icon">🏠</span><span>홈</span></button><button><span class="icon">👥</span><span>참가자</span></button><button><span class="icon">🙋</span><span>내 정보</span></button><button><span class="icon">🎲</span><span>재미</span></button></nav>
+</div>
+</section>
+
+<!-- ───────────── 7. 홈 — 받는 쪽 ───────────── -->
+<section id="home-recv" hidden>
+<div class="screen">
+  <header class="bar"><div class="statusbar phase-party"><span class="where"><span class="event">9월 솔로 파티</span><span class="phase">파티 진행</span></span><button class="helpBtn"><span>?</span></button></div></header>
+  <div class="body stack">
+    <div class="stack">
+      <div class="card stack">
+        <h2 class="cardTitle">이제 직접 만나보고 콕 찔러보세요</h2>
+        <p class="dim small pre" style="margin:0">나이와 MBTI 도 함께 볼 수 있어요.
+발표 때 이어지는 건 여기서 보낸 콕이에요.</p>
+        <div class="kicker">콕 2회 남음</div>
+        <div class="kicker">쪽지 2장 남음</div>
+        <button class="btn primary block">참가자 보러 가기</button>
+      </div>
+      <button class="card stack seatCard"><div class="kicker">🪑 자리 안내</div><div class="table">3번 테이블</div><div class="small dim">같은 테이블 6명 · 남 3 / 여 3</div></button>
+      <div class="kicker">지금까지의 소식</div>
+      <div class="stack">
+        <div class="banner" data-new><span class="icon">✉️</span><span class="grow"><span class="name">누군가 쪽지를 보냈어요</span><div class="small pre noteBody">아까 웃는 모습이 좋았어요. 오늘 재밌게 보내세요 🙂</div><div class="tiny dim">누구인지는 비밀이에요</div></span></div>
+        <div class="banner"><span class="icon">👉</span><span class="grow"><span class="name">누군가 콕! 찔렀어요</span><div class="small dim pre">누구인지는 비밀이에요</div></span></div>
+        <div class="banner"><span class="icon">🎉</span><span class="grow"><span class="name">파티가 시작됐어요</span><div class="small dim pre">파티 라운드 콕 2회를 새로 받았어요
+쪽지 2장도 보낼 수 있어요</div><div class="tiny dim">오늘 20:00</div></span></div>
+      </div>
+    </div>
+  </div>
+  <nav class="tabbar"><button class="active"><span class="icon">🏠</span><span>홈</span></button><button><span class="icon">👥</span><span>참가자</span></button><button><span class="icon">🙋</span><span>내 정보</span></button><button><span class="icon">🎲</span><span>재미</span></button></nav>
+</div>
+</section>
+
+<!-- ───────────── 8. 운영자 참가자 상세 ───────────── -->
+<section id="host-detail" hidden>
+<div class="screen">
+  <header>
+    <button class="btn ghost">회차 목록</button>
+    <div class="grow"><h1 class="ellipsis">9월 솔로 파티</h1><div class="sub">3SELD6 · 파티 진행 · <span>등록 16명</span></div></div>
+  </header>
+  <nav class="tabs"><a>현황</a><a class="active">참가자</a><a>자리</a><a>설문</a><a>설정</a></nav>
+  <div class="body"><div class="stack">
+    <div class="person"><button class="open"><span class="avatar md m">🦊</span><span class="meta"><span class="name ellipsis">이하늘 · 하늘 · 31세</span><span class="charm ellipsis">010-1234-5678</span></span></button></div>
+    <div class="person"><button class="open"><span class="avatar md f">🐰</span><span class="meta"><span class="name ellipsis">김민지 · 달빛 · 28세</span><span class="charm ellipsis">010-2345-6789</span></span></button></div>
+  </div></div>
+
+  <div class="scrim" data-state="open"></div>
+  <div class="sheet" data-state="open">
+    <h2 class="sheetTitle">하늘</h2>
+    <div class="stack">
+      <div class="row between"><span class="small dim">이름</span><span class="ellipsis">이하늘</span></div>
+      <div class="row between"><span class="small dim">나이</span><span class="ellipsis">31세</span></div>
+      <div class="row between"><span class="small dim">성별</span><span class="ellipsis">남성</span></div>
+      <div class="row between"><span class="small dim">MBTI</span><span class="ellipsis">INTJ</span></div>
+      <div class="row between"><span class="small dim">전화번호</span><span class="ellipsis">010-1234-5678</span></div>
+      <div class="row between"><span class="small dim">인스타</span><span class="ellipsis">haneul_dev</span></div>
+      <div class="row between"><span class="small dim">참가자 PIN 번호</span><span class="ellipsis">정함</span></div>
+      <div class="row between"><span class="small dim">낸 표 1회</span><span></span></div>
+      <div class="row between"><span class="small dim">보낸 콕 1회</span><span></span></div>
+      <div class="row between" data-new><span class="small dim">보낸 쪽지 2장</span><span></span></div>
+      <div class="row between" data-new><span class="small dim">받은 쪽지 1장</span><span></span></div>
+    </div>
+    <p class="kicker mt">나의 매력</p>
+    <div class="stack">
+      <div class="fact"><span class="grow pre">요리를 잘해요</span></div>
+      <div class="fact"><span class="grow pre">잘 들어줘요</span></div>
+    </div>
+    <p class="kicker mt" data-new>쪽지</p>
+    <div class="stack" data-new>
+      <div class="fact noteFact">
+        <div class="head"><span class="small dim who ellipsis">→ 달빛 · 김민지</span><span class="tiny dim at">21:03</span><button class="btn ghost compact">지우기</button></div>
+        <span class="pre">아까 웃는 모습이 좋았어요. 오늘 재밌게 보내세요 🙂</span>
+      </div>
+      <div class="fact noteFact">
+        <div class="head"><span class="small dim who ellipsis">→ 달빛 · 김민지</span><span class="tiny dim at">21:40</span><button class="btn ghost compact">지우기</button></div>
+        <span class="pre">커피 이야기 더 듣고 싶어요</span>
+      </div>
+      <div class="fact noteFact">
+        <div class="head"><span class="small dim who ellipsis">← 별빛 · 박서연</span><span class="tiny dim at">21:12</span><button class="btn ghost compact">지우기</button></div>
+        <span class="pre">등산 얘기 재밌었어요!</span>
+      </div>
+    </div>
+    <p class="kicker mt">떨어뜨려 앉히기</p>
+    <button class="btn ghost block mtSm">떨어뜨릴 사람 고르기</button>
+    <button class="btn ghost block mt">참가자 PIN 번호 초기화</button>
+    <div class="row mt"><button class="btn wide ghost">닫기</button><button class="btn wide danger">내보내기</button></div>
+  </div>
+</div>
+</section>
+
+<script>
+  const v = new URLSearchParams(location.search).get("v") || "profile";
+  const el = document.getElementById(v);
+  if (el) el.hidden = false;
+  // 시안에서 새로 더한 자리에 옅은 테두리를 두를 수 있다 (?mark=1)
+  if (new URLSearchParams(location.search).get("mark")) {
+    document.querySelectorAll("[data-new]").forEach((n) => { n.style.outline = "2px dashed var(--gold)"; n.style.outlineOffset = "3px"; });
+  }
+</script>
+</body>
+</html>
