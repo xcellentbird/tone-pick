@@ -614,4 +614,4 @@ CLAUDE.md 의 인덱스 함정(`no such column`)에 안 걸린다. 콕 로그에
 - `src/shared/copy.ts` — `NOTE` 묶음과 `UNIT.sheets`, `HOST_UI.fields.maxNotes`, `HOST_UI.noteFloor`,
   `HELP.qa.note`, `NOTICE.party` 둘째 줄
 - `docs/ADR.md` ADR-63 후기 — autoFocus 예외 2호(작성 시트)
-- 테스트 — `★` 붙은 열여섯. 워커 테스트는 새 파일 `test/36-anon-note.test.ts` (40개 상한), 화면 테스트는 `test/client/`
+- 테스트 — `★` 붙은 열여덟. 워커 테스트는 새 파일 `test/36-anon-note.test.ts` (40개 상한), 화면 테스트는 `test/client/`
