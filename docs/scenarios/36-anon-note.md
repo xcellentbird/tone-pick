@@ -612,6 +612,14 @@ interface MyNoteState {
 - `id` 는 지우기에만 쓴다. **추측할 수 없는 값**이어야 한다 — 차례로 만들면 남의 것을 지워볼 수 있다
 - ⚠️ **`used` 는 줄이 사라져도 안 줄어든다.** `sent` 와 `budget.used` 는 `hidden_at` 을 무시하고
   `from_id` 가 나인 줄을 전부 센다 (아래 S-C3 의 이유)
+- ⚠️ **`meta.config` 는 병합이 아니라 통째로 교체다.** 교체 리터럴에 `maxNotes` 를 안 적으면
+  **저장 한 번에 사라진다** — 운영자가 파티 중에 콕 횟수를 올리는(허용된 동작) 흔한 저장 하나로
+  값이 없어져 0 이 되고, 규칙상 0 은 *이 회차에는 없다* 라 **버튼·홈 kicker·도움말이 전원 화면에서
+  사라진다.** 에러도 확인창도 없다. 이 저장소는 그 사고를 이미 겪었다 — 옛 회차의 `allowUndo` 가
+  그렇게 없어졌고(ADR-95) 코드 주석이 그 사실을 적어 두고 있다.
+  `allowSameGender`·`preNotify`·`pokeNotify` 가 쓰는 꼴을 그대로 따른다:
+  `const maxNotes = patch.config.maxNotes ?? meta.config.maxNotes` 로 받아 **안 보내면 지금 값을 지키고**,
+  리터럴에 `...(maxNotes ? { maxNotes } : {})` 로 적는다. *옛 회차는 키가 없어 0* 은 그대로 산다
 - `EventConfig.maxNotes?: number` — **없으면 0.** `LIMITS.maxNotes = { min: 0, max: 5 }` ·
   `LIMITS.noteMax = 120` · `DEFAULTS.maxNotes = 2`
 
@@ -629,7 +637,10 @@ interface MyNoteState {
 
 **저장** — 회차 DO 의 새 표 `notes(id, from_id, to_id, body, at, read_at, hidden_at)`.
 **새 표라 `CREATE TABLE IF NOT EXISTS` 로 충분하다** — 옛 표에 칸을 더하는 것이 아니므로
-CLAUDE.md 의 인덱스 함정(`no such column`)에 안 걸린다. 콕 로그에는 안 쓴다. 지표에도 안 더한다.
+CLAUDE.md 의 인덱스 함정(`no such column`)에 안 걸린다.
+⚠️ **그래서 `hidden_at` 을 첫 `CREATE TABLE` 에 넣는다.** 나중에 더하면 이미 표를 가진 회차에
+`ALTER` 를 걸어야 하고, 그 칸을 가리키는 인덱스를 `SCHEMA` 에 올리는 순간 **DO 가 통째로 죽는다.**
+`id` 는 콕과 같은 `randomHex(8)` 로 만들고, 소유 검사는 서버가 `to_id` 로 한다. 콕 로그에는 안 쓴다. 지표에도 안 더한다.
 
 ⚠️ **소켓으로 아무것도 밀지 않는다.** `broadcast()` 도, `toPlayer()` 도 쓰지 마라.
 
