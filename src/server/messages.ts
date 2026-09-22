@@ -4,7 +4,7 @@
  * 문장은 전부 `copy.ts` 에서 온다. 여기서 새로 짓지 않는다.
  * 같은 실패에는 어디서 오든 같은 문장이 나가야 해서 한 곳에 모았다.
  */
-import { ENTRY, HOST, HOST_UI, POKE, REGISTER } from "../shared/copy.ts";
+import { ENTRY, HOST, HOST_UI, NOTE, POKE, REGISTER } from "../shared/copy.ts";
 import { HOST_PIN_TRIES } from "../shared/constants.ts";
 
 export function pokeMessage(error: string, detail?: number): string | undefined {
@@ -12,6 +12,20 @@ export function pokeMessage(error: string, detail?: number): string | undefined 
   if (error === "closed") return POKE.blocked.anyClosed;
   if (error === "same_gender") return POKE.blocked.sameGender;
   if (error === "no_budget") return POKE.blocked.anyNoBudget(detail ?? 0);
+  return undefined;
+}
+
+/**
+ * 익명 쪽지 (ADR-98). **`pokeMessage` 를 돌려쓰지 마라** — 단위가 다르다(`회` 와 `장`).
+ * 두 줄이 나란히 서는 자리가 있어서, 같은 단위로 부르면 한 가지 값으로 읽힌다.
+ *
+ * `bad_request` 에는 문구가 없다 — 빈 글도 120자 초과도 **화면이 먼저 막는다**
+ * (`maxLength` 가 조용히 막고, 빈 글이면 버튼이 안 눌린다). 여기까지 오는 건 화면 밖에서
+ * 두드린 경우라, 설명해 줄 사람이 없다.
+ */
+export function noteMessage(error: string, detail?: number): string | undefined {
+  if (error === "closed") return NOTE.blocked.closed;
+  if (error === "no_budget") return NOTE.blocked.noBudget(detail ?? 0);
   return undefined;
 }
 

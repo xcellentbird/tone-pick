@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
 import { ACT, BTN, ENTRY, ENV_BANNER, FAIL, GENDER, HELP, FORTUNE, HOME, MBTI_AXES, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
-import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
+import type { MyNoteState, MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
 import Register from "../../src/client/routes/Register.tsx";
@@ -43,6 +43,9 @@ const POKE_STATE: MyPokeState = {
   received: { pre: 0, party: 0 },
   matches: [],
 };
+
+/** 익명 쪽지가 없는 회차 (슬라이스 36). 버튼도 kicker 도 안 서는 기본값이다 */
+const NOTE_STATE: MyNoteState = { budget: { max: 0, used: 0 }, sent: {}, received: [] };
 
 function participantState(over: Partial<ParticipantState> = {}): ParticipantState {
   // 단계 안내(ADR-96)는 이미 본 사람으로 둔다 — 여기는 다른 걸 재는 자리다. 안내 자체는 `stage.test.tsx`
@@ -73,6 +76,7 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE_STATE,
+    note: NOTE_STATE,
     announcements: [],
     ...over,
   };

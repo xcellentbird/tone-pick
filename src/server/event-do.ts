@@ -20,6 +20,7 @@ import type {
   Gender,
   Invite,
   MatchInfo,
+  MyNoteState,
   MyPokeState,
   AnnounceInput,
   Announcement,
@@ -38,6 +39,7 @@ import type {
   RegisterResult,
   Seat,
   SeatingRound,
+  SentNote,
   StageKey,
   ServerEvent,
   HostState,
@@ -53,6 +55,7 @@ import {
   AGE_RANGE,
   ENTRY_TRIES,
   LIMITS,
+  NOTE_READ_DELAY,
   PIN,
   cleanName,
   nicknameProblem,
@@ -62,7 +65,18 @@ import {
   realNameProblem,
   validPin,
 } from "../shared/constants.ts";
-import { PHASE_ORDER, canPoke, dueAt, dueTransition, roundOf, rulesLocked, schedLocked, scheduleInOrder, voteClosed } from "../shared/phase.ts";
+import {
+  PHASE_ORDER,
+  canNote,
+  canPoke,
+  dueAt,
+  dueTransition,
+  roundOf,
+  rulesLocked,
+  schedLocked,
+  scheduleInOrder,
+  voteClosed,
+} from "../shared/phase.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
 
@@ -143,6 +157,23 @@ CREATE TABLE IF NOT EXISTS apart (   -- 같은 테이블에 앉히지 않을 쌍
   b TEXT NOT NULL,
   PRIMARY KEY (a, b)
 );
+-- 익명 쪽지 (ADR-98). 새 표라 CREATE TABLE IF NOT EXISTS 로 충분하다 — 옛 표에 칸을 더하는
+-- 것이 아니므로 CLAUDE.md 의 인덱스 함정(no such column)에 안 걸린다.
+-- ⚠️ 그래서 hidden_at 을 첫 CREATE TABLE 에 넣는다. 나중에 더하면 이미 표를 가진 회차에
+-- ALTER 를 걸어야 하고, 그 칸을 가리키는 인덱스를 여기 올리는 순간 DO 가 통째로 죽는다.
+CREATE TABLE IF NOT EXISTS notes (
+  id        TEXT PRIMARY KEY,      -- randomHex(8). 지우기에만 쓰고, 차례로 만들지 않는다 —
+                                   -- 추측되면 남의 것을 지워볼 수 있다. 소유 검사는 to_id 로 한다
+  from_id   TEXT NOT NULL,         -- **참가자 응답에 절대 싣지 마라.** 끝까지 익명이다
+  to_id     TEXT NOT NULL,
+  body      TEXT NOT NULL,         -- 본문. 운영자 응답에도, 콕 로그에도, 지표에도 안 나간다
+  at        INTEGER NOT NULL,      -- 응답에 안 싣는다. 순서를 정하는 데만 쓴다 (받은 콕과 같다)
+  read_at   INTEGER,               -- 받는 사람이 홈을 연 시각. 발신자에게는 5분 뒤에야 boolean 으로 보인다
+  hidden_at INTEGER                -- 받는 사람이 지웠다. **행은 남는다** — 지우면 발신자의 예산과
+                                   -- 보낸 줄이 흔들려 '상대가 내 쪽지를 지웠다' 가 새어나간다 (S-C3)
+);
+CREATE INDEX IF NOT EXISTS notes_from ON notes(from_id);
+CREATE INDEX IF NOT EXISTS notes_to   ON notes(to_id);
 `;
 
 type Fail =
@@ -401,7 +432,15 @@ export class EventDO extends DurableObject {
       const allowSameGender = patch.config.allowSameGender ?? meta.config.allowSameGender;
       const preNotify = patch.config.preNotify ?? meta.config.preNotify;
       const pokeNotify = patch.config.pokeNotify ?? meta.config.pokeNotify;
+      /*
+       * 익명 쪽지 (ADR-98). **여기서 받아 아래 리터럴에 다시 적는 것이 방어다** —
+       * `meta.config` 는 병합이 아니라 통째로 교체라, 안 적으면 운영자가 파티 중에 콕 횟수를
+       * 올리는(허용된) 저장 하나로 값이 사라져 0 이 되고 **전원 화면에서 버튼·홈 kicker·도움말이
+       * 함께 없어진다.** 에러도 확인창도 없다. 옛 회차의 `allowUndo` 가 그렇게 없어졌다 (ADR-95).
+       */
+      const maxNotes = patch.config.maxNotes ?? meta.config.maxNotes;
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
+      if (maxNotes !== undefined && !inRange(maxNotes, LIMITS.maxNotes)) return fail("bad_request");
 
       /*
        * 굳은 규칙은 못 고친다 (ADR-35). 일정과 같은 이유로 **달라졌을 때만** 막는다.
@@ -428,6 +467,20 @@ export class EventDO extends DurableObject {
         if (used && next < used) return fail("conflict", used);
       }
       /*
+       * 익명 쪽지의 바닥. **0 은 언제나 통과한다** (S-D2) — `next > 0` 일 때만 견준다.
+       *
+       * 콕 바닥(`used && next < used`)을 그대로 쓰면 누군가 한 장이라도 보낸 순간 `0` 이 409 가 되어
+       * **이 회차의 익명 쪽지를 영영 못 끈다.** 콕은 `LIMITS` 의 min 이 1 이라 이 경우를 만난 적이 없다.
+       * 운영자는 본문도 발신자도 못 보므로(ADR-98 후기 2) 0 이 **남은 유일한 레버**다 — 여기서 막으면
+       * 사고가 났을 때 운영자에게 쓸 수 있는 것이 하나도 없다.
+       */
+      if (maxNotes) {
+        const used = this.rows<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM notes GROUP BY from_id ORDER BY n DESC LIMIT 1",
+        )[0]?.n;
+        if (used && maxNotes < used) return fail("conflict", used);
+      }
+      /*
        * 기본과 다를 때만 적는다. 기본값을 굳이 써 넣으면 설정 모양이 회차마다 달라진다.
        *
        * **여기서 다시 쓰지 않으니 옛 회차의 `allowUndo` 는 저장을 한 번 거치며 사라진다** (ADR-95).
@@ -440,6 +493,8 @@ export class EventDO extends DurableObject {
         // 기본은 '알리지 않는다' 다 (ADR-34)
         ...(preNotify === true ? { preNotify: true } : {}),
         ...(pokeNotify === true ? { pokeNotify: true } : {}),
+        // 기본은 0 이다 — 0 이면 안 적는다 (옛 회차와 같은 모양으로 남는다)
+        ...(maxNotes ? { maxNotes } : {}),
       };
     }
     await this.ctx.storage.put("meta", meta);
@@ -778,6 +833,21 @@ export class EventDO extends DurableObject {
      * 없는 사람에게 쓴 횟수를 물릴 이유가 없다.
      */
     this.ctx.storage.sql.exec("DELETE FROM pokes WHERE to_id = ?", playerId);
+    /*
+     * **익명 쪽지는 콕과 반대다** (ADR-98, S-E1). 이 사람이 **받은** 줄을 지우고 예산을 돌려주면
+     * 사고가 난다 — 신고한 사람을 내보내는 것이 운영자의 첫 동작이라, 그 순간 운영자 화면에서
+     * 가해자의 `보낸 익명 쪽지` 가 2장 → 1장이 된다. 기본 2장짜리 회차에서는 그 한 번으로
+     * **발신자가 한 명까지 좁혀진다.** 게다가 가해자는 두 장을 되찾아 다른 사람에게 다시 쓴다 —
+     * 운영자는 본문도 상대도 못 보므로 **자기가 무엇을 되돌려 줬는지조차 모른다.**
+     *
+     * 그래서 **본문만 비우고 행은 남긴다.** 사람은 지워지고, 발신자가 보던 숫자는 안 흔들린다.
+     * 이 사람이 **보낸** 줄은 통째로 그대로다 (콕과 같다 — ADR-29): 받은 쪽에서 줄이 사라지면
+     * 명단에서 사라진 사람과 맞춰 발신자가 드러난다.
+     */
+    this.ctx.storage.sql.exec(
+      "UPDATE notes SET body = '', hidden_at = COALESCE(hidden_at, at) WHERE to_id = ?",
+      playerId,
+    );
     // 운세 문장에는 닉네임이 들어 있다. 사람을 지웠는데 그 문장이 남으면 지운 게 아니다
     this.ctx.storage.sql.exec("DELETE FROM fortunes WHERE player_id = ?", playerId);
     // 없는 사람을 가리키는 쌍은 아무것도 지키지 않는다 (ADR-90)
@@ -902,6 +972,144 @@ export class EventDO extends DurableObject {
 
   // ─────────────────────────── 참가자 화면
 
+  // ─────────────────────────── 익명 쪽지 (슬라이스 36, ADR-98)
+  //
+  // 지키는 것 셋 — **발신자는 어느 참가자 응답에도 없다**, **본문은 두 사람만 본다**(운영자도 못 본다),
+  // **받는 사람이 고르는 것은 발신자에게 돌아가지 않는다**(읽음은 앱을 연 결과라 통과하고,
+  // 지우기는 고르는 것이라 안 간다).
+  //
+  // ⚠️ **소켓으로 아무것도 밀지 마라.** `broadcast()` 는 회차 전체에 가서 **도착 시각이 방 안에
+  // 뿌려지고**, `toPlayer()` 는 받는 사람에게 그 시각을 준다 — 고개를 들면 방금 폰을 든 사람이 보인다.
+  // 콕은 그 선택을 회차 설정(`pokeNotify`)으로 운영자에게 넘겼는데 익명 쪽지에는 그 설정이 없다
+  // (쪽지 자체가 알림이다). 그러면 **안 미는 쪽**이 맞다 — 받는 사람은 다음에 스스로 읽을 때 본다 (ADR-26).
+
+  async sendNote(fromId: string, toId: string, rawText: unknown, now: number): Promise<Result<MyNoteState>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    // 파티 콕과 같은 창이다 — 매력 투표 때는 아직 만나보지 않았다
+    if (!canNote(meta.phase)) return fail("closed");
+
+    const max = meta.config.maxNotes ?? 0;
+    // **0 이면 길 자체가 없다.** 예산이 아니라 *이 회차에는 없다* 라서 `no_budget` 이 아니다 —
+    // 화면이 버튼도 안 그리므로 여기까지 오는 건 운영자가 방금 0 으로 내린 경우뿐이다
+    if (max <= 0) return fail("closed");
+
+    const me = this.player(fromId);
+    const target = this.player(toId);
+    if (!me || !target) return fail("bad_request");
+    /*
+     * **자기 자신만 안 된다.** 동성 콕 설정(`allowSameGender`)을 여기 걸지 마라 (ADR-98 후기 1) —
+     * 익명 쪽지는 고백이 아니라 말이고, 누구에게나 보낼 수 있다.
+     */
+    if (me.id === target.id) return fail("bad_request");
+
+    const text = typeof rawText === "string" ? rawText.trim() : "";
+    if (!text || text.length > LIMITS.noteMax) return fail("bad_request");
+
+    // 지운 줄도 센다 — `hidden_at` 을 보지 않는다. 예산이 돌아오면 그 자체가 신호다 (S-C3)
+    if (this.noteSentCount(fromId) >= max) return fail("no_budget", max);
+
+    this.ctx.storage.sql.exec(
+      "INSERT INTO notes (id, from_id, to_id, body, at) VALUES (?,?,?,?,?)",
+      randomHex(8),
+      fromId,
+      toId,
+      text,
+      now,
+    );
+    return ok(this.noteState(fromId, meta, now));
+  }
+
+  /**
+   * 받는 사람이 홈을 열었다. **안 본 것에만 시각을 찍는다** —
+   * 다시 열 때마다 새로 찍으면 `read_at` 이 계속 앞으로 밀려 5분이 영영 안 지난다.
+   *
+   * 화면이 문지기다: 덮개(`SeatTakeover`·`StageTakeover`)가 덮고 있거나 어깨너머 가리기가
+   * 켜져 있으면 부르지 않는다 — **본문을 볼 수 없는 사람을 읽은 것으로 찍지 않기 위해서다.**
+   * 그 둘은 서버가 알 수 없는 상태라 여기서 다시 막을 수 없다.
+   */
+  async markNotesSeen(playerId: string, now: number): Promise<Result<MyNoteState>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (!this.player(playerId)) return fail("not_found");
+    this.ctx.storage.sql.exec(
+      "UPDATE notes SET read_at = ? WHERE to_id = ? AND read_at IS NULL AND hidden_at IS NULL",
+      now,
+      playerId,
+    );
+    return ok(this.noteState(playerId, meta, now));
+  }
+
+  /**
+   * 받는 사람이 자기 줄을 지운다. **행을 지우지 않는다** (S-C3).
+   *
+   * 이 저장소의 관용구는 행 세기다 — `sentCount()` 가 `COUNT(*)` 이고 참가자 삭제도
+   * `DELETE ... WHERE to_id = ?` 로 예산을 되돌려 준다. 익명 쪽지에 그 꼴을 그대로 쓰면
+   * 받는 사람이 지우는 순간 발신자 화면에 `1장 남음` → `2장 남음` 이 뜨고 보낸 줄이 사라진다.
+   * 발신자가 읽는 뜻은 하나뿐이다 — **상대가 내 쪽지를 지웠다.** `읽지 않음` 보다 훨씬 또렷한
+   * 거절 신호이고, 읽음 표시를 정당화한 규칙이 바로 그 자리에서 깨진다.
+   *
+   * ⚠️ **없는 줄에도 200 이다.** 404 로 가르면 아이디를 넣어보는 것만으로 남의 줄이 있는지 알 수 있고,
+   * 두 번 누른 사람에게 오류를 주게 된다. 소유 검사는 `to_id` 가 한다 — 보낸 사람도 못 지운다.
+   */
+  async removeNote(playerId: string, id: unknown, now: number): Promise<Result<MyNoteState>> {
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    if (!this.player(playerId)) return fail("not_found");
+    if (typeof id === "string" && id) {
+      this.ctx.storage.sql.exec(
+        "UPDATE notes SET hidden_at = ? WHERE id = ? AND to_id = ? AND hidden_at IS NULL",
+        now,
+        id,
+        playerId,
+      );
+    }
+    return ok(this.noteState(playerId, meta, now));
+  }
+
+  /** 예산에 세는 장 수. **`hidden_at` 을 보지 않는다** — 받는 쪽이 지웠다고 다시 쓸 수 있으면 안 된다 */
+  private noteSentCount(fromId: string): number {
+    return this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM notes WHERE from_id = ?", fromId)[0]?.n ?? 0;
+  }
+
+  /**
+   * 익명 쪽지의 내 쪽 상태. **만드는 곳은 여기 하나다** (`toPublic` 과 같은 규칙).
+   *
+   * ⚠️ `received` 에 `from_id` 를 담지 마라. 담을 자리가 없는 것이 방어다 (`ReceivedNote`).
+   */
+  private noteState(playerId: string, meta: EventMeta, now: number): MyNoteState {
+    const sent: Record<string, SentNote[]> = {};
+    for (const r of this.rows<{ to_id: string; body: string; read_at: number | null; at: number }>(
+      "SELECT to_id, body, read_at, at FROM notes WHERE from_id = ? ORDER BY at",
+      playerId,
+    )) {
+      /*
+       * **읽음은 5분이 지나야 보인다** (ADR-98 후기 2, S-B6). 배지가 답할 질문은 *갔고 봤나* 이지
+       * *지금 보고 있나* 가 아니다 — 늦춰도 그 답은 그대로고, **방금 폰을 든 사람을 눈으로 찾는 길**만
+       * 사라진다. 화면만으로는 못 막는다: `realtime.ts` 가 앱으로 돌아올 때마다 다시 읽어서,
+       * 30초마다 시트를 여닫으면 읽은 시각이 30초까지 좁혀진다.
+       *
+       * 5분 동안은 `읽지 않음` 이 사실과 다르다. **코드가 문구보다 좁게 말하는 쪽**이라 안전하고
+       * (넓게 말하는 것이 거짓말이다), 5분 뒤에 스스로 맞는다.
+       */
+      const read = r.read_at !== null && now - r.read_at > NOTE_READ_DELAY;
+      // 지운 줄도 그대로 선다 — 받는 쪽이 지웠다는 것이 여기서 새면 안 된다 (S-C3)
+      (sent[r.to_id] ??= []).push({ text: r.body, read });
+    }
+
+    // 최신이 앞이다 (ADR-48). **진짜 도착 시각은 응답에 안 싣는다** — 차례를 정하는 데만 쓴다
+    const received = this.rows<{ id: string; body: string }>(
+      "SELECT id, body FROM notes WHERE to_id = ? AND hidden_at IS NULL ORDER BY at DESC",
+      playerId,
+    ).map((r) => ({ id: r.id, text: r.body }));
+
+    return {
+      budget: { max: meta.config.maxNotes ?? 0, used: this.noteSentCount(playerId) },
+      sent,
+      received,
+    };
+  }
+
   async participantState(playerId: string, now: number): Promise<Result<ParticipantState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
@@ -929,6 +1137,7 @@ export class EventDO extends DurableObject {
             .map((p) => toPublic(p, meta.phase))
         : [],
       poke: await this.pokeState(playerId, meta),
+      note: this.noteState(playerId, meta, now),
       seat: this.mySeat(playerId),
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
       ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),
@@ -1042,6 +1251,25 @@ export class EventDO extends DurableObject {
       if (a < b && partyPairs.has(`${b}>${a}`)) mutual.push([a, b]);
     }
 
+    /*
+     * 익명 쪽지 (ADR-98 후기 2). **여기 있는 것은 보낸 장 수 하나뿐이다** —
+     * 본문도, 누가 누구에게 보냈는지도, 받은 장 수도 없다. 받은 수를 싣지 않는 것은
+     * 받은 콕을 참가자 탭 개인 행에 안 두는 것과 같은 이유다 (ADR-22·30).
+     *
+     * ⚠️ **본문을 담을 자리를 만들지 마라.** 콘솔에 본문이 뜨는 순간 누가 누구를 좋아하는지가
+     * 운영자 화면에 적힌다 — `hostState` 가 한쪽만 찌른 콕을 안 싣는 것과 같은 자리다.
+     *
+     * 지워진 사람이 보낸 것은 집계에서 뺀다 (콕과 같다) — 없는 아이디가 화면에 빈 이름으로 뜬다.
+     * 다만 **받은 사람이 지워져도 보낸 쪽 숫자는 그대로다** (`deletePlayer` 가 행을 남긴다, S-E1).
+     */
+    const noteSent: Record<string, number> = {};
+    for (const p of players) noteSent[p.id] = 0;
+    for (const r of this.rows<{ from_id: string; n: number }>(
+      "SELECT from_id, COUNT(*) AS n FROM notes GROUP BY from_id",
+    )) {
+      if (here.has(r.from_id)) noteSent[r.from_id] = r.n;
+    }
+
     return ok({
       meta,
       players,
@@ -1050,6 +1278,9 @@ export class EventDO extends DurableObject {
       mutual,
       pokeCount,
       pokeUsedMax,
+      noteSent,
+      // 상한을 내릴 수 있는지 판단하는 값. **0 은 이 바닥에 안 걸린다** (`patchMeta`)
+      noteUsedMax: Math.max(0, ...Object.values(noteSent)),
       seatings: this.seatings(),
       invites: this.invites(),
       announcements: this.hostAnnouncements(),

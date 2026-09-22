@@ -88,6 +88,7 @@ hostRoutes.put("/defaults", async (c) => {
     await registry(c.env).putDefaults({
       maxPre: body.maxPre,
       maxParty: body.maxParty,
+      maxNotes: body.maxNotes,
       place: String(body.place ?? "").trim().slice(0, LIMITS.placeMax),
       // 앞뒤 공백만 턴다. 안쪽 줄바꿈은 막지 않는다 — 한 줄로 쓰라고 강제할 이유가 없다
       nickHint: String(body.nickHint ?? "").trim().slice(0, LIMITS.nickHintMax),
@@ -169,6 +170,8 @@ hostRoutes.post("/events", async (c) => {
       // 기본은 '알리지 않는다' 다 (ADR-34). 되돌리기는 설정이 아니라 언제나 된다 (ADR-95)
       ...(body.config.preNotify === true ? { preNotify: true } : {}),
       ...(body.config.pokeNotify === true ? { pokeNotify: true } : {}),
+      // 익명 쪽지 (ADR-98). 0 이면 안 적는다 — 옛 회차와 같은 모양으로 남는다
+      ...(body.config.maxNotes ? { maxNotes: body.config.maxNotes } : {}),
     },
     createdAt: now,
   });
@@ -484,7 +487,7 @@ async function json<T>(c: Ctx): Promise<T> {
 
 function validConfig(config: EventConfig | undefined): boolean {
   if (!config) return false;
-  const { maxPre, maxParty, allowSameGender, preNotify, pokeNotify } = config;
+  const { maxPre, maxParty, maxNotes, allowSameGender, preNotify, pokeNotify } = config;
   /*
    * 없으면 기본값이다. 있으면 불리언이어야 한다 — `"true"` 라는 글자가 들어오면 안 된다.
    * **굳는 규칙 셋이 다 여기 있어야 한다** (ADR-35·95). 하나가 빠지면 그 값만
@@ -492,6 +495,15 @@ function validConfig(config: EventConfig | undefined): boolean {
    */
   for (const flag of [allowSameGender, preNotify, pokeNotify]) {
     if (flag !== undefined && typeof flag !== "boolean") return false;
+  }
+  /*
+   * 익명 쪽지는 **없어도 된다** (ADR-98) — 옛 회차에는 키가 아예 없고 그게 0 이다.
+   * 있으면 0~5 안이어야 한다. **0 을 거절하지 마라** — 0 이 이 회차의 익명 쪽지를 닫는 스위치다.
+   */
+  if (maxNotes !== undefined) {
+    if (!Number.isInteger(maxNotes) || maxNotes < LIMITS.maxNotes.min || maxNotes > LIMITS.maxNotes.max) {
+      return false;
+    }
   }
   return (
     Number.isInteger(maxPre) &&

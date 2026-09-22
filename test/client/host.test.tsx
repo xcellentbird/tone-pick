@@ -66,6 +66,8 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
     mutual: [],
     pokeCount: { pre: 1, party: 0 },
     pokeUsedMax: { pre: 1, party: 0 },
+    noteSent: {},
+    noteUsedMax: 0,
     seatings: [],
     invites: [],
     announcements: [],

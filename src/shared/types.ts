@@ -137,6 +137,51 @@ export interface MatchInfo {
   realName: string;
 }
 
+/**
+ * 내가 보낸 **익명 쪽지** 한 장 (ADR-98). 발신자 쪽에서만 쓴다.
+ *
+ * `read` 는 boolean 이고 **시각이 아니다.** 그리고 서버가 **5분 늦춰서** 내린다 —
+ * 배지가 답할 질문은 *갔고 봤나* 이지 *지금 보고 있나* 가 아니라서, 늦춰도 그 답은 그대로고
+ * **방금 폰을 든 사람을 눈으로 찾는 길**만 사라진다.
+ */
+export interface SentNote {
+  text: string;
+  read: boolean;
+}
+
+/**
+ * 내가 받은 **익명 쪽지** 한 장 (ADR-98).
+ *
+ * ⚠️ **발신자를 담을 칸이 없는 것이 방어다** (`MatchInfo` 의 논리). `fromId` 도 닉네임도
+ * 성별도 도착 시각도 여기 없다 — 되살리려면 이 타입부터 고쳐야 하고, 그건 이 기능이
+ * 참가자에게 한 약속을 바꾸는 일이다.
+ *
+ * ⚠️ **`seen` 을 더하지 마라.** 안 본 줄을 가려 `/note/seen` 호출을 아끼려고 넣었다가 뺐다 —
+ * `seen: false` 는 **이 줄이 내가 마지막으로 홈을 연 뒤에 왔다**를 응답이 확정해 주는 값이고,
+ * 홈과 참가자 탭을 오가면 그 창이 초 단위까지 좁아진다. 그때 누가 폰을 들고 있었는지와 맞추면
+ * 발신자가 좁혀진다 — `받은 콕에 시각을 붙이지 마라` 와 **같은 누출이 칸 이름만 바꿔 들어온 것**이다.
+ * 아끼려던 호출은 `received.length` 로 똑같이 아낄 수 있고, 서버는 바뀐 것이 없으면 아무것도 안 쓴다.
+ *
+ * `id` 는 지우기에만 쓴다.
+ */
+export interface ReceivedNote {
+  id: string;
+  text: string;
+}
+
+/**
+ * 익명 쪽지의 내 쪽 상태 (ADR-98). **만드는 곳은 하나다.**
+ *
+ * `budget.max` 는 회차의 `maxNotes` 이고 없으면 0 이다 — 0 이면 화면에 버튼도 남은 장 수도 없다.
+ */
+export interface MyNoteState {
+  budget: { max: number; used: number };
+  /** playerId → 내가 그 사람에게 보낸 것들. 내 것이라 담아도 된다 */
+  sent: Record<string, SentNote[]>;
+  /** 최신이 앞. 발신자는 어느 칸에도 없다 */
+  received: ReceivedNote[];
+}
+
 /** 참가자 본인에게만 내려가는 요약. 누가 찔렀는지는 발표 전까지 절대 포함하지 않는다. */
 export interface MyPokeState {
   budget: Record<PokeRound, { max: number; used: number }>;
@@ -279,6 +324,17 @@ export interface EventConfig {
    * 받지 않았던 상태로 돌아간다 — 지울 메시지가 애초에 저장돼 있지 않다.
    */
   pokeNotify?: boolean;
+  /**
+   * 한 사람이 보낼 수 있는 **익명 쪽지** 장 수 (ADR-98). **없으면 0 — 그 회차에는 없다.**
+   *
+   * 콕 횟수처럼 굳지 않는다 (`frozenRules` 밖이다) — 파티 중에 올릴 수 있고,
+   * ⚠️ **0 으로는 언제나 내려간다.** 이미 쓴 장 수가 바닥이 되는 건 1~5 사이에서만이다.
+   * 0 이 바닥에 걸리면 **꺼야 할 때 못 끄고**, 그게 운영자에게 남은 유일한 레버다.
+   *
+   * ⚠️ **`meta.config` 교체 리터럴에 이 키를 적어라.** 거기는 병합이 아니라 통째로 교체라,
+   * 안 적히면 저장 한 번에 사라진다 — 옛 회차의 `allowUndo` 가 그렇게 없어졌다 (ADR-95).
+   */
+  maxNotes?: number;
 }
 
 export interface EventMeta {
@@ -689,6 +745,8 @@ export interface ParticipantState {
   me: MyProfile;
   roster: PublicPlayer[];
   poke: MyPokeState;
+  /** 익명 쪽지 (ADR-98). `budget.max` 가 0 이면 이 회차에는 없다 */
+  note: MyNoteState;
   seat?: MySeat;
   /** 오늘의 연애운. 한 번 열면 그대로 남는다 — 아직 안 열었으면 없다 */
   fortune?: Fortune;
@@ -731,6 +789,16 @@ export interface HostState {
   pokeCount: Record<PokeRound, number>;
   /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다 */
   pokeUsedMax: Record<PokeRound, number>;
+  /**
+   * playerId → **보낸** 익명 쪽지 장 수 (ADR-98). 운영자가 보는 것은 이것뿐이다.
+   *
+   * ⚠️ **본문도, 누가 누구에게 보냈는지도, 받은 장 수도 여기 없다** — 담을 자리를 만들지 마라.
+   * 본문이 콘솔에 뜨는 순간 *누가 누구를 좋아하는지*가 글로 적힌다 (ADR-98 후기 2).
+   * 받은 장 수를 안 싣는 이유는 받은 콕을 개인 행에 안 두는 것과 같다 (ADR-22·30).
+   */
+  noteSent: Record<string, number>;
+  /** 한 사람이 가장 많이 보낸 장 수. **1~5 로 내릴 때만** 바닥이 된다 — 0 은 언제나 통과 */
+  noteUsedMax: number;
   seatings: SeatingRound[];
   /** 초대 명단. 참가자 응답에는 절대 실리지 않는다 */
   invites: Invite[];

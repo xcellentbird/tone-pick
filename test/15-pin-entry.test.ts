@@ -258,13 +258,31 @@ describe("B. 등록", () => {
     const me = await join(ev, { pin: "7391" });
 
     const host = await hostState(ev.id);
-    expect(JSON.stringify(host)).not.toContain("7391");
+    expect(leaks(host, "7391")).toEqual([]);
     expect(host.players.find((p) => p.id === me.id)?.pin).toBe("set");
 
     const mine = await api<ParticipantState>("/api/me", { cookie: me.cookie });
-    expect(JSON.stringify(mine.body)).not.toContain("7391");
+    expect(leaks(mine.body, "7391")).toEqual([]);
     expect(JSON.stringify(mine.body)).not.toContain("pin");
   });
+
+  /**
+   * 응답 어딘가에 PIN 번호가 **값으로** 들어 있나. 찾으면 그 자리의 경로를 돌려준다.
+   *
+   * ⚠️ **`JSON.stringify(…).toContain(pin)` 으로 재지 마라.** PIN 번호는 네 자리인데 응답에는
+   * 열세 자리 시각이 여럿 있어서 **우연히 맞는다** — `prevoteAt: 1790173913888` 안에 `7391` 이 있다.
+   * 그렇게 실패하면 사람이 새는 줄 알고 서버를 뒤지는데 서버는 멀쩡하고, 다음 날 저절로 통과한다.
+   * 그래서 **글자 값만 부분 일치로 보고, 숫자는 통째로 같을 때만** 샌 것으로 센다.
+   */
+  function leaks(value: unknown, pin: string, at = "$"): string[] {
+    if (typeof value === "string") return value.includes(pin) ? [at] : [];
+    if (typeof value === "number") return String(value) === pin ? [at] : [];
+    if (Array.isArray(value)) return value.flatMap((v, i) => leaks(v, pin, `${at}[${i}]`));
+    if (value && typeof value === "object") {
+      return Object.entries(value).flatMap(([k, v]) => leaks(v, pin, `${at}.${k}`));
+    }
+    return [];
+  }
 
   it("S-B6 ★ 세션 쿠키 어디에도 전화번호가 없다 — 번호를 쳤는데도", async () => {
     /*

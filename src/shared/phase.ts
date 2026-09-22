@@ -138,6 +138,19 @@ export function canPoke(phase: Phase, now: number, schedule: EventSchedule, fire
 }
 
 /**
+ * 지금 익명 쪽지를 보낼 수 있나 (ADR-98). **파티 콕과 같은 창이다** — 파티 시작부터 발표까지.
+ *
+ * `canPoke` 를 그대로 쓰지 않는 이유는 **매력 투표 때문**이다. 콕은 `prevote` 에서도 열려 있고
+ * (거기서는 표를 내는 것이다 — ADR-34), 익명 쪽지는 **직접 만나본 뒤에** 쓰는 것이라
+ * 그 단계에는 없다. 한 함수로 묶으면 매력 투표 화면에 익명 쪽지가 열린다.
+ *
+ * 장 수(`maxNotes`)는 여기서 안 본다 — 단계는 단계고 예산은 예산이다.
+ */
+export function canNote(phase: Phase): boolean {
+  return phase === "party";
+}
+
+/**
  * 매력 투표가 닫혔나. **닫는 길이 둘이다** (ADR-39 + 후기).
  *
  * ① 시각이 지났다 (`voteEndAt`) — 예약대로 저절로 닫힌다

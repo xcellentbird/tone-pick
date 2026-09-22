@@ -272,16 +272,23 @@ export default function Players() {
 
   function askDelete(playerId: string) {
     const rounds = state.seatings.filter((s) => s.seats.some((x) => x.playerId === playerId)).length;
+    /*
+     * 익명 쪽지 줄은 **있는 회차에만** 선다 (슬라이스 36). 0 으로 내린 뒤에도 이미 오간 것은
+     * 남으므로(`noteUsedMax`), 설정값만 보고 가르면 사고가 난 회차에서 사라지는 것 하나가
+     * 확인창에서 빠진다 — 하필 그 회차가 운영자가 이 버튼을 누르는 회차다.
+     */
+    const hasNotes = (state.meta.config.maxNotes ?? 0) > 0 || state.noteUsedMax > 0;
     confirm(
       {
         btn: DELETE_PLAYER.btn,
         title: DELETE_PLAYER.title,
         danger: true,
-        note: DELETE_PLAYER.note,
+        note: DELETE_PLAYER.note(hasNotes),
         facts: DELETE_PLAYER.facts({
           sentPre: state.sent.pre[playerId] ?? 0,
           sent: state.sent.party[playerId] ?? 0,
           rounds,
+          ...(hasNotes ? { notes: { sent: state.noteSent[playerId] ?? 0 } } : {}),
         }),
       },
       async () => {
