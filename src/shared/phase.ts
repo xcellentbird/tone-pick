@@ -85,7 +85,7 @@ export function rulesLocked(fired: FiredMap): boolean {
  *
  * ADR-35 는 규칙과 일정을 한 잠금으로 묶었는데, 매력 투표 마감에 시각이 생기면서
  * 그 묶음이 깨졌다 — **파티가 늦어지면 마감도 미뤄야 하는데** `fired.prevote` 하나로
- * 일정 전체를 잠그면 손쓸 방법이 없다. 규칙 넷(`rulesLocked`)은 그대로 묶여 있다.
+ * 일정 전체를 잠그면 손쓸 방법이 없다. 규칙 셋(`rulesLocked` — 대상·알림 둘)은 그대로 묶여 있다.
  */
 export function schedLocked(fired: FiredMap, key: string): boolean {
   /*
@@ -127,7 +127,7 @@ export function scheduleInOrder(schedule: EventSchedule, fired: FiredMap): boole
  *
  * **매력 투표는 시각으로 닫힌다** (ADR-39) — `voteEndAt` 이 지나면 `prevote` 단계인 채로
  * 투표만 닫힌다. 단계는 그대로라 명단도 프로필도 그대로 보인다. 파티 콕은 시각을 보지 않는다 —
- * 파티 시작과 발표는 운영자가 누르는 것이고, 그 사이에 마감할 시각이 없다 (ADR-14).
+ * 파티 콕은 단계(`party`)가 곧 기간이고, 발표(`revealAt`, ADR-43)가 단계를 넘기며 닫는다.
  *
  * `voteEndAt` 이 없는 옛 회차는 **닫히지 않는다.** 없는 마감을 만들어 조용히 막지 않는다.
  */
