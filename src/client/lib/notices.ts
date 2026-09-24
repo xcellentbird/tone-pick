@@ -58,7 +58,7 @@ export interface Notice {
   noteId?: string;
 }
 
-/** 최근 3분 안의 변화만 배너로 띄운다. 그보다 오래된 건 알림 탭에만 (UI.md) */
+/** 최근 3분 안의 변화만 배너로 띄운다. 그보다 오래된 건 홈의 `지금까지의 소식` 에만 (UI.md) */
 export const BANNER_WINDOW = 3 * 60_000;
 
 /**
