@@ -4,7 +4,9 @@
    * 무대 워커 (슬라이스 35, ADR-97). **지금은 스파이크다** — S-A1 하나만 잰다:
    * 서비스 바인딩을 지나도 QA 의 국가 문(`ALLOWED_COUNTRIES=KR`)이 열리는가.
    *
-   * 배포: Workers Builds 프로젝트 `tone-pick-stage`, 프로덕션 브랜치 `qa`.
+   * 배포: Workers Builds 프로젝트 `tone-pick-qa-tool`, 프로덕션 브랜치 `qa`.
+   * 이름은 **QA 를 다루는 도구**라는 뜻이다 — `tone-pick-qa` 는 표적(앱)이고 이건 그 도구다.
+   * 둘이 앞 글자가 같으니 **이름의 앞부분으로 QA 를 가려내는 코드를 쓰지 마라** — 도구가 QA 로 잡힌다.
    * **Deploy command** 에 `npx wrangler deploy -c scripts/qa/worker/wrangler.jsonc`,
    * **Build command 는 비운다** — 둘 다 적으면 배포가 두 번 돌고, 첫 번째가 실패하면
    * 배포 문제가 "빌드 실패" 로 찍혀 원인이 가려진다. 번들링은 wrangler 가, 설치는 Builds 가 한다.
@@ -12,14 +14,14 @@
    * ⚠️ **앱이 한 번이라도 올라간 워커 이름을 쓰지 마라.** 처음엔 `tone-pick-stage-spike` 였는데,
    * 그 워커에 루트 `wrangler.jsonc`(= 앱)가 먼저 배포돼 `EventDO`·`RegistryDO` 가 딸려 있었다.
    * Cloudflare 는 쓰던 DO 클래스가 빠진 새 버전을 거부한다 (`code: 10064`) — 스파이크가 한 번도
-   * 못 올라갔고, 그 주소에는 앱의 첫 화면이 계속 떠 있었다. 그 워커는 지우고 새 이름으로 만들었다.
+   * 못 올라갔고, 그 주소에는 앱의 첫 화면이 계속 떠 있었다. 그 워커는 지우고 새 이름(`tone-pick-qa-tool`)으로 만들었다.
    * `deleted_classes` 마이그레이션으로 밀어낼 수도 있었지만, 무대 워커가 **자기** DO 를 가질 것이라
    * 앱의 이력과 섞이게 두지 않았다.
    *
    * 앱의 `wrangler.jsonc` 에 셋째 환경으로 넣지 않는다 — 환경은 `vars`·바인딩만 갈리고
    * `main`(진입 파일)은 못 갈아서, 다른 스크립트는 다른 설정 파일이어야 한다 (S-E1).
    */
-  "name": "tone-pick-stage",
+  "name": "tone-pick-qa-tool",
   "main": "index.ts",
   "compatibility_date": "2026-08-01",
   "workers_dev": true,
