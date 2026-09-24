@@ -9,6 +9,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { LOG_VIEW, StageError, buildStage, createLog, restoreStage } from "../core.mjs";
+import { DAILY, type Spend, quotaDay, refusal } from "./budget.ts";
 
 export interface Env {
   APP: Fetcher;
@@ -18,9 +19,12 @@ export interface Env {
   QA_PUBLIC_URL: string;
   /** QA 의 공통 운영자 PIN. 앱 설정 파일에 적힌 공개 값이다 (`check-config` 가 둘을 맞춰 본다) */
   QA_PIN: string;
-  ACCESS_AUD?: string;
-  ACCESS_TEAM?: string;
+  /** 이 나라들에서만 열린다. QA 의 `ALLOWED_COUNTRIES` 와 같은 값이다 (`check-config` 가 둘을 맞춰 본다) */
+  ALLOWED_COUNTRIES?: string;
 }
+
+/** 무대 목록은 하나뿐이다. 하루 상한도 여기서 센다 — 한 곳이라야 두 요청이 나란히 와도 어긋나지 않는다 */
+export const lobbyOf = (env: Env) => env.LOBBY.get(env.LOBBY.idFromName("lobby"));
 
 /** 무대를 세울 때 고르는 것. 인원 상한은 **요청 하나의 서브요청 수**가 정한다 — 한 명에 두 번(입장·등록)이다 */
 export interface Want {
@@ -99,7 +103,8 @@ export class StageDO extends DurableObject<Env> {
     const footer = `<form method="post" action="close" onsubmit="return confirm('회차 ${this.stage.event.code} 를 지우고 무대를 닫을까요? 되돌릴 수 없어요.')">
 <button style="background:#b33;margin-top:12px">무대 닫기 · 회차 삭제</button></form>
 <p><a href="../../">← 무대 목록</a></p>`;
-    return this.stage.remotePage({ links: true, hostPin: this.env.QA_PIN, footer });
+    // 스스로 다시 읽지 않는다 (S-D3) — 켜 둔 탭이 1.5초마다 DO 둘을 깨우면 하루에 몇만 번이다
+    return this.stage.remotePage({ links: true, hostPin: this.env.QA_PIN, footer, poll: false });
   }
 
   async logText(): Promise<string> {
@@ -111,6 +116,12 @@ export class StageDO extends DurableObject<Env> {
     await this.load();
     if (!this.stage) return;
     this.log.say(`> ${line}`);
+    /*
+     * 하루 상한 (`budget.ts`). 막혔다는 것은 로그에 말하되 **저장하지 않는다** — 리모컨이 바로 뒤에 읽는 것은
+     * 메모리의 로그라 그걸로 보인다. 막힌 요청마다 저장하면 상한을 넘긴 뒤에도 두드릴 때마다 줄을 쓴다.
+     */
+    const no = await lobbyOf(this.env).take("command", Date.now());
+    if (no) return this.log.say(`  ✗ ${no}`);
     await this.stage.run(line).catch((e: unknown) => this.log.say(`  ✗ ${e instanceof Error ? e.message : String(e)}`));
     await this.persist();
   }
@@ -122,7 +133,7 @@ export class StageDO extends DurableObject<Env> {
     await this.ctx.storage.deleteAll();
     this.stage = null;
     this.loaded = false;
-    await this.env.LOBBY.get(this.env.LOBBY.idFromName("lobby")).remove(this.ctx.id.toString());
+    await lobbyOf(this.env).remove(this.ctx.id.toString());
   }
 
   /** 오래 손을 놓은 무대 (`IDLE_MS`) */
@@ -134,25 +145,61 @@ export class StageDO extends DurableObject<Env> {
 export interface StageRow {
   id: string;
   code: string;
-  who: string;
   people: number;
   at: number;
 }
 
-/** 무대 목록. 하나뿐이다 (`idFromName("lobby")`). 무대의 내용은 없고 **어디 있는지만** 든다 */
+/**
+ * 무대 목록. 하나뿐이다 (`lobbyOf`). 무대의 내용은 없고 **어디 있는지만** 든다.
+ * 하루 상한(`budget.ts`)도 여기서 센다 — 무대 세우기는 라우터가, 명령은 무대 DO 가 묻는다.
+ */
 export class LobbyDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    // `who` 는 Access 가 알려 주던 이메일이다. 이제 비워 넣는다 — 이미 선 표는 `IF NOT EXISTS` 가 안 고치므로 칸은 그대로 둔다
     ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS stages (id TEXT PRIMARY KEY, code TEXT NOT NULL, who TEXT NOT NULL, people INTEGER NOT NULL, at INTEGER NOT NULL)",
+    );
+    ctx.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS usage (day TEXT NOT NULL, kind TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, kind))",
     );
   }
 
   add(row: StageRow): void {
     this.ctx.storage.sql.exec(
       "INSERT OR REPLACE INTO stages (id, code, who, people, at) VALUES (?,?,?,?,?)",
-      row.id, row.code, row.who, row.people, row.at,
+      row.id, row.code, "", row.people, row.at,
     );
+  }
+
+  /** 하루 상한. 되면 한 번을 세고 `null`, 넘었으면 사람에게 할 말. **넘긴 시도는 세지 않는다** */
+  take(kind: Spend, now: number): string | null {
+    const day = quotaDay(now);
+    this.ctx.storage.sql.exec("DELETE FROM usage WHERE day <> ?", day);
+    const no = refusal(kind, this.used(day, kind));
+    if (no) return no;
+    this.ctx.storage.sql.exec(
+      "INSERT INTO usage (day, kind, n) VALUES (?, ?, 1) ON CONFLICT (day, kind) DO UPDATE SET n = n + 1",
+      day, kind,
+    );
+    return null;
+  }
+
+  /** 로비 한 장 — 열린 무대와 남은 횟수. 한 번에 묶었다 (DO 요청 하나) */
+  view(now: number): { rows: StageRow[]; left: Record<Spend, number> } {
+    const day = quotaDay(now);
+    const left = (k: Spend) => Math.max(0, DAILY[k] - this.used(day, k));
+    return {
+      rows: this.ctx.storage.sql
+        .exec("SELECT id, code, people, at FROM stages ORDER BY at DESC")
+        .toArray() as unknown as StageRow[],
+      left: { stage: left("stage"), command: left("command") },
+    };
+  }
+
+  private used(day: string, kind: Spend): number {
+    const row = this.ctx.storage.sql.exec("SELECT n FROM usage WHERE day = ? AND kind = ?", day, kind).toArray()[0];
+    return row ? Number(row.n) : 0;
   }
 
   remove(id: string): void {
@@ -161,9 +208,5 @@ export class LobbyDO extends DurableObject<Env> {
 
   has(id: string): boolean {
     return this.ctx.storage.sql.exec("SELECT 1 FROM stages WHERE id = ?", id).toArray().length > 0;
-  }
-
-  list(): StageRow[] {
-    return this.ctx.storage.sql.exec("SELECT * FROM stages ORDER BY at DESC").toArray() as unknown as StageRow[];
   }
 }

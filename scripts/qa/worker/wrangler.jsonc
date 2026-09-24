@@ -18,9 +18,9 @@
    * 앱의 `wrangler.jsonc` 에 셋째 환경으로 넣지 않는다 — 환경은 `vars`·바인딩만 갈리고
    * `main`(진입 파일)은 못 갈아서, 다른 스크립트는 다른 설정 파일이어야 한다 (S-E1).
    *
-   * **문은 Cloudflare Access 다** (S-B1·B2). `ACCESS_AUD`·`ACCESS_TEAM` 은 여기 적지 않고 대시보드에
-   * **Secret** 으로 넣는다 — 평문 변수로 넣으면 다음 배포가 이 파일의 vars 로 덮어 지운다.
-   * 둘이 없으면 워커는 모든 요청을 403 으로 닫는다 (`access.ts`).
+   * **로그인이 없다** (S-B1, ADR-97 후기 4) — Cloudflare Access 를 걷어냈다. 대시보드의 Access 를 켜 두면
+   * 워커와 상관없이 엣지가 로그인을 먼저 묻는다. 대신 선 것은 둘이다 — 한국 밖에서는 안 열리고
+   * (아래 `ALLOWED_COUNTRIES`), 무대 세우기와 명령에 하루 상한이 있다 (`budget.ts`).
    */
   "name": "tone-pick-qa-tool",
   "main": "index.ts",
@@ -52,6 +52,12 @@
      * QA 의 공통 운영자 PIN. 앱 `wrangler.jsonc` 의 `env.qa.vars.MASTER_PIN` 과 같은 **공개 값**이다 —
      * 연습용은 비밀이 없는 환경이다. 둘이 어긋나면 `check-config` 가 빨개진다.
      */
-    "QA_PIN": "0000"
+    "QA_PIN": "0000",
+    /*
+     * 이 나라들에서만 열린다 (S-B3). QA 의 `ALLOWED_COUNTRIES` 와 **같은 값**이어야 한다 — 이 도구가 여는
+     * 참가 링크가 QA 로 가서 어차피 거기서 막힌다. 어긋나면 `check-config` 가 빨개진다.
+     * 끄는 길은 QA 와 **함께 비우고** 배포하는 것이다 — 키를 지우지 마라 (ADR-92 후기).
+     */
+    "ALLOWED_COUNTRIES": "KR"
   }
 }
