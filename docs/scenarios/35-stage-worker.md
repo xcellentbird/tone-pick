@@ -94,14 +94,18 @@ Then   `check-config` 가 멈춘다
 
 ### S-B1 Access 뒤에서만 산다
 > 워커 주소 전체에 Access 정책(팀 이메일)을 건다. 대시보드 설정이라 git 밖이고, ADR-97 이 그 사실을 적는다.
+> 워커가 확인에 쓰는 두 값(`ACCESS_AUD`·`ACCESS_TEAM`)도 대시보드에 **Secret** 으로 넣는다 — 평문 변수는
+> 다음 배포가 설정 파일의 vars 로 덮어 지운다. `check-config` 가 설정 파일에 그 둘이 없는지 본다.
 
 ### S-B2 ★ Access 를 지나지 않은 요청은 워커가 스스로 거부한다
 ```
 Given  `Cf-Access-Jwt-Assertion` 이 없거나, 있어도 이 워커의 `aud` 로 서명된 것이 아니다
 Then   403
 ```
-> 정책이 실수로 풀려도 열리지 않는다 — 겹 하나. JWT 는 Access 의 공개 키로 확인한다 (`aud` 는 var).
+> 정책이 실수로 풀려도 열리지 않는다 — 겹 하나. JWT 는 Access 의 공개 키로 확인한다 (`aud`·`iss`·`exp`·서명).
 > 헤더가 있다는 것만 보면 `workers.dev` 주소로 바로 쳐서 지어낸 헤더에 열린다.
+> ⚠️ **두 값이 비어 있으면 닫는다.** 열어 두면 값을 넣기 전의 첫 배포가 곧 누구나 QA 회차를 만들고 지우는
+> 공개 도구가 된다. 서명을 빼고 돌려서 테스트가 빨개지는 것까지 봤다 (`test/35-stage-core.test.ts`).
 
 ---
 
@@ -112,7 +116,8 @@ Then   403
 Given  무대를 새로 세운다 (인원 N, 단계, 회차 설정)
 Then   명단에 넣고 → `/enter` → `/register` — 사람마다 세션 쿠키를 따로 든다
 ```
-> 리허설(`rehearsal.mjs`)·CLI 와 같은 길이다. `core.mjs` 하나가 셋을 맡는다.
+> CLI 와 무대 워커는 `core.mjs` 하나를 쓴다. **리허설(`rehearsal.mjs`)은 아직 자기 복사본이다** — 백 명을
+> 나란히 등록하는 동시성과 잰 값의 출력이 그쪽 일이라 이번에 옮기지 않았다. 옮길 때 `enroll` 을 가져다 쓴다.
 
 ### S-C2 ★ 번호는 가짜뿐이다
 > `010-0000-` 씨앗(CLI 와 같은 것)이고, 실제 번호가 들어갈 입력이 없다. QA 에도 실제 번호를 넣지 않는다.
@@ -122,6 +127,8 @@ Then   명단에 넣고 → `/enter` → `/register` — 사람마다 세션 쿠
 When   무대를 닫는다
 Then   `DELETE /api/host/events/:id` — `keep` 을 골랐으면 남긴다. 무대 DO 도 함께 비운다
 ```
+> 온라인 무대는 **12시간 손대지 않으면 저절로 닫힌다** (DO 알람, `IDLE_MS`). 닫기를 누르지 않고 폰을 덮는 일이
+> 흔하고, 그러면 QA 에 가짜 회차가 쌓인다. 명령을 칠 때마다 시계가 다시 간다.
 
 ### S-C4 ★ 명령은 공개 API 뿐이다
 > `poke 3 5` · `unpoke 3 5` · `phase party` · `voteend` · `seating 2` · `publish` · `shuffle` · `late` ·
