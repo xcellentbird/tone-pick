@@ -445,7 +445,7 @@ describe("C. 입장 코드", () => {
   });
 
   it("S-C2b ★ 참가 링크 응답에 입장 코드가 없다", async () => {
-    // Given 등록 중인 회차가 있다. 참가 링크는 회차 아이디 + 그 사람의 토큰이다 (ADR-32)
+    // Given 등록 중인 회차가 있다. 참가 링크는 회차 아이디 하나다 — 링크에는 신원이 없다 (ADR-75)
     const ev = await createEvent(master, { prevoteAt: Date.now() + 24 * HOUR });
 
     // When  링크를 받은 사람이 인증 없이 그 회차를 연다
