@@ -6688,7 +6688,7 @@ ADR-4 는 읽음 플래그를 두지 않는다고 했고, 자리 확인만 예�
 폰만 들고, 또는 다른 사람이 어디서든 무대를 세우려면 컴퓨터 없이 도는 자리가 필요하다.
 
 **결정** — 무대의 핵심(배역 · 명령 · 리모컨)을 `scripts/qa/core.mjs` 로 떼어 CLI 와 **따로 선 워커**
-(`tone-pick-stage`)가 같이 쓴다. 워커는 같은 저장소 `scripts/qa/worker/` 에 자기 `wrangler.jsonc` 를 두고
+(`tone-pick-qa-tool`)가 같이 쓴다. 워커는 같은 저장소 `scripts/qa/worker/` 에 자기 `wrangler.jsonc` 를 두고
 **`qa` 브랜치에서 배포**한다. 표적은 서비스 바인딩 `APP → tone-pick-qa` 하나, 문은 Cloudflare Access 다.
 앱(`src/`)은 한 줄도 안 건드린다. 범위는 슬라이스 35 다.
 

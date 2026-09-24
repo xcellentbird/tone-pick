@@ -22,7 +22,7 @@
   **이걸 고른다**
 
 브랜치는 가르지 않는다. 같은 저장소, 같은 흐름(feature → `qa` → `main`)이고, **배포 대상 하나**
-(`tone-pick-stage`, `qa` 에서)만 는다. 도구 코드는 `main` 까지 가되 배포하는 곳이 없을 뿐이다.
+(`tone-pick-qa-tool`, `qa` 에서)만 는다. 도구 코드는 `main` 까지 가되 배포하는 곳이 없을 뿐이다.
 
 ## 범위
 
@@ -35,7 +35,7 @@
 | 표적 | 서비스 바인딩 `APP → tone-pick-qa`. **주소를 받는 입력이 없다** |
 | 문 | Cloudflare Access(대시보드) 뒤에서만 산다. 워커도 Access 의 JWT 를 스스로 확인한다 |
 | 리모컨 | CLI 의 페이지 그대로 + 참가자마다 여는 링크 · 번호 · PIN |
-| 배포 | Workers Builds 프로젝트 `tone-pick-stage`, 프로덕션 브랜치 `qa`, 빌드 명령 `npx wrangler deploy -c scripts/qa/worker/wrangler.jsonc` |
+| 배포 | Workers Builds 프로젝트 `tone-pick-qa-tool`, 프로덕션 브랜치 `qa`. **Deploy command** `npx wrangler deploy -c scripts/qa/worker/wrangler.jsonc`, **Build command 는 비운다** (둘 다 적으면 배포가 두 번 돈다) |
 
 **안 만든다**
 
