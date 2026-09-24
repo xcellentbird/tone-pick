@@ -21,7 +21,7 @@
 | **Durable Objects (SQLite)** | **회차 1개 = DO 1개.** 요청이 순차 처리돼 닉네임 유일성·콕 예산 차감에 경쟁 조건이 없다 |
 | **WebSocket** | 비용 문제. 5초 폴링이면 100명 × 3시간에 216,000 요청(무료 한도 10만/일 초과), WS 는 연결 1건 |
 | **Vite + React SPA** | SEO·SSR 이 필요 없는 앱이다. Next.js 어댑터를 한 겹 더 얹을 이유가 없다 |
-| **레지스트리 DO** | 입장 코드 유일성·멱등키·공통 PIN. KV 는 쓰기 직후 읽기가 보장되지 않아 코드가 겹칠 수 있다 (ADR-9) |
+| **레지스트리 DO** | 입장 코드 유일성·멱등키·운영자 PIN 시도 기록. KV 는 쓰기 직후 읽기가 보장되지 않아 코드가 겹칠 수 있다 (ADR-9) |
 
 부하 특성이 특이하다. **일주일의 99.8% 는 트래픽이 0**이고 3시간만 100명이 몰린다.
 상시 서버(VPS)는 이 패턴에서 가장 비싸다.
@@ -40,17 +40,25 @@ cp .dev.vars.example .dev.vars   # MASTER_PIN, SESSION_SECRET 설정
 npm run dev:worker   # Worker + DO  (127.0.0.1:8787). 클라이언트를 빌드해 함께 서빙한다
 npm run dev          # Vite (프록시로 /api, /ws 를 8787 로 넘긴다)
 
-npm run check        # 타입 + 문구 검사. 커밋 전에 이걸 돌린다
+npm run check        # 타입 + 문구·번역투·설정·테마·ADR 검사. 커밋 전에 이걸 돌린다
 npm test             # workerd 안의 규칙 테스트 + 화면 테스트
 npm run guard        # 릴리스 차선. 옛 스키마 + 번들 예산 (main 으로 올리기 전에)
-npm run deploy       # 별도 설정 없이 바로 나간다 (KV 네임스페이스 필요 없음)
+npm run deploy       # 프로덕션 (KV 네임스페이스 필요 없음 — 아래 비밀값과 R2 버킷만)
 ```
 
-배포에 필요한 비밀값은 두 개뿐입니다.
+배포에 필요한 비밀값은 두 개입니다. 오늘의 연애운을 켜려면 LLM 키를 하나 더 넣습니다
+(없어도 화면은 뜨고 규칙 문구로 대신합니다).
 
 ```bash
 npx wrangler secret put MASTER_PIN
 npx wrangler secret put SESSION_SECRET
+npx wrangler secret put OPENAI_API_KEY   # 선택
+```
+
+콕 로그(ADR-84)를 쌓는 R2 버킷은 **배포 전에 있어야 합니다** — 없으면 배포가 거절됩니다.
+
+```bash
+npx wrangler r2 bucket create tone-pick-logs
 ```
 
 ### 한국에서만 열립니다
@@ -68,30 +76,29 @@ npx wrangler secret put SESSION_SECRET
 | 프로덕션 | `tone-pick.<계정>.workers.dev` | 진짜 파티 |
 | QA | `tone-pick-qa.<계정>.workers.dev` | 리허설·부하 시험·기능 확인 |
 
-**워커가 다르면 Durable Object 도 다릅니다.** QA 의 회차·참가자·콕은 프로덕션과 섞이지 않고
-시크릿도 따로 넣습니다 (`npx wrangler secret put MASTER_PIN --env qa`).
+**워커가 다르면 Durable Object 도 다릅니다.** QA 의 회차·참가자·콕은 프로덕션과 섞이지 않습니다.
+QA 의 `MASTER_PIN`·`SESSION_SECRET` 은 **`wrangler.jsonc` 의 `env.qa.vars` 에 적혀 있습니다** —
+`wrangler secret put ... --env qa` 를 쓰지 마세요. 시크릿이 그 값을 이겨서 둘이 어긋납니다.
+QA 에 따로 넣는 시크릿은 `OPENAI_API_KEY` 하나이고, R2 버킷은 `tone-pick-qa-logs` 입니다.
 
 ### 어떻게 QA 로 올리나
 
 ```
-브랜치 → PR(base: qa) → CI 통과하면 자동 머지 → QA 배포
-브랜치 → PR(base: main) → CI 통과 + 사람이 머지 → 프로덕션 배포
+기능 브랜치 → PR(base: qa)  → CI 통과하면 자동 머지 → QA 배포
+qa          → PR(base: main) → CI + release-guard 통과 + 사람이 머지 → 프로덕션 배포
 ```
 
-프로덕션만 사람이 버튼을 누릅니다. QA 는 "일단 올려보는" 자리라 자동으로 들어갑니다 —
+사람이 버튼을 누르는 건 `qa → main` 하나뿐입니다. QA 는 "일단 올려보는" 자리라 자동으로 들어갑니다 —
 다만 관문(`npm run check` · `npm test` · `npm run build`)은 양쪽 다 지납니다.
+`qa` 로 가는 PR 은 드래프트로 열지 마세요 — 드래프트는 자동 머지를 멈춰 세웁니다.
 
 `main` 으로 가는 PR 은 여기에 **`release-guard`** 가 하나 더 붙습니다 (`npm run guard`) —
 옛 모양으로 저장된 회차가 지금 코드로 열리는지, 번들이 예산 안인지 봅니다.
 `npm test` 가 구조적으로 못 잡는 둘이라 따로 뒀고, 매 PR 에 붙이지 않는 이유는
 러너를 하나 더 잡기 때문입니다 — 큐가 밀리면 필수 검사가 앉습니다.
 
-`qa` 브랜치는 언제 버려도 되는 브랜치입니다. 오래 굴려 프로덕션과 멀어지면 맞춰주세요.
-
-```bash
-git push -f origin main:qa      # qa 를 main 기준으로 되돌린다
-git push -f origin HEAD:qa      # PR 없이 지금 브랜치를 바로 QA 로 (급할 때)
-```
+`qa` 에는 **아직 프로덕션에 안 나간 기능**이 쌓여 있습니다. 강제 푸시로 되돌리거나 PR 없이 밀어 넣지
+마세요 — 나갈 차례를 기다리던 기능이 사라지고, CI 라는 관문을 건너뜁니다.
 
 ### 100명 리허설
 
@@ -106,9 +113,9 @@ MASTER_PIN=**** npm run rehearsal https://tone-pick-qa.<계정>.workers.dev
 CPU 시간은 밖에서 잴 수 없으니, 자리 배정이 성공하는지로 판정하고 정확한 값은 대시보드의
 Observability 에서 봅니다.
 
-실측(100명·12테이블): 자리 배정 **261ms**, 단계 알림 99/99 도달, 실패 0.
-한계는 **회차 DO 의 쓰기 약 5건/초** — 읽기는 동시 25건에도 195ms 입니다.
-자세한 숫자와 해석은 `docs/PLAN.md`.
+실측(QA 50명, 2026-08-20): 실패 0, **어느 구간도 줄을 서지 않습니다** — 읽기가 쓰기 뒤에 서지 않고,
+콕은 핸들러 안에서 48ms 입니다. 예전에 적혀 있던 "DO 쓰기 약 5건/초" 는 측정 도구가 만든 숫자라
+철회했습니다. 자세한 숫자와 해석은 `docs/PLAN.md`.
 
 QA 에서는 화면 맨 위에 노란 띠가 뜹니다. 주소가 아니라 **배포된 설정**(`ENV_LABEL`)이 근거라,
 나중에 커스텀 도메인이 붙어도 그대로 따라옵니다. 파티 당일 운영자가 연습용 콘솔에서 단계를
@@ -121,32 +128,37 @@ QA 에서는 화면 맨 위에 노란 띠가 뜹니다. 주소가 아니라 **�
 ```
 src/
 ├── shared/          클라이언트·Worker 공용
-│   ├── types.ts       도메인 타입.  ⚠️ PublicPlayer 밖의 필드를 참가자 응답에 넣지 말 것
+│   ├── types.ts       도메인 타입.  ⚠️ 참가자 응답은 toPublic()(남) · toMe()(본인) 두 곳에서만 만든다
 │   ├── phase.ts       5단계 + 일회성 알람 모델(dueTransition / schedLocked)
-│   ├── constants.ts   기본값 · 자리 배정 가중치 · 콕 기대 매칭(k²)
+│   ├── constants.ts   기본값 · 자리 배정 가중치(SEAT_W) · 콕 기대 매칭(k²)
+│   ├── fortune.ts     LLM 에 보내는 값을 만드는 곳 — fortuneInput / missionInput (ADR-20)
+│   ├── pulse.ts       지표 허용 목록 (ADR-56)
 │   ├── copy.ts        화면에 나가는 **모든** 문구. 밖에 하드코딩하면 check:copy 가 잡는다
 │   ├── invite.ts      안내문 렌더링 — {장소} {일시} {링크} (ADR-75)
-│   └── time.ts        시각·기간 포매팅 (문장 조립은 copy.ts 가 한다)
+│   ├── time.ts        시각·기간 포매팅 (문장 조립은 copy.ts 가 한다)
+│   └── …              poke · roster · seats 등
 ├── server/
 │   ├── index.ts       Hono 진입점. 인증·라우팅만 한다
 │   ├── event-do.ts    회차 DO — 상태를 바꾸는 곳은 여기뿐이다
-│   ├── registry-do.ts 회차 목록·입장 코드·공통 PIN. 단 하나뿐인 DO
+│   ├── registry-do.ts 회차 목록·입장 코드·운영자 PIN 시도 기록. 단 하나뿐인 DO
 │   ├── auth.ts        PIN 검사 (운영자 PIN 하나뿐 — ADR-12) + 탭별 세션 쿠키 (ADR-44)
-│   ├── seating.ts     자리 배정. 성비는 구조적으로 못 깨진다
+│   ├── seating.ts     자리 배정(buildSeating). 배정 결과의 성비는 구조적으로 못 깨진다
 │   ├── http.ts        환경·서버 시각·에러 응답·권한 확인
+│   ├── metrics.ts     운영 카운터 · 집계 지표 (회차 DO 밖에 쌓이는 것)
+│   ├── poke-log.ts    콕 로그 → R2 (ADR-84)
 │   └── routes/        host.ts / participant.ts
 └── client/
     ├── router.tsx     URL 맵. 모달도 라우트다
     ├── lib/           api · realtime · serverTime · history · 알림 파생
     ├── ui/            확인창·토스트 · 상태 셀 · 자리 확인 화면
-    ├── routes/        참가자 4탭 · 운영자 4탭 · 위저드
+    ├── routes/        참가자 4탭 · 운영자 5탭 · 위저드
     └── styles/theme.css   전부 CSS 변수 → 테마 교체의 토대
 
-test/                                번호는 슬라이스이지 실행 순서가 아니다
+test/                                번호는 대개 슬라이스, 일부는 ADR 번호다 (실행 순서가 아니다)
 ├── 01-event-create-join.test.ts     회차 생성·입장 코드·권한 경계
 ├── 02-register-poke-reveal.test.ts  등록·콕·공개 범위
 ├── 05-seating.test.ts               자리 배정 불변식 (순수 함수)
-├── 13-personal-link.test.ts         개인 링크로 들어오는 길 (ADR-32)
+├── 15-pin-entry.test.ts             번호 + PIN 번호로 들어오는 길 (ADR-75)
 ├── 22-poke-rules.test.ts            매력 투표 ↔ 콕 라운드 경계 (ADR-34)
 ├── 44-tab-sessions.test.ts          탭마다 다른 참가자 (ADR-44)
 └── client/                          화면이 조용히 죽지 않는지 (ADR-8)
@@ -158,33 +170,19 @@ test/                                번호는 슬라이스이지 실행 순서�
 
 ---
 
-## 반드시 지킬 것 세 가지
+## 반드시 지킬 것
 
-**① 참가자 응답에 전화번호·인스타를 절대 넣지 않는다 — 매칭된 상대에게도, 본인에게도** (ADR-42·47).
-개발자 도구로 응답을 열어보는 참가자가 반드시 있다. **실명은 예외가 하나뿐이다**:
-발표 뒤 서로 콕 찌른 쌍에게 나가는 `MatchInfo.realName` 한 칸이고, 그 밖에는 어디에도 없다.
-나이·MBTI 는 파티가 시작돼야 나가고(ADR-21), 발표 전에는 콕 발신자(`fromId`)도 응답에 없어야 한다.
-참가자에게 나가는 것을 만드는 곳은 `toPublic()` 하나다.
-
-**② 운영자 PIN 은 하나뿐이다.** 회차별 PIN 을 다시 만들지 마라 (ADR-12).
-회차마다 PIN 을 두던 시절, 두 값이 같으면 회차 담당자가 전체 권한을 얻는 사고가 났다.
-검사 순서를 고치는 것으로는 못 막는다 — **두 번째 PIN 이 없는 것**이 방어다.
-
-**③ 단계 전환은 서버 시각으로 판단한다.**
-클라이언트 시계를 쓰면 폰 시간을 바꿔 결과를 먼저 볼 수 있다.
-모든 응답에 `x-server-time` 을 실어 보내고 클라이언트는 오프셋만 보정한다.
+규칙은 **`CLAUDE.md` 한 곳**에 있습니다 — 여기 옮겨 적으면 둘이 어긋납니다. 가장 무거운 셋만 이름을 들면:
+참가자 응답에 연락처를 넣지 않는다(ADR-42·47) · 운영자 PIN 은 하나뿐이다(ADR-12) ·
+단계 전환은 서버 시각으로 판단한다.
 
 ---
 
 ## 무료 플랜 주의점
 
-요청당 CPU **10ms** 제한이 있다. 자리 배정 로컬 서치만 주의하면 된다.
-
-1. `iterations` 를 인원 수에 맞춰 제한
-2. 또는 배정을 여러 요청으로 쪼개 점진 개선 (DO 가 상태를 들고 있으므로 자연스럽다)
-3. 그래도 부족하면 Workers 유료 **$5/월** (월 30M CPU-ms)
-
-배포 전에 실제 인원으로 CPU 시간을 한 번 측정할 것.
+요청당 CPU **10ms** 제한이 있다. 걸리는 건 자리 배정 로컬 서치 하나다 —
+`buildSeating` 에 평가 예산이 걸려 있고, 100명·12테이블에서 통과했다 (`docs/SEATING.md`).
+그래도 모자라면 Workers 유료 **$5/월** (월 30M CPU-ms).
 
 ---
 

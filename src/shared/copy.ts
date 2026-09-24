@@ -1505,7 +1505,7 @@ export interface ActionCopy {
  */
 function seatedLine(seated: number, players: number): string {
   // 인용하는 문장은 참가자가 **실제로 보는 것**이어야 한다 (`HOME.seatWaiting`)
-  if (seated === 0) return "아직 없어요 — 시작하면 참가자에게 '자리가 정해지면 알려드려요' 만 보입니다";
+  if (seated === 0) return `아직 없어요 — 시작하면 참가자에게 '${HOME.seatWaiting}' 만 보입니다`;
   if (seated < players) return `${players}명 중 ${seated}명 — 나머지는 자리 탭에서 앉힐 수 있어요`;
   return `${players}명 전원`;
 }
@@ -1619,8 +1619,8 @@ export const VOTE_END: ActionCopy = {
 /**
  * 수동 진행이 예약과 얼마나 어긋나는지 한 줄로. 시간 포맷은 호출부에서 만들어 넘긴다.
  *
- * **이 줄이 붙는 전환은 매력 투표 시작 하나뿐이다** — 나머지는 null 이다.
- * 등록 시작이 여기 있던 시절에는 둘이었다 (ADR-38). 지금 `regOpenAt` 은 **회차를 만든 시각**이라
+ * **이 줄이 붙는 전환은 매력 투표 시작 · 마감 · 파티 시작 셋이다** (ADR-39 후기 · ADR-93) — 나머지는 null 이다.
+ * 등록 시작은 여기서 빠졌다 (ADR-38). 지금 `regOpenAt` 은 **회차를 만든 시각**이라
  * "예약된 등록 시작" 이라고 말하면 없던 예약을 있었던 것처럼 말하게 된다.
  * 발표(`revealAt`)에도 예약이 있지만(ADR-43) 이 버튼으로 앞당기는 자리가 아니다.
  */
