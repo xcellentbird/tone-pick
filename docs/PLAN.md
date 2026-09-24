@@ -387,7 +387,7 @@ A/B 투표는 구조상 *"둘 중 뭐가 나아요?"* 다. 그 둘이 사람이 
 | 32 콕 로그 파일 | ⬜ 문서 없음 (ADR-84) | `32-poke-log` | ✅ | QA — 프로덕션(2.12.0)은 아직 ADR-82 의 CSV 다 | — |
 | 33 떨어뜨려 앉히기 | ✅ `33-keep-apart` | `33-keep-apart` · `test/client/host` | ✅ | QA | ⬜ |
 | 34 단계가 열릴 때의 안내 화면 | ✅ `34-stage-guide` | `34-stage-guide` · `test/client/stage` | ✅ | QA | 🟡 에뮬레이션까지 |
-| 35 무대 워커 | 🟡 `35-stage-worker` 설계 중 (ADR-97) | ⬜ | ⬜ 첫 걸음: 바인딩으로 국가 문 확인 (S-A1) | — | — |
+| 35 무대 워커 | 🟡 `35-stage-worker` (ADR-97) | ⬜ | 🟡 S-A1 스파이크 배포(`tone-pick-qa-tool`) — 한국 200, 해외는 못 잼. 다음: `core.mjs` 나누기 | — | — |
 | 36 익명 쪽지 | ✅ `36-anon-note` (ADR-98 후기 1·2) | `36-anon-note` · `test/client/note` | ✅ | QA | ⬜ |
 
 ### 2.0.0 에서 한 것
