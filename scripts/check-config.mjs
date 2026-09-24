@@ -191,9 +191,13 @@ if (STAGE.vars?.QA_PIN !== qa?.vars?.MASTER_PIN) {
 if (!String(STAGE.vars?.QA_PUBLIC_URL ?? "").startsWith(`https://${QA_NAME}.`)) {
   problems.push(`무대 워커의 QA_PUBLIC_URL("${STAGE.vars?.QA_PUBLIC_URL}")이 QA(${QA_NAME}) 주소가 아닙니다 — 참가 링크가 엉뚱한 곳을 엽니다`);
 }
-// Access 값은 Secret 으로 넣는다. 여기 적으면 대시보드의 Secret 과 이름이 겹쳐 배포가 거절된다
-for (const k of ["ACCESS_AUD", "ACCESS_TEAM"]) {
-  if (STAGE.vars && k in STAGE.vars) problems.push(`무대 워커 vars 에 ${k} 가 있습니다. 대시보드에 Secret 으로 넣으세요`);
+// 무대 워커에는 로그인이 없다 (ADR-97 후기 4). 국가 문은 QA 와 **같은 값**이어야 한다 (S-B3) —
+// 도구가 여는 참가 링크가 QA 로 가서 어차피 거기서 막힌다. 키가 빠지면 도구만 해외에 조용히 열리고,
+// 아무 데나 훑는 봇이 하루 상한을 먼저 써 버린다. 끄는 길은 QA 와 함께 비우는 것이다 (ADR-92 후기)
+if (!STAGE.vars || !("ALLOWED_COUNTRIES" in STAGE.vars)) {
+  problems.push("무대 워커 vars 에 ALLOWED_COUNTRIES 키가 없습니다. 도구만 해외에 조용히 열립니다 (S-B3). 끄려면 지우지 말고 비우세요");
+} else if (STAGE.vars.ALLOWED_COUNTRIES !== qa?.vars?.ALLOWED_COUNTRIES) {
+  problems.push(`무대 워커의 ALLOWED_COUNTRIES("${STAGE.vars.ALLOWED_COUNTRIES}")가 QA("${qa?.vars?.ALLOWED_COUNTRIES}")와 다릅니다 — 둘은 같이 움직입니다 (S-B3)`);
 }
 
 if (problems.length === 0) {

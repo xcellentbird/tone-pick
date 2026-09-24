@@ -1,5 +1,5 @@
 /**
- * 슬라이스 35 — 무대 워커. **무대의 핵심(`scripts/qa/core.mjs`)과 문(`worker/access.ts`)**을 본다.
+ * 슬라이스 35 — 무대 워커. **무대의 핵심(`scripts/qa/core.mjs`)과 하루 상한(`worker/budget.ts`)**을 본다.
  *
  * core 는 `fetch` 를 넣어 받는다 — CLI 는 전역 `fetch`, 무대 워커는 서비스 바인딩이다. 여기서는
  * **`SELF.fetch` 를 넣어 진짜 앱에 대고** 돌린다. 앱을 흉내 내지 않으므로, 앱의 공개 API 가 바뀌어
@@ -11,7 +11,7 @@
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { StageError, buildStage, createLog, restoreStage } from "../scripts/qa/core.mjs";
-import { verifyAccess } from "../scripts/qa/worker/access.ts";
+import { DAILY, quotaDay, refusal } from "../scripts/qa/worker/budget.ts";
 import type { HostState, ParticipantState } from "../src/shared/types.ts";
 import { api, master, signInMaster } from "./helpers/party.ts";
 
@@ -188,63 +188,26 @@ describe("무대 — 저장과 닫기", () => {
   });
 });
 
-// ─────────────────────────────────────────── 문 (S-B2)
+// ─────────────────────────────────────────── 하루 상한 (S-B2)
 
-const TEAM = "tone-party";
-const AUD = "aud-of-this-app";
-const b64url = (b: ArrayBuffer | Uint8Array | string) => {
-  const bytes = typeof b === "string" ? new TextEncoder().encode(b) : new Uint8Array(b);
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-};
-
-describe("무대 워커의 문 — Access 의 JWT 를 스스로 확인한다", () => {
-  let priv: CryptoKey;
-  let jwk: JsonWebKey & { kid: string };
-  const keys = async () => [jwk];
-  const now = Date.now();
-
-  beforeAll(async () => {
-    const pair = (await crypto.subtle.generateKey(
-      { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
-      true,
-      ["sign", "verify"],
-    )) as CryptoKeyPair;
-    priv = pair.privateKey;
-    jwk = { ...((await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey), kid: "k1" };
+describe("무대 워커의 하루 상한 — 로그인이 없어서 계정의 하루 한도를 센다", () => {
+  it("★ 상한까지는 되고, 넘으면 거절하면서 언제 다시 되는지 말한다", () => {
+    for (const kind of ["stage", "command"] as const) {
+      expect(refusal(kind, 0)).toBeNull();
+      expect(refusal(kind, DAILY[kind] - 1)).toBeNull();
+      const no = refusal(kind, DAILY[kind]);
+      expect(no).toContain(`${DAILY[kind]}번`);
+      expect(no).toContain("오전 9시");
+      expect(refusal(kind, DAILY[kind] + 3)).toBe(no);
+    }
   });
 
-  async function token(claims: Record<string, unknown>, header: Record<string, unknown> = { alg: "RS256", kid: "k1" }) {
-    const head = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(claims))}`;
-    const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", priv, new TextEncoder().encode(head));
-    return `${head}.${b64url(sig)}`;
-  }
-  const good = () => ({ aud: [AUD], iss: `https://${TEAM}.cloudflareaccess.com`, exp: now / 1000 + 600, email: "me@team" });
-  const check = (t: string | null, cfg = { aud: AUD, team: TEAM }) => verifyAccess(t, cfg, { now, keys });
-
-  it("★ Access 가 서명한 이 앱의 토큰만 들어온다", async () => {
-    expect(await check(await token(good()))).toEqual({ email: "me@team" });
-  });
-
-  it("★ 헤더가 있다는 것만으로는 안 된다 — 서명이 틀리거나 없으면 닫는다", async () => {
-    const t = await token(good());
-    const [h, , s] = t.split(".");
-    const forged = `${h}.${b64url(JSON.stringify({ ...good(), email: "attacker@x" }))}.${s}`;
-    expect(await check(forged)).toBeNull();
-    expect(await check(`${b64url(JSON.stringify({ alg: "none" }))}.${b64url(JSON.stringify(good()))}.`)).toBeNull();
-    expect(await check("아무 글자")).toBeNull();
-    expect(await check(null)).toBeNull();
-  });
-
-  it("★ 다른 앱 · 다른 팀 · 지난 토큰은 닫는다", async () => {
-    expect(await check(await token({ ...good(), aud: ["other-app"] }))).toBeNull();
-    expect(await check(await token({ ...good(), iss: "https://evil.cloudflareaccess.com" }))).toBeNull();
-    expect(await check(await token({ ...good(), exp: now / 1000 - 1 }))).toBeNull();
-    expect(await check(await token(good(), { alg: "RS256", kid: "unknown" }))).toBeNull();
-  });
-
-  it("★ 설정이 비어 있으면 닫는다 — 값을 넣기 전의 첫 배포가 공개 도구가 되면 안 된다", async () => {
-    const t = await token(good());
-    expect(await check(t, { aud: "", team: TEAM })).toBeNull();
-    expect(await check(t, { aud: AUD, team: "" })).toBeNull();
+  it("★ 하루는 한국 오전 9시(00:00 UTC)에 바뀐다 — Cloudflare 의 하루 한도가 다시 차는 때다", () => {
+    // 한국 시각으로 적는다 — 이 도구를 쓰는 사람의 시계다
+    const kst = (d: number, h: number, m = 0) => Date.UTC(2026, 8, d, h - 9, m);
+    expect(quotaDay(kst(25, 8, 59))).toBe(quotaDay(kst(24, 9, 0)));
+    expect(quotaDay(kst(25, 9, 0))).not.toBe(quotaDay(kst(25, 8, 59)));
+    // 자정은 경계가 아니다 — 밤에 QA 를 하다 날짜가 넘어가도 이어서 센다
+    expect(quotaDay(kst(25, 0, 30))).toBe(quotaDay(kst(24, 23, 30)));
   });
 });

@@ -336,8 +336,12 @@ function makeStage(env, { tables = 2 } = {}) {
      * 누구인지는 옆에 적힌 번호와 PIN 번호가 정한다. `hostPin` 을 주면 운영자 콘솔 줄도 선다 —
      * QA 의 공통 PIN 은 설정 파일에 적힌 공개 값(`0000`)이라 보여 줘도 되는 것이다.
      * `footer` 는 부르는 쪽이 붙이는 HTML 이다(무대 닫기 버튼 등) — **사용자 입력을 넣지 마라**, 거르지 않는다.
+     *
+     * `poll` 이면 로그를 1.5초마다 다시 읽는다 (S-D3) — CLI 는 터미널로 친 명령도 로그에 쓰므로 그래야 보인다.
+     * 끄면 명령을 친 뒤, 탭으로 돌아왔을 때, `로그 다시 읽기` 를 눌렀을 때만 읽는다. 무대 워커는 끈다 —
+     * 로그를 쓰는 것이 리모컨의 명령뿐이고, 한 번 읽을 때마다 DO 가 깨는데 그 하루 한도를 프로덕션과 같이 쓴다.
      */
-    remotePage({ chips = [], links = false, hostPin = "", footer = "" } = {}) {
+    remotePage({ chips = [], links = false, hostPin = "", footer = "", poll = true } = {}) {
       const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
       const pub = env.publicBase ?? env.base;
       const join = `${pub}/j/${stage.event.id}`;
@@ -367,6 +371,7 @@ button{font-size:16px;padding:12px 14px;border-radius:10px;border:0;background:#
 table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}td{padding:6px 4px;border-bottom:1px solid #333}
 a{color:#a29bfe}.host{margin:10px 0 0;font-size:14px}
 pre{background:#000;padding:10px;border-radius:10px;font-size:13px;white-space:pre-wrap;max-height:40vh;overflow:auto}
+#reload{background:#333}
 </style>
 <h1>무대 ${esc(stage.event.code)} <small>${esc(env.publicBase ?? env.base)}</small></h1>
 <form id="f"><input id="c" placeholder="poke 3 5" autocomplete="off" autocapitalize="off"><button>실행</button></form>
@@ -374,6 +379,7 @@ pre{background:#000;padding:10px;border-radius:10px;font-size:13px;white-space:p
 ${hostRow}
 <table>${rows}</table>
 <pre id="log"></pre>
+${poll ? "" : `<button type="button" id="reload">로그 다시 읽기</button>`}
 ${footer}
 <script>
 const f=document.getElementById('f'),c=document.getElementById('c'),logEl=document.getElementById('log');
@@ -381,7 +387,7 @@ async function send(line){await fetch('cmd',{method:'POST',headers:{'content-typ
 f.onsubmit=e=>{e.preventDefault();if(c.value.trim())send(c.value);c.value='';};
 document.querySelectorAll('[data-cmd]').forEach(b=>b.onclick=()=>send(b.dataset.cmd));
 async function refresh(){const r=await fetch('log');logEl.textContent=await r.text();logEl.scrollTop=logEl.scrollHeight;}
-refresh();setInterval(refresh,1500);
+refresh();${poll ? "setInterval(refresh,1500);" : "document.getElementById('reload').onclick=refresh;document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});"}
 </script>`;
     },
   };
