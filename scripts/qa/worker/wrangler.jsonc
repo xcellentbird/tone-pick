@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  /*
+   * 무대 워커 (슬라이스 35, ADR-97). **지금은 스파이크다** — S-A1 하나만 잰다:
+   * 서비스 바인딩을 지나도 QA 의 국가 문(`ALLOWED_COUNTRIES=KR`)이 열리는가.
+   *
+   * 배포: Workers Builds 프로젝트 `tone-pick-stage-spike`, 프로덕션 브랜치 `qa`,
+   * 빌드 명령 `npx wrangler deploy -c scripts/qa/worker/wrangler.jsonc`.
+   *
+   * 앱의 `wrangler.jsonc` 에 셋째 환경으로 넣지 않는다 — 환경은 `vars`·바인딩만 갈리고
+   * `main`(진입 파일)은 못 갈아서, 다른 스크립트는 다른 설정 파일이어야 한다 (S-E1).
+   */
+  "name": "tone-pick-stage-spike",
+  "main": "index.ts",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "preview_urls": false,
+
+  /*
+   * ⚠️ **표적은 이 한 줄뿐이다** (S-A2). 주소나 워커 이름을 받는 입력을 두지 마라 —
+   * 공개된 워커에 `delete` 가 붙으면 프로덕션 PIN 하나로 진짜 회차를 지운다.
+   * `tone-pick-qa` 가 아니면 `npm run check` 가 빨개진다 (S-A3, `scripts/check-config.mjs`).
+   */
+  "services": [{ "binding": "APP", "service": "tone-pick-qa" }]
+}

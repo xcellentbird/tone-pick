@@ -10,6 +10,8 @@
  *     기본값은 `max-age=0, must-revalidate` 라 두 번째 방문부터 **그림이 왕복 뒤에** 뜬다
  *  5. **화면에 뜨는 버전이 package.json 과 어긋나는 것** — 운영자가 그 숫자를 보고
  *     배포가 나갔는지 판단한다. 틀린 버전은 없느니만 못하다
+ *  6. **무대 워커가 QA 아닌 곳을 겨누는 것** (슬라이스 35 S-A3) — 공개된 워커라 프로덕션을
+ *     겨누면 PIN 하나로 진짜 회차를 만지게 된다
  *
  *   node scripts/check-config.mjs
  */
@@ -157,6 +159,29 @@ if (shown !== PKG.version) {
       ? `화면에 뜨는 APP_VERSION("${shown}")이 package.json("${PKG.version}")과 다릅니다. 릴리스에서 같이 올리세요`
       : "src/shared/constants.ts 에서 APP_VERSION 을 못 찾았습니다. 회차 목록 머리가 버전을 못 말합니다",
   );
+}
+
+// ⑥ 무대 워커의 표적은 QA 하나다 (슬라이스 35 S-A2·S-A3, ADR-97)
+//
+//    표적을 고르는 입력이 없는 대신 **설정 파일의 바인딩 하나가 곧 표적**이다.
+//    그 한 줄이 프로덕션(`tone-pick`)을 가리키면 공개된 도구가 진짜 회차를 만진다 —
+//    사람 눈으로는 이름 끝의 `-qa` 세 글자 차이라 잘 안 잡힌다.
+const STAGE = JSON.parse(
+  stripComments(readFileSync(new URL("./qa/worker/wrangler.jsonc", import.meta.url), "utf8")),
+);
+const QA_NAME = qa?.name;
+const stageTargets = (STAGE.services ?? []).map((s) => `${s.binding} → ${s.service}`);
+const app = (STAGE.services ?? []).find((s) => s.binding === "APP");
+if (!app) {
+  problems.push("무대 워커(scripts/qa/worker)에 APP 바인딩이 없습니다");
+} else if (!QA_NAME || app.service !== QA_NAME) {
+  problems.push(`무대 워커의 APP 바인딩이 "${app.service}" 를 가리킵니다. QA("${QA_NAME}")만 됩니다 (ADR-97)`);
+}
+if ((STAGE.services ?? []).length !== 1) {
+  problems.push(`무대 워커의 서비스 바인딩은 APP 하나여야 합니다 — 지금: ${stageTargets.join(", ") || "없음"}`);
+}
+if (STAGE.env) {
+  problems.push("무대 워커에 env 가 있습니다. 환경마다 표적이 갈릴 자리를 두지 않습니다 (S-A2)");
 }
 
 if (problems.length === 0) {

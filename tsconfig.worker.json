@@ -12,5 +12,5 @@
     "verbatimModuleSyntax": true,
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["src/server", "src/shared"]
+  "include": ["src/server", "src/shared", "scripts/qa/worker"]
 }
