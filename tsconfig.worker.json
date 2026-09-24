@@ -10,6 +10,8 @@
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
+    // 무대 워커가 `scripts/qa/core.mjs` 를 CLI 와 나눠 쓴다 (ADR-97). 타입 검사는 TS 쪽만 한다
+    "allowJs": true,
     "types": ["@cloudflare/workers-types"]
   },
   "include": ["src/server", "src/shared", "scripts/qa/worker"]

@@ -183,6 +183,18 @@ if ((STAGE.services ?? []).length !== 1) {
 if (STAGE.env) {
   problems.push("무대 워커에 env 가 있습니다. 환경마다 표적이 갈릴 자리를 두지 않습니다 (S-A2)");
 }
+// 무대 워커가 로그인하는 PIN 은 QA 의 공개 PIN 그대로여야 한다 — 어긋나면 무대가 하나도 안 선다
+if (STAGE.vars?.QA_PIN !== qa?.vars?.MASTER_PIN) {
+  problems.push(`무대 워커의 QA_PIN("${STAGE.vars?.QA_PIN}")이 QA 공통 PIN("${qa?.vars?.MASTER_PIN}")과 다릅니다`);
+}
+// 사람에게 보여 줄 주소도 QA 여야 한다. **점까지 본다** — `tone-pick-qa-tool.` 도 앞 글자가 같다
+if (!String(STAGE.vars?.QA_PUBLIC_URL ?? "").startsWith(`https://${QA_NAME}.`)) {
+  problems.push(`무대 워커의 QA_PUBLIC_URL("${STAGE.vars?.QA_PUBLIC_URL}")이 QA(${QA_NAME}) 주소가 아닙니다 — 참가 링크가 엉뚱한 곳을 엽니다`);
+}
+// Access 값은 Secret 으로 넣는다. 여기 적으면 대시보드의 Secret 과 이름이 겹쳐 배포가 거절된다
+for (const k of ["ACCESS_AUD", "ACCESS_TEAM"]) {
+  if (STAGE.vars && k in STAGE.vars) problems.push(`무대 워커 vars 에 ${k} 가 있습니다. 대시보드에 Secret 으로 넣으세요`);
+}
 
 if (problems.length === 0) {
   console.log("✅ 배포 설정 이상 없음");

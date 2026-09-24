@@ -290,6 +290,15 @@ npx wrangler r2 object get tone-pick-logs/poke-logs/<회차id>.csv --remote --fi
 시간 이동(`now +30m`)은 `.dev.vars` 에 `ALLOW_TEST_ENDPOINTS=1` 을 넣은 로컬에서만 된다.
 폰에서 로컬 워커에 붙으려면 `npm run dev:worker:lan`. **QA 에도 실제 번호를 넣지 마라.**
 
+**컴퓨터 없이는 온라인 무대** `tone-pick-qa-tool` 로 한다 (슬라이스 35, ADR-97). 무대의 핵심은
+`scripts/qa/core.mjs` 하나를 CLI 와 나눠 쓴다 — `run()` 을 고치면 둘 다 바뀐다.
+- **표적은 설정 파일의 서비스 바인딩 하나다.** 주소나 워커 이름을 받는 입력을 만들지 마라 —
+  공개 워커에 `delete` 가 있어 프로덕션을 겨누면 진짜 회차를 지운다
+- **경로나 본문을 받아 QA 로 넘기는 라우트를 만들지 마라** — 바인딩 요청에는 `cf` 가 없어 국가 문을
+  안 탄다(로컬에서 확인). 프록시가 되는 순간 해외에서 QA 의 `/api` 전체가 열린다
+- **Access 확인을 풀지 마라.** `ACCESS_AUD`·`ACCESS_TEAM` 이 비면 닫히는 것이 맞다. 두 값은 대시보드
+  **Secret** 이다 — 설정 파일 vars 에 적으면 배포가 덮는다
+
 `npm run check:copy` 는 `copy.ts` 밖에 하드코딩된 한국어를 잡는다.
 주석은 통과한다. SQL·정규식처럼 화면 문구가 아닌 건 윗줄에 `copy-ok` 를 적는다.
 
