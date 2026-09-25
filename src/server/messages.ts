@@ -83,7 +83,7 @@ export function settingsMessage(error: string, detail?: number): string | undefi
 
 /** 발표가 자리를 끝내면 새 쌍을 넣지 못한다 (ADR-90). 빼기는 언제나 된다 */
 export function apartMessage(error: string): string | undefined {
-  return error === "closed" ? HOST_UI.players.apart.afterReveal : undefined;
+  return error === "closed" ? HOST_UI.seats.apart.afterReveal : undefined;
 }
 
 /** 발표가 끝나면 자리를 더 바꾸지 않는다. 그 밖에는 막을 일이 없다 */

@@ -23,11 +23,12 @@
 | `/host/new/1..3` | 새 회차 위저드 |
 | `/host/:id` `/players` `/seats` `/polls` `/settings` | 콘솔 5탭 |
 | `/host/:id/players/:pid` | 참가자 상세 시트 (모달) |
-| `/host/:id/players/:pid/apart` | **떨어뜨릴 사람 고르기** 시트 (모달, ADR-90). 상세 시트에서 push 로 열고, 고르면 `navigate(-1)` 로 상세 시트에 돌아온다 |
 | `/host/:id/players/invites` | **초대 명단 시트** (모달) — 참가자 탭 맨 위 카드가 연다. 더하기·안내문·아직 등록 안 한 사람이 전부 여기 (ADR-33 후기). `invites` 는 참가자 아이디와 겹치지 않는다 |
 | `/host/:id/seats/new` | 배정 1걸음 — **뺄 사람 고르기** 시트 (모달). 길은 하나뿐이다 (ADR-51) |
 | `/host/:id/seats/new/tables` | 배정 2걸음 — **테이블 수**. 걸음은 push 라 뒤로 가면 1걸음이다 (ADR-45) |
 | `/host/:id/seats/seat/:round/:pid` | 자리 없는 사람을 **앉힐 테이블 고르기** 시트 (ADR-79). 주소가 누구를·어느 라운드에 를 들고 있어 새로고침해도 같은 카드다 |
+| `/host/:id/seats/apart` | **떨어뜨려 앉히기** 쌍 목록 시트 (모달, ADR-109). 자리 탭의 한 줄이 push 로 연다. 참가자 상세 시트에 있던 것을 옮겨 왔다 — `/players/:pid/apart` 는 걷어냈다 |
+| `/host/:id/seats/apart/add` | **떨어뜨려 앉힐 두 사람 고르기** (모달). 쌍 목록에서 push 로 열고 목록은 닫힌다(시트는 겹치지 않는다). 둘째를 누르면 `navigate(-1)` 로 목록에 돌아온다. 발표 뒤에 주소를 직접 열면 목록으로 **갈아끼운다** |
 | `/host/:id/polls/new` | **새 설문** 시트 (모달). 질문 하나 + 선택지 둘 (슬라이스 27) |
 | `/host/:id/polls/:aid` | **설문 상세** — 답으로 걸러진 참가자 카드. 지운 설문의 주소면 목록으로 **갈아끼운다** |
 
