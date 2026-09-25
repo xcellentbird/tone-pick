@@ -712,9 +712,9 @@ function helpTexts(): string[] {
   const q = HELP.qa;
   return [
     ...HELP.steps.map((v) => v.body),
-    q.prevote.a, q.poke.a, q.sameGender.a, q.result.a,
+    q.topVote.a, q.note.a, q.sameGender.a,
     q.secret.a(true), q.secret.a(false),
-    q.count.a(1, 2), q.count.a(3, 5),
+    q.count(1, 2), q.count(3, 5),
   ];
 }
 
@@ -731,17 +731,6 @@ describe("파티 룰 도움말", () => {
     }
   });
 
-  it("★ 콕 횟수는 회차 설정에서 온다 — 문구에 숫자를 박아두지 않는다", async () => {
-    /*
-     * 회차마다 다른 값이다. 도움말이 `3회` 라고 말하는데 실제로 5회면
-     * 그 순간 도움말 전체를 못 믿게 된다.
-     */
-    const state = participantState();
-    state.event.config = { maxPre: 7, maxParty: 9 };
-    renderParticipant(fakeSource({ load: async () => state }), undefined, () => {}, "home", true);
-    await screen.findByText(HELP.qa.count.a(7, 9));
-  });
-
   it("★ 지금 단계를 색이 아니라 글자로도 말한다", async () => {
     // 매칭 표시와 같은 규칙이다 — 색만으로 말하면 화면 낭독기에는 아무 말도 안 된다
     renderParticipant(fakeSource(), undefined, () => {}, "home", true);
@@ -756,13 +745,26 @@ describe("파티 룰 도움말", () => {
     return state;
   }
 
-  it("★ 등록 중이면 `등록` 칸에 `지금` 이 붙는다", async () => {
-    /*
-     * 예전에는 단계가 셋(사전·파티·발표)뿐이라 **등록 중에는 어디에도 `지금` 이 없었다.**
-     * 도움말이 등록 직후 저절로 열리게 된 뒤로는 하필 **처음 읽는 사람이 그때 읽는다** —
-     * 자기 위치를 못 찾는 그림은 그림이 아니다.
-     */
+  /**
+   * ★ **단계는 셋이고 `등록` 칸이 없다** (ADR-102).
+   *
+   * 한동안 넷이었다 — 도움말이 등록 직후 저절로 열리니 그때 `지금` 이 붙을 칸이 있어야
+   * 자기 위치를 찾는다는 이유였다. **짧게 쥐여주는 쪽을 골라 걷었다:** 읽히는 양은 자수보다
+   * 카드 수가 더 크게 좌우하고, 그 순간 읽히지 않으면 나머지도 안 읽힌다.
+   *
+   * 그래서 여기가 재는 것은 **대가를 알고 치르고 있는가** 다 — 등록 중에는 `지금` 이 없다.
+   * 되살리려면 이 테스트부터 뒤집어라.
+   */
+  it("★ 단계는 셋이고, 등록 중에는 `지금` 이 붙지 않는다", async () => {
+    expect(HELP.steps.map((v) => v.key)).toEqual(["prevote", "party", "done"]);
     renderParticipant(fakeSource({ load: async () => justRegistered() }), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.title);
+    expect(screen.queryByText(HELP.nowHere), "등록 중인데 `지금` 이 붙었다").toBeNull();
+  });
+
+  /** 들어와 있는 단계에는 반드시 붙는다 — 셋 중 하나면 자기 위치를 찾는다 */
+  it("★ 매력 투표 중이면 첫 칸에 `지금` 이 붙는다", async () => {
+    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
     const now = await screen.findByText(HELP.nowHere);
     expect(now.closest("li")?.textContent).toContain(HELP.steps[0].title);
   });
@@ -782,7 +784,6 @@ describe("파티 룰 도움말", () => {
     // 지금 하는 일을 이름 붙이는 자리 — 여기엔 `콕` 이 한 글자도 없어야 한다
     for (const [where, text] of [
       ["도움말 단계", prevoteStep.body],
-      ["도움말 문답", HELP.qa.prevote.a],
       ["홈 제목", HOME.todo.prevote.title],
       ["다 썼을 때 제목", HOME.spent.prevote.title],
     ] as const) {
@@ -806,44 +807,71 @@ describe("파티 룰 도움말", () => {
   });
 
   /**
-   * ★ **횟수를 물으면 언제 새로 받는지까지 답한다.**
+   * ★ **횟수는 문답이 아니라 맨 아래 한 줄이다** (ADR-102).
    *
-   * 한동안 `파티가 시작될 때 새로 받고` 가 **콕 문답 안에** 있었다. 횟수를 물은 사람이
-   * 다른 칸까지 읽어야 알 수 있었고, 안 읽으면 매력 투표에 쓴 것이 콕에서도 빠지는 줄 안다 —
-   * 그러면 아껴 쓰다가 파티가 끝난다.
+   * 물음표를 붙일 만큼 헷갈리는 것이 아니라 그냥 알아야 하는 숫자라, 카드 하나를 쓰지 않는다.
+   * 숫자는 **회차 설정에서 온다** — 도움말이 `3회` 라고 말하는데 실제로 5회면 그 순간
+   * 도움말 전체를 못 믿게 된다. 그래서 문구에 박아두지 않는 것만은 그대로 지킨다.
    */
-  it("★ 횟수 문답이 언제 새로 받는지까지 답한다", async () => {
-    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
-    await screen.findByText(HELP.qa.count.a(3, 3));
-    expect(HELP.qa.count.a(3, 3)).toContain("파티가 시작되면");
-  });
-
-  it("★ 매력 투표와 콕 찌르기를 가르는 문답이 있다", async () => {
-    // 단계 그림만으로는 "둘이 뭐가 다른가" 가 안 풀린다. 바로 아래에서 풀어준다
-    renderParticipant(fakeSource(), undefined, () => {}, "home", true);
-    await screen.findByText(HELP.qa.prevote.q);
-    await screen.findByText(HELP.qa.poke.q);
-    /*
-     * **핵심은 "발표에 이어지는 게 어느 쪽이냐" 다.** 두 줄이 이름과 시점만 말하고
-     * 이걸 안 말하면, 바로 위 단계 그림을 되풀이한 것에 지나지 않는다.
-     */
-    expect(HELP.qa.poke.a).toContain("발표");
-    /*
-     * 한동안 **투표를 왜 하는지**를 자리로 답했다 (ADR-52) — `같은 테이블에 앉을 확률이 높아져요`.
-     * 매력 투표가 자리에서 빠져서(ADR-100) 그 답은 거짓이 됐고, 1위 보너스로 답하면 매력 투표가 공개된
-     * 인기 경쟁이 된다. 그래서 질문을 *무엇인가* 로 바꿨다 — 답할 수 없는 질문을 세워두지 않는다.
-     */
-    expect(HELP.qa.prevote.a).not.toContain("테이블");
+  it("★ 횟수는 한 줄로 서고, 숫자는 회차 설정에서 온다", async () => {
+    const state = participantState();
+    state.event.config = { maxPre: 7, maxParty: 9 };
+    renderParticipant(fakeSource({ load: async () => state }), undefined, () => {}, "home", true);
+    await screen.findByText(HELP.qa.count(7, 9));
+    // 문답이 아니다 — 물음표 카드 안에 들어 있으면 안 된다
+    expect(screen.getByText(HELP.qa.count(7, 9)).closest(".helpQa"), "횟수가 문답 카드에 들어갔다").toBeNull();
   });
 
   /**
-   * ★ **도움말은 매력 투표 1위 보너스를 말하지 않는다** (ADR-100).
-   * 적으면 매력 투표가 공개된 인기 경쟁이 된다 — 1위 본인에게만 홈 소식 한 줄로 간다.
+   * ★ **매력 투표와 콕을 가르는 일은 이제 단계 그림이 한다** (ADR-102).
+   *
+   * 한동안 문답 둘이 그 일을 했는데(ADR-34), 바로 위 그림이 이미 `매력` 과 `파티` 로 갈라
+   * 놓은 것을 글로 되풀이하는 자리였다. 카드 둘을 걷고 **그림에 조건을 건다** —
+   * 매력 칸은 `콕` 을 한 글자도 말하지 않고, 파티 칸이 콕을 맡는다.
    */
-  it("★ 도움말이 매력 투표 1위를 말하지 않는다", async () => {
+  it("★ 매력 칸은 `콕` 을 쓰지 않고, 파티 칸이 콕을 맡는다", async () => {
+    const step = (key: string) => HELP.steps.find((v) => v.key === key)!;
+    expect(step("prevote").body, "매력 칸이 콕을 말했다").not.toContain("콕");
+    expect(step("party").body, "파티 칸이 콕을 안 말했다").toContain("콕");
+    /*
+     * 한동안 **투표를 왜 하는지**를 자리로 답했다 (ADR-52) — `같은 테이블에 앉을 확률이 높아져요`.
+     * 매력 투표가 자리에서 빠져서(ADR-100) 그 답은 거짓이 됐다. 지금 그 답은 1위 보너스가 한다.
+     */
+    expect(step("prevote").body).not.toContain("테이블");
+  });
+
+  /**
+   * ★ **1위 보너스는 주는 회차에서만 말하고, 표 수는 끝까지 말하지 않는다** (ADR-102).
+   *
+   * ADR-100 은 아예 적지 말라고 했다 — 적으면 매력 투표가 공개된 인기 경쟁이 된다는 이유였다.
+   * ADR-102 가 그 절반을 뒤집었다: **투표를 왜 하는지에 답하는 줄이 하나도 없던 것**이
+   * 더 나쁘다고 봤다. 대신 **뒤집지 않은 절반이 여기 있다** —
+   *
+   *   ① 기본값은 `안 줌`(0)이라 **주는 회차에서만** 선다. 고정으로 적으면 거짓이 된다 (ADR-52)
+   *   ② **표 수는 어디에도 없다.** 그 숫자가 곧 *몇 명이 나를 골랐나* 다
+   */
+  it("★ 1위 보너스 줄은 주는 회차에만 선다", async () => {
+    const open = async (config: ParticipantState["event"]["config"]) => {
+      const state = participantState();
+      state.event.config = config;
+      renderParticipant(fakeSource({ load: async () => state }), undefined, () => {}, "home", true);
+      await screen.findByText(HELP.title);
+    };
+
+    // 기본 회차 — 보너스가 없다. 줄 자체를 만들지 않는다 (안 묻는 답을 적는 만큼 묻는 답이 밀린다)
+    await open({ maxPre: 3, maxParty: 3 });
+    expect(screen.queryByText(HELP.qa.topVote.q), "안 주는 회차에 보너스 줄이 섰다").toBeNull();
+    cleanup();
+
+    await open({ maxPre: 3, maxParty: 3, topVoteBonus: 1 });
+    expect(screen.getByText(HELP.qa.topVote.q)).toBeTruthy();
+  });
+
+  it("★ 도움말 어디에도 몇 표인지는 없다", async () => {
+    // 뒤집지 않은 절반이다. 1위가 있다는 건 말해도, 표 수는 곧 *몇 명이 나를 골랐나* 다
     for (const text of helpTexts()) {
-      expect(text, text).not.toContain("1위");
-      expect(text, text).not.toContain("가장 많은 표");
+      expect(text, text).not.toContain("표를");
+      expect(text, text).not.toMatch(/\d+\s?표/);
     }
   });
 
@@ -888,8 +916,11 @@ describe("파티 룰 도움말", () => {
     for (const text of helpTexts()) {
       expect(text, text).not.toContain("연락처가 열");
     }
-    // 무엇이 나가는지는 분명히 말한다 — 실명까지다
-    expect(HELP.qa.result.a).toContain("이름");
+    /*
+     * 무엇이 나가는지는 분명히 말한다 — 실명까지다. 문답 하나를 걷었으므로(ADR-102)
+     * 지금 그 말을 하는 자리는 `마감` 칸이다. **어느 줄이든 하나는 말해야 한다.**
+     */
+    expect(helpTexts().some((t) => t.includes("실명")), "실명이 나간다는 말이 어디에도 없다").toBe(true);
   });
 
   /**
