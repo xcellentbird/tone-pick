@@ -2828,6 +2828,23 @@ describe("탭 역할 분담", () => {
     await screen.findByText(HOME.todo.prevote.title);
   });
 
+  /**
+   * ★ **소식 줄의 제목은 무슨 일이 있었는지 말하는 문장이다** (ADR-104).
+   *
+   * 여섯 줄이 한 목록에 나란히 서는데 다섯은 문장이고 하나만 이름표였다 —
+   * `운영자 알림`. 같은 빌더(`noticesOf`)에서 나오는 형제가 `운영자가 설문을 보냈어요`
+   * 인데 그 옆에서 혼자 모양이 달랐다.
+   *
+   * 낱말에 걸지 않고 **끝맺음**에 건다 — 어느 줄이 새로 생겨도 같은 자리를 지킨다.
+   */
+  it("★ 소식 줄 제목은 전부 무슨 일이 있었는지 말한다", () => {
+    const titles = [
+      NOTICE.prevote(2).title, NOTICE.party(3).title, NOTICE.topVote.title,
+      NOTICE.poll.title, NOTICE.announce.title, NOTICE.done.title,
+    ];
+    for (const t of titles) expect(t, `이름표다: ${t}`).toMatch(/요$/);
+  });
+
   it("★ 소식은 홈에 있다 — 알림 탭을 따로 두지 않는다", async () => {
     // 파티 한 번에 많아야 몇 개다. 탭 하나를 상시 내줄 양이 아니다
     renderTab("home", { poke: { ...POKE_STATE, received: { pre: 2, party: 0 } } });
