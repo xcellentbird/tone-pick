@@ -206,6 +206,8 @@ const fail = <T,>(error: Fail, detail?: number): Result<T> => ({ ok: false, erro
 
 interface Attachment {
   playerId?: string;
+  /** 운영자 콘솔이다 — `?host=1` 로 밝히고 운영자 쿠키로 증명했다 (Worker 가 확인한다, ADR-107) */
+  host?: true;
 }
 
 /**
@@ -657,13 +659,19 @@ export class EventDO extends DurableObject {
     if (!hasPin) {
       // 운영자가 초기화했거나 PIN 번호가 생기기 전의 참가자다 — 지금 정한다
       await this.setPin(mine.id, pin);
+      // 운영자 명단의 `안 정함` 이 `정함` 이 된다 (ADR-107)
+      this.toHosts({ type: "counts" });
     } else {
       const digest = await pinDigest(pin, mine.pin_salt!, this.secret);
       if (!sameDigest(digest, mine.pin_hash!)) {
         const fails = (mine.pin_fails ?? 0) + 1;
         this.ctx.storage.sql.exec("UPDATE players SET pin_fails = ? WHERE id = ?", fails, mine.id);
         strike();
-        if (fails >= PIN.maxFails) return fail("pin_locked");
+        if (fails >= PIN.maxFails) {
+          // 운영자 명단에 `잠김` 이 선다 — 푸는 사람이 운영자뿐이라 바로 보여야 한다 (ADR-107)
+          this.toHosts({ type: "counts" });
+          return fail("pin_locked");
+        }
         return fail("pin_wrong", PIN.maxFails - fails);
       }
       if (mine.pin_fails) this.ctx.storage.sql.exec("UPDATE players SET pin_fails = 0 WHERE id = ?", mine.id);
@@ -972,6 +980,8 @@ export class EventDO extends DurableObject {
     if (notifyOn(meta.config, round)) {
       this.toPlayer(toId, { type: "poke", received: this.visibleReceived(toId, meta) });
     }
+    // 운영자 현황의 순위·쌍·콕 수가 바뀌었다 (ADR-107). 로그인한 운영자 소켓에만 간다 — 찌른 시점이 새지 않게
+    this.toHosts({ type: "counts" });
     await this.logWait(this.logPoke(meta.id, { kind: "poke", round, at: now, from: me, to: target }));
     return ok(await this.pokeState(fromId, meta));
   }
@@ -1010,6 +1020,7 @@ export class EventDO extends DurableObject {
     if (notifyOn(meta.config, round)) {
       this.toPlayer(toId, { type: "poke", received: this.visibleReceived(toId, meta) });
     }
+    this.toHosts({ type: "counts" });
     // 콕 표에서는 줄이 사라졌다. 누가 무엇을 되돌렸는지는 이 로그에만 남는다 (ADR-84)
     const target = this.player(toId);
     if (target) await this.logWait(this.logPoke(meta.id, { kind: "undo", round, at: now, from: me, to: target }));
@@ -1301,6 +1312,8 @@ export class EventDO extends DurableObject {
         JSON.stringify(s.acks),
         round,
       );
+      // 운영자의 `자리 이동 확인 N/M` 이 바뀌었다 (ADR-107)
+      this.toHosts({ type: "counts" });
     }
     return ok(true);
   }
@@ -1979,7 +1992,8 @@ export class EventDO extends DurableObject {
     // Hibernation: 연결은 유지하되 유휴 중 컴퓨트를 소모하지 않는다
     this.ctx.acceptWebSocket(server);
     const playerId = req.headers.get("x-player-id") ?? undefined;
-    server.serializeAttachment({ playerId } satisfies Attachment);
+    const host = req.headers.get("x-host") === "1" ? (true as const) : undefined;
+    server.serializeAttachment({ playerId, host } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -2024,14 +2038,15 @@ export class EventDO extends DurableObject {
    * 참가자 화면이 똑같이 그려질 변화까지 전원에게 보내면, 아무것도 바꾸지 않는 읽기가
    * 인원수만큼 쌓이고 그 읽기는 쓰기 큐 뒤에 선다. 50명에서 재조회 하나가 8초까지 밀렸다.
    *
-   * 참가자 소켓에는 `playerId` 가 붙어 있다 (Worker 가 세션 쿠키를 보고 붙인다).
-   * 안 붙은 소켓은 운영자 콘솔이다 — 세션이 끊긴 참가자도 여기 섞일 수 있지만,
-   * 이 통로로 나가는 건 이미 참가자에게 보이는 값뿐이라 새어도 잃을 게 없다.
+   * **로그인한 운영자 소켓에만 간다** (ADR-107). 한동안 `playerId` 가 안 붙은 소켓을 운영자로 쳤는데,
+   * 회차 코드만 알면 누구나 그런 소켓을 연다. 명단·설문 신호일 때는 새어도 잃을 게 없었지만
+   * 콕 신호(`counts`)가 거기 가면 *방금 누가 찔렀다* 는 시점이 샌다. 그래서 운영자 콘솔은
+   * `?host=1` 로 스스로 밝히고 Worker 가 운영자 쿠키로 확인한 것만 `host` 가 붙는다.
    */
   private toHosts(ev: ServerEvent) {
     for (const ws of this.ctx.getWebSockets()) {
       const at = (ws.deserializeAttachment() ?? {}) as Attachment;
-      if (!at.playerId) this.send(ws, ev);
+      if (at.host) this.send(ws, ev);
     }
   }
 

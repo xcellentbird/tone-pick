@@ -169,3 +169,28 @@ export async function setPhase(id: string, to: string) {
   const res = await api(`/api/host/events/${id}/phase`, { method: "POST", cookie: master, body: { to } });
   expect(res.status).toBe(200);
 }
+
+/**
+ * 소켓 하나를 열고 받은 신호를 모은다 (ADR-26 — 신호는 "다시 읽어라" 뿐이다).
+ *
+ * `cookie` 가 참가자 쿠키면 그 참가자의 소켓이다. **운영자 콘솔은 `host` 로 스스로 밝히고
+ * 운영자 쿠키로 증명한다** (ADR-107) — 둘 중 하나라도 없으면 운영자 신호(`toHosts`)를 받지 않는다.
+ * `headers` 는 속인 요청을 흉내 낼 때만 쓴다.
+ */
+export async function listen(
+  ev: EventMeta,
+  opts: { cookie?: string | null; host?: boolean; headers?: Record<string, string> } = {},
+): Promise<string[]> {
+  const res = await fetchApp(`https://tone-pick.test/ws/${ev.code}${opts.host ? "?host=1" : ""}`, {
+    headers: { Upgrade: "websocket", ...(opts.cookie ? { cookie: opts.cookie } : {}), ...opts.headers },
+  });
+  const ws = res.webSocket;
+  expect(ws, `소켓이 안 열렸다 (${res.status})`).toBeTruthy();
+  const got: string[] = [];
+  ws!.accept();
+  ws!.addEventListener("message", (e) => got.push(String(e.data)));
+  return got;
+}
+
+/** 소켓 신호는 응답보다 늦게 닿는다. 한 박자 기다린다 */
+export const settle = () => new Promise((r) => setTimeout(r, 50));

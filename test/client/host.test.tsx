@@ -11,7 +11,7 @@ import { BTN, FAIL, GENDER, HOST, HOST_UI, INVITE_TEMPLATE, UNIT, phaseAction, s
 import { formatGap, formatWhen, toLocalInput } from "../../src/shared/time.ts";
 import type { HostState, SeatingRound } from "../../src/shared/types.ts";
 import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
-import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
+import HostConsole, { HOST_RELOAD_GAP_MS } from "../../src/client/routes/host/HostConsole.tsx";
 import { topRanks } from "../../src/client/routes/host/Dash.tsx";
 import Players from "../../src/client/routes/host/Players.tsx";
 
@@ -994,13 +994,49 @@ describe("운영자 콘솔", () => {
     await act(async () => {});
     expect(name.value, "다시 읽을 때 고치던 입력이 사라졌다").toBe("고치는 중");
 
-    // 다른 기기에서 장소를 저장했다 — 그 칸은 따라가고, 고치던 이름은 그대로다
+    // 다른 기기에서 장소를 저장했다 — 그 칸은 따라가고, 고치던 이름은 그대로다.
+    // 방금 한 번 읽었으니 이 신호는 모았다가 간격 뒤에 읽는다 (ADR-107)
     st.meta = { ...st.meta, place: "강남역 2번 출구" };
     notice();
-    await waitFor(() =>
-      expect((screen.getByLabelText(HOST_UI.fields.place) as HTMLInputElement).value).toBe("강남역 2번 출구"),
+    await waitFor(
+      () => expect((screen.getByLabelText(HOST_UI.fields.place) as HTMLInputElement).value).toBe("강남역 2번 출구"),
+      { timeout: HOST_RELOAD_GAP_MS + 1000 },
     );
     expect(name.value).toBe("고치는 중");
+  });
+
+  it("★ 콘솔은 운영자로 밝히고 붙고, 신호가 몰려도 모아서 읽는다 (ADR-107)", async () => {
+    /*
+     * 콕·자리 이동 확인·PIN 번호는 **로그인한 운영자 소켓에만** 간다. 콘솔이 `?host=1` 로 밝히지 않으면
+     * 서버가 운영자로 치지 않아 그 신호를 못 받는다 — 참가자 이름표는 싣지 않는다.
+     * 그리고 파티 중에는 콕이 잇따라 온다. 신호마다 읽으면 요청이 몰리므로 첫 신호만 바로 읽고 나머지는 모은다.
+     */
+    const urls: string[] = [];
+    const sockets: Array<{ onmessage: ((e: { data: string }) => void) | null }> = [];
+    vi.stubGlobal(
+      "WebSocket",
+      class {
+        onmessage: ((e: { data: string }) => void) | null = null;
+        constructor(url: string) {
+          urls.push(url);
+          sockets.push(this);
+        }
+        close() {}
+      },
+    );
+    stubFetch(hostState());
+    renderConsole("/host/e1");
+    await waitFor(() => expect(sockets).toHaveLength(1));
+    expect(urls[0], "콘솔이 운영자로 밝히지 않았다").toMatch(/\?host=1$/);
+
+    const reads = () => calls.filter((c) => c.url.includes("/state")).length;
+    const before = reads();
+    // 콕 다섯이 한꺼번에 온다
+    for (let i = 0; i < 5; i++) act(() => sockets[0].onmessage!({ data: JSON.stringify({ type: "counts" }) }));
+    await waitFor(() => expect(reads(), "첫 신호에 바로 읽지 않았다").toBe(before + 1));
+    await waitFor(() => expect(reads()).toBe(before + 2), { timeout: HOST_RELOAD_GAP_MS + 1000 });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(reads(), "신호마다 다시 읽었다").toBe(before + 2);
   });
 
   it("★ 알림을 회차마다, 라운드마다 정한다 (ADR-43)", async () => {

@@ -11,6 +11,7 @@
 import { fetchApp } from "./helpers/app.ts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { hangulSeq } from "../src/shared/copy.ts";
+import { listen, settle } from "./helpers/party.ts";
 import type {
   Invite,
   EventMeta,
@@ -126,24 +127,6 @@ const hostState = (ev: EventMeta) => api<HostState>(`/api/host/events/${ev.id}/s
 const vote = (cookie: string | null, id: string, choice: "a" | "b") =>
   api<PublicAnnouncement>("/api/vote", { method: "POST", cookie, body: { id, choice } });
 
-/**
- * 소켓 하나를 열고 받은 신호를 모은다. 쿠키가 있으면 그 참가자의 소켓이고,
- * 없으면 운영자 콘솔 쪽이다 — Worker 가 세션 쿠키를 보고 가른다.
- */
-async function listen(ev: EventMeta, cookie?: string | null) {
-  const res = await fetchApp(`https://tone-pick.test/ws/${ev.code}`, {
-    headers: { Upgrade: "websocket", ...(cookie ? { cookie } : {}) },
-  });
-  const ws = res.webSocket;
-  expect(ws, `소켓이 안 열렸다 (${res.status})`).toBeTruthy();
-  const got: string[] = [];
-  ws!.accept();
-  ws!.addEventListener("message", (e) => got.push(String(e.data)));
-  return got;
-}
-
-/** 소켓 신호는 응답보다 늦게 닿는다. 한 박자 기다린다 */
-const settle = () => new Promise((r) => setTimeout(r, 50));
 
 // ─────────────────────────────────────────── 텍스트
 
@@ -224,8 +207,9 @@ describe("설문 — 두 선택지", () => {
     const ev = await freshEvent();
     const [p, q] = [await join(ev), await join(ev)];
     const made = await send(ev, { text: "2차 갈래요?", poll: { a: "갈래요", b: "못 가요" } });
-    const host = await listen(ev);
-    const other = await listen(ev, q.cookie);
+    // 운영자 콘솔은 스스로 밝히고 운영자 쿠키로 증명한다 (ADR-107)
+    const host = await listen(ev, { cookie: master, host: true });
+    const other = await listen(ev, { cookie: q.cookie });
     await settle();
     const [h0, o0] = [host.length, other.length];
 
