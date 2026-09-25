@@ -248,4 +248,18 @@ describe("스테이지 화면 — 틀은 QA 를 직접 연다", () => {
     }
     await stage.close();
   });
+
+  it("★ 콕 단추는 자동 콕 하나다 — 보내는 사람 칸도, 묶음 단추도 없다 (ADR-99 후기 5)", () => {
+    const page = stagePage({
+      id: "0".repeat(64),
+      view: { event: { id: "e1", code: "ABC123" }, cast: [], lines: [], backlog: 0 },
+      left: DAILY,
+      daily: DAILY,
+      qa: PUBLIC,
+      hostPin: "0000",
+      plantable: true,
+    });
+    expect(page.match(/data-cmd="auto[^"]*"/g)).toEqual(['data-cmd="auto"']);
+    expect(page).not.toMatch(/<select|data-poke|data-cmd="(poke|unpoke|mutual|crowd|pairs|spray)/);
+  });
 });
