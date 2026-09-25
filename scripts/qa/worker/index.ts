@@ -31,7 +31,7 @@ const PHASE_NAME: Record<Want["phase"], string> = {
   reg: "등록",
   prevote: "매력 투표",
   party: "파티",
-  done: "커플 발표 후",
+  done: "매칭 확인",
 };
 
 const esc = (s: unknown) =>

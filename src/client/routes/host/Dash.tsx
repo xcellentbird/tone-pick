@@ -60,7 +60,7 @@ export default function Dash() {
    * |---|---|---|---|
    * | `prep`·`reg` | 등록/매력 투표 시작 | `dueAt` | 저절로 넘어간다 (알람) |
    * | `prevote` | 파티 시작 | `dueAt`(`partyAt`) | 저절로 넘어간다 (ADR-93) — 매력 투표도 함께 닫힌다 (ADR-100) |
-   * | `party` | 결과 발표 | `dueAt`(`revealAt`) | 저절로 넘어간다 (ADR-43) |
+   * | `party` | 매칭 확인 열기 | `dueAt`(`revealAt`) | 저절로 넘어간다 (ADR-43) |
    *
    * **셋이 다 같다** (ADR-93). `매력 투표 마감` 버튼은 걷어냈다 (ADR-100) — 매력 투표는 파티 시작에 닫힌다.
    */
