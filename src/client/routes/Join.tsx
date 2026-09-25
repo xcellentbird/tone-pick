@@ -48,8 +48,15 @@ import { setTabRef, tabRef } from "../lib/session.ts";
 import { useLoad } from "../lib/useLoad.ts";
 import Sheet from "../ui/Sheet.tsx";
 
-/** 11자리가 찬 뒤 서버에 묻기까지. 고치는 중에 요청이 나가면 문구가 깜빡인다 */
-const PROBE_DELAY_MS = 300;
+/**
+ * 답을 기다리는 줄(`ENTRY.checking`)이 서기까지. 이보다 빨리 오면 줄 없이 다음 칸이 펼쳐진다 —
+ * 매번 서면 잠깐 떴다 사라져 깜빡이기만 한다.
+ *
+ * **11자리가 찬 뒤에는 기다리지 않고 바로 묻는다.** 한동안 300ms 를 기다렸다(고치는 중에 문구가 깜빡일까 봐).
+ * 그런데 번호 칸은 11자리에서 잘리고(`typedPhone`), 한 자리를 지우면 날아간 요청은 순번(`seq`)으로 버려진다 —
+ * 기다림이 막는 것이 없었고 모든 사람이 0.3초씩 늦었다.
+ */
+const SLOW_MS = 250;
 
 export default function Join() {
   const { id = "" } = useParams();
@@ -222,6 +229,7 @@ function EnterDialog({ open, eventId, room }: { open: boolean; eventId: string; 
       setBusy(false); // 날아가 있던 요청은 순번이 어긋나 버려진다 — 그 요청이 잡아둔 표시도 함께 푼다
       return;
     }
+    // 다음 틱에 묻는다 — 같은 입력에서 효과가 두 번 돌면 앞의 것이 `clearTimeout` 으로 사라진다
     const timer = setTimeout(async () => {
       setBusy(true);
       try {
@@ -245,7 +253,7 @@ function EnterDialog({ open, eventId, room }: { open: boolean; eventId: string; 
       } finally {
         if (mine === seq.current) setBusy(false);
       }
-    }, PROBE_DELAY_MS);
+    }, 0);
     return () => clearTimeout(timer);
   }, [open, phone, eventId, navigate, room]);
 
@@ -295,6 +303,17 @@ function EnterDialog({ open, eventId, room }: { open: boolean; eventId: string; 
     }
     if (validPin(a)) void submit(a);
   }
+
+  /** 답이 늦는다 — `SLOW_MS` 가 지나도 기다리는 중이다. 빠른 답에는 줄이 안 선다 */
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!busy) {
+      setSlow(false);
+      return;
+    }
+    const t = setTimeout(() => setSlow(true), SLOW_MS);
+    return () => clearTimeout(t);
+  }, [busy]);
 
   const locked = gate.step === "pin" && gate.locked;
   const pinLabel = gate.step === "pin" && gate.mode === "set" ? ENTRY.pinNew : ENTRY.pin;
@@ -363,6 +382,12 @@ function EnterDialog({ open, eventId, room }: { open: boolean; eventId: string; 
             </p>
           )}
         </>
+      )}
+      {/* 움직이지 않는 글자 한 줄이다 — 내가 누른 일이라 움직여도 되지만, 빙글 도는 것보다 이 말이 더 잘 읽힌다 */}
+      {busy && slow && (
+        <p className="small dim" role="status" style={{ margin: 0 }}>
+          {ENTRY.checking}
+        </p>
       )}
     </Sheet>
   );
