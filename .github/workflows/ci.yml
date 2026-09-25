@@ -137,6 +137,19 @@ jobs:
   # 아직 볼 준비가 안 됐다고 말한 PR 에서 CI 가 빨갛게 죽는다 —
   # 실패가 코드 탓처럼 보여서 진짜 실패를 찾는 눈을 흐린다.
   # 준비됨으로 바꾸면 위의 `ready_for_review` 가 CI 를 다시 돌리고, 그때 이 잡이 붙는다.
+  #
+  # ⚠️ **`qa` 브랜치 보호에 `Restrict deletions` 말고 다른 것을 켜지 마라.**
+  # 이 잡은 `GITHUB_TOKEN` 으로 머지한다. 넷 중 하나만 켜도 조용히 막힌다 —
+  #
+  #   Require approvals            토큰은 제 PR 을 승인하지 못한다
+  #   Require status checks        `release-guard` 는 qa PR 에서 `skipped` 다.
+  #                                필수로 걸면 `success` 가 아니라 **영영 안 들어간다**
+  #   Require linear history       `gh pr merge --merge` 는 머지 커밋을 만든다
+  #   Restrict who can push        `github-actions[bot]` 이 목록에 없으면 막힌다
+  #
+  # 보호를 건 이유는 **삭제 하나**다: 릴리스 PR(`qa → main`)이 머지되면 저장소의
+  # `Automatically delete head branches` 가 head 였던 `qa` 를 지운다. 실제로 한 번 지워졌고,
+  # 그동안 이 잡이 붙을 자리가 없었다 (#387 → #388).
   automerge:
     needs: check
     if: >-

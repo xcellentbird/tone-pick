@@ -319,6 +319,14 @@ npx wrangler r2 object get tone-pick-logs/poke-logs/<회차id>.csv --remote --fi
 사람이 준비됨으로 바꿔야 하고, 그때 CI 가 **한 번 더** 돈다.
 **사람이 버튼을 누르는 의식은 `qa → main` 하나뿐이다.**
 
+**`qa` 는 지워지면 안 된다.** 릴리스 PR 이 머지되면 저장소의 `Automatically delete head branches` 가
+head 였던 `qa` 를 지운다 — 실제로 한 번 그랬고, 되살릴 때까지 `automerge` 가 붙을 자리가 없었다.
+막는 것은 브랜치 보호의 **`Restrict deletions` 하나**다. ⚠️ **거기에 다른 것을 더 켜지 마라** —
+`automerge` 는 `GITHUB_TOKEN` 으로 머지해서 넷 중 하나만 켜도 조용히 막힌다:
+승인 요구(토큰은 제 PR 을 승인 못 한다) · 필수 검사(`release-guard` 가 qa 에서 `skipped` 라 영영 안 들어간다) ·
+선형 히스토리(`--merge` 는 머지 커밋을 만든다) · 푸시 제한(`github-actions[bot]` 이 목록에 없으면 막힌다).
+표는 `ci.yml` 의 `automerge` 위에 있다.
+
 **QA 는 스테이지로 한다** — `npm run qa -- --phase party --watch` (`scripts/qa/stage.mjs`).
 로컬 워커에 회차와 가짜 참가자를 **실제 경로로** 만들고, 터미널(또는 `--remote` 로 폰)에서
 `poke 3 5` · `phase done` · `late` 같은 명령을 그때그때 치며, `--watch` 로 운영자·참가자 창을
