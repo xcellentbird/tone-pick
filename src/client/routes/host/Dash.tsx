@@ -22,6 +22,7 @@ import { HOST_UI, phaseAction, schedDiff, type ActionCopy } from "../../../share
 import type { Phase } from "../../../shared/types.ts";
 import { PHASE_ORDER, dueAt } from "../../../shared/phase.ts";
 import { topVoters } from "../../../shared/poke.ts";
+import { autoTableCount } from "../../../shared/seats.ts";
 import { TICK_WINDOW, formatCountdown, formatDayHour, formatGap, formatWhen } from "../../../shared/time.ts";
 import { post } from "../../lib/api.ts";
 import Avatar from "../../ui/Avatar.tsx";
@@ -92,6 +93,9 @@ export default function Dash() {
       maxParty: meta.config.maxParty,
       seated: published.at(-1)?.seats.length ?? 0,
       players: players.length,
+      // 보낸 자리가 없으면 파티가 열리며 무엇이 나가는지 (ADR-106) — 서버의 `autoSeat` 과 같은 판정이다
+      draft: state.seatings.some((s) => s.status === "draft"),
+      autoTables: autoTableCount(players.length),
       // 받을 사람의 닉네임. 보너스를 끈 회차는 줄 자체가 없다 (ADR-100)
       ...(bonus ? { topVoters: top.map((id) => who(id)?.nickname).filter((n): n is string => !!n) } : {}),
     });

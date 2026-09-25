@@ -1450,8 +1450,15 @@ export interface ActionCopy {
 /**
  * 파티 시작 확인창의 자리 줄. **숫자로 말한다** (규칙 4).
  * 자리가 없으면 무엇이 벌어지는지까지 적는다 — 그게 이 줄을 넣은 이유다.
+ *
+ * 보낸 자리가 없으면 **파티가 열리며 자동으로 나간다** (ADR-106) — 짜둔 초안이 있으면 그 초안이,
+ * 없으면 `autoTables` 테이블로 새로 짠 자리가. 서버와 같은 판정이다 (`autoSeat`).
  */
-function seatedLine(seated: number, players: number): string {
+function seatedLine(seated: number, players: number, draft = false, autoTables = 0): string {
+  if (seated === 0 && draft) return "아직 안 보냈어요 — 시작하면 짜둔 초안을 그대로 전원에게 알립니다";
+  if (seated === 0 && autoTables > 0 && players >= autoTables * 2) {
+    return `아직 없어요 — 시작하면 ${autoTables}테이블로 자리를 짜서 전원에게 알립니다`;
+  }
   // 인용하는 문장은 참가자가 **실제로 보는 것**이어야 한다 (`HOME.seatWaiting`)
   if (seated === 0) return `아직 없어요 — 시작하면 참가자에게 '${HOME.seatWaiting}' 만 보입니다`;
   if (seated < players) return `${players}명 중 ${seated}명 — 나머지는 자리 탭에서 앉힐 수 있어요`;
@@ -1475,6 +1482,10 @@ export function phaseAction(
     maxParty: number;
     seated?: number;
     players?: number;
+    /** 짜두고 안 보낸 초안이 있나 — 있으면 파티가 열리며 그 초안이 나간다 (ADR-106) */
+    draft?: boolean;
+    /** 보낸 자리가 없을 때 자동 배정이 쓸 테이블 수 (`autoTableCount`). copy 가 seats 를 부르면 모듈이 돌고 돌아서 받아 온다 */
+    autoTables?: number;
     /**
      * 파티 시작 확인창의 **매력 투표 1위** 줄 (ADR-100). 보너스를 켠 회차에서만 넘긴다 —
      * 받을 사람의 닉네임들이고, 빈 배열이면 *받을 사람이 없다* 이다. 안 넘기면 줄이 없다.
@@ -1519,9 +1530,9 @@ export function phaseAction(
            * **누른 뒤에야** 알았다. 막지는 않는다 — 자리 없이 여는 회차도 있다.
            *
            * 이제 자리는 이 버튼이 아니라 **자리 보내기**로 나간다 (ADR-39).
-           * 그래도 여기 남긴다 — 자리 없이 파티를 여는 것은 여전히 알려야 할 일이다.
+           * 보낸 것이 없으면 파티가 열리며 자동으로 나간다 (ADR-106) — 무엇이 나가는지를 이 줄이 말한다.
            */
-          ["배정된 자리", seatedLine(v.seated ?? 0, v.players ?? 0)],
+          ["배정된 자리", seatedLine(v.seated ?? 0, v.players ?? 0, v.draft, v.autoTables)],
           ["프로필 투표", "지금 순위로 마감됩니다"],
           // 1위 보너스 (ADR-100). 누가 받는지 이름으로 말한다 — 규칙 4. 같은 함수(`topVoters`)가 정하므로 실제와 어긋나지 않는다
           ...(v.topVoters ? [["프로필 투표 1위", topVoteLine(v.topVoters)] as Fact] : []),
@@ -2321,6 +2332,12 @@ export const HOST_UI = {
     /** 섞어도 붙어 앉은 쌍은 그대로 둔다 (ADR-23). 그 사실을 그때 말해준다 */
     shuffleKeepsPairs: "이어진 쌍은 자리를 지키고 나머지만 섞여요",
     noRounds: "아직 배정한 자리가 없어요",
+    /**
+     * 파티 전, 보낸 자리가 없을 때 (ADR-106). **무엇이 저절로 나가는지** 말한다 — 모르면 운영자는
+     * 파티 일시에 폰을 꺼내 자리를 짜러 온다. 초안이 있으면 그 초안이 그대로 나간다.
+     */
+    autoAtParty: (tables: number) => `파티가 시작될 때까지 자리를 보내지 않으면 ${tables}테이블로 자동으로 짜서 알려요`,
+    autoDraft: "파티가 시작될 때까지 보내지 않으면 이 초안이 그대로 나가요",
     /**
      * 이 라운드에 아직 자리가 없는 사람 — 발행 뒤에 등록했거나, 배정할 때 뺐거나(ADR-45),
      * 운영자가 자리를 비웠거나. **누르면 앉는다** (슬라이스 11).

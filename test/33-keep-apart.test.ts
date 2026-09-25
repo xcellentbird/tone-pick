@@ -316,7 +316,8 @@ describe("자리 배정 · AI 섞기 · 섞기가 지킨다", () => {
     await setPhase(ev.id, "party");
     await addApart(ev.id, m[0].id, w[0].id);
     await api(`/api/host/events/${ev.id}/seating`, { method: "POST", cookie: master, body: { tableCount: 2 } });
-    const seats = (await api<HostState>(`/api/host/events/${ev.id}/state`, { cookie: master })).body.seatings[0].seats;
+    // 파티가 열리며 1라운드가 자동으로 나갔다 (ADR-106) — 맞바꿀 것은 방금 짠 초안이다
+    const seats = (await api<HostState>(`/api/host/events/${ev.id}/state`, { cookie: master })).body.seatings.find((s) => s.status === "draft")!.seats;
     const tableOf = new Map(seats.map((s) => [s.playerId, s.table]));
     // m0 과 같은 테이블의 여자를 w0 과 맞바꾼다 — 결과로 m0·w0 이 같이 앉는다
     const mate = [w[0].id, w[1].id].find((id) => tableOf.get(id) === tableOf.get(m[0].id))!;

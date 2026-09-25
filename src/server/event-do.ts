@@ -48,7 +48,7 @@ import type {
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
 import { isStageKey, rosterOpen, toMe, toPublic } from "../shared/types.ts";
-import { apartClashes, apartFrom, autoTable, isApart, pairKey, sortPair } from "../shared/seats.ts";
+import { apartClashes, apartFrom, autoTable, autoTableCount, isApart, pairKey, sortPair } from "../shared/seats.ts";
 import { appendPokeLog, pokeLogLine, type PokeLogEntry } from "./poke-log.ts";
 import { ENTRY } from "../shared/copy.ts";
 import { topVoters } from "../shared/poke.ts";
@@ -391,6 +391,8 @@ export class EventDO extends DurableObject {
     if (to === "party") this.freezeTop(meta);
     await this.ctx.storage.put("meta", meta);
     await this.rearm(meta, now);
+    // 버튼은 예약을 앞당길 뿐이다 — 예약으로 열린 파티와 **같은 자리**가 나간다 (ADR-106)
+    if (forward && to === "party") this.autoSeat(meta, now);
     this.broadcast({ type: "phase", phase: meta.phase, fired: meta.fired });
     if (to === "done") this.broadcast({ type: "reveal" });
     return ok(meta);
@@ -1584,6 +1586,13 @@ export class EventDO extends DurableObject {
     const players = this.players().filter((p) => !out.has(p.id));
     if (players.length < tableCount * 2) return fail("bad_request");
 
+    const draft = this.newDraft(players, tableCount, meta, now);
+    this.writeSeating(draft);
+    return ok(draft);
+  }
+
+  /** 다음 라운드의 초안을 짠다. 운영자의 `자리 재배정` 과 파티 시작의 자동 배정(ADR-106)이 같이 쓴다 */
+  private newDraft(players: Player[], tableCount: number, meta: EventMeta, now: number): SeatingRound {
     const published = this.seatings().filter((s) => s.status === "published");
     const round = (published.at(-1)?.round ?? 0) + 1;
     /*
@@ -1602,17 +1611,51 @@ export class EventDO extends DurableObject {
       seed: now,
       apart: this.apartPairs(),
     });
+    return { round, tableCount, status: "draft", seats, acks: [], createdAt: now };
+  }
 
-    const draft: SeatingRound = {
-      round,
-      tableCount,
-      status: "draft",
-      seats,
-      acks: [],
-      createdAt: now,
-    };
+  /**
+   * **파티가 열리는 순간 나간 자리가 없으면 대신 보낸다** (ADR-106).
+   *
+   * 파티는 예약이 연다(ADR-93) — 운영자가 그 시각에 폰을 안 꺼내도 되게 해놓고, 자리 때문에 결국 꺼내야 했다.
+   * 그래서 아무것도 안 나갔을 때만 **바닥**으로 깐다:
+   *
+   * - 운영자가 이미 보낸 자리가 있으면 **손대지 않는다.** 먼저 보내는 것이 여전히 기본 흐름이다 (ADR-39)
+   * - 짜두고 안 보낸 초안이 있으면 **그 초안을 보낸다.** 새로 짜면 손으로 맞바꾼 것이 말없이 풀린다 (ADR-49)
+   * - 없으면 등록한 사람 전원으로, 자리 화면의 기본 테이블 수(`autoTableCount`)로 짠다. 두 명이 안 되면 짜지 않는다
+   *
+   * 참가자 쪽은 새로 만들 것이 없다 — 발행된 자리는 자리 확인이 먼저 뜨고, 그 뒤에 파티 안내가 선다 (ADR-96).
+   */
+  private autoSeat(meta: EventMeta, now: number): void {
+    const all = this.seatings();
+    if (all.some((s) => s.status === "published")) return;
+    let round = all.find((s) => s.status === "draft");
+    if (!round) {
+      const players = this.players();
+      const tableCount = autoTableCount(players.length);
+      if (players.length < tableCount * 2) return;
+      round = this.newDraft(players, tableCount, meta, now);
+    }
+    this.publishRound(round, now);
+  }
+
+  /** 초안을 참가자에게 내보낸다. 운영자의 `자리 확정하고 알리기` 와 자동 배정이 같이 쓴다 */
+  private publishRound(draft: SeatingRound, now: number) {
+    draft.status = "published";
+    draft.publishedAt = now;
+    draft.acks = [];
     this.writeSeating(draft);
-    return ok(draft);
+    /*
+     * **전원에게 보낸다.** 자리에 앉은 사람에게만 개인 소켓으로 보내면 두 곳에서 샌다 —
+     * 반쯤 죽은 소켓(폰 잠금·통신망 전환)에는 send 가 성공한 척 사라지고,
+     * 참가자 식별이 붙지 않은 소켓은 영영 매칭되지 않는다. 둘 다 조용해서 알림이
+     * 사라진 게 아니라 **늦게, 엉뚱한 순간에** 뜬다 (다음 리로드 때).
+     *
+     * 클라이언트는 어차피 내용을 읽지 않고 "다시 읽어라" 로만 쓴다 (ADR-26).
+     * 자리 확정은 파티당 서너 번뿐이라 전원에게 보내도 비용이 무시할 수준이다.
+     * 반대로 콕(`poke`)은 받은 횟수가 개인 정보고 빈도도 높아 개인 전송으로 남긴다.
+     */
+    this.broadcast({ type: "seating", round: draft.round });
   }
 
   /**
@@ -1877,22 +1920,7 @@ export class EventDO extends DurableObject {
     if (!(await this.seatsOpen())) return fail("closed");
     const draft = this.seatings().find((s) => s.status === "draft");
     if (!draft) return fail("not_found");
-    draft.status = "published";
-    draft.publishedAt = now;
-    draft.acks = [];
-    this.writeSeating(draft);
-
-    /*
-     * **전원에게 보낸다.** 자리에 앉은 사람에게만 개인 소켓으로 보내면 두 곳에서 샌다 —
-     * 반쯤 죽은 소켓(폰 잠금·통신망 전환)에는 send 가 성공한 척 사라지고,
-     * 참가자 식별이 붙지 않은 소켓은 영영 매칭되지 않는다. 둘 다 조용해서 알림이
-     * 사라진 게 아니라 **늦게, 엉뚱한 순간에** 뜬다 (다음 리로드 때).
-     *
-     * 클라이언트는 어차피 내용을 읽지 않고 "다시 읽어라" 로만 쓴다 (ADR-26).
-     * 자리 확정은 파티당 서너 번뿐이라 전원에게 보내도 비용이 무시할 수준이다.
-     * 반대로 콕(`poke`)은 받은 횟수가 개인 정보고 빈도도 높아 개인 전송으로 남긴다.
-     */
-    this.broadcast({ type: "seating", round: draft.round });
+    this.publishRound(draft, now);
     return ok(draft);
   }
 
@@ -1917,6 +1945,11 @@ export class EventDO extends DurableObject {
     if (moved) {
       await this.ctx.storage.put("meta", meta);
       await this.rearm(meta, now);
+      /*
+       * 예약이 **이번에** 파티를 열었으면 자리도 보낸다 (ADR-106). 같은 두드림에 발표까지 넘어갔으면 보내지 않는다 —
+       * 발표만이 자리를 끝내고(ADR-28), 끝난 뒤에 보낸 자리는 아무도 못 본다.
+       */
+      if (meta.phase === "party" && meta.fired.party === now) this.autoSeat(meta, now);
       this.broadcast({ type: "phase", phase: meta.phase, fired: meta.fired });
       if (meta.phase === "done") this.broadcast({ type: "reveal" });
     }
