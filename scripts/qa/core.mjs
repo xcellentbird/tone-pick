@@ -376,6 +376,36 @@ const ELSEWHERE = new Set(["open", "close", "snap", "now", "keep", "quit", "exit
 /** 명령 하나가 QA 를 부를 수 있는 횟수의 끝. 한 요청의 서브요청 상한(무료 50) 아래에 둔다 — 묶음 명령이 이걸 넘지 않는다 */
 export const BULK_MAX = 40;
 
+/**
+ * 등록과 자동 콕은 QA 를 이만큼까지 겹쳐 부른다 (ADR-99 후기 7). 차례로 부르면 콕마다 QA 가 콕 로그 파일을
+ * R2 에 다시 쓰는 것(ADR-84)을 기다려서 그 기다림이 콕 수만큼 쌓였다. 겹치면 기다림이 겹치고, QA 는 쓰는 동안
+ * 들어온 줄을 모아 한 번에 쓴다. **부르는 횟수는 그대로다** — 하루 상한도 `BULK_MAX` 도 바뀌지 않는다.
+ */
+export const PARALLEL = 6;
+
+/**
+ * `items` 를 `PARALLEL` 개까지 겹쳐 `fn` 에 넘긴다. `fn` 이 `false` 를 돌려주거나 던지면 **새로 시작하지 않고**,
+ * 이미 떠난 것은 끝까지 기다린다 — 늦게 돌아온 호출이 저장한 뒤의 스테이지를 고치지 않게. 던진 것은 모두 돌아온 뒤에
+ * 처음 것 하나를 다시 던진다 (하루 상한은 `stage-do.ts` 가 부르기 전에 던진다).
+ */
+async function inParallel(items, fn) {
+  let next = 0;
+  let halted = false;
+  let thrown = null;
+  const lane = async () => {
+    while (!halted && next < items.length) {
+      try {
+        if ((await fn(items[next++])) === false) halted = true;
+      } catch (e) {
+        halted = true;
+        thrown ??= { e };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PARALLEL, items.length) }, lane));
+  if (thrown) throw thrown.e;
+}
+
 /** 남녀 인원. `people` 만 오면 반씩 — 홀수면 남이 하나 많다 (번호가 남부터 시작해서) */
 function headcount(want) {
   if (want.men !== undefined || want.women !== undefined) {
@@ -575,9 +605,15 @@ function makeStage(env, { tables = 2 } = {}) {
      * 명단에서 `max` 명을 등록하고 남은 수를 돌려준다. 한 사람이 실패해도 멈추지 않는다 — 로그에 남기고 넘어간다.
      */
     async enrollSome(max = Infinity) {
-      for (const item of stage.pending.splice(0, max)) {
-        const p = await stage.enroll(item);
-        if (p) stage.cast.push(p);
+      // 사람끼리는 겹쳐 등록한다 (`PARALLEL`) — 한 사람의 입장과 등록은 `enroll` 안에서 차례다
+      try {
+        await inParallel(stage.pending.splice(0, max), async (item) => {
+          const p = await stage.enroll(item);
+          if (p) stage.cast.push(p);
+        });
+      } finally {
+        // 끝난 순서대로 붙어서 섞였다 — 스테이지 화면의 단추도, 번호로 부르는 명령도 번호 순서를 믿는다
+        stage.cast.sort((a, b) => a.n - b.n);
       }
       if (!stage.pending.length) {
         const m = stage.cast.filter((p) => p.gender === "M").length;
@@ -612,17 +648,21 @@ function makeStage(env, { tables = 2 } = {}) {
 
     /**
      * 자동 콕 줄(`backlog`)에서 QA 를 많아야 `max` 번 불러 보낸다. 남은 수를 돌려준다.
-     * 그사이 손으로 찔러 상한에 닿은 사람은 건너뛰고, 단계가 닫혔으면 줄을 비운다.
+     * `PARALLEL` 개까지 겹쳐 보낸다. 그사이 손으로 찔러 상한에 닿은 사람은 건너뛰고, 단계가 닫혔으면 줄을 비운다 —
+     * 그때 이미 떠난 콕은 돌아올 때까지 기다린다.
      */
     async drain(max = BULK_MAX) {
       const run = stage.autoRun;
-      let calls = 0;
-      while (stage.backlog.length && calls < max) {
+      // 이번 몫을 줄에서 꺼낸다 — 사람을 못 찾는 줄은 부르지 않으므로 몫에 세지 않는다
+      const batch = [];
+      while (stage.backlog.length && batch.length < max) {
         const { from: a, to: b, round } = stage.backlog.shift();
         const from = stage.persona(a);
         const to = stage.persona(b);
-        if (!from || !to) continue;
-        calls++;
+        if (from && to) batch.push({ a, b, round, from, to });
+      }
+      let stopped = null;
+      await inParallel(batch, async ({ a, b, round, from, to }) => {
         const res = await from.session.call("/poke", { method: "POST", body: { toId: to.id } });
         if (res.status === 200) {
           ((stage.autoSent[round] ??= {})[a] ??= []).push(b);
@@ -630,14 +670,18 @@ function makeStage(env, { tables = 2 } = {}) {
             run.pokes[from.gender]++;
             if (!run.senders[from.gender].includes(a)) run.senders[from.gender].push(a);
           }
-          continue;
+          return true;
         }
         // 그사이 손으로 찔러 상한에 닿았다 — 그 사람만 건너뛴다
-        if (res.body?.error === "no_budget") continue;
+        if (res.body?.error === "no_budget") return true;
+        stopped ??= res;
+        return false;
+      });
+      if (stopped) {
         stage.backlog = [];
         stage.autoRun = null;
-        if (res.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 찌를 수 없어요. 매력 투표가 마감됐거나 매칭 확인이 열렸어요");
-        else fail("자동 콕", res);
+        if (stopped.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 찌를 수 없어요. 매력 투표가 마감됐거나 매칭 확인이 열렸어요");
+        else fail("자동 콕", stopped);
         return 0;
       }
       if (run && stage.backlog.length) {
