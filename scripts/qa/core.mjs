@@ -1,7 +1,7 @@
 /**
- * 무대의 핵심 — 배역 · 명령 · 리모컨 페이지 (슬라이스 35, ADR-97).
+ * 스테이지의 핵심 — 가짜 참가자 · 명령 · 리모컨 페이지 (슬라이스 35, ADR-97).
  *
- * **CLI(`stage.mjs`)와 무대 워커(`worker/`)가 이 파일 하나를 같이 쓴다.** 그래서 여기에는
+ * **CLI(`stage.mjs`)와 스테이지 워커(`worker/`)가 이 파일 하나를 같이 쓴다.** 그래서 여기에는
  * `node:` 모듈도 `process` 도 없다 — 워커 안에서도 돌아야 한다. 밖과 닿는 길은 넷뿐이고 전부
  * 부르는 쪽이 넣어 준다:
  *
@@ -15,14 +15,14 @@
  *
  * ⚠️ **표적을 고르는 입력을 여기 두지 마라** (S-A2). `base` 는 부르는 쪽의 설정이 정한다 —
  * 명령(`run`)이 주소나 워커 이름을 받는 순간 공개된 워커에서 프로덕션을 겨눌 수 있다.
- * ⚠️ **경로를 받아 QA 로 넘기는 명령도 두지 마라** — 무대 워커가 국가 문 우회로가 된다 (ADR-97 후기).
+ * ⚠️ **경로를 받아 QA 로 넘기는 명령도 두지 마라** — 스테이지 워커가 국가 문 우회로가 된다 (ADR-97 후기).
  * QA 를 부르는 경로는 아래 `run` 의 갈래에 박힌 것뿐이다.
  *
- * **전부 공개 API 다** (ADR-7 후기). 앱에 시연 코드를 넣지 않는다 — 배역은 실제 경로
+ * **전부 공개 API 다** (ADR-7 후기). 앱에 시연 코드를 넣지 않는다 — 가짜 참가자는 실제 경로
  * (`/enter` → `/register`)로 등록하고, 사람마다 세션 쿠키를 따로 든다. **번호는 전부 가짜다.**
  */
 
-/** 배역 PIN 번호. 전원 같다 — 회차마다, 사람마다 따로라 같아도 된다 */
+/** 가짜 참가자의 PIN 번호. 모두 같다 — 회차마다, 사람마다 따로라 같아도 된다 */
 export const STAGE_PIN = "2468";
 
 /** 닉네임·실명에 숫자를 쓸 수 없다 — 일련번호를 한글로 읽는다 (rehearsal.mjs 와 같은 표) */
@@ -40,14 +40,14 @@ const CHARMS = [
 
 /**
  * 가짜 번호 (S-C2). **실제 번호가 들어올 입력이 없다** — 번호는 여기서만 만든다.
- * 무대를 만든 시각의 끝 네 자리로 무대끼리 갈라, 나란히 선 두 무대가 같은 번호를 쓰지 않게 한다.
+ * 스테이지를 만든 시각의 끝 네 자리로 스테이지끼리 갈라, 동시에 있는 두 스테이지가 같은 번호를 쓰지 않게 한다.
  */
 const fakePhone = (stamp, n) => `010${String(stamp).slice(-4)}${String(n).padStart(4, "0")}`;
 
 /** 회차 설정 기본값. 앱 기본에 알림만 켠 것 — 받은 콕이 방송으로 닿는 순간을 보는 게 QA 의 절반이라 */
 export const STAGE_CONFIG = { maxPre: 1, maxParty: 2, preNotify: true, pokeNotify: true };
 
-// ─────────────────────────────────────────── 난수 — 무대마다 같은 것
+// ─────────────────────────────────────────── 난수 — 스테이지마다 같은 것
 
 /** 문자열 → 32비트 (FNV-1a). 씨앗을 섞는 데만 쓴다 */
 function hash32(s) {
@@ -60,7 +60,7 @@ function hash32(s) {
 }
 
 /**
- * 씨앗 하나로 도는 난수 (mulberry32). **같은 씨앗이면 같은 수열이다** — 무대가 만든 시각을 씨앗으로 쓰면
+ * 씨앗 하나로 도는 난수 (mulberry32). **같은 씨앗이면 같은 수열이다** — 스테이지가 만든 시각을 씨앗으로 쓰면
  * 명령을 여러 번 쳐도 같은 사람이 같은 인기 · 같은 성향으로 남는다.
  */
 export function seeded(seed) {
@@ -88,7 +88,7 @@ function shuffle(xs, rng = Math.random) {
 /** 앱이 받는 나이. `src/shared/constants.ts` 의 `AGE_RANGE` 와 같아야 한다 (테스트가 맞춰 본다) */
 export const AGE_LIMIT = { min: 18, max: 48 };
 
-/** 무대를 세울 때 고르지 않으면 이 나이로 — 평균과 범위 */
+/** 스테이지를 만들 때 고르지 않으면 이 나이로 — 평균과 범위 */
 export const STAGE_AGES = { M: { avg: 32, min: 27, max: 38 }, F: { avg: 29, min: 25, max: 34 } };
 
 /**
@@ -169,7 +169,7 @@ const AUTO_POKE = {
   pace: (k) => Math.min(0.2, 0.08 + 0.03 * (Math.max(1, k) - 1)),
 };
 
-/** 이 사람이 이 라운드에 쓰려는 콕 수 — 무대마다, 사람마다, 라운드마다 정해져 있다 (씨앗) */
+/** 이 사람이 이 라운드에 쓰려는 콕 수 — 스테이지마다, 사람마다, 라운드마다 정해져 있다 (씨앗) */
 function intentOf(seed, round, p, max) {
   const { full, half } = AUTO_POKE.habit[p.gender];
   const u = seeded(`${seed}:habit:${round}:${p.n}`)();
@@ -205,13 +205,13 @@ function appealWeights(count, share) {
  * 매력 투표는 한 번뿐이라 늘 `last` 다.
  *
  * @param {object} a
- * @param {{ n: number, gender: "M" | "F" }[]} a.cast   지금 회차에 있는 배역
+ * @param {{ n: number, gender: "M" | "F" }[]} a.cast   지금 회차에 있는 가짜 참가자
  * @param {Record<number, number>} [a.used]  번호 → 이 라운드에 이미 쓴 콕
  * @param {number} a.max       한 사람의 상한 (이 라운드)
  * @param {"pre" | "party"} a.round
  * @param {number} [a.k]       자리 라운드 (1부터)
  * @param {boolean} [a.last]   마지막 자리 — 마음먹은 만큼 다 쓴다
- * @param {unknown} a.seed     무대의 씨앗 — 인기와 성향이 여기서 정해진다
+ * @param {unknown} a.seed     스테이지의 씨앗 — 인기와 성향이 여기서 정해진다
  * @param {() => number} [a.rng]  이번 판의 난수
  * @param {Record<number, number[]>} [a.history]  번호 → 앞서 자동으로 찌른 상대
  * @returns {[number, number][]}
@@ -245,7 +245,7 @@ export function planPokes({ cast, used = {}, max, round, k = 1, last = false, se
   return shuffle(plan, rng);
 }
 
-/** 이 무대가 끝났을 때 남는 줄 수. 리모컨은 그중 뒤 60줄을 본다 (S-D3) */
+/** 이 스테이지가 끝났을 때 남는 줄 수. 리모컨은 그중 뒤 60줄을 본다 (S-D3) */
 const LOG_MAX = 200;
 export const LOG_VIEW = 60;
 
@@ -265,7 +265,7 @@ export function createLog(print = () => {}, lines = []) {
   };
 }
 
-/** 무대를 못 세웠다. `code` 로 부르는 쪽이 자기 말로 바꿔 말한다 (CLI 는 터미널 안내를 붙인다) */
+/** 스테이지를 만들지 못했다. `code` 로 부르는 쪽이 자기 말로 바꿔 말한다 (CLI 는 터미널 안내를 붙인다) */
 export class StageError extends Error {
   constructor(code, message) {
     super(message);
@@ -275,7 +275,7 @@ export class StageError extends Error {
 
 /**
  * 쿠키를 손으로 들고 다니는 HTTP 클라이언트. **사람마다 하나** — 세션이 달라야 하니 한 통을 못 쓴다.
- * `onSkew` 로 서버 시각과의 차이를 무대에 알린다 (`schedule +30s` 가 서버 시계로 잰다).
+ * `onSkew` 로 서버 시각과의 차이를 스테이지에 알린다 (`schedule +30s` 가 서버 시계로 잰다).
  */
 function client(env, saved, onSkew = () => {}) {
   const cookies = new Map(Object.entries(saved?.cookies ?? {}));
@@ -321,9 +321,9 @@ const dur = (s) => {
   return m ? Number(m[1]) * { s: 1000, m: 60_000, h: 3600_000 }[m[2]] : null;
 };
 
-/** 어느 무대에나 있는 명령. 무대마다 더하는 것(창 벽 등)은 부르는 쪽이 `help` 에 덧붙인다 */
+/** 어느 스테이지에나 있는 명령. 스테이지마다 더하는 것(창 벽 등)은 부르는 쪽이 `help` 에 덧붙인다 */
 export const HELP = `
-  cast                    배역 명단 (번호 · 닉네임 · 성별 · 번호 · PIN)
+  cast                    가짜 참가자 명단 (번호, 닉네임, 성별, 전화번호, PIN)
   state                   회차 단계 · 콕 수 · 자리 라운드
   poke A B  /  unpoke A B  A가 B를 콕 (매력 투표 중이면 표, 파티 중이면 콕) · 되돌리기
   mutual A B              A→B, B→A 를 한 번에
@@ -331,8 +331,8 @@ export const HELP = `
   voteend                 매력 투표 지금 마감
   seating T [-x A,B]      자리 초안 (T 테이블, -x 뺄 사람) · publish · shuffle · swap A B · seat A · unseat A · discard
   announce 문구 [| 보기A | 보기B]   운영자 알림 (보기 둘을 주면 투표)
-  auto [last]             자동 콕 — 실제 파티처럼. 남자는 거의 다 쓰고 몇 명에게 몰리고, 여자는 절반쯤
-                          안 쓰거나 덜 쓰고 두 배 넓게 흩어진다. 뒤 자리일수록 많고, last 는 마지막 자리
+  auto [last]             자동 콕 — 실제 파티처럼. 남자는 대부분 다 쓰고 콕이 여자 몇 명에게 몰린다. 여자는 절반 정도가
+                          안 쓰거나 일부만 쓰고 두 배 넓게 나눠 찌른다. 뒤 자리일수록 많이 찌른다. last 는 마지막 자리
   spray [N]               콕 뿌리기 — 남은 콕을 아무 이성에게 N번 (기본 20, 많아야 40)
   crowd A [N]             콕 모으기 — A 에게 이성 N명이 한 번씩 (기본 5)
   pairs [N]               서로 콕 N쌍 — 남녀를 무작위로 짝지어 (기본 3, 많아야 10)
@@ -345,8 +345,8 @@ export const HELP = `
 `;
 
 /**
- * 어떤 무대에는 없는 명령 (S-C4). **조용히 무시하지 않는다** — 그러면 명령을 잘못 친 줄 안다.
- * 무대가 `platform` 으로 직접 맡으면 그쪽이 먼저다.
+ * 어떤 스테이지에는 없는 명령 (S-C4). **조용히 무시하지 않는다** — 그러면 명령을 잘못 친 줄 안다.
+ * 스테이지가 `platform` 으로 직접 맡으면 그쪽이 먼저다.
  */
 const ELSEWHERE = new Set(["open", "close", "snap", "now", "keep", "quit", "exit"]);
 
@@ -378,13 +378,13 @@ function genders(men, women) {
 export const autoTables = (people) => Math.max(1, Math.min(12, Math.round(people / 6), Math.floor(people / 2)));
 
 /**
- * 무대를 새로 세운다 (S-C1) — **세 걸음**이다.
+ * 스테이지를 새로 만든다 (S-C1) — **세 걸음**이다.
  *
  *   beginStage        환경 확인 → 운영자 로그인 → 회차 만들기 → 명단에 가짜 번호 전원
  *   stage.enrollSome  명단에서 몇 명씩 **실제 경로로** 등록한다 (입장 → 등록)
  *   stage.gotoPhase   원하는 단계까지
  *
- * 나눈 까닭은 온라인 무대다. 요청 하나가 QA 를 부를 수 있는 횟수에 끝이 있는데(서브요청 상한) 100명이면
+ * 나눈 까닭은 온라인 스테이지다. 요청 하나가 QA 를 부를 수 있는 횟수에 끝이 있는데(서브요청 상한) 100명이면
  * 등록만 200번이다 — 워커는 걸음을 여러 요청에 나눠 부른다 (슬라이스 37). CLI 와 테스트는 `buildStage` 로 한 번에.
  *
  * 인원은 **남녀를 따로** 받는다(`men` · `women`). `people` 만 주면 반씩 나눈다.
@@ -399,14 +399,14 @@ export async function beginStage(env, want) {
     .fetch(`${env.base}/api/health`)
     .then((r) => r.json())
     .catch(() => null);
-  if (!health?.ok) throw new StageError("unreachable", `${env.publicBase ?? env.base} 에 닿지 못했습니다.`);
+  if (!health?.ok) throw new StageError("unreachable", `${env.publicBase ?? env.base}에 연결하지 못했어요.`);
   // 연습용 환경에만 선다 — QA 에만 있는 `ENV_LABEL` 이 그 증거다 (리허설과 같은 가드)
   if (want.practiceOnly && !health.label) {
-    throw new StageError("not_practice", "연습용 환경이 아닙니다 (ENV_LABEL 없음). 프로덕션에는 무대를 세우지 않습니다.");
+    throw new StageError("not_practice", "연습용 서버가 아니에요 (ENV_LABEL 이 없어요). 프로덕션에는 스테이지를 만들지 않아요.");
   }
   log.say(`환경 ${health.label ?? "로컬"} · ${env.publicBase ?? env.base}`);
 
-  if (!want.pin) throw new StageError("no_pin", "운영자 PIN 이 없습니다.");
+  if (!want.pin) throw new StageError("no_pin", "운영자 PIN 이 없어요.");
   const { men, women } = headcount(want);
   const stage = makeStage(env, { tables: want.tables ?? autoTables(men + women) });
   stage.ages = { M: ageRange(want.ages?.M, STAGE_AGES.M), F: ageRange(want.ages?.F, STAGE_AGES.F) };
@@ -420,7 +420,8 @@ export async function beginStage(env, want) {
   const made = await h.call("/host/events", {
     method: "POST",
     body: {
-      name: `무대 ${new Date(stamp).toTimeString().slice(0, 5)}`,
+      // 한국 시간으로 — 워커의 시계는 UTC 라 그대로 쓰면 운영자 콘솔에 아홉 시간 전 시각이 뜬다
+      name: `스테이지 ${new Date(stamp + 9 * 3600_000).toISOString().slice(11, 16)}`,
       partyAt,
       prevoteAt: stamp + 3600_000,
       voteEndAt: partyAt - 3600_000,
@@ -443,8 +444,8 @@ export async function beginStage(env, want) {
     const phones = stage.pending.map((p) => p.phone);
     const inv = await h.call(`/host/events/${stage.event.id}/invites`, { method: "POST", body: { phones } });
     if (inv.status !== 200) throw new StageError("invites", failText("초대 명단", inv));
-    const ageText = ({ avg, min, max }) => `평균 ${avg}살 (${min}~${max})`;
-    log.say(`명단 ${men + women}명 (남 ${men} · 여 ${women}) · 나이 남 ${ageText(stage.ages.M)} · 여 ${ageText(stage.ages.F)}`);
+    const ageText = ({ avg, min, max }) => `${avg}세 (${min}~${max})`;
+    log.say(`명단 ${men + women}명 (남 ${men}, 여 ${women}), 평균 나이 남 ${ageText(stage.ages.M)}, 여 ${ageText(stage.ages.F)}`);
     await env.onChange?.(stage);
   } catch (e) {
     await stage.close().catch(() => {});
@@ -453,7 +454,7 @@ export async function beginStage(env, want) {
   return stage;
 }
 
-/** 한 번에 세운다 — CLI 와 테스트의 길. 걸음마다 실패하면 회차를 지우고 던진다 */
+/** 한 번에 만든다 — CLI 와 테스트의 길. 걸음마다 실패하면 회차를 지우고 던진다 */
 export async function buildStage(env, want) {
   const stage = await beginStage(env, want);
   try {
@@ -466,7 +467,7 @@ export async function buildStage(env, want) {
   return stage;
 }
 
-/** 저장해 둔 무대에 다시 붙는다. 세션 쿠키째 되살리므로 배역을 새로 만들지 않는다 */
+/** 저장해 둔 스테이지에 다시 붙는다. 세션 쿠키째 되살리므로 가짜 참가자를 새로 만들지 않는다 */
 export function restoreStage(env, saved) {
   const stage = makeStage(env, { tables: saved.tables });
   stage.event = saved.event;
@@ -499,7 +500,7 @@ function makeStage(env, { tables = 2 } = {}) {
     cast: [],
     /** 명단에는 넣었지만 아직 등록하지 않은 사람 — `enrollSome` 이 앞에서부터 뺀다 */
     pending: [],
-    /** 마지막으로 넘긴 단계. 무대가 기억하는 값일 뿐이고 참은 운영자 콘솔이다 */
+    /** 마지막으로 넘긴 단계. 스테이지가 기억하는 값일 뿐이고 참은 운영자 콘솔이다 */
     phase: "reg",
     tables,
     stamp: 0,
@@ -523,7 +524,7 @@ function makeStage(env, { tables = 2 } = {}) {
       return stage.cast.find((p) => String(p.n) === s || p.nickname === s || p.id === s) ?? null;
     },
 
-    /** 저장할 모양. 세션 쿠키가 들어 있다 — **가짜 참가자의 것뿐**이고, 무대를 닫으면 지운다 */
+    /** 저장할 모양. 세션 쿠키가 들어 있다 — **가짜 참가자의 것뿐**이고, 스테이지를 닫으면 지운다 */
     toJSON() {
       return {
         event: stage.event,
@@ -554,13 +555,13 @@ function makeStage(env, { tables = 2 } = {}) {
       }
       if (!stage.pending.length) {
         const m = stage.cast.filter((p) => p.gender === "M").length;
-        say(`배역 ${stage.cast.length}명 등록 (남 ${m} · 여 ${stage.cast.length - m}, PIN 번호는 전원 ${STAGE_PIN})`);
+        say(`가짜 참가자 ${stage.cast.length}명 등록 (남 ${m}, 여 ${stage.cast.length - m}, PIN 번호는 모두 ${STAGE_PIN})`);
       }
       await env.onChange?.(stage);
       return stage.pending.length;
     },
 
-    /** 배역 하나를 실제 경로로 등록한다 — 명단 확인(초대 쿠키) → 등록(참가자 쿠키). 나이가 없으면 그 성별의 분포에서 뽑는다 */
+    /** 가짜 참가자 한 명을 실제 경로로 등록한다 — 명단 확인(초대 쿠키) → 등록(참가자 쿠키). 나이가 없으면 그 성별의 분포에서 뽑는다 */
     async enroll({ n, gender, phone, age = Math.round(ageAt(Math.random(), stage.ages[gender])) }) {
       const i = n - 1;
       const session = stage.newClient();
@@ -609,15 +610,25 @@ function makeStage(env, { tables = 2 } = {}) {
         if (res.body?.error === "no_budget") continue;
         stage.backlog = [];
         stage.autoRun = null;
-        if (res.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 받지 않아요. 매력 투표가 마감됐거나 파티가 끝났어요");
+        if (res.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 찌를 수 없어요. 매력 투표가 마감됐거나 커플 발표가 끝났어요");
         else fail("자동 콕", res);
         return 0;
       }
       if (run && stage.backlog.length) {
-        say(`  … 자동 콕 ${run.pokes.M + run.pokes.F}/${run.total} — 이어서 보내요`);
+        say(`  … 자동 콕 보내는 중 (${run.pokes.M + run.pokes.F}/${run.total})`);
       } else if (run) {
-        const part = (g, who) => `${who} ${run.of[g]}명 중 ${run.senders[g].length}명이 ${run.pokes[g]}번`;
-        say(`  ✓ 자동 콕 · ${run.what} — ${part("M", "남")}, ${part("F", "여")}`);
+        // 매력 투표에서는 콕이 곧 표다 — `남자 10명 중 9명이 9표를 냈어요`
+        const vote = run.round === "pre";
+        const who = { M: "남자", F: "여자" };
+        const did = ["M", "F"]
+          .filter((g) => run.senders[g].length)
+          .map((g) => `${who[g]} ${run.of[g]}명 중 ${run.senders[g].length}명이 ${run.pokes[g]}${vote ? "표" : "번"}`);
+        const idle = ["M", "F"].filter((g) => !run.senders[g].length).map((g) => who[g]);
+        const verb = vote ? ["를 냈어요", "투표하지 않았어요"] : [" 찔렀어요", "찌르지 않았어요"];
+        const text = !did.length
+          ? `아무도 ${verb[1]}`
+          : `${did.join(", ")}${verb[0]}${idle.length ? `. ${idle[0]}는 아무도 ${verb[1]}` : ""}`;
+        say(`  ✓ 자동 콕 (${run.what}) — ${text}`);
         stage.autoRun = null;
       }
       return stage.backlog.length;
@@ -638,7 +649,7 @@ function makeStage(env, { tables = 2 } = {}) {
     },
 
     /**
-     * 무대를 닫는다 (S-C3). `keep` 이 아니면 회차를 지운다 — 가짜 참가자라도 QA 에 쌓아 두지 않는다.
+     * 스테이지를 닫는다 (S-C3). `keep` 이 아니면 회차를 지운다 — 가짜 참가자라도 QA 에 쌓아 두지 않는다.
      * @returns {Promise<boolean>} 회차를 지웠는가 (이미 지웠거나 남기기로 했으면 false)
      */
     async close({ keep = false } = {}) {
@@ -653,7 +664,7 @@ function makeStage(env, { tables = 2 } = {}) {
       return false;
     },
 
-    /** 명령 한 줄. 무대마다 더한 명령(`env.platform`)이 먼저다 */
+    /** 명령 한 줄. 스테이지마다 더한 명령(`env.platform`)이 먼저다 */
     async run(line) {
       return runLine(env, stage, line, { say, fail });
     },
@@ -661,7 +672,7 @@ function makeStage(env, { tables = 2 } = {}) {
     /**
      * CLI 의 폰 리모컨 (S-D1) — 같은 Wi-Fi 에서 여는 페이지다. **주소를 상대 경로로 부른다**(`cmd`·`log`).
      * 로그는 1.5초마다 다시 읽는다 — 터미널로 친 명령도 로그에 쓰므로 그래야 보이고, 로컬이라 한도와 상관없다.
-     * 온라인 무대의 화면은 이것이 아니다 — 무대 워커의 `worker/view.ts` 가 틀 여럿을 한 탭에 띄운다 (슬라이스 37).
+     * 온라인 스테이지의 화면은 이것이 아니다 — 스테이지 워커의 `worker/view.ts` 가 틀 여럿을 한 탭에 띄운다 (슬라이스 37).
      */
     remotePage({ chips = [] } = {}) {
       const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -674,7 +685,7 @@ function makeStage(env, { tables = 2 } = {}) {
       const all = ["cast", "state", "phase prevote", "voteend", `seating ${stage.tables}`, "publish", "shuffle", "phase party", "phase done", "auto", "auto last", "pairs", "late", ...chips];
       const chipHtml = all.map((c) => `<button data-cmd="${esc(c)}">${esc(c)}</button>`).join("");
       return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>무대 · ${esc(stage.event.code)}</title>
+<title>스테이지 · ${esc(stage.event.code)}</title>
 <style>
 body{margin:0;padding:12px;font:16px/1.5 system-ui;background:#111;color:#eee}
 h1{font-size:18px;margin:0 0 8px}small{color:#9a9}
@@ -684,7 +695,7 @@ button{font-size:16px;padding:12px 14px;border-radius:10px;border:0;background:#
 table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}td{padding:6px 4px;border-bottom:1px solid #333}
 pre{background:#000;padding:10px;border-radius:10px;font-size:13px;white-space:pre-wrap;max-height:40vh;overflow:auto}
 </style>
-<h1>무대 ${esc(stage.event.code)} <small>${esc(env.publicBase ?? env.base)}</small></h1>
+<h1>스테이지 ${esc(stage.event.code)} <small>${esc(env.publicBase ?? env.base)}</small></h1>
 <form id="f"><input id="c" placeholder="poke 3 5" autocomplete="off" autocapitalize="off"><button>실행</button></form>
 <div class="chips">${chipHtml}</div>
 <table>${rows}</table>
@@ -713,7 +724,7 @@ async function runLine(env, stage, line, { say, fail }) {
   const pair = () => {
     const a = stage.persona(rest[0]);
     const b = stage.persona(rest[1]);
-    if (!a || !b) say("  ? 두 사람이 필요합니다 (번호 또는 닉네임)");
+    if (!a || !b) say("  ? 두 사람을 적어주세요 (번호나 닉네임)");
     return a && b ? [a, b] : null;
   };
   const ok = (what, res) => (res.status === 200 ? say(`  ✓ ${what}`) : fail(what, res));
@@ -724,7 +735,7 @@ async function runLine(env, stage, line, { say, fail }) {
   };
   const shuffled = (xs) =>
     xs.map((x) => [Math.random(), x]).sort((a, b) => a[0] - b[0]).map(([, x]) => x);
-  /** 콕을 보낼 상대 — 이성. 동성 콕을 허용한 회차라도 무대는 이성에게만 뿌린다 (앱의 기본 모양) */
+  /** 콕을 보낼 상대 — 이성. 동성 콕을 허용한 회차라도 스테이지는 이성에게만 뿌린다 (앱의 기본 모양) */
   const others = (p) => stage.cast.filter((q) => q.gender !== p.gender);
   /** 자리 조작의 표적 라운드. 초안이 있으면 그것(round 생략), 없으면 마지막 발행 라운드 — 화면이 아는 것을 여기선 물어본다 */
   const roundOf = async () => {
@@ -767,7 +778,9 @@ async function runLine(env, stage, line, { say, fail }) {
     case "phase": {
       const res = await H("/phase", { method: "POST", body: { to: rest[0] } });
       if (res.status === 200) stage.phase = rest[0];
-      return ok(`단계 → ${rest[0]}`, res);
+      // 단추 이름과 같은 말로 — 영어 단계 이름(prevote)은 명령에만 쓴다
+      const done = { reg: "등록 단계로", prevote: "매력 투표 시작", party: "파티 시작", done: "커플 발표" }[rest[0]];
+      return ok(done ?? `단계 → ${rest[0]}`, res);
     }
     case "voteend":
       return ok("매력 투표 마감", await H("/vote-end", { method: "POST" }));
@@ -828,7 +841,7 @@ async function runLine(env, stage, line, { say, fail }) {
         else if (res.body.error === "no_budget") spent.add(from.id);
         else return fail("콕 뿌리기", res);
       }
-      if (!made) return say("  ? 콕을 보낼 수 있는 사람이 없어요 — 다 썼거나 이성이 없어요");
+      if (!made) return say("  ? 콕을 보낼 수 있는 사람이 없어요. 모두 콕을 다 썼거나 이성이 없어요");
       return say(`  ✓ 콕 ${made}번 뿌림${spent.size ? ` · 다 쓴 사람 ${spent.size}명` : ""}`);
     }
     case "auto": {
@@ -837,9 +850,9 @@ async function runLine(env, stage, line, { say, fail }) {
       const st = await H("/state");
       if (st.status !== 200) return fail("자동 콕", st);
       const { meta, players, sent, seatings } = st.body;
-      // 운영자 틀에서 단계를 넘겼을 수 있다 — 무대가 기억하는 단계를 콘솔에 맞춘다
+      // 운영자 틀에서 단계를 넘겼을 수 있다 — 스테이지가 기억하는 단계를 콘솔에 맞춘다
       stage.phase = meta.phase;
-      if (meta.phase !== "prevote" && meta.phase !== "party") return say("  ? 자동 콕은 매력 투표나 파티 중에만 돼요");
+      if (meta.phase !== "prevote" && meta.phase !== "party") return say("  ? 자동 콕은 매력 투표나 파티 중에만 쓸 수 있어요");
       const round = meta.phase === "prevote" ? "pre" : "party";
       const k = Math.max(1, ...(seatings ?? []).filter((r) => r.status === "published").map((r) => r.round));
       const here = new Set(players.map((p) => p.id));
@@ -854,14 +867,17 @@ async function runLine(env, stage, line, { say, fail }) {
         seed: stage.stamp,
         history: stage.autoSent[round] ?? {},
       });
-      const what = round === "pre" ? "매력 투표" : last ? `마지막 자리 (${k}라운드)` : `자리 ${k}라운드`;
+      const what = round === "pre" ? "매력 투표" : last ? `마지막 자리, ${k}라운드` : `자리 ${k}라운드`;
       stage.backlog = plan.map(([from, to]) => ({ from, to, round }));
       if (!plan.length) {
         stage.autoRun = null;
-        return say(`  ? 자동 콕 · ${what} — 이번에는 찌를 사람이 없어요. 다 썼거나 안 쓰기로 한 사람뿐이에요`);
+        // 마지막이 아닌 자리는 확률로 쓰므로 아무도 안 찌를 수 있다 — 그건 콕이 바닥난 것과 다르다
+        if (round === "pre") return say(`  ? 자동 콕 (${what}) — 더 투표할 사람이 없어요. 모두 투표했거나 투표하지 않기로 한 사람이에요`);
+        if (!last) return say(`  ✓ 자동 콕 (${what}) — 이번 자리에서는 아무도 찌르지 않았어요`);
+        return say(`  ? 자동 콕 (${what}) — 더 찌를 사람이 없어요. 모두 콕을 다 썼거나 쓰지 않기로 한 사람이에요`);
       }
       const of = (g) => cast.filter((p) => p.gender === g).length;
-      stage.autoRun = { what, total: plan.length, of: { M: of("M"), F: of("F") }, pokes: { M: 0, F: 0 }, senders: { M: [], F: [] } };
+      stage.autoRun = { what, round, total: plan.length, of: { M: of("M"), F: of("F") }, pokes: { M: 0, F: 0 }, senders: { M: [], F: [] } };
       // 상태를 읽은 한 번까지 쳐서 명령 한 줄이 `batch` 를 넘지 않게
       await stage.drain((env.batch ?? BULK_MAX) - 1);
       return;
@@ -876,10 +892,10 @@ async function runLine(env, stage, line, { say, fail }) {
         if (made >= want) break;
         const res = await from.session.call("/poke", { method: "POST", body: { toId: to.id } });
         if (res.status === 200) made++;
-        else if (res.body.error !== "no_budget") return fail(`${name(to)} 에게 콕 모으기`, res);
+        else if (res.body.error !== "no_budget") return fail(`${name(to)}에게 콕 모으기`, res);
       }
-      if (!made) return say(`  ? ${name(to)} 에게 콕을 보낼 수 있는 사람이 없어요 — 다 썼거나 이성이 없어요`);
-      return say(`  ✓ ${name(to)} 에게 콕 ${made}번${made < want ? ` (보낼 수 있는 사람이 ${made}명뿐이에요)` : ""}`);
+      if (!made) return say(`  ? ${name(to)}에게 콕을 보낼 수 있는 사람이 없어요. 모두 콕을 다 썼거나 이성이 없어요`);
+      return say(`  ✓ ${name(to)}에게 콕 ${made}번${made < want ? ` (보낼 수 있는 사람이 ${made}명뿐이에요)` : ""}`);
     }
     case "pairs": {
       // 서로 콕 N쌍 — 남녀를 무작위로 짝지어 서로 한 번씩. 한쪽만 찌르고 막히면 되돌린다 — 한쪽 콕을 남기지 않는다
@@ -903,7 +919,7 @@ async function runLine(env, stage, line, { say, fail }) {
         }
         made.push(`${name(a)} ↔ ${name(b)}`);
       }
-      if (!made.length) return say("  ? 서로 콕을 만들 수 있는 쌍이 없어요 — 콕을 다 썼거나 남녀가 없어요");
+      if (!made.length) return say("  ? 서로 콕을 만들 수 있는 쌍이 없어요. 콕을 다 썼거나 남녀 중 한쪽이 없어요");
       return say(`  ✓ 서로 콕 ${made.length}쌍 — ${made.join(" · ")}`);
     }
     case "kick": {
@@ -919,7 +935,7 @@ async function runLine(env, stage, line, { say, fail }) {
     case "lock": {
       const p = stage.persona(rest[0]);
       if (!p) return say("  ? 누구를?");
-      // 입장 시도 제한은 접속지 해시로 센다 — 여기서 틀린 만큼 이 무대가 선 자리의 시도가 소모된다
+      // 입장 시도 제한은 접속지 해시로 센다 — 여기서 틀린 만큼 이 스테이지가 도는 곳(접속지)의 시도가 소모된다
       for (let i = 0; i < 5; i++) {
         const wrong = String((Number(p.pin) + 1111 * (i + 1)) % 10000).padStart(4, "0");
         const res = await stage.newClient().call(`/events/${stage.event.id}/enter`, { method: "POST", body: { phone: p.phone, pin: wrong } });
@@ -961,6 +977,6 @@ async function runLine(env, stage, line, { say, fail }) {
       return ok("회차 삭제", res);
     }
   }
-  if (ELSEWHERE.has(cmd)) return say(`  ${cmd} — 이 무대에는 없어요`);
+  if (ELSEWHERE.has(cmd)) return say(`  ${cmd} — 이 스테이지에서는 쓸 수 없어요`);
   return say(`  ? ${cmd} — help 를 쳐보세요`);
 }

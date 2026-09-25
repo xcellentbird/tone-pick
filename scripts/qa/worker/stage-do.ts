@@ -1,9 +1,9 @@
 /**
- * 무대 하나 = Durable Object 하나 (슬라이스 35 S-C5). 두 사람이 나란히 QA 를 해도 서로의 회차를 안 건드린다.
+ * 스테이지 하나 = Durable Object 하나 (슬라이스 35 S-C5). 두 사람이 나란히 QA 를 해도 서로의 회차를 안 건드린다.
  *
- * 무대의 일은 전부 `core.mjs` 가 한다 — CLI 와 같은 파일이다. 여기는 **워커라서 필요한 것**뿐이다:
- * 상태를 DO 저장소에 두고 되살리기, 오래 안 쓴 무대를 닫는 알람, 무대 목록(로비), 하루 상한(`budget.ts`),
- * 그리고 무대 화면(`view.ts`)이 그릴 것과 틀에 심을 참가자 세션.
+ * 스테이지의 일은 전부 `core.mjs` 가 한다 — CLI 와 같은 파일이다. 여기는 **워커라서 필요한 것**뿐이다:
+ * 상태를 DO 저장소에 두고 되살리기, 오래 안 쓴 스테이지를 닫는 알람, 스테이지 목록(로비), 하루 상한(`budget.ts`),
+ * 그리고 스테이지 화면(`view.ts`)이 그릴 것과 틀에 심을 참가자 세션.
  *
  * QA 로 가는 길은 **서비스 바인딩 `APP` 하나**다 (S-A2). `core` 에 `env.APP.fetch` 를 넘기므로
  * 요청 주소의 호스트는 뜻이 없다(`https://app`). 사람에게 보여 줄 주소는 `QA_PUBLIC_URL` 이다.
@@ -17,7 +17,7 @@ export interface Env {
   APP: Fetcher;
   STAGE: DurableObjectNamespace<StageDO>;
   LOBBY: DurableObjectNamespace<LobbyDO>;
-  /** 참가 링크·운영자 콘솔·틀에 쓸 QA 의 공개 주소. 무대의 요청은 이 주소로 가지 않는다 — 바인딩으로 간다 */
+  /** 참가 링크·운영자 콘솔·틀에 쓸 QA 의 공개 주소. 스테이지의 요청은 이 주소로 가지 않는다 — 바인딩으로 간다 */
   QA_PUBLIC_URL: string;
   /** QA 의 공통 운영자 PIN. 앱 설정 파일에 적힌 공개 값이다 (`check-config` 가 둘을 맞춰 본다) */
   QA_PIN: string;
@@ -25,7 +25,7 @@ export interface Env {
   ALLOWED_COUNTRIES?: string;
 }
 
-/** 무대 목록은 하나뿐이다. 하루 상한도 여기서 센다 — 한 곳이라야 두 요청이 나란히 와도 어긋나지 않는다 */
+/** 스테이지 목록은 하나뿐이다. 하루 상한도 여기서 센다 — 한 곳이라야 두 요청이 나란히 와도 어긋나지 않는다 */
 export const lobbyOf = (env: Env) => env.LOBBY.get(env.LOBBY.idFromName("lobby"));
 
 /** 한 성별의 나이 — 평균과 범위. 앱이 받는 범위 안으로 맞추는 것은 core 의 `ageRange` 다 */
@@ -35,7 +35,7 @@ export interface Ages {
   max: number;
 }
 
-/** 무대를 세울 때 고르는 것 (슬라이스 37) — 남녀를 따로, **늘 등록이 끝난 뒤에서** 시작한다 */
+/** 스테이지를 만들 때 고르는 것 (슬라이스 37) — 남녀를 따로, **늘 등록이 끝난 뒤에서** 시작한다 */
 export interface Want {
   men: number;
   women: number;
@@ -43,7 +43,7 @@ export interface Want {
   phase: (typeof START_PHASES)[number];
 }
 export const PER_GENDER = { min: 2, max: 50 } as const;
-/** 등록 중(`reg`)은 없다 — 등록 전 화면은 QA 에서 손으로 본다. 무대는 여러 사람의 화면을 한꺼번에 보는 자리다 */
+/** 등록 중(`reg`)은 없다 — 등록 전 화면은 QA 에서 손으로 본다. 스테이지는 여러 사람의 화면을 한꺼번에 보는 자리다 */
 export const START_PHASES = ["prevote", "party", "done"] as const;
 
 /**
@@ -55,7 +55,7 @@ export const ACTION_MAX = 45;
 export const ENROLL_BATCH = 20;
 
 /**
- * 손을 놓은 무대는 이만큼 뒤에 저절로 닫힌다 — 회차를 지운다.
+ * 손을 놓은 스테이지는 이만큼 뒤에 저절로 닫힌다 — 회차를 지운다.
  * 닫기를 누르지 않고 폰을 덮는 일이 흔하고, 그러면 QA 에 가짜 회차가 쌓인다 (S-C3).
  */
 export const IDLE_MS = 12 * 3600_000;
@@ -65,7 +65,7 @@ const QA_TIMEOUT_MS = 20_000;
 
 type Stage = Awaited<ReturnType<typeof beginStage>>;
 
-/** 무대 화면이 그리는 것. **참가자 세션(쿠키)은 싣지 않는다** — 그건 `/view` 가 `Set-Cookie` 로만 준다 */
+/** 스테이지 화면이 그리는 것. **참가자 세션(쿠키)은 싣지 않는다** — 그건 `/view` 가 `Set-Cookie` 로만 준다 */
 export interface StageView {
   event: { id: string; code: string };
   phase: string;
@@ -76,7 +76,7 @@ export interface StageView {
   backlog: number;
 }
 
-/** 세우는 걸음의 답. 실패하면 이미 지웠다 */
+/** 만드는 걸음의 답. 실패하면 이미 지웠다 */
 export type Step = { ok: true; pending: number } | { ok: false; message: string };
 
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -94,20 +94,20 @@ export class StageDO extends DurableObject<Env> {
       /*
        * QA 를 부를 때마다 몫에서 뺀다. **지우는 요청은 세지 않는다** — 상한을 다 쓴 날에도 회차는 지워야 한다.
        * 몫이 떨어지면 **여기서 바로 던진다** (`Promise` 로 돌려주면 `health` 확인의 `.catch` 가 삼켜서
-       * "QA 에 닿지 못했어요" 로 둔갑한다).
+       * "…에 연결하지 못했어요" 로 둔갑한다).
        */
       fetch: (url: string, init?: RequestInit) => {
         if (init?.method !== "DELETE") {
           if (this.allowance <= 0) throw new StageError("budget", refusal());
           this.allowance--;
         }
-        // 답이 없는 호출을 끝없이 기다리지 않는다 — 걸음이 한 줄로 서므로(`serial`) 하나가 멈추면 무대 전체가 멈춘다
+        // 답이 없는 호출을 끝없이 기다리지 않는다 — 걸음이 한 줄로 서므로(`serial`) 하나가 멈추면 스테이지 전체가 멈춘다
         return this.env.APP.fetch(url, { ...init, signal: AbortSignal.timeout(QA_TIMEOUT_MS) });
       },
       base: "https://app",
       publicBase: this.env.QA_PUBLIC_URL,
       log: this.log,
-      // 창 벽·시간 이동·끝내기는 이 무대에 없다 — core 가 `이 무대에는 없어요` 로 답한다 (S-C4)
+      // 창 벽·시간 이동·끝내기는 이 스테이지에 없다 — core 가 `이 스테이지에서는 쓸 수 없어요` 로 답한다 (S-C4)
       platform: {},
       timeTravel: false,
       // 자동 콕은 한 요청에 이만큼씩 — 나머지는 페이지가 `drain` 으로 이어 부른다
@@ -157,7 +157,7 @@ export class StageDO extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(Date.now() + IDLE_MS);
   }
 
-  /** 세우다 막혔다 — 회차를 지우고 이 DO 도 비운다. 아무도 못 닫는 회차를 남기지 않는다 */
+  /** 만들다 막혔다 — 회차를 지우고 이 DO 도 비운다. 아무도 못 닫는 회차를 남기지 않는다 */
   private async abandon(e: unknown): Promise<Step> {
     if (this.stage) await this.stage.close().catch(() => {});
     await this.ctx.storage.deleteAll();
@@ -193,7 +193,7 @@ export class StageDO extends DurableObject<Env> {
   async enroll(): Promise<Step> {
     await this.load();
     const stage = this.stage;
-    if (!stage) return { ok: false, message: "무대가 없어요." };
+    if (!stage) return { ok: false, message: "스테이지가 없어요." };
     try {
       const pending = await this.within(ENROLL_BATCH * 2, () => stage.enrollSome(ENROLL_BATCH));
       return { ok: true, pending };
@@ -206,7 +206,7 @@ export class StageDO extends DurableObject<Env> {
   async finish(phase: Want["phase"]): Promise<Step> {
     await this.load();
     const stage = this.stage;
-    if (!stage) return { ok: false, message: "무대가 없어요." };
+    if (!stage) return { ok: false, message: "스테이지가 없어요." };
     try {
       await this.within(12, () => stage.gotoPhase(phase));
       await this.persist();
@@ -239,7 +239,7 @@ export class StageDO extends DurableObject<Env> {
   }
 
   /**
-   * 틀에 심을 참가자 세션 (슬라이스 37). **무대 화면이 지금 띄우는 사람만** — 나머지는 거둘 이름표만 준다.
+   * 틀에 심을 참가자 세션 (슬라이스 37). **스테이지 화면이 지금 띄우는 사람만** — 나머지는 거둘 이름표만 준다.
    * 토큰은 여기서 나가 라우터의 `Set-Cookie` 로만 브라우저에 간다. 페이지의 본문에는 싣지 않는다.
    */
   async sessions(show: number[], hide: number[]): Promise<{ plant: { ref: string; token: string }[]; clear: string[] }> {
@@ -255,7 +255,7 @@ export class StageDO extends DurableObject<Env> {
     return { plant, clear };
   }
 
-  /** 명령 한 줄. 답으로 무대 화면을 돌려준다 — 페이지는 스스로 다시 읽지 않는다 (S-D3) */
+  /** 명령 한 줄. 답으로 스테이지 화면을 돌려준다 — 페이지는 스스로 다시 읽지 않는다 (S-D3) */
   async command(line: string): Promise<StageView | null> {
     await this.load();
     const stage = this.stage;
@@ -280,7 +280,7 @@ export class StageDO extends DurableObject<Env> {
   /**
    * 자동 콕의 남은 줄을 한 묶음(`BULK_MAX`) 보낸다. 페이지가 줄이 빌 때까지 이어 부른다 — **명령의 이어짐이지
    * 다시 읽기가 아니다** (S-D3): 줄이 비면 몫도 받지 않고 바로 답한다. 몫을 못 받으면 줄을 비운다 —
-   * 남겨 두면 페이지가 멈춘 줄을 안고 있고, 다음 `auto` 가 어차피 새로 세운다.
+   * 남겨 두면 페이지가 멈춘 줄을 안고 있고, 다음 `auto` 가 어차피 계획을 새로 짠다.
    */
   async drain(): Promise<StageView | null> {
     await this.load();
@@ -310,7 +310,7 @@ export class StageDO extends DurableObject<Env> {
     });
   }
 
-  /** 오래 손을 놓은 무대 (`IDLE_MS`) */
+  /** 오래 손을 놓은 스테이지 (`IDLE_MS`) */
   async alarm(): Promise<void> {
     await this.close();
   }
@@ -324,8 +324,8 @@ export interface StageRow {
 }
 
 /**
- * 무대 목록. 하나뿐이다 (`lobbyOf`). 무대의 내용은 없고 **어디 있는지만** 든다.
- * 하루 상한(`budget.ts`)도 여기서 센다 — 무대 DO 가 걸음마다 몫을 받고 남은 것을 돌려준다.
+ * 스테이지 목록. 하나뿐이다 (`lobbyOf`). 스테이지의 내용은 없고 **어디 있는지만** 든다.
+ * 하루 상한(`budget.ts`)도 여기서 센다 — 스테이지 DO 가 걸음마다 몫을 받고 남은 것을 돌려준다.
  */
 export class LobbyDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
@@ -371,7 +371,7 @@ export class LobbyDO extends DurableObject<Env> {
     return Math.max(0, DAILY - this.used(quotaDay(now)));
   }
 
-  /** 로비 한 장 — 열린 무대와 남은 몫. 한 번에 묶었다 (DO 요청 하나) */
+  /** 로비 한 장 — 열린 스테이지와 남은 몫. 한 번에 묶었다 (DO 요청 하나) */
   view(now: number): { rows: StageRow[]; left: number } {
     return {
       rows: this.ctx.storage.sql

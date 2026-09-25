@@ -1,12 +1,12 @@
 /**
- * 무대 워커 — 컴퓨터 없이 온라인에서 QA 무대를 세운다 (슬라이스 35 · 37, ADR-97 · ADR-99).
+ * 스테이지 워커 — 컴퓨터 없이 온라인에서 QA 스테이지를 만든다 (슬라이스 35 · 37, ADR-97 · ADR-99).
  *
- *   /                   무대 목록 · 새 무대 · 남은 몫
- *   POST /new           무대를 세운다 (걸음을 나눠서) → /s/<id>/
- *   /s/<id>/            무대 화면 — 한 탭에 운영자와 참가자 화면을 틀로 (`view.ts`)
- *   /s/<id>/state       무대 화면이 그릴 것 (JSON)
- *   POST /s/<id>/cmd    명령 한 줄 → 무대 화면이 그릴 것
- *   POST /s/<id>/drain  자동 콕의 남은 줄을 한 묶음 → 무대 화면이 그릴 것
+ *   /                   스테이지 목록 · 새 스테이지 · 남은 몫
+ *   POST /new           스테이지를 만든다 (걸음을 나눠서) → /s/<id>/
+ *   /s/<id>/            스테이지 화면 — 한 탭에 운영자와 참가자 화면을 틀로 (`view.ts`)
+ *   /s/<id>/state       스테이지 화면이 그릴 것 (JSON)
+ *   POST /s/<id>/cmd    명령 한 줄 → 스테이지 화면이 그릴 것
+ *   POST /s/<id>/drain  자동 콕의 남은 줄을 한 묶음 → 스테이지 화면이 그릴 것
  *   POST /s/<id>/view   고른 참가자의 세션을 심고, 뺀 사람의 것을 거둔다 (`plant.ts`)
  *   POST /s/<id>/close  닫기 · 회차 삭제
  *
@@ -29,8 +29,8 @@ export { LobbyDO, StageDO } from "./stage-do.ts";
 
 const PHASE_NAME: Record<Want["phase"], string> = {
   prevote: "매력 투표",
-  party: "파티 (자리 발행까지)",
-  done: "발표 뒤",
+  party: "파티 (첫 자리 발행까지)",
+  done: "커플 발표 후",
 };
 
 const esc = (s: unknown) =>
@@ -84,15 +84,25 @@ async function lobbyPage(env: Env, error = ""): Promise<Response> {
       .then((r) => r.json() as Promise<{ ok?: boolean; label?: string }>)
       .catch(() => null),
   ]);
-  const qa = health?.ok ? `QA 연결됨 · ${esc(health.label ?? "라벨 없음")}` : "QA 에 닿지 못했어요";
+  // 연습용 표시(ENV_LABEL)가 없는 서버에는 스테이지를 만들지 않는다 (`beginStage` 의 practiceOnly)
+  const qa = !health?.ok
+    ? "QA 서버에 연결하지 못했어요"
+    : health.label
+      ? "QA 서버에 연결됐어요"
+      : "연결된 서버에 연습용 표시가 없어요. 이 서버에는 스테이지를 만들 수 없어요";
+  /** 만든 시각 — 한국 시간으로. 하루 몫이 다시 차는 때(오전 9시)도 한국 시간으로 말한다 */
+  const kst = (at: number) => {
+    const d = new Date(at + 9 * 3600_000);
+    return `${d.getUTCMonth() + 1}월 ${d.getUTCDate()}일 ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+  };
   const list = rows.length
     ? rows
         .map(
           (r) =>
-            `<li><a href="s/${esc(r.id)}/">무대 ${esc(r.code)}</a> <small>${r.people}명 · ${new Date(r.at).toISOString().slice(5, 16).replace("T", " ")} UTC</small></li>`,
+            `<li><a href="s/${esc(r.id)}/">스테이지 ${esc(r.code)}</a> <small>${r.people}명 · ${kst(r.at)}</small></li>`,
         )
         .join("")
-    : "<li><small>열린 무대가 없어요</small></li>";
+    : "<li><small>진행 중인 스테이지가 없어요</small></li>";
   const opts = (xs: readonly string[], names?: Record<string, string>, pick?: string) =>
     xs.map((x) => `<option value="${x}"${x === pick ? " selected" : ""}>${names?.[x] ?? x}</option>`).join("");
   const nums = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => String(a + i));
@@ -104,11 +114,11 @@ async function lobbyPage(env: Env, error = ""): Promise<Response> {
     return `<fieldset><legend>${title}</legend>
 <label>인원</label><select name="${count}">${opts(nums(PER_GENDER.min, PER_GENDER.max), undefined, "6")}</select>
 <label>평균 나이</label>${age(`${key}_avg`, a.avg, `${title} 평균 나이`)}
-<label>나이 범위</label><div class="range">${age(`${key}_min`, a.min, `${title} 가장 어린 나이`)}<span>~</span>${age(`${key}_max`, a.max, `${title} 가장 많은 나이`)}</div>
+<label>나이 범위</label><div class="range">${age(`${key}_min`, a.min, `${title} 최소 나이`)}<span>~</span>${age(`${key}_max`, a.max, `${title} 최대 나이`)}</div>
 </fieldset>`;
   };
   return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>무대 · QA 도구</title>
+<title>QA 스테이지</title>
 <link rel="icon" href="data:,">
 <style>
 body{margin:0;padding:12px;font:16px/1.5 system-ui;background:#111;color:#eee;max-width:560px}
@@ -121,24 +131,25 @@ select,input{width:100%;box-sizing:border-box;font-size:17px;padding:10px;border
 button{width:100%;margin-top:14px;font-size:17px;padding:13px;border-radius:10px;border:0;background:#6c5ce7;color:#fff}
 ul{padding-left:18px}.err{color:#ff7675}
 </style>
-<h1>무대</h1><small>${qa}</small>
+<h1>QA 스테이지</h1><small>${qa}</small>
 ${error ? `<p class="err">${esc(error)}</p>` : ""}
-<h2>열린 무대</h2><ul>${list}</ul>
-<h2>새 무대</h2>
-<form method="post" action="new" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='세우는 중… (사람이 많으면 수십 초 걸려요)'">
+<h2>진행 중인 스테이지</h2><ul>${list}</ul>
+<h2>새 스테이지</h2>
+<form method="post" action="new" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='만드는 중이에요. 인원이 많으면 수십 초 걸려요'">
 <div class="pair">${side("m", "M", "남자", "men")}${side("f", "F", "여자", "women")}</div>
-<p><small>나이는 ${AGE_LIMIT.min}~${AGE_LIMIT.max}살 안에서 골라주세요. 평균 근처가 가장 많고, 범위 끝으로 갈수록 적어요.</small></p>
-<label>시작 단계 — 모두 등록을 마친 뒤예요</label><select name="phase">${opts(START_PHASES, PHASE_NAME, "prevote")}</select>
-<button>무대 세우기</button>
+<p><small>나이는 ${AGE_LIMIT.min}~${AGE_LIMIT.max}세 사이로 입력해주세요. 평균 나이 근처가 가장 많고, 범위 끝으로 갈수록 적어져요.</small></p>
+<label>시작 단계</label><select name="phase">${opts(START_PHASES, PHASE_NAME, "prevote")}</select>
+<p><small>가짜 참가자는 모두 등록을 마친 상태로 시작해요.</small></p>
+<button>스테이지 만들기</button>
 </form>
-<p><small>남은 QA 호출: ${fmt(left)}번. 매일 오전 9시에 ${fmt(DAILY)}번으로 다시 채워져요. 무대 하나는 사람 수의 두 배쯤 들고, 자동 콕은 찌른 수만큼 들어요.</small></p>
-<p><small>로그인이 없어서 주소를 아는 사람은 누구나 쓸 수 있어요. 다른 사람이 세운 무대는 닫지 말아주세요.</small></p>
-<p><small>번호는 전부 가짜예요. 무대를 닫으면 회차를 지우고, 12시간 동안 손대지 않은 무대는 저절로 닫혀요.</small></p>`);
+<p><small>오늘 남은 QA 호출은 ${fmt(left)}번이에요. 매일 오전 9시에 ${fmt(DAILY)}번으로 다시 채워져요. 스테이지를 하나 만들 때 인원의 두 배쯤 쓰고, 자동 콕은 찌른 횟수만큼 써요.</small></p>
+<p><small>로그인 없이 주소만 알면 누구나 쓸 수 있어요. 다른 사람이 만든 스테이지는 닫지 말아주세요.</small></p>
+<p><small>전화번호는 모두 가짜예요. 스테이지를 닫으면 회차도 함께 지워지고, 12시간 동안 쓰지 않은 스테이지는 자동으로 닫혀요.</small></p>`);
 }
 
 /**
- * 무대를 세운다 — 걸음을 나눠서 (`core.mjs` 의 `beginStage`). 요청 하나가 QA 를 부를 수 있는 횟수에 끝이 있어서,
- * 등록은 `ENROLL_BATCH` 명씩 무대 DO 를 여러 번 부른다. 하루 몫이 모자랄 무대는 **시작하기 전에** 거절한다 —
+ * 스테이지를 만든다 — 걸음을 나눠서 (`core.mjs` 의 `beginStage`). 요청 하나가 QA 를 부를 수 있는 횟수에 끝이 있어서,
+ * 등록은 `ENROLL_BATCH` 명씩 스테이지 DO 를 여러 번 부른다. 하루 몫이 모자랄 스테이지는 **시작하기 전에** 거절한다 —
  * 가다가 막히면 등록하던 사람들이 몫만 먹고 지워진다.
  */
 async function build(env: Env, form: FormData): Promise<{ id: string; code: string; people: number } | { error: string }> {
@@ -162,12 +173,12 @@ async function build(env: Env, form: FormData): Promise<{ id: string; code: stri
   let step = await stub.start(want);
   while (step.ok && step.pending > 0) step = await stub.enroll();
   if (step.ok) step = await stub.finish(want.phase);
-  if (!step.ok) return { error: `무대를 못 세웠어요 — ${step.message}` };
+  if (!step.ok) return { error: `스테이지를 만들지 못했어요. ${step.message}` };
   const view = await stub.view();
   return { id: id.toString(), code: view?.event.code ?? "?", people };
 }
 
-/** 페이지가 보낸 번호 목록. 숫자만, 많아야 무대 인원만큼 */
+/** 페이지가 보낸 번호 목록. 숫자만, 많아야 스테이지 인원만큼 */
 const numbers = (v: unknown): number[] =>
   Array.isArray(v) ? v.filter((x): x is number => Number.isInteger(x) && x > 0).slice(0, 200) : [];
 
@@ -193,30 +204,30 @@ export default {
     if (m) {
       const [, id, rest = ""] = m;
       // 목록에 없는 아이디로 빈 DO 를 깨우지 않는다
-      if (!(await lobbyOf(env).has(id))) return text("그런 무대가 없어요.", 404);
+      if (!(await lobbyOf(env).has(id))) return text("그런 스테이지가 없어요.", 404);
       const stub = env.STAGE.get(env.STAGE.idFromString(id));
       const lobby = lobbyOf(env);
       if (rest === "") return see(`/s/${id}/`);
 
       if (rest === "/" && request.method === "GET") {
         const [view, left] = await Promise.all([stub.view(), lobby.left(Date.now())]);
-        if (!view) return text("그런 무대가 없어요.", 404);
+        if (!view) return text("그런 스테이지가 없어요.", 404);
         return html(
           stagePage({ id, view, left, daily: DAILY, qa: env.QA_PUBLIC_URL, hostPin: env.QA_PIN, plantable: !!whereToPlant(request, env) }),
         );
       }
       if (rest === "/state" && request.method === "GET") {
         const [view, left] = await Promise.all([stub.view(), lobby.left(Date.now())]);
-        return view ? json({ view, left }) : text("그런 무대가 없어요.", 404);
+        return view ? json({ view, left }) : text("그런 스테이지가 없어요.", 404);
       }
       if (rest === "/cmd" && request.method === "POST") {
         const { line } = (await request.json().catch(() => ({}))) as { line?: unknown };
         const view = typeof line === "string" && line.trim() ? await stub.command(line.slice(0, 200)) : await stub.view();
-        return view ? json({ view, left: await lobby.left(Date.now()) }) : text("그런 무대가 없어요.", 404);
+        return view ? json({ view, left: await lobby.left(Date.now()) }) : text("그런 스테이지가 없어요.", 404);
       }
       if (rest === "/drain" && request.method === "POST") {
         const view = await stub.drain();
-        return view ? json({ view, left: await lobby.left(Date.now()) }) : text("그런 무대가 없어요.", 404);
+        return view ? json({ view, left: await lobby.left(Date.now()) }) : text("그런 스테이지가 없어요.", 404);
       }
       if (rest === "/view" && request.method === "POST") {
         const where = whereToPlant(request, env);
@@ -235,7 +246,7 @@ export default {
         return new Response(null, { status: 204, headers });
       }
       if (rest === "/close" && request.method === "POST") {
-        // 이 페이지가 심은 세션도 함께 거둔다 — 닫힌 무대의 쿠키를 부모 도메인에 남기지 않는다
+        // 이 페이지가 심은 세션도 함께 거둔다 — 닫힌 스테이지의 쿠키를 부모 도메인에 남기지 않는다
         const form = await request.formData().catch(() => null);
         const hide = String(form?.get("planted") ?? "")
           .split(",")
