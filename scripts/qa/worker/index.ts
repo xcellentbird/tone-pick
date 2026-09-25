@@ -6,6 +6,7 @@
  *   /s/<id>/            무대 화면 — 한 탭에 운영자와 참가자 화면을 틀로 (`view.ts`)
  *   /s/<id>/state       무대 화면이 그릴 것 (JSON)
  *   POST /s/<id>/cmd    명령 한 줄 → 무대 화면이 그릴 것
+ *   POST /s/<id>/drain  자동 콕의 남은 줄을 한 묶음 → 무대 화면이 그릴 것
  *   POST /s/<id>/view   고른 참가자의 세션을 심고, 뺀 사람의 것을 거둔다 (`plant.ts`)
  *   POST /s/<id>/close  닫기 · 회차 삭제
  *
@@ -18,6 +19,7 @@
  *
  * 앱 코드(`src/`)가 이 도구를 위해 가진 것은 틀 이름을 이름표로 읽는 몇 줄뿐이다 (ADR-99). 번호는 전부 가짜다.
  */
+import { AGE_LIMIT, STAGE_AGES, ageRange } from "../core.mjs";
 import { DAILY, buildCost, tooBig } from "./budget.ts";
 import { clearCookie, cookieDomain, plantCookie } from "./plant.ts";
 import { ENROLL_BATCH, PER_GENDER, START_PHASES, lobbyOf, type Env, type Want } from "./stage-do.ts";
@@ -94,6 +96,17 @@ async function lobbyPage(env: Env, error = ""): Promise<Response> {
   const opts = (xs: readonly string[], names?: Record<string, string>, pick?: string) =>
     xs.map((x) => `<option value="${x}"${x === pick ? " selected" : ""}>${names?.[x] ?? x}</option>`).join("");
   const nums = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => String(a + i));
+  const age = (name: string, value: number, label: string) =>
+    `<input type="number" inputmode="numeric" name="${name}" value="${value}" min="${AGE_LIMIT.min}" max="${AGE_LIMIT.max}" step="1" aria-label="${label}">`;
+  /** 한 성별의 칸 — 인원 · 평균 나이 · 나이 범위 */
+  const side = (key: "m" | "f", g: "M" | "F", title: string, count: string) => {
+    const a = STAGE_AGES[g];
+    return `<fieldset><legend>${title}</legend>
+<label>인원</label><select name="${count}">${opts(nums(PER_GENDER.min, PER_GENDER.max), undefined, "6")}</select>
+<label>평균 나이</label>${age(`${key}_avg`, a.avg, `${title} 평균 나이`)}
+<label>나이 범위</label><div class="range">${age(`${key}_min`, a.min, `${title} 가장 어린 나이`)}<span>~</span>${age(`${key}_max`, a.max, `${title} 가장 많은 나이`)}</div>
+</fieldset>`;
+  };
   return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>무대 · QA 도구</title>
 <link rel="icon" href="data:,">
@@ -101,8 +114,10 @@ async function lobbyPage(env: Env, error = ""): Promise<Response> {
 body{margin:0;padding:12px;font:16px/1.5 system-ui;background:#111;color:#eee;max-width:560px}
 h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:18px 0 6px}small{color:#9a9}a{color:#a29bfe}
 label{display:block;margin:8px 0 2px;font-size:14px;color:#bbb}
-.pair{display:flex;gap:10px}.pair>div{flex:1}
-select{width:100%;font-size:17px;padding:10px;border-radius:10px;border:1px solid #444;background:#222;color:#fff}
+.pair{display:flex;gap:10px}.pair>fieldset{flex:1;min-width:0}
+fieldset{margin:0;padding:4px 10px 10px;border:1px solid #333;border-radius:12px}legend{padding:0 4px;color:#ddd}
+select,input{width:100%;box-sizing:border-box;font-size:17px;padding:10px;border-radius:10px;border:1px solid #444;background:#222;color:#fff}
+.range{display:flex;gap:6px;align-items:center}.range input{min-width:0}
 button{width:100%;margin-top:14px;font-size:17px;padding:13px;border-radius:10px;border:0;background:#6c5ce7;color:#fff}
 ul{padding-left:18px}.err{color:#ff7675}
 </style>
@@ -111,14 +126,12 @@ ${error ? `<p class="err">${esc(error)}</p>` : ""}
 <h2>열린 무대</h2><ul>${list}</ul>
 <h2>새 무대</h2>
 <form method="post" action="new" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='세우는 중… (사람이 많으면 수십 초 걸려요)'">
-<div class="pair">
-<div><label>남자</label><select name="men">${opts(nums(PER_GENDER.min, PER_GENDER.max), undefined, "6")}</select></div>
-<div><label>여자</label><select name="women">${opts(nums(PER_GENDER.min, PER_GENDER.max), undefined, "6")}</select></div>
-</div>
+<div class="pair">${side("m", "M", "남자", "men")}${side("f", "F", "여자", "women")}</div>
+<p><small>나이는 ${AGE_LIMIT.min}~${AGE_LIMIT.max}살 안에서 골라주세요. 평균 근처가 가장 많고, 범위 끝으로 갈수록 적어요.</small></p>
 <label>시작 단계 — 모두 등록을 마친 뒤예요</label><select name="phase">${opts(START_PHASES, PHASE_NAME, "prevote")}</select>
 <button>무대 세우기</button>
 </form>
-<p><small>남은 QA 호출: ${fmt(left)}번. 매일 오전 9시에 ${fmt(DAILY)}번으로 다시 채워져요. 무대 하나는 사람 수의 두 배쯤 들어요.</small></p>
+<p><small>남은 QA 호출: ${fmt(left)}번. 매일 오전 9시에 ${fmt(DAILY)}번으로 다시 채워져요. 무대 하나는 사람 수의 두 배쯤 들고, 자동 콕은 찌른 수만큼 들어요.</small></p>
 <p><small>로그인이 없어서 주소를 아는 사람은 누구나 쓸 수 있어요. 다른 사람이 세운 무대는 닫지 말아주세요.</small></p>
 <p><small>번호는 전부 가짜예요. 무대를 닫으면 회차를 지우고, 12시간 동안 손대지 않은 무대는 저절로 닫혀요.</small></p>`);
 }
@@ -130,9 +143,13 @@ ${error ? `<p class="err">${esc(error)}</p>` : ""}
  */
 async function build(env: Env, form: FormData): Promise<{ id: string; code: string; people: number } | { error: string }> {
   const phase = String(form.get("phase") ?? "prevote") as Want["phase"];
+  // 나이는 앱이 받는 범위 안으로, 최소 ≤ 평균 ≤ 최대 — 폼을 손으로 고쳐 보내도 등록이 거절되지 않게
+  const ages = (g: "M" | "F", key: string) =>
+    ageRange({ avg: form.get(`${key}_avg`), min: form.get(`${key}_min`), max: form.get(`${key}_max`) }, STAGE_AGES[g]);
   const want: Want = {
     men: clamp(form.get("men"), PER_GENDER.min, PER_GENDER.max, 6),
     women: clamp(form.get("women"), PER_GENDER.min, PER_GENDER.max, 6),
+    ages: { M: ages("M", "m"), F: ages("F", "f") },
     phase: START_PHASES.includes(phase) ? phase : "prevote",
   };
   const people = want.men + want.women;
@@ -195,6 +212,10 @@ export default {
       if (rest === "/cmd" && request.method === "POST") {
         const { line } = (await request.json().catch(() => ({}))) as { line?: unknown };
         const view = typeof line === "string" && line.trim() ? await stub.command(line.slice(0, 200)) : await stub.view();
+        return view ? json({ view, left: await lobby.left(Date.now()) }) : text("그런 무대가 없어요.", 404);
+      }
+      if (rest === "/drain" && request.method === "POST") {
+        const view = await stub.drain();
         return view ? json({ view, left: await lobby.left(Date.now()) }) : text("그런 무대가 없어요.", 404);
       }
       if (rest === "/view" && request.method === "POST") {

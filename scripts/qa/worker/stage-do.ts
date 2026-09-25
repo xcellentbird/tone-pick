@@ -9,7 +9,7 @@
  * 요청 주소의 호스트는 뜻이 없다(`https://app`). 사람에게 보여 줄 주소는 `QA_PUBLIC_URL` 이다.
  */
 import { DurableObject } from "cloudflare:workers";
-import { LOG_VIEW, StageError, beginStage, createLog, restoreStage } from "../core.mjs";
+import { BULK_MAX, LOG_VIEW, StageError, beginStage, createLog, restoreStage } from "../core.mjs";
 import { DAILY, OVERHEAD, grant, quotaDay, refusal } from "./budget.ts";
 import { PLAYER_COOKIE } from "./plant.ts";
 
@@ -28,10 +28,18 @@ export interface Env {
 /** 무대 목록은 하나뿐이다. 하루 상한도 여기서 센다 — 한 곳이라야 두 요청이 나란히 와도 어긋나지 않는다 */
 export const lobbyOf = (env: Env) => env.LOBBY.get(env.LOBBY.idFromName("lobby"));
 
+/** 한 성별의 나이 — 평균과 범위. 앱이 받는 범위 안으로 맞추는 것은 core 의 `ageRange` 다 */
+export interface Ages {
+  avg: number;
+  min: number;
+  max: number;
+}
+
 /** 무대를 세울 때 고르는 것 (슬라이스 37) — 남녀를 따로, **늘 등록이 끝난 뒤에서** 시작한다 */
 export interface Want {
   men: number;
   women: number;
+  ages: { M: Ages; F: Ages };
   phase: (typeof START_PHASES)[number];
 }
 export const PER_GENDER = { min: 2, max: 50 } as const;
@@ -64,6 +72,8 @@ export interface StageView {
   tables: number;
   cast: { n: number; nickname: string; gender: "M" | "F"; age: number; ref: string; phone: string; pin: string }[];
   lines: string[];
+  /** 아직 안 보낸 자동 콕. 0 보다 크면 페이지가 `drain` 을 이어 부른다 */
+  backlog: number;
 }
 
 /** 세우는 걸음의 답. 실패하면 이미 지웠다 */
@@ -100,6 +110,8 @@ export class StageDO extends DurableObject<Env> {
       // 창 벽·시간 이동·끝내기는 이 무대에 없다 — core 가 `이 무대에는 없어요` 로 답한다 (S-C4)
       platform: {},
       timeTravel: false,
+      // 자동 콕은 한 요청에 이만큼씩 — 나머지는 페이지가 `drain` 으로 이어 부른다
+      batch: BULK_MAX,
       onChange: async (s: Stage) => this.persist(s),
     };
   }
@@ -163,6 +175,7 @@ export class StageDO extends DurableObject<Env> {
         beginStage(this.coreEnv(), {
           men: want.men,
           women: want.women,
+          ages: want.ages,
           config: {},
           pin: this.env.QA_PIN,
           // 연습용 환경에만 선다. 바인딩이 QA 를 가리키는 것은 `check-config` 가, 여기서는 라벨이 한 번 더 본다
@@ -221,6 +234,7 @@ export class StageDO extends DurableObject<Env> {
         pin: p.pin,
       })),
       lines: this.log.lines.slice(-LOG_VIEW),
+      backlog: s.backlog.length,
     };
   }
 
@@ -260,6 +274,27 @@ export class StageDO extends DurableObject<Env> {
       this.log.say(`> ${line}`);
       this.log.say(`  ✗ ${messageOf(e)}`);
     }
+    return this.view();
+  }
+
+  /**
+   * 자동 콕의 남은 줄을 한 묶음(`BULK_MAX`) 보낸다. 페이지가 줄이 빌 때까지 이어 부른다 — **명령의 이어짐이지
+   * 다시 읽기가 아니다** (S-D3): 줄이 비면 몫도 받지 않고 바로 답한다. 몫을 못 받으면 줄을 비운다 —
+   * 남겨 두면 페이지가 멈춘 줄을 안고 있고, 다음 `auto` 가 어차피 새로 세운다.
+   */
+  async drain(): Promise<StageView | null> {
+    await this.load();
+    const stage = this.stage;
+    if (!stage) return null;
+    if (!stage.backlog.length) return this.view();
+    try {
+      await this.within(ACTION_MAX, () => stage.drain(BULK_MAX));
+    } catch (e) {
+      stage.backlog = [];
+      stage.autoRun = null;
+      this.log.say(`  ✗ ${messageOf(e)}`);
+    }
+    await this.persist();
     return this.view();
   }
 
