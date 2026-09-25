@@ -105,9 +105,12 @@ export default function Home({
 
       <div className="card stack">
         <h2 className="cardTitle">{todo.title}</h2>
-        <p className="dim small pre" style={{ margin: 0 }}>
-          {todo.body}
-        </p>
+        {/* 몸글이 없는 카드가 있다 (매칭 확인). 빈 문단도 `.stack` 의 간격을 먹는다 */}
+        {todo.body && (
+          <p className="dim small pre" style={{ margin: 0 }}>
+            {todo.body}
+          </p>
+        )}
 
         {/*
           등록 직후 도움말이 저절로 뜨는데, **덮치는 화면은 반사적으로 닫힌다** —
