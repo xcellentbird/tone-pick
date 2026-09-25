@@ -23,7 +23,7 @@ import type { Env as AppEnv } from "../../src/server/http.ts";
 /**
  * `cloudflare:test` 의 `env` 는 `Cloudflare.Env` 로 타입이 매겨진다 — 프로젝트가 다시 선언해
  * 넓히라고 비워둔 자리다. 여기 말고는 `env` 를 직접 쓰는 테스트가 없어서
- * (다들 `SELF.fetch` 로 문 앞에서 논다) 이 파일 안에 둔다 —
+ * (다들 `fetchApp` 으로 문 앞에서 논다) 이 파일 안에 둔다 —
  * 쓰는 데가 늘면 그때 `test/env.d.ts` 로 옮긴다.
  */
 declare global {
@@ -41,8 +41,9 @@ beforeAll(signInMaster);
  * **옛 모양이 지금 모양에 매달린다** — 지금 것이 바뀔 때마다 옛 것도 따라 흔들려서,
  * 정작 "옛 회차는 이렇게 생겼다" 는 사실을 아무 데서도 읽을 수 없게 된다.
  *
- * 지금과 다른 넷: 토큰 칸이 없고(ADR-32 이전), PIN 번호 칸이 없고(ADR-75 이전),
- * 걷어낸 칸들이 남아 있고(ADR-42·45·51), 토큰 인덱스가 없다.
+ * 지금과 다른 다섯: 토큰 칸이 없고(ADR-32 이전), PIN 번호 칸이 없고(ADR-75 이전),
+ * 걷어낸 칸들이 남아 있고(ADR-42·45·51), 토큰 인덱스가 없고,
+ * 입장 실패에 넣어본 번호 칸이 없다(ADR-75 후기 이전).
  */
 // copy-ok — SQL 이지 화면 문구가 아니다
 const V1_PLAYERS = `CREATE TABLE players (
@@ -55,6 +56,10 @@ const V1_PLAYERS = `CREATE TABLE players (
 // copy-ok — SQL 이지 화면 문구가 아니다
 const V1_INVITES = `CREATE TABLE invites (
   phone TEXT PRIMARY KEY, added_at INTEGER NOT NULL, sent_at INTEGER
+)`;
+// copy-ok — SQL 이지 화면 문구가 아니다
+const V1_ENTRY_TRIES = `CREATE TABLE entry_tries (
+  ip_hash TEXT NOT NULL, at INTEGER NOT NULL
 )`;
 
 const PLAYER_COLS =
@@ -76,8 +81,10 @@ async function ageToV1(eventId: string) {
     // copy-ok — SQL 이지 화면 문구가 아니다
     sql.exec("DROP TABLE players");
     sql.exec("DROP TABLE invites");
+    sql.exec("DROP TABLE entry_tries");
     sql.exec(V1_PLAYERS);
     sql.exec(V1_INVITES);
+    sql.exec(V1_ENTRY_TRIES);
 
     const marks = PLAYER_COLS.split(",").map(() => "?").join(",");
     for (const p of players) {
@@ -189,6 +196,8 @@ describe("옛 모양으로 저장된 회차", () => {
     expect(set.status, JSON.stringify(set.body)).toBe(200);
     expect(set.body.code).toBe(ev.code);
     expect((await enter(ev.id, me.phone, "1357")).status).toBe(200);
+    // 틀리면 실패를 적는다 — 옛 표에는 그 줄의 번호 칸이 없었다. 더하는 줄이 빠지면 여기서 500 이다
     expect((await enter(ev.id, me.phone, "0000")).status).toBe(403);
+    expect((await enter(ev.id, "01000000000")).status).toBe(403);
   });
 });

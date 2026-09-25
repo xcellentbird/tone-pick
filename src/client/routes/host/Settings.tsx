@@ -22,7 +22,7 @@
  *
  * 예약 값 자체는 지우지 않는다. "예약은 21:00 이었는데 20:45 에 진행했다"를 보여줄 수 있어야 한다.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate } from "react-router";
 import { BTN, DELETE_EVENT, HOST_UI, UNIT } from "../../../shared/copy.ts";
 import type { EventMeta, EventSchedule } from "../../../shared/types.ts";
@@ -30,6 +30,7 @@ import { LIMITS } from "../../../shared/constants.ts";
 import { rulesLocked, schedLocked } from "../../../shared/phase.ts";
 import { SCHEDULE_STEP_MIN, formatWhen, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, del, put } from "../../lib/api.ts";
+import { now } from "../../lib/serverTime.ts";
 import { NOTIFY_OPTIONS, TARGET_OPTIONS, TOPVOTE_OPTIONS, Toggle, topVoteWord } from "./HostDefaults.tsx";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import { Num } from "./HostDefaults.tsx";
@@ -41,20 +42,21 @@ export default function Settings() {
   const navigate = useNavigate();
   const meta = state.meta;
 
-  const [name, setName] = useState(meta.name);
-  const [place, setPlace] = useState("");
-  const [nickHint, setNickHint] = useState("");
-  const [maxPre, setMaxPre] = useState(meta.config.maxPre);
-  const [maxParty, setMaxParty] = useState(meta.config.maxParty);
+  // 칸은 **서버 값이 바뀔 때만** 따라간다 (`useSynced`) — 콘솔은 콕 하나에도 다시 읽힌다
+  const [name, setName] = useSynced(meta.name);
+  const [place, setPlace] = useSynced(meta.place ?? "");
+  const [nickHint, setNickHint] = useSynced(meta.nickHint ?? "");
+  const [maxPre, setMaxPre] = useSynced(meta.config.maxPre);
+  const [maxParty, setMaxParty] = useSynced(meta.config.maxParty);
   /** 익명 쪽지 (슬라이스 36). 옛 회차는 키가 없고 그게 0 이다 — 값을 채워 넣지 않는다 */
-  const [maxNotes, setMaxNotes] = useState(meta.config.maxNotes ?? 0);
-  const [allowSameGender, setAllowSameGender] = useState(meta.config.allowSameGender !== false);
+  const [maxNotes, setMaxNotes] = useSynced(meta.config.maxNotes ?? 0);
+  const [allowSameGender, setAllowSameGender] = useSynced(meta.config.allowSameGender !== false);
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
-  const [preNotify, setPreNotify] = useState(meta.config.preNotify === true);
-  const [pokeNotify, setPokeNotify] = useState(meta.config.pokeNotify === true);
+  const [preNotify, setPreNotify] = useSynced(meta.config.preNotify === true);
+  const [pokeNotify, setPokeNotify] = useSynced(meta.config.pokeNotify === true);
   /** 매력 투표 1위 보너스 콕 (ADR-100). 옛 회차는 키가 없고 그게 '안 줌' 이다 */
-  const [topVoteBonus, setTopVoteBonus] = useState(!!meta.config.topVoteBonus);
-  const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
+  const [topVoteBonus, setTopVoteBonus] = useSynced(!!meta.config.topVoteBonus);
+  const [schedule, setSchedule] = useSynced<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
   /** 지금 보고 있는 묶음. 라우트가 아니다 — 여는 게 아니라 거르는 것이라 닫을 것이 없다 */
   const [group, setGroup] = useState<Group>("identity");
@@ -63,20 +65,6 @@ export default function Settings() {
   const frozen = rulesLocked(meta.fired);
   /** 1위 보너스는 **파티가 시작되면** 굳는다 (ADR-100) — 1위가 그때 정해지고, 보너스 콕을 쓴 뒤에 끄면 한도를 넘는다 */
   const topVoteFrozen = !!(meta.fired.party || meta.fired.done);
-
-  useEffect(() => {
-    setName(meta.name);
-    setMaxPre(meta.config.maxPre);
-    setMaxParty(meta.config.maxParty);
-    setMaxNotes(meta.config.maxNotes ?? 0);
-    setAllowSameGender(meta.config.allowSameGender !== false);
-    setPreNotify(meta.config.preNotify === true);
-    setPokeNotify(meta.config.pokeNotify === true);
-    setTopVoteBonus(!!meta.config.topVoteBonus);
-    setPlace(meta.place ?? "");
-    setNickHint(meta.nickHint ?? "");
-    setSchedule(meta.schedule);
-  }, [meta]);
 
   /**
    * 바뀐 것을 **묶음별로** 모은다.
@@ -139,8 +127,21 @@ export default function Settings() {
      * 운영자가 이 버튼을 *없던 일로 만드는 것* 으로 오해하지 않는다.
      */
     const off = maxNotes === 0 && (meta.config.maxNotes ?? 0) > 0;
+    /*
+     * **지난 시각으로 고친 예약은 저장하는 순간 넘어간다** — 서버가 그 시각을 그대로 받고 알람이 바로 운다.
+     * 바뀐 줄의 숫자만으로는 그게 안 보여서 한 줄 더 붙인다. 지났는지는 서버 시각으로 잰다 (규칙 3).
+     */
+    const t = now();
+    const goesNow = SCHED_ORDER.filter((k) => {
+      const at = schedule[k];
+      return at !== undefined && at !== meta.schedule[k] && at <= t && !schedLocked(meta.fired, k);
+    }).map((k) => HOST_UI.schedPast(HOST_UI.fields[k], k === "revealAt"));
     confirm(
-      { btn: HOST_UI.applySettings, title: HOST_UI.applyTitle, facts: off ? [...facts, ...HOST_UI.noteOffFacts] : facts },
+      {
+        btn: HOST_UI.applySettings,
+        title: HOST_UI.applyTitle,
+        facts: [...facts, ...goesNow, ...(off ? HOST_UI.noteOffFacts : [])],
+      },
       save,
     );
   }
@@ -406,6 +407,29 @@ export default function Settings() {
 }
 
 /** 묶음 넷. 알약 줄의 **순서**이기도 하다 — 앞의 셋은 회차 만들기의 스텝과 같다 */
+/**
+ * 입력칸 하나 — **서버 값이 바뀌었을 때만** 그 값을 따라간다.
+ *
+ * 콘솔은 콕 하나, 등록 하나에도 다시 읽는다. 읽을 때마다 `meta` 가 새 모양으로 오는데,
+ * 모양이 바뀌었다고 칸을 되돌리면 파티 중에 설정을 고치던 운영자의 입력이 콕 하나에 사라진다.
+ * 그래서 **값**이 바뀌었을 때만 따라간다 — 이 화면의 저장, 다른 기기의 저장.
+ *
+ * **칸마다 따로 본다.** `적용` 은 두 번 저장한다(설정 · 일정). 앞의 것만 들어가고 뒤의 것이
+ * 막히면(`순서`), 막힌 쪽 입력이 남아 있어야 무엇이 막혔는지 보인다.
+ */
+function useSynced<T>(server: T): [T, Dispatch<SetStateAction<T>>] {
+  const [value, setValue] = useState(server);
+  const key = JSON.stringify(server);
+  const seen = useRef(key);
+  useEffect(() => {
+    if (seen.current === key) return;
+    seen.current = key;
+    setValue(server);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return [value, setValue];
+}
+
 const GROUPS = ["identity", "schedule", "rules", "danger"] as const;
 type Group = (typeof GROUPS)[number];
 

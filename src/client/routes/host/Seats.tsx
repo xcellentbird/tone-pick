@@ -3,7 +3,9 @@
  *
  * · 배정은 **두 걸음**이다 (ADR-45). 뺄 사람을 먼저 고르고 그 다음 테이블 수다 —
  *   `테이블당 N명` 이 남은 인원으로 계산되므로, 순서가 뒤집히면 방금 읽은 숫자가 틀린 것이 된다
- * · 뺀 사람은 **이 라운드에만** 빠진다. 사람에게 붙는 상태가 아니라 다음 배정은 전원으로 시작한다
+ * · 뺄 사람은 **지난 배정에서 이어받는다** (ADR-108). 운영진·먼저 간 사람을 라운드마다 다시 빼지 않는다.
+ *   사람에게 붙는 상태는 없다 — 지난 자리와 등록 시각에서 계산한다 (`carriedOut`)
+ * · 떨어뜨려 앉힐 쌍도 **여기서** 넣고 뺀다 (ADR-109). 결과(⛔)를 보는 곳과 고치는 곳이 이 탭이다
  * · 테이블 수는 **배정할 때마다** 고른다. 설정값이 아니다 (ADR-5)
  * · 초안 생성에는 확인을 붙이지 않는다 — 참가자에게 안 보이고 몇 번이든 다시 만들 수 있다
  * · 발송에는 확인을 붙인다 — 참가자 화면을 덮는 확인 화면이 뜬다
@@ -16,13 +18,13 @@
  * 고친 자리에는 **알림이 가지 않는다** — 운영자가 그 사람 앞에서 하는 일이라
  * 앱이 대신 말할 게 없다. 화면은 방송으로 다시 읽는다 (ADR-26).
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { GENDER, HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
+import { FAIL, GENDER, HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Player, SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
-import { apartClashes, apartFrom, autoTable, isApart } from "../../../shared/seats.ts";
-import { ApiError, del, post } from "../../lib/api.ts";
+import { apartClashes, apartFrom, autoTable, autoTableCount, isApart } from "../../../shared/seats.ts";
+import { ApiError, del, messageOf, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
@@ -42,6 +44,12 @@ export default function Seats() {
   /** 두 걸음 중 어디인가. 주소가 진실이라 새로고침해도 같은 걸음이 뜬다 */
   const sheetOpen = path.startsWith(`${here}/new`);
   const atTables = path.endsWith("/tables");
+  /**
+   * 떨어뜨려 앉히기 (ADR-109) — 쌍 목록과, 그 위에서 여는 고르는 시트.
+   * 고르면 `navigate(-1)` 로 목록에 돌아온다 — 거기 줄이 생긴 것이 곧 알림이다 (ADR-65)
+   */
+  const atApart = path === `${here}/apart`;
+  const atApartAdd = path === `${here}/apart/add`;
   /**
    * 앉힐 자리 고르기 시트 (ADR-79). 주소가 **누구를 · 어느 라운드에** 를 다 들고 있다 —
    * 카드가 여럿이라 라운드가 빠지면 새로고침 뒤에 엉뚱한 카드에 앉힌다.
@@ -68,22 +76,23 @@ export default function Seats() {
   const [openEdit, setOpenEdit] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   /**
-   * 이번 라운드에서 뺄 사람 (ADR-45).
+   * 이번 배정에서 뺄 사람 (ADR-45).
    *
-   * **어디에도 저장하지 않는다.** 사람에게 붙는 상태로 만들면 시간이 지나 틀리고,
-   * 틀린 상태가 다음 라운드에서 사람을 조용히 빠뜨린다 (FLOWS.md).
-   * 배정 버튼을 누를 때 비워서, 시트를 새로 열면 언제나 전원으로 시작한다.
+   * **지난 배정에서 이어받은 채로 시작한다** (ADR-108) — 운영진·먼저 간 사람·안 온 사람을 라운드마다
+   * 다시 빼게 하면 한 명을 잊는 순간 빈 의자가 발행된다. 그래도 **어디에도 저장하지 않는다.**
+   * 사람에게 붙는 상태로 만들면 시간이 지나 틀린다 (FLOWS.md) — 지난 자리에서 그때그때 계산한다.
+   *
+   * 처음 값도 같은 계산이다. 시트 주소를 새로 열어도(새로고침) 버튼으로 연 것과 같은 목록이 뜬다.
    */
-  const [out, setOut] = useState<Set<string>>(new Set());
+  const [out, setOut] = useState<Set<string>>(() => carriedOut(state.players, state.seatings));
 
-  /** 배정 시트를 연다. **고른 것을 비우고 연다** — 지난 라운드의 선택이 따라오면 안 된다 */
+  /** 배정 시트를 연다. **지난 배정에서 빠진 사람을 뺀 채로 연다** — 운영자는 거기서 고친다 */
   function openSeating() {
-    setOut(new Set());
+    setOut(carriedOut(state.players, state.seatings));
     navigate(`${here}/new`);
   }
   // 두 번째 라운드에서는 같은 테이블 수를 다시 고르는 일이 흔하다. 지난번 값에서 시작한다
-  const lastTableCount =
-    state.seatings.at(-1)?.tableCount ?? Math.max(1, Math.round(state.players.length / 6));
+  const lastTableCount = state.seatings.at(-1)?.tableCount ?? autoTableCount(state.players.length);
 
   const base = `/host/events/${state.meta.id}/seating`;
   const draft = state.seatings.find((s) => s.status === "draft");
@@ -112,6 +121,8 @@ export default function Seats() {
   }
   const published = state.seatings.filter((s) => s.status === "published");
   const revealed = state.meta.phase === "done";
+  // 파티가 열렸나 — 열린 뒤에는 자동 배정이 이미 지나갔다 (ADR-106)
+  const started = state.meta.phase === "party" || revealed;
 
   async function make(tableCount: number) {
     setBusy(true);
@@ -120,8 +131,8 @@ export default function Seats() {
       navigate(here, { replace: true });
       reload();
     } catch (e) {
-      // 이 화면에서 400 이 나올 이유는 인원 대비 테이블이 많은 것뿐이다
-      toast(e instanceof ApiError && e.status === 400 ? HOST.seating.tooFewPerTable : HOST.seating.afterReveal);
+      // 이 화면에서 400 이 나올 이유는 인원 대비 테이블이 많은 것뿐이다. 망이 끊긴 것을 `발표 뒤` 라고 하지 않는다
+      toast(e instanceof ApiError && e.status === 400 ? HOST.seating.tooFewPerTable : messageOf(e, HOST.seating.afterReveal));
     } finally {
       setBusy(false);
     }
@@ -129,8 +140,19 @@ export default function Seats() {
 
   const nameOf = (id: string) => nickOf(state.players, id);
 
+  /**
+   * 자리 손질은 대부분 **확인창 없이** 바로 간다 — 되돌릴 수 있어서다. 그래서 막혔을 때 말해 줄 창도 없다.
+   * 조용히 끝나면 운영자는 된 줄 알고 그 자리를 사람에게 불러 준다. 발표 뒤면 서버가 이유를 싣고,
+   * 망이 끊겼으면 그 말이 온다.
+   */
+  const failed = (e: unknown) => toast(messageOf(e, FAIL.action));
+
   async function shuffle() {
-    await post(`${base}/shuffle`);
+    try {
+      await post(`${base}/shuffle`);
+    } catch (e) {
+      return failed(e);
+    }
     /*
      * **붙어 앉은 쌍은 섞어도 제자리다** (ADR-23). 그 사실은 붙은 쌍이 있을 때만 말한다 —
      * 없을 때 말하면 있지도 않은 일을 알리는 것이 된다.
@@ -154,7 +176,11 @@ export default function Seats() {
    */
   async function reseat() {
     const held = draft ? pairStats(draft, couples).together : 0;
-    await post(`${base}/reseat`);
+    try {
+      await post(`${base}/reseat`);
+    } catch (e) {
+      return failed(e);
+    }
     toast(held > 0 ? HOST.seating.reseatedPairs : HOST.seating.reseated);
     setPicked(null);
     reload();
@@ -191,7 +217,11 @@ export default function Seats() {
     // 막지는 않는다 — 현장 사정은 운영자가 안다. 다만 무엇이 깨지는지는 말한다
     const run = async () => {
       // 남녀를 맞바꿔도 된다. 인원은 그대로고, 바뀐 성비는 테이블 머리의 숫자에 바로 보인다
-      await post(`${base}/swap`, { a: first, b: playerId, round: round.round });
+      try {
+        await post(`${base}/swap`, { a: first, b: playerId, round: round.round });
+      } catch (e) {
+        return failed(e);
+      }
       reload();
     };
     const broken = pairsBrokenBy(round, first, playerId);
@@ -219,7 +249,12 @@ export default function Seats() {
    */
   async function seat(round: SeatingRound, playerId: string, table?: number) {
     navigate(-1);
-    const next = await post<SeatingRound>(`${base}/seat`, { playerId, round: round.round, table });
+    let next: SeatingRound;
+    try {
+      next = await post<SeatingRound>(`${base}/seat`, { playerId, round: round.round, table });
+    } catch (e) {
+      return failed(e);
+    }
     const at = next.seats.find((s) => s.playerId === playerId)?.table;
     if (at) toast(HOST_UI.seats.seatedAt(nameOf(playerId), at));
     reload();
@@ -228,10 +263,47 @@ export default function Seats() {
   /** 이 라운드 자리에서만 뺀다. 참가자를 지우는 것과 다른 일이다 — 되돌릴 수 있어 확인이 없다 */
   async function unseat(round: SeatingRound, playerId: string) {
     setPicked(null);
-    await post(`${base}/unseat`, { playerId, round: round.round });
+    try {
+      await post(`${base}/unseat`, { playerId, round: round.round });
+    } catch (e) {
+      return failed(e);
+    }
     toast(HOST_UI.seats.unseated(nameOf(playerId)));
     reload();
   }
+
+  /**
+   * 떨어뜨려 앉히기 (ADR-90 · ADR-109). **되돌릴 수 있어 확인창이 없다** (ADR-6) — 쌍 목록에 줄이 생기고
+   * 사라지는 것이 곧 알림이다 (ADR-65). 방향이 없어 누구를 먼저 골랐든 같은 쌍이다.
+   *
+   * 고르는 시트를 **먼저 닫는다** — 앉히기와 같다. 답을 기다리는 동안 시트가 그대로면 한 번 더 누르게 되고,
+   * 뒤로 가기가 두 번 걸려 쌍 목록까지 닫힌다. **거절만 토스트로 말한다** — 시트를 열어 둔 사이 발표가 났을 때.
+   */
+  const apartApi = `/host/events/${state.meta.id}/apart`;
+  async function addApart(a: string, b: string) {
+    navigate(-1);
+    try {
+      await post(apartApi, { a, b });
+    } catch (e) {
+      return failed(e);
+    }
+    reload();
+  }
+  async function removeApart(a: string, b: string) {
+    try {
+      await del(`${apartApi}/${a}/${b}`);
+    } catch (e) {
+      return failed(e);
+    }
+    reload();
+  }
+  /*
+   * 발표 뒤에는 넣지 못한다 (ADR-90) — 버튼이 없어도 고르는 시트의 주소는 칠 수 있다.
+   * 빈 시트에 두지 않고 쌍 목록으로 **갈아끼운다** (빼기는 거기서 된다).
+   */
+  useEffect(() => {
+    if (atApartAdd && revealed) navigate(`${here}/apart`, { replace: true });
+  }, [atApartAdd, revealed, navigate, here]);
 
   /**
    * 카드 머리의 한 줄. 고른 사람이 없으면 무엇을 할 수 있는지, 있으면 누구를 골랐는지 —
@@ -253,6 +325,16 @@ export default function Seats() {
   function askPublish(round: SeatingRound) {
     const perTable = round.seats.length / round.tableCount;
     const pairs = pairStats(round, couples);
+    /*
+     * **자리 없이 남는 사람** (ADR-108, 규칙 4). 발행의 가장 큰 부작용이 *누가 서 있게 되나* 다 —
+     * 뺄 사람을 이어받게 되면서 돌아온 사람이 또 빠질 수 있고, 초안을 만든 뒤 등록한 사람도 여기 있다.
+     * 초안 카드의 `제외` 와 같은 사람들이고, 같은 순서(실명 순)다. 0명이면 줄이 없다.
+     */
+    const seatedIds = new Set(round.seats.map((s) => s.playerId));
+    const left = state.players
+      .filter((p) => !seatedIds.has(p.id))
+      .map((p) => p.realName)
+      .sort((a, b) => a.localeCompare(b, "ko"));
     confirm(
       {
         btn: HOST.seating.publish,
@@ -260,6 +342,9 @@ export default function Seats() {
         facts: [
           [HOST_UI.seats.tableCount, `${round.tableCount}`],
           [HOST_UI.seats.seated, HOST_UI.seats.seatedCount(round.seats.length, Math.round(perTable))],
+          ...((left.length > 0
+            ? [[HOST_UI.seats.unassigned, HOST_UI.seats.publishOut(left.slice(0, 3), Math.max(0, left.length - 3))]]
+            : []) as Array<[string, string]>),
           /*
            * **쌍이 있을 때만 그 줄을 넣는다** (ADR-51). 첫 라운드에는 상호 매칭이 없어서
            * `0쌍 중 0쌍` 이 뜨는데, 그건 나쁜 소식처럼 읽히고 실은 아무 말도 아니다.
@@ -303,6 +388,33 @@ export default function Seats() {
       >
         {HOST_UI.seats.make}
       </button>
+
+      {/*
+        **떨어뜨려 앉히기** (ADR-109). 결과(⛔ 칩)를 보는 곳과 고치는 곳(맞교환)이 이 탭이라 넣는 곳도 여기다.
+        **한 줄만 선다** — 이 탭은 테이블 번호를 보여 주려고 폰을 내미는 화면이라, 누가 누구를 떼어 놨는지는
+        시트를 열어야 보인다. 쌍이 있을 때만 수가 붙는다. 발표 뒤에도 선다 — 빼기는 된다 (ADR-90).
+      */}
+      {state.players.length >= 2 && (
+        <button type="button" className="fact" onClick={() => navigate(`${here}/apart`)}>
+          <span className="grow">{HOST_UI.seats.apart.title}</span>
+          {state.apart.length > 0 && <span className="dim">{HOST_UI.seats.apart.count(state.apart.length)}</span>}
+        </button>
+      )}
+      <Sheet open={atApart} onClose={() => navigate(-1)} title={HOST_UI.seats.apart.title}>
+        {atApart && (
+          <ApartList
+            players={state.players}
+            apart={state.apart}
+            revealed={revealed}
+            onRemove={removeApart}
+            onAdd={() => navigate(`${here}/apart/add`)}
+          />
+        )}
+      </Sheet>
+      {/* 쌍 목록 **위에서** 여는 시트다. 이 저장소의 시트는 겹치지 않는다 — 여는 동안 목록은 닫혀 있다 */}
+      <Sheet open={atApartAdd && !revealed} onClose={() => navigate(-1)} title={HOST_UI.seats.apart.pickTitle}>
+        {atApartAdd && !revealed && <ApartPicker players={state.players} apart={state.apart} onPick={addApart} />}
+      </Sheet>
 
       {/*
         **두 걸음이 한 시트를 나눠 쓴다** (ADR-45). 걸음은 주소가 정하므로
@@ -412,7 +524,11 @@ export default function Seats() {
             className="btn block ghost"
             onClick={async () => {
               setPicked(null);
-              await del(base);
+              try {
+                await del(base);
+              } catch (e) {
+                return failed(e);
+              }
               toast(HOST.seating.discarded);
               reload();
             }}
@@ -423,6 +539,12 @@ export default function Seats() {
       )}
 
       {published.length === 0 && (!draft || revealed) && <p className="dim center">{HOST_UI.seats.noRounds}</p>}
+      {/* 파티 전에 보낸 자리가 없으면 무엇이 저절로 나가는지 (ADR-106). 두 명이 안 되면 서버도 짜지 않는다 */}
+      {published.length === 0 && !started && (draft || state.players.length >= 2) && (
+        <p className="small dim center">
+          {draft ? HOST_UI.seats.autoDraft : HOST_UI.seats.autoAtParty(autoTableCount(state.players.length))}
+        </p>
+      )}
 
       {[...published].reverse().map((round, i) => {
         /*
@@ -434,22 +556,14 @@ export default function Seats() {
          */
         const editable = i === 0 && !revealed;
         const editing = editable && openEdit === round.round;
-        /*
-         * 확인을 **아직 기다리는 라운드인가.** 조건이 `editable` 과 같지만 뜻이 다르다 —
-         * 저건 고칠 수 있느냐이고 이건 답을 기다리는 중이냐다. 지난 라운드는 사람들이
-         * 이미 다음 자리에 앉아 있고, 발표 뒤에는 참가자 화면에 자리 카드가 아예
-         * 안 뜬다(`SeatTakeover`) — 둘 다 확인이 올 수 없는 자리다.
-         */
-        const awaiting = i === 0 && !revealed;
         return (
           <div className="card stack" key={round.round}>
             {/*
-              자리 이동 확인 수는 **고치는 문이 열려도 남는다** — 지금 사람들이 답하고 있는
-              라운드가 바로 이것이라, 여기서 사라지면 볼 자리가 없어진다.
+              참가자의 자리 이동 확인은 **여기 없다** (ADR-110) — 숫자도, 아직 안 한 사람의 이름도.
+              운영자는 시계를 보고 파티를 이끌고, 안 옮긴 사람은 방을 둘러보고 부른다.
             */}
             <div className="row">
               <span className="kicker grow ellipsis">{HOST_UI.seats.roundTitle(round.round)}</span>
-              <span className="small dim">{HOST.ack.progress(round.acks.length, round.seats.length)}</span>
               {editable && (
                 <button
                   className={`btn ghost tiny ${editing ? "primary" : ""}`}
@@ -466,7 +580,6 @@ export default function Seats() {
               **설명은 고치는 동안에만, 한 줄만 선다** (ADR-49). 읽으러 연 사람에게는
               테이블이 먼저다 — 늘 떠 있던 설명 넷이 화면 위쪽을 통째로 먹고 있었다.
             */}
-            {awaiting && <NotAcked round={round} state={state} />}
             {editing && editBar(round)}
             {/*
               쌍 성적표도 **고치는 동안에만** 선다 (ADR-49 + ADR-51). 이건 읽을거리가 아니라
@@ -500,10 +613,9 @@ export default function Seats() {
  * 테이블 수보다 먼저 오는 이유가 하나다. 다음 걸음의 `테이블당 N명` 이 여기서 남은
  * 인원으로 계산되므로, 순서가 뒤집히면 방금 읽은 숫자가 곧바로 틀린 것이 된다.
  *
- * **이번 라운드에만 빠진다.** 참가자에게 붙는 상태를 만들지 않는다 — 노쇼는 다음 라운드에
- * 나타날 수 있고, 온 사람이 잠깐 빠질 수도 있다. 시트를 새로 열면 전원으로 돌아온다.
- *
- * 기본은 **전원 배정**이다. 대부분의 라운드가 그렇고, 아무도 안 뺄 사람은 그대로 다음을 누른다.
+ * **지난 배정에서 빠진 사람은 빠진 채로 열린다** (ADR-108). 참가자에게 붙는 상태는 여전히 없다 —
+ * 지난 자리에서 계산한 목록을 받아서(`out`) 여기서 고칠 뿐이다. 첫 배정만 전원으로 시작한다.
+ * 이어받은 사람이 섞여 있으므로 **빠진 줄이 튀어야 한다** — 이름은 흐리게, `제외` 는 칩과 같은 색으로.
  */
 function ExcludePicker({
   players,
@@ -529,19 +641,8 @@ function ExcludePicker({
    * 두 화면이 다른 모양으로 거르면 운영자가 매번 어느 쪽인지 다시 익혀야 한다.
    */
   const [filter, setFilter] = useState<"all" | Gender>("all");
-  /**
-   * **실명 순**(가나다). 등록 순서에는 찾는 규칙이 없다. 닉네임 순이 아니다 — 운영자는
-   * 실명으로 사람을 알고 줄도 실명이 앞에 선다 (ADR-77 후기). 같은 실명이면 닉네임으로 가른다
-   */
-  const sorted = [...players].sort(
-    (a, b) => a.realName.localeCompare(b.realName, "ko") || a.nickname.localeCompare(b.nickname, "ko"),
-  );
+  const sorted = [...players].sort(byRealName);
   const shown = sorted.filter((p) => filter === "all" || p.gender === filter);
-  const count = {
-    all: players.length,
-    M: players.filter((p) => p.gender === "M").length,
-    F: players.filter((p) => p.gender === "F").length,
-  } as const;
   const excluded = sorted.filter((p) => out.has(p.id)).map((p) => p.realName);
 
   return (
@@ -556,20 +657,7 @@ function ExcludePicker({
 
       {open && (
         <>
-          {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
-          <div className="choice">
-            {(
-              [
-                ["all", HOST_UI.players.filterAll],
-                ["M", GENDER.M],
-                ["F", GENDER.F],
-              ] as const
-            ).map(([key, label]) => (
-              <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>
-                {label} <span className="filterCount">{count[key]}</span>
-              </button>
-            ))}
-          </div>
+          <GenderFilter players={players} value={filter} onChange={setFilter} />
 
           {shown.length === 0 && <p className="dim center">{HOST_UI.players.emptyFiltered}</p>}
 
@@ -578,7 +666,7 @@ function ExcludePicker({
               <button
                 key={p.id}
                 type="button"
-                className={`fact ${out.has(p.id) ? "" : "on"}`}
+                className={`fact ${out.has(p.id) ? "out" : ""}`}
                 aria-pressed={!out.has(p.id)}
                 onClick={() => onToggle(p.id)}
               >
@@ -597,9 +685,7 @@ function ExcludePicker({
                   </span>
                 </span>
                 {/* 톤만으로 말하지 않는다. 지금 어느 쪽인지 글자가 같은 정보를 다시 준다 */}
-                <span className={out.has(p.id) ? "dim" : ""}>
-                  {out.has(p.id) ? HOST_UI.seats.excludeOut : HOST_UI.seats.excludeIn}
-                </span>
+                <span className="mark">{out.has(p.id) ? HOST_UI.seats.excludeOut : HOST_UI.seats.excludeIn}</span>
               </button>
             ))}
           </div>
@@ -835,40 +921,6 @@ function Tables({
  * **이름이 버튼이다.** 예전에는 알리기만 하고 할 수 있는 일이 없어서,
  * 한 명 때문에 새 라운드를 발행해야 했다 (전원이 옮겼다).
  */
-/**
- * 자리 카드를 **아직 안 연 사람**을 이름으로 보여준다.
- *
- * 숫자만 있을 때(`HOST.ack.progress`)는 운영자가 할 수 있는 일이 없었다 — 몇 명인지는
- * 알아도 누구인지를 몰라서다. 화장실에 갔거나 밖에 나간 사람은 방에 대고 말해도 안 들린다.
- *
- * **남은 사람이 없으면 사라진다.** 할 일이 없는데 `0명` 을 띄우지 않는다.
- *
- * 테이블 순으로 세운다 — 같은 번호를 받은 사람끼리 붙어 있어야 한 번에 말해줄 수 있다.
- * 이름은 `state.players` 에서 찾는다. 자리에는 `playerId` 만 있다.
- */
-function NotAcked({
-  round,
-  state,
-}: {
-  round: SeatingRound;
-  state: ReturnType<typeof useConsole>["state"];
-}) {
-  const done = new Set(round.acks);
-  const left = round.seats
-    .filter((s) => !done.has(s.playerId))
-    .map((s) => ({ table: s.table, nickname: nickOf(state.players, s.playerId) }))
-    .sort((a, b) => a.table - b.table || a.nickname.localeCompare(b.nickname));
-  if (left.length === 0) return null;
-  return (
-    <div className="stack">
-      {/* 경고가 아니라 할 일이다 — 아래 `Unassigned` 와 같은 색으로 묶는다 */}
-      <span className="small accentText">{HOST_UI.seats.notAcked}</span>
-      <p className="small">{left.map((s) => HOST_UI.seats.notAckedAt(s.nickname, s.table)).join(", ")}</p>
-      <span className="tiny dim">{HOST_UI.seats.notAckedHint}</span>
-    </div>
-  );
-}
-
 function Unassigned({
   round,
   state,
@@ -984,6 +1036,205 @@ function SeatPicker({
             </span>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * **실명 순**(가나다). 등록 순서에는 찾는 규칙이 없다. 닉네임 순이 아니다 — 운영자는
+ * 실명으로 사람을 알고 줄도 실명이 앞에 선다 (ADR-77 후기). 같은 실명이면 닉네임으로 가른다.
+ * 뺄 사람 시트와 떨어뜨릴 사람 고르기가 **같은 순서**로 선다.
+ */
+const byRealName = (a: Player, b: Player) =>
+  a.realName.localeCompare(b.realName, "ko") || a.nickname.localeCompare(b.nickname, "ko");
+
+/**
+ * **지난 배정에서 빠진 사람** — 다음 배정 시트가 이들을 뺀 채로 열린다 (ADR-108).
+ *
+ * 가장 최근 배정(초안이 있으면 초안, 없으면 마지막 발행)을 **만들 때 이미 등록돼 있었는데 지금 자리가 없는 사람**이다.
+ * 배정할 때 뺀 사람과 그 뒤 자리를 비운 사람이 여기 들고, 뺐다가 앉힌 사람은 빠진다.
+ * **그 배정 뒤에 등록한 사람은 이어받지 않는다** — 새로 온 사람이다. 섞기·다시 계산은 초안을 만든 시각을
+ * 건드리지 않아서 이 경계가 흔들리지 않는다.
+ *
+ * **저장하지 않는다** — 지난 자리와 등록 시각에서 그때그때 계산한다 (ADR-45 가 남긴 약속).
+ * 서버 상태에서 나오는 값이라 새로고침해도, 운영자 폰이 둘이어도 같은 목록이다.
+ */
+function carriedOut(players: Player[], seatings: SeatingRound[]): Set<string> {
+  const last = seatings.find((s) => s.status === "draft") ?? seatings.filter((s) => s.status === "published").at(-1);
+  if (!last) return new Set();
+  const seated = new Set(last.seats.map((s) => s.playerId));
+  return new Set(players.filter((p) => p.createdAt <= last.createdAt && !seated.has(p.id)).map((p) => p.id));
+}
+
+/**
+ * 전체 / 남성 / 여성 칩. **참가자 탭과 같은 칩·같은 순서다.** 버튼마다 인원 수가 붙는다 —
+ * 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없어서 셋 중 하나가 항상 켜져 있다.
+ * 뺄 사람 시트와 떨어뜨릴 사람 고르기가 같이 쓴다.
+ */
+function GenderFilter({
+  players,
+  value,
+  onChange,
+}: {
+  players: Player[];
+  value: "all" | Gender;
+  onChange: (next: "all" | Gender) => void;
+}) {
+  const count = {
+    all: players.length,
+    M: players.filter((p) => p.gender === "M").length,
+    F: players.filter((p) => p.gender === "F").length,
+  } as const;
+  return (
+    <div className="choice">
+      {(
+        [
+          ["all", HOST_UI.players.filterAll],
+          ["M", GENDER.M],
+          ["F", GENDER.F],
+        ] as const
+      ).map(([key, label]) => (
+        <button key={key} type="button" aria-pressed={value === key} onClick={() => onChange(key)}>
+          {label} <span className="filterCount">{count[key]}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * **떨어뜨려 앉힐 쌍 목록** (ADR-109). 실명이 앞이다 — 운영자는 실명으로 사람을 안다 (ADR-77 후기).
+ * 닉네임은 그 아래 흐리게 선다. 자리 칩이 닉네임으로 부르므로 둘을 이어 준다.
+ *
+ * 되돌릴 수 있어 빼기에 확인창이 없다 (ADR-6). 발표 뒤에는 더하는 버튼이 없고 빼기만 남는다 (ADR-90).
+ */
+function ApartList({
+  players,
+  apart,
+  revealed,
+  onRemove,
+  onAdd,
+}: {
+  players: Player[];
+  apart: Array<[string, string]>;
+  revealed: boolean;
+  onRemove: (a: string, b: string) => void;
+  onAdd: () => void;
+}) {
+  const byId = new Map(players.map((p) => [p.id, p]));
+  const rows = apart.flatMap(([a, b]) => {
+    const x = byId.get(a);
+    const y = byId.get(b);
+    return x && y ? [[x, y] as const] : [];
+  });
+  return (
+    <div className="stack">
+      <p className="small dim">{HOST_UI.seats.apart.note}</p>
+      {rows.length === 0 ? (
+        <p className="dim center">{HOST_UI.seats.apart.none}</p>
+      ) : (
+        <div className="stack">
+          {rows.map(([x, y]) => (
+            <div className="fact" key={`${x.id}|${y.id}`} style={{ alignItems: "center" }}>
+              <span className="grow" style={{ minWidth: 0 }}>
+                <span className="name ellipsis" style={{ display: "block" }}>
+                  {HOST_UI.dash.mutualPair(x.realName, y.realName)}
+                </span>
+                <span className="small dim ellipsis" style={{ display: "block" }}>
+                  {HOST_UI.dash.mutualPair(x.nickname, y.nickname)}
+                </span>
+              </span>
+              <button type="button" className="btn ghost" onClick={() => onRemove(x.id, y.id)}>
+                {HOST_UI.seats.apart.remove}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {!revealed && (
+        <button type="button" className="btn primary block" onClick={onAdd}>
+          {HOST_UI.seats.apart.add}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * **떨어뜨려 앉힐 두 사람 고르기** (ADR-109). 두 명을 차례로 누르면 쌍이 된다 — 맞교환과 같은 손짓이다.
+ * 고른 사람을 다시 누르면 풀린다.
+ *
+ * 뺄 사람 시트와 **같은 줄**(실명 · 닉네임 · 나이), **같은 순서**(실명 순), **같은 성별 칩**이다.
+ * 첫 사람과 **이미 떼어 놓은 상대는 눌리지 않는다** — 넣어도 같은 쌍이라 아무 일이 없는데, 눌리면 된 줄 안다.
+ *
+ * 누구를 골랐는지는 **발(바닥)에** 선다. 서른 줄을 내려가 둘째 사람을 찾는 동안에도 보여야 한다 —
+ * 맞교환 카드의 선택 줄은 위에 있어서 스크롤하면 사라진다.
+ */
+function ApartPicker({
+  players,
+  apart,
+  onPick,
+}: {
+  players: Player[];
+  apart: Array<[string, string]>;
+  onPick: (a: string, b: string) => void;
+}) {
+  const [first, setFirst] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | Gender>("all");
+  /**
+   * 둘째를 누른 뒤에는 받지 않는다. 시트는 닫히는 동안 내용을 붙들고 있어(`Sheet`) 한 번 더 눌릴 수 있고,
+   * 그러면 같은 쌍을 두 번 보내고 뒤로 가기가 두 번 걸려 쌍 목록까지 닫힌다.
+   */
+  const sent = useRef(false);
+  const shown = [...players].sort(byRealName).filter((p) => filter === "all" || p.gender === filter);
+  const taken = first ? apartFrom(first, apart) : new Set<string>();
+  const firstName = players.find((p) => p.id === first)?.realName;
+
+  function tap(id: string) {
+    if (sent.current) return;
+    if (!first) return setFirst(id);
+    if (id === first) return setFirst(null);
+    sent.current = true;
+    onPick(first, id);
+  }
+
+  return (
+    <div className="stack">
+      <GenderFilter players={players} value={filter} onChange={setFilter} />
+      {shown.length === 0 && <p className="dim center">{HOST_UI.players.emptyFiltered}</p>}
+      <div className="stack">
+        {shown.map((p) => {
+          const isFirst = p.id === first;
+          const already = !isFirst && taken.has(p.id);
+          return (
+            <button
+              key={p.id}
+              type="button"
+              className={`fact ${isFirst ? "picked" : ""}`}
+              aria-pressed={isFirst}
+              disabled={already}
+              onClick={() => tap(p.id)}
+            >
+              <Avatar nickname={p.nickname} gender={p.gender} size="sm" />
+              <span className="grow ellipsis">
+                <span className="name">{p.realName}</span>
+                <span className="dim">
+                  {" · "}
+                  {p.nickname}
+                  {" · "}
+                  {UNIT.age(p.age)}
+                </span>
+              </span>
+              {isFirst && <span className="mark">{HOST_UI.seats.apart.picked}</span>}
+              {already && <span className="dim">{HOST_UI.seats.apart.already}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {/* 발 — 시트 바닥에 붙는다 (`.sheetFoot`). 뺄 사람 시트의 인원 줄과 같은 자리다 */}
+      <div className="sheetFoot">
+        <p className="small">{firstName ? HOST_UI.seats.apart.pickedOne(firstName) : HOST_UI.seats.apart.pickHint}</p>
       </div>
     </div>
   );

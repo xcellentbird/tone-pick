@@ -25,6 +25,7 @@ import { useDraftGuard } from "../lib/history.ts";
 import type { ProfileDraft } from "../lib/profileForm.ts";
 import { EMPTY_DRAFT, toInput, validateProfile } from "../lib/profileForm.ts";
 import { takeBoot } from "../lib/boot.ts";
+import { seedParticipant } from "../lib/participant.ts";
 import { prefetchParticipant } from "../router.tsx";
 
 /** 초안·검증은 내 정보 수정 폼과 함께 쓴다 (`lib/profileForm.ts`) */
@@ -138,12 +139,11 @@ export default function Register() {
     try {
       // 번호는 입장할 때 확인한 값이다. 서버가 초대 쿠키에서 꺼내 쓴다 (ADR-31) — PIN 번호는 여기서 함께 간다
       const done = await post<RegisterResult>("/register", toInput(draft));
+      // 서버가 방금 만든 상태를 홈이 그대로 그린다 — `/me` 를 한 번 더 묻지 않는다
+      seedParticipant(done.state);
       const home = `/e/${done.state.event.code}`;
       // 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
-      navigate(home, {
-        replace: true,
-        state: done.resumed ? { welcome: REGISTER.welcomeBack(done.state.me.nickname) } : undefined,
-      });
+      navigate(home, { replace: true });
       /*
        * **등록을 마친 사람에게 진행 방식을 한 번 밀어준다** (슬라이스 21).
        *
@@ -156,9 +156,9 @@ export default function Register() {
        *
        * 본 적이 있다는 기록은 남기지 않는다 (ADR-4). **`등록 완료` 라는 사건에 붙는다** —
        * 새로고침하면 안 뜨고, 다시 보고 싶으면 물음표이거나 홈 카드의 `진행 방식 보기` 다.
-       * `resumed` 는 새로 등록한 게 아니라 돌아온 것이라 밀지 않는다.
+       * 등록이 성공했다면 늘 새 사람이다 — 이미 등록한 번호는 서버가 401 로 문 앞에 돌려보낸다 (ADR-75).
        */
-      if (!done.resumed) navigate(`${home}/help`);
+      navigate(`${home}/help`);
     } catch (e) {
       setBusy(false);
       if (e instanceof ApiError && e.code === "nick_taken") {

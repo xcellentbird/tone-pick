@@ -10,15 +10,17 @@
  *   · 보낸 쪽지의 읽음 배지는 **쪽지함을 연 순간의 값으로 굳는다** (S-B4)
  *   · 받은 줄에 누를 수 있는 것은 **지우기 하나**다 (S-C3)
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { NOTE, PEOPLE, POKE as POKE_COPY } from "../../src/shared/copy.ts";
 import type { MyNoteState, MyPokeState, ParticipantState, Phase } from "../../src/shared/types.ts";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
+import { ApiError } from "../../src/client/lib/api.ts";
 
 afterEach(cleanup);
+afterEach(() => vi.unstubAllGlobals());
 // 가리기는 localStorage 에 남는다 (`useCovered`) — 테스트끼리 물려받지 않게 매번 비운다
 beforeEach(() => window.localStorage.clear());
 
@@ -95,6 +97,8 @@ function sourceOf(state: ParticipantState) {
 interface Mount {
   tab?: "home" | "people";
   profileId?: string;
+  /** 작성 시트 (`/people/<id>/note`) */
+  noteOpen?: boolean;
   notesOpen?: boolean;
   onNote?: (on: boolean) => void;
   key?: string;
@@ -107,6 +111,7 @@ function view(src: ParticipantSource, over: Mount = {}) {
         source={over.key ? { ...src, key: over.key } : src}
         tab={over.tab ?? "people"}
         profileId={over.profileId}
+        noteOpen={over.noteOpen}
         notesOpen={over.notesOpen}
         onTab={() => {}}
         onProfile={() => {}}
@@ -168,6 +173,27 @@ describe("쓰는 입구 — 프로필 시트의 ✉️", () => {
     expect(opened).toEqual([]);
   });
 
+  it("★ 보내기가 거절되면 다시 읽는다 — 다른 기기에서 다 썼으면 남은 장 수가 그대로 서 있었다", async () => {
+    const state = stateOf({ budget: { max: 2, used: 1 }, sent: {}, received: [], unread: 0 });
+    const src = sourceOf(state);
+    let loads = 0;
+    src.load = async () => {
+      loads++;
+      return state;
+    };
+    src.sendNote = async () => {
+      throw new ApiError(409, "no_budget", NOTE.blocked.noBudget(2));
+    };
+    mount(src, { profileId: "her", noteOpen: true });
+    const box = await screen.findByLabelText(NOTE.compose.label);
+    fireEvent.change(box, { target: { value: "안녕하세요" } });
+    fireEvent.click(screen.getByRole("button", { name: NOTE.compose.submit }));
+    const dialog = await screen.findByRole("dialog", { name: NOTE.confirm.title(0) });
+    fireEvent.click(within(dialog).getByRole("button", { name: NOTE.confirm.submit }));
+    expect(await screen.findByText(NOTE.blocked.noBudget(2))).toBeTruthy();
+    await waitFor(() => expect(loads).toBeGreaterThan(1));
+  });
+
   it("★ 가리기 중에는 잠기고 숫자도 안 보인다 (S-B5)", async () => {
     const src = sourceOf(stateOf({ budget: { max: 2, used: 1 }, sent: { her: [{ text: "글", read: false }] }, received: [], unread: 0 }));
     mount(src, { profileId: "her" });
@@ -183,6 +209,28 @@ describe("쓰는 입구 — 프로필 시트의 ✉️", () => {
     mount(sourceOf(stateOf(EMPTY, { phase: "prevote" })), { profileId: "her" });
     await ready();
     expect(screen.queryByRole("button", { name: NOTE.writeLabel })).toBeNull();
+  });
+
+  it("★ 쓰던 글은 그 사람 것이다 — 다른 사람의 작성 시트로 따라가지 않는다", async () => {
+    /*
+     * 한 사람에게 쓰다 닫고 다른 사람의 ✉️ 를 누르면, 쓰던 글이 그 칸에 그대로 서 있었다.
+     * 확인창은 받는 사람만 말하고 본문은 다시 보여주지 않는다 — 그대로 누르면 엉뚱한 사람에게 간다.
+     */
+    const state = stateOf();
+    state.roster = [...state.roster, { id: "him", nickname: "그", age: 31, gender: "M", mbti: "INTP", charms: ["가", "나", "다"] }];
+    const src = sourceOf(state);
+    const { rerender } = mount(src, { profileId: "her", noteOpen: true });
+    const box = async () => (await screen.findByLabelText(NOTE.compose.label)) as HTMLTextAreaElement;
+    fireEvent.change(await box(), { target: { value: "파란 셔츠 멋져요" } });
+
+    rerender(view(src, { profileId: "him", noteOpen: true }));
+    await screen.findByText(NOTE.compose.title("그"));
+    expect((await box()).value, "다른 사람에게 쓰던 글이 남아 있다").toBe("");
+
+    // 처음 사람에게 돌아가면 쓰던 글이 그대로다 — 실수로 닫은 것까지 비우지는 않는다
+    rerender(view(src, { profileId: "her", noteOpen: true }));
+    await screen.findByText(NOTE.compose.title("그녀"));
+    expect((await box()).value).toBe("파란 셔츠 멋져요");
   });
 });
 
@@ -266,14 +314,92 @@ describe("익명 쪽지함 — 받은 쪽지", () => {
     expect(covered.calls.seen, "가린 채로 열었는데 읽음이 찍혔다").toBe(0);
   });
 
+  it("★ 안 읽은 것이 없으면 열어도 읽음 요청을 보내지 않는다 — 쪽지함을 열 때마다 서버에 쓰지 않는다", async () => {
+    const src = sourceOf(stateOf({ ...got, unread: 0 }));
+    mount(src, { tab: "home", notesOpen: true });
+    await screen.findByText("아까 웃는 모습이 좋았어요");
+    await act(async () => {});
+    expect(src.calls.seen).toBe(0);
+  });
+
+  it("★ 연 동안 새로 온 쪽지는 읽음으로 찍힌다 — 지우기와 한 응답에 겹쳐 줄 수가 그대로여도", async () => {
+    /*
+     * 줄 수로 다시 찍을지 정하면, 지운 한 장과 새로 온 한 장이 한 응답에 겹칠 때 줄 수가 그대로라
+     * **화면에 떠 있는 새 쪽지가 읽음으로 안 찍혔다.** 안 읽은 수로 정한다.
+     */
+    const state = stateOf({ ...got, unread: 0 });
+    const src = sourceOf(state);
+    src.removeNote = async (id) => {
+      src.calls.removed.push(id);
+      return { ...state.note, received: [{ id: "n2", text: "새로 온 쪽지" }], unread: 1 };
+    };
+    mount(src, { tab: "home", notesOpen: true });
+    await screen.findByText("아까 웃는 모습이 좋았어요");
+    await act(async () => {});
+    const before = src.calls.seen;
+    fireEvent.click(screen.getByText(NOTE.remove));
+    const dialog = await screen.findByRole("dialog", { name: NOTE.removeConfirm.title });
+    fireEvent.click(within(dialog).getByRole("button", { name: NOTE.remove }));
+    expect(await screen.findByText("새로 온 쪽지")).toBeTruthy();
+    await waitFor(() => expect(src.calls.seen, "화면에 뜬 새 쪽지가 읽음으로 안 찍혔다").toBe(before + 1));
+  });
+
   it("★ 덮개가 덮고 있으면 읽음으로 찍지 않는다 (S-B2)", async () => {
+    /*
+     * 열린 쪽지함 위로 서는 덮개는 **자리 확인**이다 — 그동안 쪽지함 시트는 닫혀 있다(덮개의 버튼이 눌리려면).
+     * 단계 안내는 열린 시트를 기다려서 쪽지함을 덮지 않는다 (`Participant` 의 `stageUp`).
+     */
     const state = stateOf(got);
-    state.me = { ...state.me, seenStage: undefined };
+    state.seat = { round: 1, table: 3, mates: 5, men: 3, acked: false, mateIds: [] };
     const src = sourceOf(state);
     mount(src, { tab: "home", notesOpen: true });
     await waitFor(() => expect(document.querySelector(".takeover")).toBeTruthy());
     await act(async () => {});
     expect(src.calls.seen, "덮개 아래에서 읽음이 찍혔다").toBe(0);
+  });
+
+  it("★ 보낸 쪽지를 보는 동안 온 쪽지는 읽음으로 찍지 않는다 (S-B2)", async () => {
+    /*
+     * 쪽지함이 열려 있어도 화면은 다른 신호(콕 · 명단 · 자리)로 계속 다시 읽힌다. 그때 새 쪽지가 오면
+     * **보낸 쪽지를 보고 있던 사람**에게도 읽음이 찍혔다 — 본문을 본 적이 없는데 보낸 사람에게는 `읽음` 이 선다.
+     */
+    const sockets: Array<{ onmessage: ((e: { data: string }) => void) | null }> = [];
+    vi.stubGlobal(
+      "WebSocket",
+      class {
+        onmessage: ((e: { data: string }) => void) | null = null;
+        constructor() {
+          sockets.push(this);
+        }
+        close() {}
+      },
+    );
+    let current = got;
+    const base = sourceOf(stateOf(got));
+    const src: typeof base = {
+      ...base,
+      liveCode: "ABCDEF",
+      load: async () => stateOf(current),
+      seeNotes: async () => {
+        base.calls.seen++;
+        return { ...current, unread: 0 };
+      },
+    };
+    mount(src, { tab: "home", notesOpen: true });
+    await screen.findByText("아까 웃는 모습이 좋았어요");
+    await waitFor(() => expect(src.calls.seen).toBe(1));
+
+    fireEvent.click(screen.getByRole("button", { name: NOTE.inbox.sent }));
+    // 보낸 쪽지를 보는 사이 새 쪽지가 왔다 — 누가 콕을 찔러 화면이 다시 읽혔다
+    current = { ...got, received: [{ id: "n2", text: "새로 온 쪽지" }, ...got.received], unread: 1 };
+    await act(async () => sockets[0].onmessage!({ data: JSON.stringify({ type: "poke" }) }));
+    await act(async () => {});
+    expect(src.calls.seen, "보지 않은 쪽지가 읽음으로 찍혔다").toBe(1);
+
+    // 받은 쪽지로 돌아오는 순간 찍힌다
+    fireEvent.click(screen.getByRole("button", { name: NOTE.inbox.received }));
+    expect(await screen.findByText("새로 온 쪽지")).toBeTruthy();
+    await waitFor(() => expect(src.calls.seen).toBe(2));
   });
 
   it("★ 누를 수 있는 것은 지우기 하나다 — `누구인지는 비밀이에요` 줄도 없다 (S-C3)", async () => {

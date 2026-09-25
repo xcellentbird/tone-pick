@@ -1,6 +1,7 @@
 /**
  * 자리가 발행되면 전체 화면으로 알리고 확인을 받는다.
- * 운영자는 이 확인율을 보고 다음 단계로 넘어갈지 판단한다 (FLOWS.md).
+ * 확인은 **이 화면을 닫는 데만** 쓴다 — 운영자에게는 가지 않는다 (ADR-110).
+ * 그래서 운영자가 본다고 말하는 줄을 두지 않는다. 보지 않는 것을 본다고 말하면 거짓말이다.
  *
  * 발표가 끝났으면 아예 띄우지 않는다 — 그 판단은 부르는 쪽에서 한다.
  *
@@ -9,7 +10,7 @@
  * 그래서 홈에서 다시 열 수 있게 했다. 이미 센 사람을 또 세면 `acks` 가 뜻을 잃는다.
  *
  * **파티 전에도 뜬다** (ADR-39). 그때 이 화면을 받는 사람은 아직 오는 중일 수 있어서
- * 문장이 달라진다 — 옮기라는 말도, 지켜본다는 말도 그 사람에게는 재촉이다.
+ * 문장이 달라진다 — 옮기라는 말은 그 사람에게 재촉이다.
  */
 import { BTN, SEAT } from "../../shared/copy.ts";
 import type { MySeat } from "../../shared/types.ts";
@@ -36,13 +37,9 @@ export default function SeatTakeover({
       <div className="dim">{SEAT.ack.mates(seat.mates, seat.men)}</div>
       {!started && <div className="dim">{SEAT.ack.beforeParty}</div>}
       {onAck ? (
-        <>
-          <button className="btn primary block" onClick={onAck}>
-            {SEAT.ack.submit(started)}
-          </button>
-          {/* 파티 전에는 띄우지 않는다 — 오는 중인 사람에게 "지켜보고 있다" 는 재촉이다 */}
-          {started && <div className="tiny dim">{SEAT.ack.watching}</div>}
-        </>
+        <button className="btn primary block" onClick={onAck}>
+          {SEAT.ack.submit(started)}
+        </button>
       ) : (
         <button className="btn block" onClick={onClose}>
           {BTN.close}

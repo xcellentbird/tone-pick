@@ -15,6 +15,7 @@ import { SEAT, STAGE } from "../../src/shared/copy.ts";
 import type { MyPokeState, ParticipantState, StageKey } from "../../src/shared/types.ts";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
+import { Overlays, useOverlay } from "../../src/client/ui/Overlays.tsx";
 
 afterEach(cleanup);
 
@@ -189,6 +190,94 @@ describe("언제 뜨나 (ADR-96)", () => {
     mount(sourceOf(stateOf("prevote", { voteEndAt: Date.now() - 60_000 })));
     const t = await shown();
     expect(t.getByText(STAGE.prevote.what)).toBeTruthy();
+  });
+});
+
+/**
+ * **덮개와 시트가 겹칠 때.** 시트는 Radix 모달이라 열려 있는 동안 그 밖의 모든 것에서 손가락을 뺏는다
+ * (`body` 에 `pointer-events: none`). 덮개(`.takeover`)는 그 위에 **그려지기만 하고 눌리지 않았다** —
+ * 누른 손가락은 뒤에 가려진 시트에 닿았다. 등록을 마치면 도움말이 저절로 열려서(슬라이스 21),
+ * 매력 투표·파티 중에 온 사람은 `참가자 보러 가기` 가 아무 일도 안 하는 화면에 갇혔다.
+ *
+ * 여기서는 손가락을 흉내 낼 수 없어서(happy-dom 은 가려진 것을 안 가린다) **덮개가 떠 있는 동안
+ * 모달이 열려 있지 않은지**를 본다. 실제 브라우저에서 가려진 버튼을 누르는 것은 PR 에 적었다.
+ */
+describe("시트와 겹칠 때", () => {
+  function mountWith(src: ParticipantSource, over: Partial<Parameters<typeof ParticipantView>[0]>, onTab: (t: string) => void = () => {}) {
+    return render(
+      <MemoryRouter>
+        <ParticipantView source={src} tab="home" onTab={onTab} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={false} onHelp={() => {}} {...over} />
+      </MemoryRouter>,
+    );
+  }
+  const dialogs = () => document.querySelectorAll("[role=dialog]").length;
+
+  it("★ 도움말이 열려 있으면 단계 안내는 도움말을 닫은 뒤에 뜬다 — 둘이 겹치지 않는다", async () => {
+    /*
+     * 등록을 마치면 도움말이 저절로 열린다 (슬라이스 21). 매력 투표·파티 중에 온 사람에게는 단계 안내도 뜨는데,
+     * 둘이 겹치면 안내의 버튼이 눌리지 않는다. **도움말이 먼저다** — 안내는 설명이라 기다릴 수 있다.
+     */
+    const src = sourceOf(stateOf("prevote"));
+    const tabs: string[] = [];
+    const r = mountWith(src, { helpOpen: true }, (t) => tabs.push(t));
+    await waitFor(() => expect(dialogs()).toBe(1));
+    expect(document.querySelector(".takeover"), "도움말 위에 단계 안내가 겹쳤다").toBeNull();
+
+    // 도움말을 닫으면 안내가 선다 — 그리고 눌린다
+    r.rerender(
+      <MemoryRouter>
+        <ParticipantView source={src} tab="home" onTab={(t) => tabs.push(t)} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={false} onHelp={() => {}} />
+      </MemoryRouter>,
+    );
+    const t = await shown();
+    expect(dialogs()).toBe(0);
+    fireEvent.click(t.getByRole("button", { name: STAGE.go }));
+    await waitFor(() => expect(src.seen).toEqual(["prevote"]));
+    await waitFor(() => expect(tabs).toContain("people"));
+  });
+
+  it("★ 프로필을 보던 중에 자리가 나와도 자리 확인이 눌린다 — 그동안 프로필 시트는 닫혀 있다", async () => {
+    mountWith(sourceOf(stateOf("party", { seenStage: "party", seat: SEAT_UNACKED })), { tab: "people", profileId: "her" });
+    const seat = await shown();
+    expect(seat.getByText(SEAT.ack.headline(3, true))).toBeTruthy();
+    expect(dialogs(), "자리 확인 뒤에 프로필 모달이 열려 있다").toBe(0);
+
+    // 확인하면 보던 프로필이 제 라우트대로 돌아온다
+    fireEvent.click(seat.getByRole("button", { name: SEAT.ack.submit(true) }));
+    await waitFor(() => expect(dialogs()).toBe(1));
+  });
+
+  it("★ 확인창이 열려 있을 때 덮개가 뜨면 확인창은 취소된다 — 단계가 바뀐 뒤에 옛 행동을 실행하지 않는다", async () => {
+    /*
+     * 시트는 라우트라 덮개를 닫으면 돌아오지만, 확인창은 돌려놓지 않는다. 매력 투표 확인창을 띄운 채로
+     * 파티가 열리면, 그 `찌르기` 는 이제 파티 콕이다 — 사람이 고른 것과 다른 일을 하게 된다.
+     */
+    const ran: string[] = [];
+    function Asker() {
+      const { confirm } = useOverlay();
+      return (
+        <button onClick={() => confirm({ btn: "찌르기", title: "찌를까요?", facts: [] }, () => void ran.push("run"))}>
+          열기
+        </button>
+      );
+    }
+    const view = (suspend: boolean) => (
+      <MemoryRouter>
+        <Overlays suspend={suspend}>
+          <Asker />
+        </Overlays>
+      </MemoryRouter>
+    );
+    const r = render(view(false));
+    fireEvent.click(screen.getByText("열기"));
+    await waitFor(() => expect(dialogs()).toBe(1));
+
+    r.rerender(view(true));
+    await waitFor(() => expect(dialogs()).toBe(0));
+    r.rerender(view(false));
+    await new Promise((res) => setTimeout(res, 50));
+    expect(dialogs(), "덮개가 걷히자 옛 확인창이 되살아났다").toBe(0);
+    expect(ran).toEqual([]);
   });
 });
 

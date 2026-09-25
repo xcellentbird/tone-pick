@@ -7,14 +7,14 @@
  *   쿠키   틀에 심는 것은 참가자 쿠키 하나 — 그 쿠키로 QA 가 그 참가자를 알아본다
  *   화면   틀은 QA 의 공개 주소로, 페이지에 세션 토큰이 없다
  *
- * 나이와 자동 콕은 `37-stage-auto.test.ts` 다 — 파일이 길어지면 뒤 테스트가 초선형으로 느려진다 (`helpers/party.ts`).
+ * 나이와 자동 콕은 `37-stage-auto.test.ts` 다.
  *
- * core 는 **`SELF.fetch` 를 넣어 진짜 앱에 대고** 돌린다 (35 와 같다). 워커의 라우터 · DO 와 틀 여럿을 붙여
+ * core 는 **`fetchApp` 을 넣어 진짜 앱에 대고** 돌린다 (35 와 같다). 워커의 라우터 · DO 와 틀 여럿을 붙여
  * 브라우저에서 돌려 본 기록은 ADR-99 에 있다.
  */
-import { SELF } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { beforeAll, describe, expect, it } from "vitest";
-import { BULK_MAX, autoTables, beginStage, buildStage, createLog } from "../scripts/qa/core.mjs";
+import { BULK_MAX, PARALLEL, autoTables, beginStage, buildStage, createLog } from "../scripts/qa/core.mjs";
 import { DAILY, OVERHEAD, buildCost, grant, quotaDay, refusal } from "../scripts/qa/worker/budget.ts";
 import { PLAYER_COOKIE as PLANTED, clearCookie, cookieDomain, frameName, plantCookie } from "../scripts/qa/worker/plant.ts";
 import { ACTION_MAX, ENROLL_BATCH, START_PHASES } from "../scripts/qa/worker/stage-do.ts";
@@ -35,7 +35,7 @@ function env() {
     counter,
     fetch: (url: string, init?: RequestInit) => {
       counter.calls++;
-      return SELF.fetch(url, init);
+      return fetchApp(url, init);
     },
     base: BASE,
     publicBase: PUBLIC,
@@ -43,6 +43,24 @@ function env() {
     platform: {},
     timeTravel: false,
   };
+}
+/**
+ * QA 를 부르는 것이 몇 개 겹쳤나 세는 env — 지금 떠 있는 호출(`inFlight`)과 가장 많이 겹쳤던 수(`peak`).
+ * `gate` 가 던지면 스테이지 워커의 하루 상한처럼 **부르기 전에** 막힌다 (`stage-do.ts` 의 `coreEnv`).
+ * `jitter` 를 주면 호출마다 그 안에서 늦게 닿는다 — 여기서는 호출이 모두 같은 빠르기라 늘 시작한 순서대로 끝난다.
+ */
+function overlapping(jitter = 0) {
+  const e = env();
+  const seen = { inFlight: 0, peak: 0, gate: () => {} };
+  const call = e.fetch;
+  e.fetch = (url: string, init?: RequestInit) => {
+    seen.gate();
+    seen.inFlight++;
+    seen.peak = Math.max(seen.peak, seen.inFlight);
+    const late = jitter ? new Promise((r) => setTimeout(r, Math.random() * jitter)) : Promise.resolve();
+    return late.then(() => call(url, init)).finally(() => seen.inFlight--);
+  };
+  return { e, seen };
 }
 const want = (over: Record<string, unknown> = {}) => ({ men: 3, women: 3, phase: "party", tables: 2, config: {}, pin: "1234", practiceOnly: false, ...over });
 const hostState = async (id: string) => (await api<HostState>(`/api/host/events/${id}/state`, { cookie: master })).body;
@@ -187,6 +205,46 @@ describe("하루 상한 — QA 를 부른 횟수로 센다", () => {
   });
 });
 
+describe("겹쳐 보내기 — 등록과 자동 콕은 차례로 기다리지 않는다 (ADR-99 후기 7)", () => {
+  it(`★ 등록과 자동 콕은 QA 를 ${PARALLEL}개까지 겹쳐 부른다`, async () => {
+    const { e, seen } = overlapping();
+    const stage = await buildStage(e, want({ men: 6, women: 6, config: { maxParty: 10 } }));
+    // 한 사람의 입장과 등록은 차례지만, 사람끼리는 겹친다
+    expect(seen.peak).toBeGreaterThan(1);
+    expect(seen.peak).toBeLessThanOrEqual(PARALLEL);
+    seen.peak = 0;
+    await stage.run("auto last");
+    expect(seen.peak).toBeGreaterThan(1);
+    expect(seen.peak).toBeLessThanOrEqual(PARALLEL);
+    await stage.close();
+  });
+
+  it("★ 겹쳐 등록해도 가짜 참가자는 번호 순서이고, 모두 등록을 마쳤다", async () => {
+    // 끝나는 순서가 섞여야 본 것이 된다 — 실제로는 호출마다 빠르기가 다르다
+    const stage = await buildStage(overlapping(8).e, want({ men: 7, women: 5, phase: "prevote" }));
+    expect(stage.cast.map((p: Persona) => p.n)).toEqual(Array.from({ length: 12 }, (_, i) => i + 1));
+    expect((await hostState(stage.event.id)).players).toHaveLength(12);
+    await stage.close();
+  });
+
+  it("★ 도중에 막히면 새로 부르지 않고, 떠난 호출이 모두 돌아온 뒤에 멈춘다", async () => {
+    const { e, seen } = overlapping();
+    const stage = await buildStage(e, want({ men: 6, women: 6, config: { maxParty: 10 } }));
+    const before = e.counter.calls;
+    let allow = 10;
+    seen.gate = () => {
+      if (allow-- <= 0) throw new Error("budget");
+    };
+    await expect(stage.run("auto last")).rejects.toThrow("budget");
+    // 멈춘 순간 떠 있는 호출이 없다 — 늦게 돌아온 콕이 저장한 뒤의 스테이지를 고치지 않는다
+    expect(seen.inFlight).toBe(0);
+    // 막힌 뒤로는 부르지 않았다 — 상태 읽기 하나와 콕 아홉
+    expect(e.counter.calls - before).toBe(10);
+    seen.gate = () => {};
+    await stage.close();
+  });
+});
+
 describe("틀에 심는 쿠키 — 참가자 쿠키 하나", () => {
   const where = { domain: "tone-party.workers.dev", secure: true };
 
@@ -218,7 +276,7 @@ describe("틀에 심는 쿠키 — 참가자 쿠키 하나", () => {
       const token = p.session.cookies.get(`${PLAYER_COOKIE}_${p.session.ref}`)!;
       const pair = plantCookie(p.session.ref, token, where)!.split(";")[0];
       // 틀 안의 앱이 하는 그대로 — 쿠키 하나에 이름표 머리
-      const res = await SELF.fetch(`${BASE}/api/me`, { headers: { cookie: pair, "x-tp-ref": p.session.ref } });
+      const res = await fetchApp(`${BASE}/api/me`, { headers: { cookie: pair, "x-tp-ref": p.session.ref } });
       expect(res.status).toBe(200);
       expect(((await res.json()) as ParticipantState).me.id).toBe(p.id);
     }

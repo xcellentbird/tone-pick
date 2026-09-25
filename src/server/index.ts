@@ -7,6 +7,8 @@ import { PLAYER_COOKIE, cookieName, readCookie, readSession } from "./auth.ts";
 import {
   apiError,
   eventStub,
+  hostScope,
+  isMaster,
   missingSecrets,
   moveServerClock,
   regionBlocked,
@@ -67,6 +69,10 @@ app.route("/api", participantRoutes);
  * (5초 폴링이면 100명 × 3시간에 216,000 요청)
  *
  * 누구의 소켓인지는 쿠키로만 판단해서 DO 에 알려준다 — 콕 알림은 수신자에게만 가야 한다.
+ *
+ * **운영자 콘솔은 `?host=1` 로 스스로 밝히고, 운영자 쿠키로 증명한다** (ADR-107). 밝히지 않은 소켓은
+ * 운영자 쿠키가 있어도 참가자 쪽으로 본다 — 스테이지의 참가자 틀은 운영자 틀과 쿠키를 같이 쓰는데,
+ * 쿠키만 보고 운영자로 치면 참가자 틀이 콕마다 전부 다시 읽는다.
  */
 app.get("/ws/:code", async (c) => {
   // 문구는 없다 — 소켓은 사람이 읽는 자리가 아니고, 화면은 이미 `/api` 에서 막혀 있다
@@ -74,6 +80,15 @@ app.get("/ws/:code", async (c) => {
   await syncClock(c.env);
   const eventId = await registry(c.env).idByCode(c.req.param("code"));
   if (!eventId) return c.text("not found", 404);
+
+  // 들어온 요청이 실은 표시는 믿지 않는다 — 누구의 소켓인지는 여기서만 정한다
+  const headers = new Headers(c.req.raw.headers);
+  headers.delete("x-player-id");
+  headers.delete("x-host");
+  if (c.req.query("host") === "1") {
+    if (isMaster(await hostScope(c))) headers.set("x-host", "1");
+    return eventStub(c.env, eventId).fetch(new Request(c.req.raw.url, { headers }));
+  }
 
   const scope = await readSession(
     /*
@@ -85,8 +100,6 @@ app.get("/ws/:code", async (c) => {
     c.env.SESSION_SECRET,
     serverNow(),
   );
-  const headers = new Headers(c.req.raw.headers);
-  headers.delete("x-player-id");
   if (scope?.kind === "player" && scope.eventId === eventId) {
     headers.set("x-player-id", scope.playerId);
   }

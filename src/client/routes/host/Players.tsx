@@ -22,21 +22,19 @@
  * 상세 시트는 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md).
  */
 import { useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Invite, PinState } from "../../../shared/types.ts";
 import type { Defaults } from "../../../shared/types.ts";
 import { LIMITS, PHONE_SEED, formatPhone, typedPhone } from "../../../shared/constants.ts";
 import { INVITE_TEMPLATE } from "../../../shared/copy.ts";
 import { renderInvite } from "../../../shared/invite.ts";
-import { apartFrom } from "../../../shared/seats.ts";
 import { formatWhen } from "../../../shared/time.ts";
 import { api } from "../../lib/api.ts";
 import { useLoad, useTimeouts } from "../../lib/useLoad.ts";
 import { keepPhoneSeed } from "../../lib/phoneField.ts";
-import { ApiError, del, messageOf, post } from "../../lib/api.ts";
+import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
-import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
 import { useConsole } from "./HostConsole.tsx";
 import PersonCard from "./PersonCard.tsx";
@@ -101,9 +99,6 @@ export default function Players() {
    * `/players/invites` 는 참가자 아이디와 겹치지 않는다 (아이디는 서버가 만든 난수다).
    */
   const atInvites = pid === "invites";
-  /** 떨어뜨릴 사람 고르기 (ADR-90). 상세 시트 **위에서** 여는 시트라 주소가 한 칸 더 깊다 */
-  const { pathname } = useLocation();
-  const atApart = !!picked && pathname.endsWith("/apart");
   /*
    * 안내문 문구는 **운영자 기본값**에 하나만 둔다 (ADR-32). 여기서 한 번 읽어
    * 위의 미리보기와 아래 행별 복사가 **같은 값**을 본다 — 둘로 읽으면 언젠가 어긋난다.
@@ -241,36 +236,6 @@ export default function Players() {
   })();
 
   /**
-   * 떨어뜨려 앉히기 (ADR-90). **되돌릴 수 있어 확인창이 없다** (ADR-6) — 목록에 줄이 생기고 사라지는 것이 곧 알림이다.
-   * 방향이 없어 누구 시트에서 넣었든 같은 쌍이다.
-   * **거절만 토스트로 말한다** — 시트를 열어 둔 사이 발표가 났거나 망이 끊겼을 때. 조용히 실패하면 운영자가 다시 누른다.
-   */
-  const failed = (e: unknown) => toast(messageOf(e, HOST_UI.saveFailed));
-  const apartOf = (playerId: string) =>
-    [...apartFrom(playerId, state.apart)]
-      .map((id) => state.players.find((p) => p.id === id))
-      .filter((p): p is NonNullable<typeof p> => !!p);
-
-  async function addApart(a: string, b: string) {
-    try {
-      await post(`/host/events/${state.meta.id}/apart`, { a, b });
-      reload();
-      navigate(-1);
-    } catch (e) {
-      failed(e);
-    }
-  }
-
-  async function removeApart(a: string, b: string) {
-    try {
-      await del(`/host/events/${state.meta.id}/apart/${a}/${b}`);
-      reload();
-    } catch (e) {
-      failed(e);
-    }
-  }
-
-  /**
    * 익명 쪽지 줄은 **있는 회차에만** 선다 (슬라이스 36).
    *
    * ⚠️ **설정값만 보고 가르지 마라.** 0 으로 내린 뒤에도 이미 오간 것은 남으므로
@@ -375,7 +340,7 @@ export default function Players() {
         <PersonCard key={p.id} p={p} phone onOpen={() => navigate(`${base}/${p.id}`)} />
       ))}
 
-      <Sheet open={!!picked && !atApart} onClose={() => navigate(-1)} title={picked?.nickname ?? ""}>
+      <Sheet open={!!picked} onClose={() => navigate(-1)} title={picked?.nickname ?? ""}>
         {picked && (
           <>
             <div className="stack">
@@ -413,30 +378,10 @@ export default function Players() {
             </div>
 
             {/*
-              **떨어뜨려 앉히기** (ADR-90). 참가자가 현장에서 부탁한 것을 운영자 손에 옮겨 두는 자리다.
-              사유 칸은 없다. 발표가 자리를 끝내므로 그 뒤에는 더하는 버튼이 없고, 빼기만 남는다.
+              **떨어뜨려 앉히기는 여기 없다** (ADR-109) — 자리 탭에서 넣고 뺀다. 결과(⛔ 칩)를 보는 곳과
+              고치는 곳(맞교환)이 자리 탭인데 넣는 곳만 여기 있어서 파티 중 부탁 하나에 탭을 두 번 오갔다.
+              넣는 자리는 한 곳이다 — 여기 되살리지 마라.
             */}
-            <p className="kicker mt">
-              {HOST_UI.players.apart.title}
-            </p>
-            <div className="stack">
-              {apartOf(picked.id).map((other) => (
-                <div className="fact" key={other.id} style={{ alignItems: "center" }}>
-                  <Avatar nickname={other.nickname} gender={other.gender} size="sm" />
-                  <span className="grow ellipsis">
-                    {other.realName} · {other.nickname}
-                  </span>
-                  <button className="btn ghost" onClick={() => removeApart(picked.id, other.id)}>
-                    {HOST_UI.players.apart.remove}
-                  </button>
-                </div>
-              ))}
-            </div>
-            {state.meta.phase !== "done" && (
-              <button className="btn ghost block mtSm" onClick={() => navigate(`${base}/${picked.id}/apart`)}>
-                {HOST_UI.players.apart.add}
-              </button>
-            )}
 
             {/*
               PIN 번호를 잊었거나 잠겼다는 연락이 오는 자리 (ADR-75). 초기화는 **지우기만** 한다 —
@@ -457,26 +402,6 @@ export default function Players() {
             </div>
           </>
         )}
-      </Sheet>
-
-      {/* 떨어뜨릴 사람 고르기 (ADR-90). 고르면 뒤로 가 상세 시트로 돌아간다 — 거기 줄이 생긴 것이 곧 알림이다 */}
-      <Sheet
-        open={atApart}
-        onClose={() => navigate(-1)}
-        title={HOST_UI.players.apart.pickTitle(picked?.nickname ?? "")}
-      >
-        {picked && (() => {
-          const taken = new Set([picked.id, ...apartOf(picked.id).map((p) => p.id)]);
-          const candidates = state.players.filter((p) => !taken.has(p.id));
-          if (!candidates.length) return <p className="dim center">{HOST_UI.players.apart.noOne}</p>;
-          return (
-            <div className="stack">
-              {candidates.map((p) => (
-                <PersonCard key={p.id} p={p} onOpen={() => addApart(picked.id, p.id)} />
-              ))}
-            </div>
-          );
-        })()}
       </Sheet>
 
       {/* 명단 시트. 여는 카드가 위에 있고, 뒤로 가기로 닫힌다 */}

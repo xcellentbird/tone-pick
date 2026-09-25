@@ -3,13 +3,13 @@
  * 슬라이스 37 이다 (`37-stage-wall.test.ts`).
  *
  * core 는 `fetch` 를 넣어 받는다 — CLI 는 전역 `fetch`, 스테이지 워커는 서비스 바인딩이다. 여기서는
- * **`SELF.fetch` 를 넣어 진짜 앱에 대고** 돌린다. 앱을 흉내 내지 않으므로, 앱의 공개 API 가 바뀌어
+ * **`fetchApp` 을 넣어 진짜 앱에 대고** 돌린다 (`helpers/app.ts`). 앱을 흉내 내지 않으므로, 앱의 공개 API 가 바뀌어
  * 스테이지가 깨지면 여기서 먼저 빨개진다.
  *
  * 워커의 라우터·DO 는 core 를 감싼 얇은 껍데기라 여기서 따로 돌리지 않는다 — 두 워커를 붙여
  * 로컬에서 돌려 본 기록은 ADR-97 후기 3 에 있다.
  */
-import { SELF } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { StageError, buildStage, createLog, restoreStage } from "../scripts/qa/core.mjs";
 import { DEFAULTS } from "../src/shared/constants.ts";
@@ -25,7 +25,7 @@ const PUBLIC = "https://tone-pick-qa.example.workers.dev";
 function env() {
   const log = createLog();
   return {
-    fetch: (url: string, init?: RequestInit) => SELF.fetch(url, init),
+    fetch: (url: string, init?: RequestInit) => fetchApp(url, init),
     base: BASE,
     publicBase: PUBLIC,
     log,
@@ -111,7 +111,7 @@ describe("스테이지 — 가짜 참가자", () => {
     const broken = {
       ...e,
       fetch: (url: string, init?: RequestInit) =>
-        url.endsWith("/invites") ? Promise.resolve(new Response("{}", { status: 500 })) : SELF.fetch(url, init),
+        url.endsWith("/invites") ? Promise.resolve(new Response("{}", { status: 500 })) : fetchApp(url, init),
     };
     const err = await buildStage(broken, want()).catch((x) => x);
     expect(err).toBeInstanceOf(StageError);

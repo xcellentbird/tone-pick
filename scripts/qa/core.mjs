@@ -348,11 +348,11 @@ const dur = (s) => {
 export const HELP = `
   cast                    가짜 참가자 명단 (번호, 닉네임, 성별, 전화번호, PIN)
   state                   회차 단계 · 콕 수 · 자리 라운드
-  poke A B  /  unpoke A B  A가 B를 콕 (매력 투표 중이면 표, 파티 중이면 콕) · 되돌리기
+  poke A B  /  unpoke A B  A가 B를 콕 (프로필 투표 중이면 표, 파티 중이면 콕) · 되돌리기
   mutual A B              A→B, B→A 를 한 번에
-  phase reg|prevote|party|done      단계 넘기기 (done = 발표)
+  phase reg|prevote|party|done      단계 넘기기 (done = 매칭 확인)
   seating T [-x A,B]      자리 초안 (T 테이블, -x 뺄 사람) · publish · shuffle · swap A B · seat A · unseat A · discard
-  announce 문구 [| 보기A | 보기B]   운영자 알림 (보기 둘을 주면 투표)
+  announce 문구 [| 보기A | 보기B]   운영자 공지 (보기 둘을 주면 설문)
   auto [last]             자동 콕 — 실제 파티처럼. 남자는 대부분 다 쓰고 콕이 여자 몇 명에게 몰린다. 여자는 절반 정도가
                           안 쓰거나 일부만 쓰고 두 배 넓게 나눠 찌른다. 누를 때마다 새 콕이 나오고 뒤로 갈수록 많다.
                           ${AUTO_STEPS}번이면 쓰려던 것을 다 쓴다. last 는 남은 것을 한 번에
@@ -375,6 +375,36 @@ const ELSEWHERE = new Set(["open", "close", "snap", "now", "keep", "quit", "exit
 
 /** 명령 하나가 QA 를 부를 수 있는 횟수의 끝. 한 요청의 서브요청 상한(무료 50) 아래에 둔다 — 묶음 명령이 이걸 넘지 않는다 */
 export const BULK_MAX = 40;
+
+/**
+ * 등록과 자동 콕은 QA 를 이만큼까지 겹쳐 부른다 (ADR-99 후기 7). 차례로 부르면 콕마다 QA 가 콕 로그 파일을
+ * R2 에 다시 쓰는 것(ADR-84)을 기다려서 그 기다림이 콕 수만큼 쌓였다. 겹치면 기다림이 겹치고, QA 는 쓰는 동안
+ * 들어온 줄을 모아 한 번에 쓴다. **부르는 횟수는 그대로다** — 하루 상한도 `BULK_MAX` 도 바뀌지 않는다.
+ */
+export const PARALLEL = 6;
+
+/**
+ * `items` 를 `PARALLEL` 개까지 겹쳐 `fn` 에 넘긴다. `fn` 이 `false` 를 돌려주거나 던지면 **새로 시작하지 않고**,
+ * 이미 떠난 것은 끝까지 기다린다 — 늦게 돌아온 호출이 저장한 뒤의 스테이지를 고치지 않게. 던진 것은 모두 돌아온 뒤에
+ * 처음 것 하나를 다시 던진다 (하루 상한은 `stage-do.ts` 가 부르기 전에 던진다).
+ */
+async function inParallel(items, fn) {
+  let next = 0;
+  let halted = false;
+  let thrown = null;
+  const lane = async () => {
+    while (!halted && next < items.length) {
+      try {
+        if ((await fn(items[next++])) === false) halted = true;
+      } catch (e) {
+        halted = true;
+        thrown ??= { e };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PARALLEL, items.length) }, lane));
+  if (thrown) throw thrown.e;
+}
 
 /** 남녀 인원. `people` 만 오면 반씩 — 홀수면 남이 하나 많다 (번호가 남부터 시작해서) */
 function headcount(want) {
@@ -575,9 +605,15 @@ function makeStage(env, { tables = 2 } = {}) {
      * 명단에서 `max` 명을 등록하고 남은 수를 돌려준다. 한 사람이 실패해도 멈추지 않는다 — 로그에 남기고 넘어간다.
      */
     async enrollSome(max = Infinity) {
-      for (const item of stage.pending.splice(0, max)) {
-        const p = await stage.enroll(item);
-        if (p) stage.cast.push(p);
+      // 사람끼리는 겹쳐 등록한다 (`PARALLEL`) — 한 사람의 입장과 등록은 `enroll` 안에서 차례다
+      try {
+        await inParallel(stage.pending.splice(0, max), async (item) => {
+          const p = await stage.enroll(item);
+          if (p) stage.cast.push(p);
+        });
+      } finally {
+        // 끝난 순서대로 붙어서 섞였다 — 스테이지 화면의 단추도, 번호로 부르는 명령도 번호 순서를 믿는다
+        stage.cast.sort((a, b) => a.n - b.n);
       }
       if (!stage.pending.length) {
         const m = stage.cast.filter((p) => p.gender === "M").length;
@@ -612,17 +648,21 @@ function makeStage(env, { tables = 2 } = {}) {
 
     /**
      * 자동 콕 줄(`backlog`)에서 QA 를 많아야 `max` 번 불러 보낸다. 남은 수를 돌려준다.
-     * 그사이 손으로 찔러 상한에 닿은 사람은 건너뛰고, 단계가 닫혔으면 줄을 비운다.
+     * `PARALLEL` 개까지 겹쳐 보낸다. 그사이 손으로 찔러 상한에 닿은 사람은 건너뛰고, 단계가 닫혔으면 줄을 비운다 —
+     * 그때 이미 떠난 콕은 돌아올 때까지 기다린다.
      */
     async drain(max = BULK_MAX) {
       const run = stage.autoRun;
-      let calls = 0;
-      while (stage.backlog.length && calls < max) {
+      // 이번 몫을 줄에서 꺼낸다 — 사람을 못 찾는 줄은 부르지 않으므로 몫에 세지 않는다
+      const batch = [];
+      while (stage.backlog.length && batch.length < max) {
         const { from: a, to: b, round } = stage.backlog.shift();
         const from = stage.persona(a);
         const to = stage.persona(b);
-        if (!from || !to) continue;
-        calls++;
+        if (from && to) batch.push({ a, b, round, from, to });
+      }
+      let stopped = null;
+      await inParallel(batch, async ({ a, b, round, from, to }) => {
         const res = await from.session.call("/poke", { method: "POST", body: { toId: to.id } });
         if (res.status === 200) {
           ((stage.autoSent[round] ??= {})[a] ??= []).push(b);
@@ -630,14 +670,18 @@ function makeStage(env, { tables = 2 } = {}) {
             run.pokes[from.gender]++;
             if (!run.senders[from.gender].includes(a)) run.senders[from.gender].push(a);
           }
-          continue;
+          return true;
         }
         // 그사이 손으로 찔러 상한에 닿았다 — 그 사람만 건너뛴다
-        if (res.body?.error === "no_budget") continue;
+        if (res.body?.error === "no_budget") return true;
+        stopped ??= res;
+        return false;
+      });
+      if (stopped) {
         stage.backlog = [];
         stage.autoRun = null;
-        if (res.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 찌를 수 없어요. 매력 투표가 마감됐거나 커플 발표가 끝났어요");
-        else fail("자동 콕", res);
+        if (stopped.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 찌를 수 없어요. 프로필 투표가 마감됐거나 매칭 결과가 나왔어요");
+        else fail("자동 콕", stopped);
         return 0;
       }
       if (run && stage.backlog.length) {
@@ -781,7 +825,7 @@ async function runLine(env, stage, line, { say, fail }) {
       if (st.status !== 200) return fail("상태", st);
       const m = st.body.meta;
       const rounds = (st.body.seatings ?? []).map((r) => `${r.round}라운드 ${r.status} ${r.tableCount}테이블`).join(" · ") || "없음";
-      say(`  단계 ${m.phase} · 참가자 ${st.body.players.length} · 콕 사전 ${st.body.pokeCount?.pre ?? 0} 파티 ${st.body.pokeCount?.party ?? 0} · 상호 ${st.body.mutual?.length ?? 0}쌍 · 자리 ${rounds}`);
+      say(`  단계 ${m.phase} · 참가자 ${st.body.players.length} · 투표 ${st.body.pokeCount?.pre ?? 0} · 콕 ${st.body.pokeCount?.party ?? 0} · 서로 찌른 ${st.body.mutual?.length ?? 0}쌍 · 자리 ${rounds}`);
       say(`  일정 ${Object.entries(m.schedule).map(([k, v]) => `${k} ${v ? new Date(v).toTimeString().slice(0, 8) : "-"}`).join(" · ")}`);
       return;
     }
@@ -804,7 +848,7 @@ async function runLine(env, stage, line, { say, fail }) {
       const res = await H("/phase", { method: "POST", body: { to: rest[0] } });
       if (res.status === 200) stage.phase = rest[0];
       // 단추 이름과 같은 말로 — 영어 단계 이름(prevote)은 명령에만 쓴다
-      const done = { reg: "등록 단계로", prevote: "매력 투표 시작", party: "파티 시작", done: "커플 발표" }[rest[0]];
+      const done = { reg: "등록 단계로", prevote: "프로필 투표 시작", party: "파티 시작", done: "매칭 확인 시작" }[rest[0]];
       return ok(done ?? `단계 → ${rest[0]}`, res);
     }
     case "seating": {
@@ -834,7 +878,7 @@ async function runLine(env, stage, line, { say, fail }) {
     case "announce": {
       const [text, a, b] = rest.join(" ").split("|").map((s) => s.trim());
       if (!text) return say("  ? 문구가 필요합니다");
-      return ok(`알림 "${text}"${a && b ? ` (투표 ${a} / ${b})` : ""}`, await H("/announcements", { method: "POST", body: { text, ...(a && b ? { poll: { a, b } } : {}) } }));
+      return ok(a && b ? `설문 "${text}" (${a} / ${b})` : `공지 "${text}"`, await H("/announcements", { method: "POST", body: { text, ...(a && b ? { poll: { a, b } } : {}) } }));
     }
     case "late": {
       // 번호는 가장 큰 번호 다음 — 등록에 실패해 빠진 번호가 있어도 겹치지 않는다
@@ -875,7 +919,7 @@ async function runLine(env, stage, line, { say, fail }) {
       const { meta, players, sent } = st.body;
       // 운영자 틀에서 단계를 넘겼을 수 있다 — 스테이지가 기억하는 단계를 콘솔에 맞춘다
       stage.phase = meta.phase;
-      if (meta.phase !== "prevote" && meta.phase !== "party") return say("  ? 자동 콕은 매력 투표나 파티 중에만 쓸 수 있어요");
+      if (meta.phase !== "prevote" && meta.phase !== "party") return say("  ? 자동 콕은 프로필 투표나 파티 중에만 쓸 수 있어요");
       const round = meta.phase === "prevote" ? "pre" : "party";
       const step = last ? AUTO_STEPS : Math.min(AUTO_STEPS, (stage.autoStep[round] ?? 0) + 1);
       stage.autoStep[round] = step;
@@ -890,7 +934,7 @@ async function runLine(env, stage, line, { say, fail }) {
         seed: stage.stamp,
         history: stage.autoSent[round] ?? {},
       });
-      const name = round === "pre" ? "매력 투표" : "파티";
+      const name = round === "pre" ? "프로필 투표" : "파티";
       const what = `${name} ${step}/${AUTO_STEPS}`;
       stage.backlog = plan.map(([from, to]) => ({ from, to, round }));
       if (!plan.length) {

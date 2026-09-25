@@ -8,7 +8,8 @@
  * 구현을 어떻게 나누든 이 테스트가 통과하면 된다. 반대로,
  * 테스트를 고쳐서 통과시키는 건 안 된다 — 규칙이 바뀌면 시나리오 문서부터 고친다.
  */
-import { SELF } from "cloudflare:test";
+import { env, runInDurableObject } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ENTRY, HOST } from "../src/shared/copy.ts";
 import type { CreateEventInput, EventMeta, EventSummary, PublicEvent } from "../src/shared/types.ts";
@@ -30,7 +31,7 @@ async function api<T = unknown>(
   path: string,
   init: { method?: string; body?: unknown; cookie?: string | null; headers?: Record<string, string> } = {},
 ): Promise<Res<T>> {
-  const res = await SELF.fetch(`https://tone-pick.test${path}`, {
+  const res = await fetchApp(`https://tone-pick.test${path}`, {
     method: init.method ?? "GET",
     headers: {
       "content-type": "application/json",
@@ -330,6 +331,28 @@ describe("B. 회차 생성", () => {
     expect(ids.indexOf(newer.body.id)).toBeLessThan(ids.indexOf(older.body.id));
   });
 
+  it("S-B11 ★ 회차 하나가 깨져도 회차 목록은 뜬다 — 나머지를 보여준다", async () => {
+    /*
+     * 목록은 회차마다 그 회차의 DO 에 묻는다. 하나가 던지면(과부하·배포 중 재시작·옛 모양의 저장값)
+     * 목록 전체가 500 이 되어 **운영자 콘솔의 첫 화면이 통째로 막혔다** — 멀쩡한 회차에도 못 들어간다.
+     */
+    const good = await createEvent(master);
+    const bad = await createEvent(master);
+    // 저장된 모양을 부순다 — 이 회차의 DO 는 이제 요약을 만들다 던진다 (일정이 비어 단계 판정이 못 읽는다)
+    const ns = (env as unknown as { EVENT: DurableObjectNamespace }).EVENT;
+    await runInDurableObject(ns.get(ns.idFromName(bad.body.id)), async (_i, ctx) => {
+      await ctx.storage.put("meta", { id: bad.body.id, phase: "reg", fired: {}, schedule: null });
+    });
+    const direct = await api(`/api/host/events/${bad.body.id}`, { cookie: master }).catch(() => null);
+    expect(direct?.status ?? 500, "부순 회차가 멀쩡히 열린다 — 테스트가 깨진 경우를 못 만들었다").toBe(500);
+
+    const list = await api<EventSummary[]>("/api/host/events", { cookie: master });
+    expect(list.status, JSON.stringify(list.body)).toBe(200);
+    const ids = list.body.map((e) => e.id);
+    expect(ids).toContain(good.body.id);
+    expect(ids).not.toContain(bad.body.id);
+  });
+
   /** 기본값은 통째로 검사한다 — 일부만 보내면 막힌다. 읽어서 한 칸만 갈아끼운다 */
   async function setNickHint(nickHint: string) {
     const now = await api<Record<string, unknown>>("/api/host/defaults", { cookie: master });
@@ -423,6 +446,16 @@ describe("B. 회차 생성", () => {
     // And   기존 회차 설정도 그대로다
     const kept = await api<EventMeta>(`/api/host/events/${ev.body.id}`, { cookie: master });
     expect(kept.body.config).toEqual({ maxPre: 5, maxParty: 9 });
+  });
+
+  it("S-B12 ★ 매력 투표를 파티와 같은 시각에 여는 기본값은 받지 않는다 — 그러면 회차를 만들 수 없다", async () => {
+    // 0 이면 위저드가 매력 투표 시작 = 파티 일시로 채우고, 예약 전환은 순서대로여야 해서 만들기가 매번 거절됐다
+    const now = await api<Record<string, unknown>>("/api/host/defaults", { cookie: master });
+    const zero = await api("/api/host/defaults", { method: "PUT", cookie: master, body: { ...now.body, prevoteBeforeH: 0 } });
+    expect(zero.status).toBe(400);
+    const one = await api("/api/host/defaults", { method: "PUT", cookie: master, body: { ...now.body, prevoteBeforeH: 1 } });
+    expect(one.status).toBe(200);
+    await api("/api/host/defaults", { method: "PUT", cookie: master, body: now.body });
   });
 });
 

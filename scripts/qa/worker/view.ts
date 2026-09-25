@@ -117,7 +117,7 @@ body.busy .panel button{opacity:.55;pointer-events:none}
     <div class="row"><b></b><small id="left"></small><span class="grow"></span>
       <button type="button" id="reread">스테이지 새로고침</button>
       <a href="../../">목록</a>
-      <form method="post" action="close" id="closeForm"><input type="hidden" name="planted" id="planted"><button class="danger">스테이지 닫기</button></form>
+      <form method="post" action="close" id="closeForm"><input type="hidden" name="planted" id="planted"><button class="danger">스테이지 끝내기</button></form>
     </div>
     ${m.plantable ? "" : `<div class="warn">지금 주소로는 참가자 화면에 자동으로 로그인할 수 없어요. QA 와 같은 도메인에 있는 도구 주소로 열어주세요.</div>`}
   </div>
@@ -265,7 +265,7 @@ let busy = false, isClosed = false;
 function closed() {
   isClosed = true;
   document.body.classList.add('busy');
-  status('스테이지가 닫혔어요. 목록으로 돌아가서 새로 만들어주세요.', true);
+  status('스테이지가 끝났어요. 목록으로 돌아가서 새로 만들어주세요.', true);
 }
 async function post(path, body) {
   const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
@@ -310,7 +310,7 @@ $('#reread').onclick = async () => {
   if (r.status === 404) return closed();
   apply(await r.json());
 };
-$('#closeForm').onsubmit = () => confirm('회차 ' + M.view.event.code + '와 가짜 참가자 ' + M.view.cast.length + '명을 지우고 스테이지를 닫을까요? 되돌릴 수 없어요.');
+$('#closeForm').onsubmit = () => confirm('회차 ' + M.view.event.code + '와 가짜 참가자 ' + M.view.cast.length + '명을 지우고 스테이지를 끝낼까요? 되돌릴 수 없어요.');
 
 renderChips();
 apply({ view: M.view, left: M.left });

@@ -50,7 +50,10 @@ export function enterMessage(error: string, detail?: number): string | undefined
 }
 
 export function registerMessage(error: string): string | undefined {
-  return error === "nick_taken" ? REGISTER.err.nickTaken : undefined;
+  if (error === "nick_taken") return REGISTER.err.nickTaken;
+  // 이미 등록한 번호다 (ADR-75). 초대 쿠키가 만료된 것과 같은 말 — 문 앞에서 번호 + PIN 번호로 들어온다
+  if (error === "unauthorized") return ENTRY.enterAgain;
+  return undefined;
 }
 
 /**
@@ -65,12 +68,14 @@ export function hostPinMessage(left: number): string {
 /**
  * 설정·일정 저장이 막혔을 때.
  *
- * `conflict` — 이미 쓴 횟수보다 낮게 내리려 했다. `detail` 은 지금 가장 많이 쓴 횟수다
+ * `conflict`   — 콕 상한을 이미 쓴 횟수보다 낮게 내리려 했다. `detail` 은 지금 가장 많이 쓴 횟수다
+ * `note_floor` — 익명 쪽지 장 수를 이미 보낸 장 수보다 낮게 내리려 했다 (0 은 언제나 된다). `detail` 도 같다
  * `locked`   — 콕이 오가기 시작해 굳은 항목이다 (ADR-35)
  * `order`    — 아직 오지 않은 예약 전환의 순서가 어긋났다 (ADR-93 후기)
  */
 export function settingsMessage(error: string, detail?: number): string | undefined {
   if (error === "conflict") return HOST_UI.pokeFloor(detail ?? 0);
+  if (error === "note_floor") return HOST_UI.noteFloor(detail ?? 0);
   if (error === "locked") return HOST_UI.frozen;
   if (error === "order") return HOST_UI.scheduleOrder;
   return undefined;
@@ -78,7 +83,7 @@ export function settingsMessage(error: string, detail?: number): string | undefi
 
 /** 발표가 자리를 끝내면 새 쌍을 넣지 못한다 (ADR-90). 빼기는 언제나 된다 */
 export function apartMessage(error: string): string | undefined {
-  return error === "closed" ? HOST_UI.players.apart.afterReveal : undefined;
+  return error === "closed" ? HOST_UI.seats.apart.afterReveal : undefined;
 }
 
 /** 발표가 끝나면 자리를 더 바꾸지 않는다. 그 밖에는 막을 일이 없다 */

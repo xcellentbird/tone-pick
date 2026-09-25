@@ -30,6 +30,7 @@ import {
 } from "../auth.ts";
 import {
   apiError,
+  eventExists,
   eventStub,
   inviteScope,
   ipHash,
@@ -58,7 +59,7 @@ participantRoutes.use("*", timed("api"));
  */
 participantRoutes.get("/events/by-id/:id", async (c) => {
   const id = c.req.param("id");
-  if (!(await registry(c.env).hasEvent(id))) return apiError(c, "not_found", ENTRY.notFound);
+  if (!(await eventExists(c.env, id))) return apiError(c, "not_found", ENTRY.notFound);
   const { value, response } = unwrap(c, await eventStub(c.env, id).publicAt(serverNow()), () => ENTRY.notFound);
   return response ?? c.json(value);
 });
@@ -86,7 +87,8 @@ participantRoutes.post("/events/:id/enter", async (c) => {
   const phone = typeof body.phone === "string" ? body.phone.trim() : "";
   const pin = body.pin === undefined || body.pin === null ? undefined : String(body.pin);
 
-  if (!(await registry(c.env).hasEvent(id))) {
+  // 레지스트리 왕복은 배너를 연 요청이 이미 치렀다 — 있다는 답을 기억한다 (`eventExists`)
+  if (!(await eventExists(c.env, id))) {
     count(c.env, id, { kind: "enter", outcome: "not_invited" });
     return apiError(c, "not_found", ENTRY.notFound);
   }

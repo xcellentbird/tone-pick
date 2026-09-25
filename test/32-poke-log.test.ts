@@ -9,8 +9,9 @@
  *
  * 재료는 `helpers/party.ts`.
  */
-import { SELF } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { env } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { EventMeta, MyPokeState } from "../src/shared/types.ts";
 import { signInMaster, api, freshEvent, join, master, setPhase } from "./helpers/party.ts";
@@ -63,7 +64,7 @@ describe("콕 로그 파일 (ADR-84)", () => {
     expect(kinds).toEqual(["찌름", "찌름", "되돌림", "찌름"]);
 
     const [pre, , undo, back] = body;
-    expect(col(header, pre, "라운드")).toBe("사전 투표");
+    expect(col(header, pre, "라운드")).toBe("프로필 투표");
     expect(col(header, pre, "보낸 사람")).toBe("철수");
     expect(col(header, pre, "보낸 사람 실명")).toBe("김철수");
     expect(col(header, pre, "보낸 나이")).toBe("31");
@@ -113,7 +114,7 @@ describe("콕 로그 파일 (ADR-84)", () => {
     const { ev, a, b } = await party();
     await setPhase(ev.id, "party");
     await poke(a.cookie, b.id);
-    const res = await SELF.fetch(`https://tone-pick.test/api/host/events/${ev.id}/pokes.csv`, {
+    const res = await fetchApp(`https://tone-pick.test/api/host/events/${ev.id}/pokes.csv`, {
       headers: { cookie: master ?? "" },
     });
     expect(res.status).toBe(404);
@@ -148,5 +149,55 @@ describe("콕 로그 파일 (ADR-84)", () => {
     const text = JSON.stringify(state.body);
     expect(text).not.toContain("fromId");
     expect(text).not.toContain("김철수");
+  });
+});
+
+/**
+ * R2 가 잠깐 안 받거나 느릴 때. 이 회차 DO 의 `env.LOGS` 만 바꿔 끼운다 — 콕도 로그도 공개 API 로 본다.
+ */
+describe("R2 가 흔들릴 때", () => {
+  type Inst = { env: Record<string, unknown> };
+  const stubOf = (ev: EventMeta) => {
+    const ns = (env as unknown as { EVENT: DurableObjectNamespace }).EVENT;
+    return ns.get(ns.idFromName(ev.id));
+  };
+  async function swapLogs(ev: EventMeta, logs: unknown) {
+    await runInDurableObject(stubOf(ev), (inst) => {
+      const i = inst as unknown as Inst;
+      i.env = { ...i.env, LOGS: logs };
+    });
+  }
+
+  it("★ 쓰기가 실패한 줄은 버리지 않는다 — 다음 쓰기에 앞의 순서 그대로 실린다", async () => {
+    /*
+     * 되돌림은 콕 표에서 줄을 지우므로 이 파일 말고는 어디에도 안 남는다 (ADR-84).
+     * 쓰기 한 번이 실패했다고 그 사이의 줄을 버리면 운영자가 받는 파일에 구멍이 난다.
+     */
+    const { ev, a, b, c } = await party();
+    await setPhase(ev.id, "prevote");
+    const down = () => Promise.reject(new Error("r2 down"));
+    await swapLogs(ev, { get: down, put: down });
+    expect((await poke(a.cookie, b.id)).status, "로그 때문에 콕이 깨졌다").toBe(200);
+
+    await swapLogs(ev, LOGS);
+    expect((await poke(a.cookie, c.id)).status).toBe(200);
+    const { header, body } = await readLog(ev);
+    expect(body.map((r) => col(header, r, "받은 사람"))).toEqual(["영희", "민지"]);
+  });
+
+  it("★ R2 가 느려도 콕 응답은 기다리지 않는다 — 화면의 시간 제한에 닿으면 저장된 콕이 실패로 보인다", async () => {
+    /*
+     * 콕 응답은 제 줄이 파일에 실리기를 기다린다. R2 가 10초를 넘기면 화면(`api.ts`)이 먼저 끊고
+     * `연결이 끊겼어요` 로 콕을 되돌려 놓는다 — 서버에는 저장됐는데. 사람은 다시 누르고 한 번을 더 쓴다.
+     */
+    const { ev, a, b } = await party();
+    await setPhase(ev.id, "prevote");
+    const slow = (value: unknown) => () => new Promise((r) => setTimeout(() => r(value), 6_000));
+    await swapLogs(ev, { get: slow(null), put: slow(undefined) });
+
+    const t0 = Date.now();
+    expect((await poke(a.cookie, b.id)).status).toBe(200);
+    expect(Date.now() - t0, "콕 응답이 R2 를 끝까지 기다렸다").toBeLessThan(4_000);
+    await swapLogs(ev, LOGS);
   });
 });

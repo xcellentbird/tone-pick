@@ -97,7 +97,7 @@ export function noticesOf(state: ParticipantState): Notice[] {
    * **발표는 되돌릴 수 없다** (ADR-50). 그래서 되돌린 자리에 놓던 문장(`unrevealed`)이 없다.
    *
    * 그래도 `phase` 를 함께 본다 — 이 결정 **전에** 되돌려둔 옛 회차는 `fired.done` 이 선 채로
-   * 파티 진행에 서 있다. 그 화면에 `결과가 발표됐어요` 를 띄우면 참가자 탭에는 아무것도 없다.
+   * 파티 진행에 서 있다. 그 화면에 `매칭 확인이 열렸어요` 를 띄우면 참가자 탭에는 아무것도 없다.
    */
   if (fired.done && phase === "done") {
     /*

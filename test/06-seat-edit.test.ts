@@ -273,18 +273,19 @@ describe("앉힌 자리 고치기", () => {
   });
 
   /**
-   * ★ **뺀 것은 이번 라운드에만 남는다** (ADR-45).
+   * ★ **서버는 뺀 사람을 기억하지 않는다** (ADR-45).
    *
    * 사람에게 붙는 상태로 만들면 시간이 지나 틀리고, 틀린 상태가 다음 라운드에서
-   * 사람을 조용히 빠뜨린다 (FLOWS.md). 노쇼는 다음 라운드에 나타날 수 있다.
+   * 사람을 조용히 빠뜨린다 (FLOWS.md). 뺄 사람을 **이어받는 것은 화면이다** (ADR-108) —
+   * 지난 자리와 등록 시각에서 그때그때 계산해 요청에 싣는다. 서버가 기억하기 시작하면 그 상태가 생긴다.
    */
-  it("★ 다음 배정은 전원으로 다시 시작한다", async () => {
+  it("★ 목록을 안 보내면 전원이 앉는다 — 서버는 앞 배정의 선택을 기억하지 않는다", async () => {
     const { ev, ids } = await party();
 
     const without = await makeSeating(ev.id, { tableCount: 1, exclude: [ids[0]] });
     expect(without.body.seats.some((x) => x.playerId === ids[0])).toBe(false);
 
-    // 목록을 안 보내면 아무도 안 빠진다 — 앞 라운드의 선택이 따라오지 않는다
+    // 목록을 안 보내면 아무도 안 빠진다 — 앞 배정의 선택이 서버에 남지 않는다
     const again = await makeSeating(ev.id, { tableCount: 1 });
     expect(again.body.seats.some((x) => x.playerId === ids[0])).toBe(true);
   });

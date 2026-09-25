@@ -113,6 +113,40 @@ export function eventStub(env: Env, eventId: string) {
   return env.EVENT.get(env.EVENT.idFromName(eventId));
 }
 
+/**
+ * **있다고 확인한 회차**를 이 아이솔레이트가 잠깐 기억한다 — 참가 링크와 입장 확인의 레지스트리 왕복을 던다.
+ *
+ * 레지스트리에 먼저 묻는 이유는 **없는 아이디로 회차 DO 를 깨우지 않기 위해서다**(아무 아이디나 넣어 DO 를
+ * 만들어 볼 수 있다). 그 문은 그대로다 — **없다는 답은 기억하지 않는다.** 기억하는 것은 있다는 답뿐이고,
+ * 문을 여는 판정은 여전히 회차 DO 가 한다: 그 사이 지운 회차는 DO 가 비어 있어 `not_found` 다.
+ *
+ * 입구에 사람이 몰리는 순간(같은 와이파이, 같은 콜로)이 곧 같은 아이솔레이트라, 배너를 연 요청이 기억한 것을
+ * 바로 뒤의 번호 확인이 쓴다. 레지스트리는 모든 회차가 줄 서는 DO 하나라 그 줄도 짧아진다.
+ */
+const KNOWN_EVENTS = new Map<string, number>();
+const KNOWN_TTL_MS = 5 * 60_000;
+/** 넘으면 통째로 비운다. 회차는 많아야 수십 개라 닿을 일이 없지만, 아이솔레이트 메모리를 무한히 쓰지 않는다 */
+const KNOWN_MAX = 500;
+
+export async function eventExists(env: Env, eventId: string): Promise<boolean> {
+  const until = KNOWN_EVENTS.get(eventId);
+  // 캐시의 수명이지 마감 판정이 아니다 — 서버 시각(`serverNow`)을 쓸 자리가 아니다
+  if (until !== undefined && until > Date.now()) return true;
+  const ok = await registry(env).hasEvent(eventId);
+  if (!ok) {
+    KNOWN_EVENTS.delete(eventId);
+    return false;
+  }
+  if (KNOWN_EVENTS.size >= KNOWN_MAX) KNOWN_EVENTS.clear();
+  KNOWN_EVENTS.set(eventId, Date.now() + KNOWN_TTL_MS);
+  return true;
+}
+
+/** 회차를 지웠다 — 이 아이솔레이트의 기억에서 뺀다. 다른 아이솔레이트는 DO 가 `not_found` 로 막는다 */
+export function forgetEvent(eventId: string): void {
+  KNOWN_EVENTS.delete(eventId);
+}
+
 // ─────────────────────────────────── 응답
 
 const STATUS: Record<ErrorCode, number> = {
@@ -130,6 +164,7 @@ const STATUS: Record<ErrorCode, number> = {
   same_gender: 409,
   locked: 409,
   conflict: 409,
+  note_floor: 409,
   region_blocked: 403,
   bad_request: 400,
   order: 400,

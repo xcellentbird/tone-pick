@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, FAIL, FORTUNE, HELP, NOTE, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { MyNoteState, MyPokeState, PublicAnnouncement, ParticipantState, StageKey } from "../../shared/types.ts";
+import type { Fortune } from "../../shared/fortune.ts";
 import { connect } from "../lib/realtime.ts";
 import { canNote, canPoke } from "../../shared/phase.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
@@ -25,7 +26,7 @@ import SeatTakeover from "../ui/SeatTakeover.tsx";
 import StageTakeover from "../ui/StageTakeover.tsx";
 import Sheet from "../ui/Sheet.tsx";
 import Help from "../ui/Help.tsx";
-import NoteBox from "../ui/NoteBox.tsx";
+import NoteBox, { type InboxSeg } from "../ui/NoteBox.tsx";
 import { canOpenFortune } from "../../shared/phase.ts";
 import FortuneTab from "./Fortune.tsx";
 import StatusBar from "../ui/StatusBar.tsx";
@@ -36,8 +37,6 @@ interface ViewProps {
   source: ParticipantSource;
   /** URL 이 가리키는 회차. 세션이 끊겼을 때 어디로 되돌릴지 판단에 쓴다 */
   code?: string;
-  /** 같은 번호로 다시 들어온 경우의 인사. 한 번만 띄운다 */
-  welcome?: string;
   tab: Tab;
   onTab: (tab: Tab) => void;
   /** 프로필 시트도 라우트다 — 뒤로 가기로 닫힌다 */
@@ -163,7 +162,6 @@ export default function Participant() {
     <ParticipantView
       source={source}
       code={code}
-      welcome={(location.state as { welcome?: string } | null)?.welcome}
       tab={tab}
       onTab={(next) => {
         /**
@@ -262,6 +260,12 @@ export function ParticipantView(props: ViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.set],
   );
+  /** 연 운세 한 칸만 갈아끼운다. 서버가 돌려준 그 카드다 — `setPoke` 와 같은 이유로 통로가 좁다 */
+  const setFortune = useCallback(
+    (fortune: Fortune) => state.set((cur) => (cur ? { ...cur, fortune } : cur)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.set],
+  );
   useEffect(() => {
     if (!source.liveCode || failed) return;
     const socket = connect(source.liveCode, () => state.reload());
@@ -279,6 +283,7 @@ export function ParticipantView(props: ViewProps) {
       setPoke={setPoke}
       setNote={setNote}
       setAnnouncement={setAnnouncement}
+      setFortune={setFortune}
     />
   );
 }
@@ -295,12 +300,12 @@ function Loaded({
   onEdit,
   seatOpen,
   onSeat,
-  welcome,
   state,
   reload,
   setPoke,
   setNote,
   setAnnouncement,
+  setFortune,
   helpOpen,
   onHelp,
   notesOpen,
@@ -311,6 +316,7 @@ function Loaded({
   setPoke: (poke: MyPokeState) => void;
   setNote: (note: MyNoteState) => void;
   setAnnouncement: (a: PublicAnnouncement) => void;
+  setFortune: (f: Fortune) => void;
 }) {
   const [acked, setAcked] = useState<number[]>([]);
   const banner = bannerOf(noticesOf(state), now());
@@ -325,7 +331,7 @@ function Loaded({
     } catch {
       /*
        * 저장에 실패했으면 **확인을 없던 일로 되돌린다.** 그냥 삼키면 화면에서는 사라지고
-       * 서버에는 미확인으로 남아, 운영자가 보는 이동 확인 수가 조용히 모자란다.
+       * 서버에는 미확인으로 남아, 앱을 다시 열 때 전체 화면이 또 덮친다.
        * 되돌리면 안내가 그대로 남아 한 번 더 누를 수 있다.
        */
       setAcked((list) => list.filter((r) => r !== round));
@@ -406,6 +412,23 @@ function Loaded({
   }, [notesOpen, inboxOn]);
 
   /**
+   * **덮개(자리 확인 · 단계 안내)와 시트는 겹치지 않는다.**
+   *
+   * 시트와 확인창은 Radix 모달이라, 열려 있는 동안 그 밖의 모든 것에서 손가락을 뺏는다
+   * (`body` 에 `pointer-events: none`). 덮개는 그 위에 **그려지기만 하고 눌리지 않았다** — 누른 손가락은
+   * 뒤에 가려진 시트의 글자에 닿았다. 등록을 마치면 도움말이 저절로 열려서(슬라이스 21) 매력 투표·파티 중에
+   * 온 사람은 모두 `참가자 보러 가기` 가 아무 일도 안 하는 화면에 갇혔고, 파티 중 자리가 나올 때마다
+   * 프로필·쪽지를 보던 사람의 `자리 확인` 이 같은 일을 겪었다.
+   *
+   * · **자리 확인은 바로 선다** — 몸을 옮기는 지시다. 그동안 시트는 닫혀 있고, 라우트는 그대로라 확인하면 돌아온다
+   * · **단계 안내는 기다린다** — 설명이다. 시트가 열려 있으면 닫힌 뒤에 선다. 등록을 마친 사람의 도움말이 먼저다
+   * · 확인창은 자리·단계가 **바뀌는 순간** 취소된다 — 돌려놓지 않는다 (`Overlays` 의 `suspend`)
+   */
+  const seatUp = needsSeatAck && !!state.seat;
+  const sheetOpen = !!helpOpen || (!!notesOpen && inboxOn) || (tab === "people" && (!!profileId || !!noteOpen));
+  const stageUp = needsStage && !!stage && !sheetOpen;
+
+  /**
    * 받은 익명 쪽지를 **읽음으로 찍는다.** 여기 있는 이유는 셋을 한자리에서 보기 때문이다 —
    * 쪽지함이 열려 있나, 덮개가 덮고 있나(`needsSeatAck`·`needsStage`), 어깨너머 가리기가 켜져 있나.
    *
@@ -419,20 +442,37 @@ function Loaded({
    * ⚠️ **가리기 중에도 찍지 않는다.** 가리면 줄만 보이는데, 본문을 안 본 것은 읽은 것이 아니다.
    * 이것이 **안 읽고 지우는 길**을 실제로 열어 둔다 (ADR-98) — 그 길이 없으면 괴롭히는 쪽은
    * 언제나 `읽음` 을 받고, 읽음이 거절 신호가 되지 않게 하는 장치가 글로만 남는다.
+   *
+   * ⚠️ **보낸 쪽지를 보는 동안에도 찍지 않는다.** 쪽지함이 열려 있어도 화면은 다른 신호로 계속 다시 읽히고,
+   * 그때 새 쪽지가 오면 본문을 본 적 없는 사람에게 읽음이 찍혔다. 받은 쪽지로 돌아오는 순간 찍힌다.
+   */
+  const [inboxSeg, setInboxSeg] = useState<InboxSeg>("received");
+  // 열면 늘 받은 쪽지부터다 — 닫힐 때 되돌려 두면 여는 순간부터 받은 쪽지가 보인다
+  useEffect(() => {
+    if (!notesOpen) setInboxSeg("received");
+  }, [notesOpen]);
+  /*
+   * **안 읽은 것이 있을 때만 찍는다** (`note.unread`). 한동안 줄 수(`received.length`)로 정했는데 둘이 샜다 —
+   * 다 읽은 쪽지함을 열 때마다 서버에 쓰는 요청이 나갔고, 지운 한 장과 새로 온 한 장이 한 응답에 겹치면
+   * 줄 수가 그대로라 **화면에 뜬 새 쪽지가 읽음으로 안 찍혔다.**
    */
   const notesShown =
-    !!notesOpen && inboxOn && !needsSeatAck && !needsStage && !covered && note.received.length > 0;
+    !!notesOpen && inboxOn && !seatUp && !stageUp && !covered && inboxSeg === "received" && note.unread > 0;
   useEffect(() => {
     if (!notesShown) return;
     let alive = true;
-    void source.seeNotes().then((next) => {
-      if (alive) setNote(next);
-    });
+    // 못 찍었으면(망) 그대로 둔다 — 배지가 남고, 다음에 열 때 다시 찍는다. 읽는 사람에게 말할 일은 아니다
+    source.seeNotes().then(
+      (next) => {
+        if (alive) setNote(next);
+      },
+      () => {},
+    );
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notesShown, note.received.length]);
+  }, [notesShown, note.unread]);
   const seeStage = useCallback(async () => {
     if (!stage) return;
     setSeenLocal(stage);
@@ -447,8 +487,7 @@ function Loaded({
   }, [stage, source, reload, onTab]);
 
   return (
-    <Overlays>
-      {welcome && <Greeting text={welcome} />}
+    <Overlays suspend={seatUp || (needsStage && !!stage)}>
       {/*
         바탕은 단계를 말하지 않는다 (ADR-67). `data-phase` 를 되살리지 마라 —
         옆 사람이 화면 색만 보고 이 사람이 어디쯤인지 읽는다.
@@ -508,10 +547,11 @@ function Loaded({
               onTab={onTab}
               covered={covered}
               setCovered={setCovered}
+              underTakeover={seatUp}
             />
           )}
           {/* 재미 탭. 지금은 운세 카드 하나뿐이다 — 이상형 찾기가 여기 두 번째로 붙는다 */}
-          {tab === "fun" && <FortuneTab state={state} reload={reload} />}
+          {tab === "fun" && <FortuneTab state={state} onFortune={setFortune} />}
           {tab === "me" && (
             <Me state={state} source={source} reload={reload} editing={!!editing} onEdit={onEdit} />
           )}
@@ -524,13 +564,13 @@ function Loaded({
           이미 본 사람이 홈에서 다시 연 경우(`/seat`)에는 닫기만 있다 —
           이미 센 사람을 또 세면 `acks` 가 뜻을 잃는다.
         */}
-        {needsSeatAck && state.seat && <SeatTakeover seat={state.seat} started={started} onAck={ack} />}
+        {seatUp && state.seat && <SeatTakeover seat={state.seat} started={started} onAck={ack} />}
         {!needsSeatAck && seatOpen && state.seat && (
           <SeatTakeover seat={state.seat} started={started} onClose={() => onSeat(false)} />
         )}
 
-        {/* 단계가 열릴 때의 안내 — 자리 확인 뒤에 선다 (ADR-96). 도움말 시트보다 위다 (`z-index`) */}
-        {needsStage && stage && (
+        {/* 단계가 열릴 때의 안내 — 자리 확인 뒤, 그리고 열린 시트가 닫힌 뒤에 선다 (ADR-96, 위 `stageUp`) */}
+        {stageUp && stage && (
           <StageTakeover
             stage={stage}
             count={state.poke.budget.party.max}
@@ -543,11 +583,13 @@ function Loaded({
           익명 쪽지함 (ADR-98 후기 3). 어느 탭에서 열든 같은 것이 뜬다.
           **열릴 때마다 새로 붙는다** — 보낸 쪽지의 읽음 배지가 그 순간의 값으로 굳는 것이 여기서 나온다.
         */}
-        <Sheet open={!!notesOpen && inboxOn} onClose={() => onNotes?.(false)} title={NOTE.inbox.title}>
+        <Sheet open={!!notesOpen && inboxOn && !seatUp} onClose={() => onNotes?.(false)} title={NOTE.inbox.title}>
           {notesOpen && inboxOn && (
             <NoteBox
               note={note}
               roster={state.roster}
+              seg={inboxSeg}
+              onSeg={setInboxSeg}
               open={canNote(state.event.phase) && (state.event.config.maxNotes ?? 0) > 0}
               covered={covered}
               setCovered={setCovered}
@@ -558,7 +600,7 @@ function Loaded({
         </Sheet>
 
         {/* 파티 룰 도움말. 어느 탭에서 열든 같은 것이 뜬다 */}
-        <Sheet open={!!helpOpen} onClose={() => onHelp(false)} title={HELP.title}>
+        <Sheet open={!!helpOpen && !seatUp} onClose={() => onHelp(false)} title={HELP.title}>
           <Help state={state} />
           {/*
             **읽기를 마친 손가락이 그 자리에서 닫는다.** 도움말은 화면을 거의 덮고
@@ -576,16 +618,6 @@ function Loaded({
       </div>
     </Overlays>
   );
-}
-
-/** 토스트는 Overlays 안에서만 부를 수 있어서 작은 컴포넌트 하나로 감싼다 */
-function Greeting({ text }: { text: string }) {
-  const { toast } = useOverlay();
-  useEffect(() => {
-    toast(text);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return null;
 }
 
 /**

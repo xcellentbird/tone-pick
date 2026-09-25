@@ -75,7 +75,9 @@ export function withDefaults(saved: Partial<Defaults> | null | undefined): Defau
     place: text(saved?.place, DEFAULTS.place),
     // 닉네임 문구도 **비워두는 것에 뜻이 있다** — 안내 없이 칸만 두겠다는 뜻이다
     nickHint: typeof saved?.nickHint === "string" ? saved.nickHint : DEFAULTS.nickHint,
-    prevoteBeforeH: num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH),
+    // 1시간 전이 가장 가깝다. 0 이면 매력 투표 시작이 파티 일시와 같아져서 순서 검사(ADR-93 후기)가
+    // 회차 만들기를 매번 거절했다 — 저장은 이제 막지만, 전에 저장해 둔 0 이 남아 있다
+    prevoteBeforeH: Math.max(1, num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH)),
     // 매력 투표 1위 보너스 콕 (ADR-100). 없으면 0 — 주지 않는다
     topVoteBonus: num(saved?.topVoteBonus, DEFAULTS.topVoteBonus ?? 0),
     revealAfterH: num(saved?.revealAfterH, DEFAULTS.revealAfterH),
@@ -264,10 +266,15 @@ export const FAIR = { c: 0.3, min: 0.5, max: 2 } as const;
  * 번호 단계는 **"이 사람이 이 파티에 있나" 를 되묻는 창구**가 되고, PIN 단계는 만 가지를
  * 다 두드려 보는 자리가 된다. **두 단계 모두에** 건다.
  *
- * 그래서 회차마다, 접속지마다 실패 횟수를 센다. 사람이 자기 번호를 잘못 치는 건 두세 번이다.
+ * 그래서 회차마다, 접속지마다 **틀린 번호가 몇 개인지** 센다 (ADR-75 후기) — 몇 번 틀렸나가 아니다.
+ * 넣어보는 일은 번호가 늘어나는 일이고, 한 번호를 거듭 틀려 얻는 것은 없다.
  * PIN 번호는 따로 **번호 단위로** 5회 잠금이 있다 (`PIN.maxFails`) — 접속지에만 걸면 망을 바꿔 빠져나간다.
+ *
+ * **열인 것은 파티장 와이파이 때문이다.** 한 사람이 남기는 번호는 대개 하나다(자기 번호 오타, 잊은 PIN 번호,
+ * 초대받지 않은 동행). 파티가 시작될 때 문 앞에 몰린 여럿이 한 망을 나눠 쓰므로 그 몫의 여유를 둔다.
+ * 성공이 기록을 통째로 지우던 때는 여덟이었다 — 그 되감기가 여유 노릇을 했는데, 되감개이기도 했다.
  */
-export const ENTRY_TRIES = { max: 8, windowMs: 10 * 60_000 } as const;
+export const ENTRY_TRIES = { max: 10, windowMs: 10 * 60_000 } as const;
 
 /**
  * **운영자 PIN 을 대보는 횟수 제한** (ADR-94). 접속지마다 센다.

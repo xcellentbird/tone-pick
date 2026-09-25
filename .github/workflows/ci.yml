@@ -5,14 +5,15 @@
 #
 # 차선은 둘이다.
 #
-#   check          모든 PR·푸시. 타입 + 문구 + 규칙 테스트 + 빌드. 50초쯤 걸린다
+#   check          모든 PR·푸시. 타입 + 문구 + 규칙 테스트 + 빌드.
+#                  **문서만 바뀐 PR 은 ADR 검사만 돈다** (아래 `무엇이 바뀌었나`)
 #   release-guard  **프로덕션으로 가는 길에서만.** 옛 스키마 · 번들 예산
 #
-# 왜 갈랐나 — `check` 는 이미 빠르다(실측 50초: npm ci 6 · check 11 · test 26 · build 3).
-# 여기서 병렬로 더 쪼개면 잡마다 checkout+setup-node+npm ci 9초를 다시 내고 **러너 수요만 는다.**
+# 왜 갈랐나 — 병렬로 더 쪼개면 잡마다 checkout+setup-node+npm ci 9초를 다시 내고 **러너 수요만 는다.**
 # 그런데 이 저장소가 실제로 다친 곳이 러너다 — v2.0.0(#227)·#247·#248 이
 # "러너를 배정하지 못해 필수 검사가 큐에 머물러" bypass 로 머지됐고, 한 번은 74분을 기다렸다.
 # 그래서 잡을 늘리는 방향이 아니라 **늘어날 자리를 프로덕션 길목 하나로 묶는다.** (ADR-66)
+# 빨라지는 건 **한 잡 안에서** 한다 — 타입 검사·빌드는 테스트와 서로 기다릴 이유가 없어 겹쳐 돌린다.
 name: CI
 
 on:
@@ -43,15 +44,55 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # PR 의 머지 커밋과 **그 첫 부모(= 베이스)** 를 견줘야 무엇이 바뀌었는지 안다. 부모까지 받는다
+          fetch-depth: 2
+
+      # ─── 무엇이 바뀌었나 ───────────────────────────────────────────
+      # **문서(docs/ · *.md)만 바뀐 PR 은 코드 검사를 건너뛴다.** 문서가 깰 수 있는 것은
+      # ADR 목차·참조뿐이라 그것만 본다 (`check:adr` — 의존성 없이 돈다, 1초).
+      # 코드·설정·테스트·스크립트가 **하나라도** 섞이면 전부 돈다. main·qa 푸시는 늘 전부 돈다.
+      # 건너뛰어도 잡은 초록으로 끝난다 — `automerge` 가 이 잡을 기다리고, 필수 검사로 걸려 있어도 막히지 않는다.
+      - name: 무엇이 바뀌었나
+        id: scope
+        if: github.event_name == 'pull_request'
+        run: |
+          changed=$(git diff --name-only HEAD^1 HEAD)
+          echo "$changed"
+          if [ -n "$changed" ] && ! echo "$changed" | grep -qvE '^docs/|\.md$'; then
+            echo "lane=docs" >> "$GITHUB_OUTPUT"
+            echo "문서만 바뀐 PR — ADR 검사만 돈다" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: ADR 검사 (문서만 바뀐 PR)
+        if: steps.scope.outputs.lane == 'docs'
+        run: npm run check:adr
+
       - uses: actions/setup-node@v4
+        if: steps.scope.outputs.lane != 'docs'
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - if: steps.scope.outputs.lane != 'docs'
+        run: npm ci
       # 시크릿은 필요 없다. 테스트용 값은 vitest.config.ts 가 직접 넣는다
-      - run: npm run check
-      - run: npm test
-      - run: npm run build
+      #
+      # **셋을 겹쳐 돌린다.** 타입 검사는 한 코어로 돌고 테스트는 코어를 나눠 쓴다 — 기다릴 이유가 없다
+      # (실측: 차례로 52초 → 겹쳐서 41초). 테스트는 앞에서 흘려 보여주고, 나머지 둘의 출력은 끝에 묶어 붙인다.
+      # `set +e` 를 빼지 마라 — 기본 셸은 `-e` 라 테스트가 빨개지는 순간 나머지 둘을 기다리지 않고 끝난다.
+      - name: 검사 · 테스트 · 빌드
+        if: steps.scope.outputs.lane != 'docs'
+        run: |
+          set +e
+          npm run check > check.log 2>&1 & C=$!
+          npm run build > build.log 2>&1 & B=$!
+          npm test; T=$?
+          wait $C; C=$?
+          wait $B; B=$?
+          echo "::group::npm run check (exit $C)"; cat check.log; echo "::endgroup::"
+          echo "::group::npm run build (exit $B)"; cat build.log; echo "::endgroup::"
+          [ $C -eq 0 ] || echo "::error::npm run check 실패 — 위 'npm run check' 묶음을 펼쳐 보세요"
+          [ $B -eq 0 ] || echo "::error::npm run build 실패 — 위 'npm run build' 묶음을 펼쳐 보세요"
+          exit $(( C || B || T ))
 
   # ─────────────────────────────────────────────────────────────
   # **배포되는 물건**에 대한 검사. main 으로 가는 PR 과 main 푸시에서만 돈다.
@@ -96,6 +137,19 @@ jobs:
   # 아직 볼 준비가 안 됐다고 말한 PR 에서 CI 가 빨갛게 죽는다 —
   # 실패가 코드 탓처럼 보여서 진짜 실패를 찾는 눈을 흐린다.
   # 준비됨으로 바꾸면 위의 `ready_for_review` 가 CI 를 다시 돌리고, 그때 이 잡이 붙는다.
+  #
+  # ⚠️ **`qa` 브랜치 보호에 `Restrict deletions` 말고 다른 것을 켜지 마라.**
+  # 이 잡은 `GITHUB_TOKEN` 으로 머지한다. 넷 중 하나만 켜도 조용히 막힌다 —
+  #
+  #   Require approvals            토큰은 제 PR 을 승인하지 못한다
+  #   Require status checks        `release-guard` 는 qa PR 에서 `skipped` 다.
+  #                                필수로 걸면 `success` 가 아니라 **영영 안 들어간다**
+  #   Require linear history       `gh pr merge --merge` 는 머지 커밋을 만든다
+  #   Restrict who can push        `github-actions[bot]` 이 목록에 없으면 막힌다
+  #
+  # 보호를 건 이유는 **삭제 하나**다: 릴리스 PR(`qa → main`)이 머지되면 저장소의
+  # `Automatically delete head branches` 가 head 였던 `qa` 를 지운다. 실제로 한 번 지워졌고,
+  # 그동안 이 잡이 붙을 자리가 없었다 (#387 → #388).
   automerge:
     needs: check
     if: >-

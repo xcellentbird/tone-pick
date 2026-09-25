@@ -17,7 +17,11 @@ const PING_MS = 25_000;
 /** 이만큼 아무 소식이 없으면 죽은 줄로 본다. ping 두 번을 놓친 셈이다 */
 const SILENT_MS = 70_000;
 
-export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
+/**
+ * `host` 는 운영자 콘솔만 켠다 (ADR-107). 서버가 운영자 쿠키로 확인하면 운영자 신호(콕·되돌리기·PIN 번호)까지 받는다.
+ * 참가자 화면은 켜지 않는다 — 한 브라우저에 운영자 쿠키가 같이 있어도(스테이지의 참가자 틀) 운영자 신호를 받으면 안 된다.
+ */
+export function connect(code: string, onEvent: (ev: ServerEvent) => void, opts: { host?: boolean } = {}) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   let ws: WebSocket | null = null;
   let retry = 0;
@@ -36,9 +40,18 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
      * 주소에 실려도 되고, 증명은 여전히 쿠키다 (ADR-44).
      */
     const ref = tabRef();
-    ws = new WebSocket(`${proto}://${location.host}/ws/${code}${ref ? `?ref=${ref}` : ""}`);
+    // 운영자 콘솔은 참가자 이름표를 싣지 않는다 — 그 소켓은 누구의 참가자 소켓도 아니다
+    const query = opts.host ? "?host=1" : ref ? `?ref=${ref}` : "";
+    const sock = new WebSocket(`${proto}://${location.host}/ws/${code}${query}`);
+    ws = sock;
 
-    ws.onopen = () => {
+    /*
+     * **버린 소켓은 아무 말도 못 한다.** 앱으로 돌아올 때(`onVisible`) 붙는 중이던 소켓을 닫고 새로 여는데,
+     * 닫은 소켓의 `close` 는 **나중에** 온다. 그게 재연결을 한 번 더 걸면 방금 연 소켓이 `ws` 에서 밀려나
+     * 주인 없이 남는다 — 닫는 길이 없어 화면을 떠나도 계속 "다시 읽어라" 를 받고, 돌아올 때마다 하나씩 는다.
+     */
+    sock.onopen = () => {
+      if (sock !== ws) return;
       // 다시 붙은 것과 처음 붙은 것을 갈라 센다 (ADR-56) — 파티장 와이파이가 여기서만 보인다
       pulseWs(opened ? "retry" : "open");
       retry = 0;
@@ -48,7 +61,8 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
       opened = true;
     };
 
-    ws.onmessage = (e) => {
+    sock.onmessage = (e) => {
+      if (sock !== ws) return;
       lastSeen = Date.now();
       try {
         const ev = JSON.parse(e.data) as ServerEvent;
@@ -59,8 +73,8 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
       }
     };
 
-    ws.onclose = () => {
-      if (closed) return;
+    sock.onclose = () => {
+      if (closed || sock !== ws) return;
       pulseWs("drop");
       // 파티장 와이파이는 끊긴다. 지수 백오프로 조용히 재연결한다.
       timer = setTimeout(open, Math.min(30_000, 1000 * 2 ** retry++));

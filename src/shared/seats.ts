@@ -1,4 +1,15 @@
+import { LIMITS } from "./constants.ts";
 import type { Gender } from "./types.ts";
+
+/**
+ * 테이블 수의 **기본값** — 여섯 명에 한 테이블꼴.
+ *
+ * 자리 화면이 첫 배정 시트를 열 때 채워 두는 값이고, 파티가 시작될 때 자리가 없으면 자동 배정이
+ * 이 값으로 짠다 (ADR-106). 한 곳에 둔다 — 둘이 갈리면 운영자가 화면에서 본 숫자와 자동으로 나간 자리가 다르다.
+ */
+export function autoTableCount(players: number): number {
+  return Math.min(LIMITS.tableMax, Math.max(1, Math.round(players / 6)));
+}
 
 /**
  * 자리 없는 사람을 **어느 테이블에 넣을지** 고른다 (`SEATING.md` 의 앉히기 규칙).

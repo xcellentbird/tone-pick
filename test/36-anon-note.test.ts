@@ -12,6 +12,7 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { LIMITS } from "../src/shared/constants.ts";
+import { HOST_UI } from "../src/shared/copy.ts";
 import type { Defaults, EventConfig, EventMeta, HostState, MyNoteState, ParticipantState } from "../src/shared/types.ts";
 import { api, freshEvent, join, master, setPhase, signInMaster } from "./helpers/party.ts";
 
@@ -311,7 +312,10 @@ describe("운영자", () => {
         body: { name: ev.name, config: { ...ev.config, maxNotes } },
       });
 
-    expect((await put(2)).status, "이미 3장 보낸 사람이 있다").toBe(409);
+    const low = await put(2);
+    expect(low.status, "이미 3장 보낸 사람이 있다").toBe(409);
+    // 쪽지의 바닥은 쪽지로 말한다 — 콕 문구(`이미 3회 찌른 참가자가…`)가 나가면 운영자는 엉뚱한 것을 찾는다
+    expect((low.body as unknown as { message?: string }).message).toBe(HOST_UI.noteFloor(3));
     expect((await put(3)).status, "바닥까지는 된다").toBe(200);
     // 0 은 이 회차의 익명 쪽지를 닫는 스위치라 바닥에 안 걸린다 — 운영자의 유일한 레버다
     const off = await put(0);
@@ -321,6 +325,24 @@ describe("운영자", () => {
     // 닫혀도 이미 온 것은 남는다
     expect((await me(b.cookie, ev.code)).body.note.received).toHaveLength(3);
     expect((await send(a.cookie, b.id)).status).toBe(409);
+  });
+
+  it("★ 나간 사람이 보낸 장 수는 바닥이 아니다 — 운영자 화면이 세는 것과 같다", async () => {
+    /*
+     * 나간 사람이 보낸 쪽지 줄은 남는다 (발신자의 장 수를 지키려고). 그 줄까지 바닥에 넣으면 운영자 화면은
+     * 내려도 된다고 하는데 서버가 409 로 막았다 — 화면의 숫자와 서버의 숫자가 달랐다.
+     */
+    const { ev, a, b, c } = await party({ maxNotes: 5 });
+    for (let i = 0; i < 3; i++) await send(a.cookie, b.id);
+    await send(c.cookie, b.id);
+    await api(`/api/host/events/${ev.id}/players/${a.id}`, { method: "DELETE", cookie: master });
+
+    const put = await api<EventMeta>(`/api/host/events/${ev.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { name: ev.name, config: { ...ev.config, maxNotes: 1 } },
+    });
+    expect(put.status, JSON.stringify(put.body)).toBe(200);
   });
 
   it("★ 굳지 않는다 — 콕이 오간 뒤에도 고칠 수 있다 (ADR-35)", async () => {

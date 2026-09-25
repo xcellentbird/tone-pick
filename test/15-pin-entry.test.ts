@@ -62,6 +62,25 @@ describe("A. 문", () => {
     expect((res.body as unknown as { message: string }).message).toBe(ENTRY.notInvited);
   });
 
+  it("S-A2 ★ 지운 파티는 방금 열어 본 뒤에도 문이 안 열린다 — 파티를 알아 둔 것이 문을 열어 두지 않는다", async () => {
+    /*
+     * Worker 는 **있는 파티**를 잠깐 기억해 레지스트리 왕복을 던다(입장 확인이 빨라진다).
+     * 기억은 문이 아니다 — 판정은 여전히 회차 DO 가 한다. 지운 파티의 DO 는 비어 있어 `그런 파티가 없어요` 다.
+     */
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(200);
+    expect((await enter(ev.id, phone)).status, "지우기 전에는 열린다").toBe(200);
+
+    expect((await api(`/api/host/events/${ev.id}`, { method: "DELETE", cookie: master })).status).toBe(200);
+    const after = await enter(ev.id, phone);
+    expect(after.status).toBe(404);
+    expect(after.cookie).toBeNull();
+    expect((after.body as unknown as { message: string }).message).toBe(ENTRY.notFound);
+    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(404);
+  });
+
   it("S-A3 ★ 초대된 번호 + 맞는 PIN 번호면 들어온다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
@@ -128,6 +147,49 @@ describe("A. 문", () => {
 
     // 접속지가 막혔으면 맞는 번호·PIN 번호도 429 다. 번호 단계만 세면 통과한 뒤 만 번을 두드린다
     expect((await enter(ev.id, me.phone, me.pin)).status).toBe(429);
+  });
+
+  /**
+   * **성공은 자기 실수만 지운다** — 그 접속지의 기록을 통째로 지우지 않는다.
+   *
+   * 예전에는 성공 한 번이 그 접속지의 실패를 전부 지웠다. 그러면 아는 번호 하나(자기 번호, 친구 번호)만 있으면
+   * 모르는 번호를 넣어볼 때마다 그 번호로 한 번 들어가 기록을 되감을 수 있었다 — **주소록을 통째로 넣어보는 길**이고,
+   * ADR-15 가 *이 앱이 가장 막아야 하는 유출* 이라 부른 그것이다. 초대받은 번호는 명단에 있다는 답만으로 되감겼다.
+   */
+  it("S-A7b ★ 아는 번호로 들어가도 접속지 제한이 되감기지 않는다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const friend = await invite(ev.id, nextPhone());
+
+    let blocked = 0;
+    for (let i = 0; i < ENTRY_TRIES.max * 2; i++) {
+      if ((await enter(ev.id, `0100000${String(5000 + i)}`)).status === 429) blocked++;
+      // 사이사이 아는 번호로 들어간다 — 등록 전인 친구 번호, 그리고 자기 번호와 PIN 번호
+      await enter(ev.id, friend);
+      await enter(ev.id, me.phone, me.pin);
+    }
+    expect(blocked, "아는 번호 하나로 제한을 계속 되감았다").toBeGreaterThan(0);
+  });
+
+  /**
+   * **세는 것은 몇 번 두드렸나가 아니라 몇 개의 번호를 넣어봤나다.**
+   *
+   * 파티장 와이파이 하나를 여럿이 나눠 쓴다. PIN 번호를 잊은 사람이 몇 번 틀리고, 초대받지 않은 동행이 자기 번호를
+   * 몇 번 넣어봐도 **그것만으로 그 망의 모든 사람이 10분 동안 못 들어오면 안 된다** — 예전에는 누군가 성공할 때
+   * 기록이 통째로 지워지는 것이 이 일을 막고 있었다. 한 번호를 여러 번 두드려 얻는 것은 없다:
+   * 초대 여부는 처음 한 번에 이미 답했고, PIN 번호는 번호마다 5회 잠금이 따로 막는다.
+   */
+  it("S-A7c ★ 한 번호를 여러 번 틀린 것은 한 번으로 센다 — 같은 망의 다른 사람이 막히지 않는다", async () => {
+    const ev = await freshEvent();
+    const forgetful = await join(ev);
+    const other = await join(ev);
+
+    for (let i = 0; i < PIN_RULE.maxFails - 1; i++) {
+      expect((await enter(ev.id, forgetful.phone, "0000")).status).toBe(403);
+    }
+    for (let i = 0; i < ENTRY_TRIES.max; i++) expect((await enter(ev.id, "01000009999")).status).toBe(403);
+
+    expect((await enter(ev.id, other.phone, other.pin)).status, "남의 실수에 문이 닫혔다").toBe(200);
   });
 
   it("S-A8 ★ 세 가지 실패는 세 가지 문구다", async () => {
@@ -304,6 +366,43 @@ describe("B. 등록", () => {
     expect(read(reg.cookie)).not.toContain(phone);
     const back = await enter(ev.id, phone, PIN);
     expect(read(back.cookie)).not.toContain(phone);
+  });
+
+  it("S-B7 ★ 이미 등록한 번호는 다시 등록할 수 없다 — 먼저 받아 둔 초대 쿠키로도 PIN 번호를 건너뛰지 못한다", async () => {
+    /*
+     * 초대 쿠키는 **등록 전에** 번호만 치면 나온다 (S-B1). 남의 번호를 아는 사람이 그때 받아 두면,
+     * 주인이 등록한 뒤에도 쿠키가 한 시간 산다. 그 쿠키로 등록 폼을 다시 내면 주인의 정보와
+     * PIN 번호를 갈아 끼우고 주인의 세션을 받아 갔다 — ADR-75 가 받아들인 `첫 입장의 선점` 은
+     * **등록 전**의 이야기다. 등록한 사람에게 들어가는 문은 번호 + PIN 번호 하나뿐이다.
+     */
+    const ev = await freshEvent();
+    const phone = await invite(ev.id, nextPhone());
+
+    // Given 주인이 등록하기 전에, 번호를 아는 누군가가 그 번호로 초대 쿠키를 받아 뒀다
+    const early = await enter(ev.id, phone);
+    expect(early.body.registered).toBe(false);
+
+    // And   주인이 등록을 마쳤다
+    const own = await enter(ev.id, phone);
+    const owner = person({ pin: "2468" });
+    const done = await api<RegisterResult>("/api/register", { method: "POST", cookie: own.cookie, body: owner });
+    expect(done.status, JSON.stringify(done.body)).toBe(200);
+
+    // When  먼저 받아 둔 쿠키로 등록 폼을 다시 낸다
+    const again = await api<RegisterResult>("/api/register", {
+      method: "POST",
+      cookie: early.cookie,
+      body: person({ nickname: "가로채기", pin: "1357" }),
+    });
+
+    // Then  문 앞으로 돌려보낸다 — 세션도 안 나간다 (화면은 401 이면 입장 확인창으로 간다)
+    expect(again.status).toBe(401);
+    expect(again.setCookies.some((c) => c.startsWith("tp_play"))).toBe(false);
+    // And   주인의 PIN 번호도 정보도 그대로다
+    expect((await enter(ev.id, phone, "2468")).status).toBe(200);
+    expect((await enter(ev.id, phone, "1357")).status).toBe(403);
+    const me = (await hostState(ev.id)).players.find((p) => p.phone === phone);
+    expect(me?.nickname).toBe(owner.nickname);
   });
 });
 

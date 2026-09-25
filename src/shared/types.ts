@@ -443,6 +443,12 @@ export type ServerEvent =
    * **아무것도 싣지 않는다.** 받는 쪽은 어차피 다시 읽는다 (ADR-26).
    */
   | { type: "notice" }
+  /**
+   * 운영자 화면의 숫자가 바뀌었다 — 콕·되돌리기·PIN 번호 (ADR-107).
+   * 자리 이동 확인은 보내지 않는다 — 운영자 화면에 그 숫자가 없다 (ADR-110).
+   * **로그인한 운영자 소켓에만 간다** (`toHosts`). 아무것도 싣지 않는다 — 콘솔은 받으면 다시 읽는다.
+   */
+  | { type: "counts" }
   | { type: "reveal" }                                // 클라이언트가 다시 fetch 한다
   | { type: "pong"; serverTime: number }
   /**
@@ -533,6 +539,7 @@ export type ErrorCode =
   | "same_gender"    // 409 · 이성에게만 찌를 수 있다
   | "locked"         // 409 · 콕이 오가기 시작해 굳은 설정이다 (ADR-35)
   | "region_blocked" // 403 · 허용한 나라 밖에서 들어왔다 (ADR-92)
+  | "note_floor"     // 409 · 이미 그만큼 보낸 익명 쪽지가 있어 장 수를 못 내린다 (ADR-98). detail = 가장 많이 보낸 장 수
   | "conflict"       // 409 · 그 밖의 충돌
   | "order";         // 400 · 아직 오지 않은 예약 전환의 순서가 어긋났다 (ADR-93 후기)
 
@@ -765,10 +772,12 @@ export interface ParticipantState {
   announcements: PublicAnnouncement[];
 }
 
-/** 등록 응답. 같은 번호로 다시 들어온 경우 `resumed` 로 알린다 (REGISTER.welcomeBack) */
+/**
+ * 등록 응답. **새로 등록한 사람만** 받는다 — 이미 등록한 번호는 401 로 문 앞에 돌려보낸다 (ADR-75).
+ * 그래서 `다시 오셨네요` 갈래(`resumed`)가 없다. 돌아온 사람은 번호 + PIN 번호로 들어온다
+ */
 export interface RegisterResult {
   state: ParticipantState;
-  resumed: boolean;
 }
 
 /** 운영자 콘솔 한 벌. 운영자만 전체를 본다 */
@@ -798,7 +807,7 @@ export interface HostState {
   received: Record<PokeRound, Record<string, number>>;
   mutual: Array<[string, string]>;
   pokeCount: Record<PokeRound, number>;
-  /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다 */
+  /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다. 파티 콕은 1위의 보너스를 뺀 횟수다 */
   pokeUsedMax: Record<PokeRound, number>;
   /**
    * playerId → **보낸** 익명 쪽지 장 수 (ADR-98). 운영자가 보는 것은 이것뿐이다.
@@ -828,9 +837,10 @@ export interface HostState {
 export interface SeatingInput {
   tableCount: number;
   /**
-   * 이번 라운드에서 뺄 사람 (ADR-45). **이 요청에만 있고 저장되지 않는다** —
+   * 이번 배정에서 뺄 사람 (ADR-45). **이 요청에만 있고 저장되지 않는다** —
    * 사람에게 붙는 상태로 만들면 시간이 지나 틀리고, 틀린 상태가 다음 라운드에서
-   * 사람을 조용히 빠뜨린다 (FLOWS.md). 다음 배정은 전원으로 다시 시작한다.
+   * 사람을 조용히 빠뜨린다 (FLOWS.md). 지난 배정에서 이어받는 것은 **화면**이 한다 (ADR-108) —
+   * 지난 자리와 등록 시각에서 계산해 이 목록에 싣는다. 서버는 기억하지 않는다.
    */
   exclude: string[];
 }

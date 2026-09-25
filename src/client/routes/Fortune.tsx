@@ -18,7 +18,7 @@ import type { ParticipantState } from "../../shared/types.ts";
 import { messageOf, post } from "../lib/api.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
 
-export default function FortuneTab({ state, reload }: { state: ParticipantState; reload: () => void }) {
+export default function FortuneTab({ state, onFortune }: { state: ParticipantState; onFortune: (f: Fortune) => void }) {
   const [opening, setOpening] = useState(false);
   const [card, setCard] = useState<Fortune | undefined>(state.fortune);
   const [missionOpening, setMissionOpening] = useState(false);
@@ -40,9 +40,10 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
     if (!birthOk) return setBirthErr(true);
     setOpening(true);
     try {
-      setCard(await post<Fortune>("/fortune", { birth }));
-      // 다음에 이 화면을 열 때는 이미 열린 채로 시작한다
-      reload();
+      const f = await post<Fortune>("/fortune", { birth });
+      setCard(f);
+      // 다음에 이 화면을 열 때는 이미 열린 채로 시작한다 — 서버가 돌려준 그 카드라 `/me` 를 다시 묻지 않는다
+      onFortune(f);
     } catch (e) {
       toast(messageOf(e, FORTUNE.closed));
     } finally {
@@ -59,8 +60,9 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
     if (!missionOpen) return toast(FORTUNE.missionClosed);
     setMissionOpening(true);
     try {
-      setCard(await post<Fortune>("/fortune/mission", {}));
-      reload();
+      const f = await post<Fortune>("/fortune/mission", {});
+      setCard(f);
+      onFortune(f);
     } catch (e) {
       toast(messageOf(e, FORTUNE.missionClosed));
     } finally {

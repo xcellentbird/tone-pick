@@ -22,6 +22,7 @@ import { HOST_UI, phaseAction, schedDiff, type ActionCopy } from "../../../share
 import type { Phase } from "../../../shared/types.ts";
 import { PHASE_ORDER, dueAt } from "../../../shared/phase.ts";
 import { topVoters } from "../../../shared/poke.ts";
+import { autoTableCount } from "../../../shared/seats.ts";
 import { TICK_WINDOW, formatCountdown, formatDayHour, formatGap, formatWhen } from "../../../shared/time.ts";
 import { post } from "../../lib/api.ts";
 import Avatar from "../../ui/Avatar.tsx";
@@ -60,7 +61,7 @@ export default function Dash() {
    * |---|---|---|---|
    * | `prep`·`reg` | 등록/매력 투표 시작 | `dueAt` | 저절로 넘어간다 (알람) |
    * | `prevote` | 파티 시작 | `dueAt`(`partyAt`) | 저절로 넘어간다 (ADR-93) — 매력 투표도 함께 닫힌다 (ADR-100) |
-   * | `party` | 결과 발표 | `dueAt`(`revealAt`) | 저절로 넘어간다 (ADR-43) |
+   * | `party` | 매칭 확인 열기 | `dueAt`(`revealAt`) | 저절로 넘어간다 (ADR-43) |
    *
    * **셋이 다 같다** (ADR-93). `매력 투표 마감` 버튼은 걷어냈다 (ADR-100) — 매력 투표는 파티 시작에 닫힌다.
    */
@@ -92,6 +93,9 @@ export default function Dash() {
       maxParty: meta.config.maxParty,
       seated: published.at(-1)?.seats.length ?? 0,
       players: players.length,
+      // 보낸 자리가 없으면 파티가 열리며 무엇이 나가는지 (ADR-106) — 서버의 `autoSeat` 과 같은 판정이다
+      draft: state.seatings.some((s) => s.status === "draft"),
+      autoTables: autoTableCount(players.length),
       // 받을 사람의 닉네임. 보너스를 끈 회차는 줄 자체가 없다 (ADR-100)
       ...(bonus ? { topVoters: top.map((id) => who(id)?.nickname).filter((n): n is string => !!n) } : {}),
     });
@@ -197,7 +201,7 @@ export default function Dash() {
       />
       {/* 파티 전에는 보너스가 있다는 것만 말한다. 누가 받을지는 파티 시작 확인창이 이름으로 말한다 */}
       {bonus && !started && <p className="tiny dim">{HOST_UI.dash.topVoteHint}</p>}
-      {/* 자리 이동 확인율은 여기 두지 않는다 — 자리를 보낸 직후에 보는 숫자라 자리 탭 라운드 카드에 있다 */}
+      {/* 자리 이동 확인은 운영자 화면 어디에도 두지 않는다 (ADR-110) — 여기도, 자리 탭에도 */}
     </div>
   );
 }

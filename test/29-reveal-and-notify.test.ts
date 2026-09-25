@@ -17,6 +17,7 @@
  * ⚠️ 알림을 끄는 건 **화면에서 감추는 일이 아니다.** `received` 에서 빠져야 한다 —
  * 그 숫자 하나가 곧 "지금까지 몇 명이 나를 골랐나" 다 (ADR-34).
  */
+import { env, runInDurableObject } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { EventConfig, EventMeta, ParticipantState } from "../src/shared/types.ts";
 import { HOST_UI } from "../src/shared/copy.ts";
@@ -105,6 +106,73 @@ describe("파티 시작 예약", () => {
     expect((await putSchedule(ev.id, { partyAt: past - HOUR, revealAt: past })).status).toBe(200);
 
     expect(await phaseNow(ev.id), "두 예약이 이어지지 않았다").toBe("done");
+  });
+
+  /**
+   * **옛 버전에서 매력 투표로 넘어온 회차.** ADR-93 전에는 매력 투표 단계에 알람이 없었다
+   * (`dueAt` 이 null 이라 들어서는 순간 지웠다). 그대로 두면 파티 일시에 **아무 일도 안 일어난다** —
+   * 화면은 안 바뀌고, 그 뒤 첫 요청이 단계를 넘기는데 그게 매력 투표였으면 조용히 파티 콕으로 들어간다.
+   * DO 가 다시 뜰 때(배포 뒤 첫 요청 — 회차 목록이 모든 회차를 깨운다) 빠진 알람을 건다.
+   */
+  it("★ 알람 없이 매력 투표에 있던 회차도 DO 가 다시 뜨면 파티 시작 알람이 걸린다", async () => {
+    const ev = await freshEvent();
+    await setPhase(ev.id, "prevote");
+    const ns = (env as unknown as { EVENT: DurableObjectNamespace }).EVENT;
+    const stub = () => ns.get(ns.idFromName(ev.id));
+    // 옛 버전이 남긴 모양 — 매력 투표인데 알람이 없다. 그리고 DO 를 내린다 (배포)
+    await runInDurableObject(stub(), (_i, ctx) => ctx.storage.deleteAlarm());
+    await runInDurableObject(stub(), (_i, ctx) => ctx.abort("배포")).catch(() => {});
+
+    expect(await phaseNow(ev.id)).toBe("prevote");
+    const alarm = await runInDurableObject(stub(), (_i, ctx) => ctx.storage.getAlarm());
+    expect(alarm, "파티 일시에 울릴 알람이 없다").toBe(ev.schedule.partyAt);
+  });
+});
+
+// ─────────────────────────────────────────── 순서가 어긋난 옛 일정
+
+/**
+ * **설정 탭은 2026-09-18 전까지 일정의 순서를 보지 않았다** (ADR-93 후기). 그 사이 파티를 미루고 발표를 그대로 두었거나
+ * 파티를 당기고 매력 투표를 그대로 둔 회차가 남아 있을 수 있다 — 지금의 API 로는 만들 수 없는 모양이라 저장소에 직접 넣는다.
+ * 그대로 두면 시계가 따라간다: 발표가 앞이면 **파티가 열리는 순간 매칭 확인까지 가고**, 파티가 앞이면 매력 투표가 사라진다.
+ * DO 가 뜰 때 파티 시작을 기준으로 바로잡는다.
+ */
+describe("순서가 어긋난 옛 일정", () => {
+  const ns = () => (env as unknown as { EVENT: DurableObjectNamespace }).EVENT;
+  const stubOf = (id: string) => ns().get(ns().idFromName(id));
+
+  /** 옛 설정 탭이 남긴 일정을 저장소에 그대로 넣고 DO 를 내린다 (배포). 다음 요청이 새로 띄운다 */
+  async function legacy(id: string, patch: Record<string, number>) {
+    await runInDurableObject(stubOf(id), async (_i, ctx) => {
+      const meta = (await ctx.storage.get<EventMeta>("meta"))!;
+      meta.schedule = { ...meta.schedule, ...patch };
+      await ctx.storage.put("meta", meta);
+    });
+    await runInDurableObject(stubOf(id), (_i, ctx) => ctx.abort("배포")).catch(() => {});
+  }
+
+  it("★ 발표가 파티보다 앞인 옛 회차 — 파티가 열려도 매칭 확인까지 가지 않는다", async () => {
+    const ev = await freshEvent();
+    await setPhase(ev.id, "prevote");
+    // 파티를 미뤘고 발표는 두었다. 그리고 둘 다 지났다 — 이 요청이 파티를 연다
+    const past = Date.now() - 1000;
+    await legacy(ev.id, { partyAt: past, revealAt: past - HOUR });
+
+    expect(await phaseNow(ev.id), "파티가 열리자마자 매칭 확인까지 갔다").toBe("party");
+    const { schedule } = (await api<EventMeta>(`/api/host/events/${ev.id}`, { cookie: master })).body;
+    expect(schedule.revealAt!, "매칭 확인은 파티 시작 뒤여야 한다").toBeGreaterThan(schedule.partyAt!);
+  });
+
+  it("★ 파티가 매력 투표보다 앞인 옛 회차 — 바로잡히고, 설정 저장이 순서에 걸리지 않는다", async () => {
+    const ev = await freshEvent();
+    // 파티를 당겼고 매력 투표 시작은 두었다
+    await legacy(ev.id, { prevoteAt: ev.schedule.partyAt! + HOUR });
+
+    const { schedule } = (await api<EventMeta>(`/api/host/events/${ev.id}`, { cookie: master })).body;
+    expect(schedule.prevoteAt!, "매력 투표 시작은 파티 시작 앞이어야 한다").toBeLessThan(schedule.partyAt!);
+    expect(schedule.partyAt, "기준인 파티 시작은 옮기지 않는다").toBe(ev.schedule.partyAt);
+    // 설정 탭은 저장할 때마다 일정을 통째로 보낸다 — 어긋난 채였으면 이름 하나 고치는 저장도 `순서` 로 막혔다
+    expect((await putSchedule(ev.id, {})).status).toBe(200);
   });
 });
 

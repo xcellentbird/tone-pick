@@ -105,9 +105,12 @@ export default function Home({
 
       <div className="card stack">
         <h2 className="cardTitle">{todo.title}</h2>
-        <p className="dim small pre" style={{ margin: 0 }}>
-          {todo.body}
-        </p>
+        {/* 몸글이 없는 카드가 있다 (매칭 확인). 빈 문단도 `.stack` 의 간격을 먹는다 */}
+        {todo.body && (
+          <p className="dim small pre" style={{ margin: 0 }}>
+            {todo.body}
+          </p>
+        )}
 
         {/*
           등록 직후 도움말이 저절로 뜨는데, **덮치는 화면은 반사적으로 닫힌다** —
@@ -193,6 +196,11 @@ export default function Home({
  */
 function Polls({ state, onVote }: { state: ParticipantState; onVote: (id: string, choice: PollChoice) => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
+  /*
+   * 고른 쪽을 **서버 답보다 먼저** 눌린 채로 그린다. 파티장 와이파이에서 답이 1초 넘게 걸리면
+   * 눌렀는데 아무 일이 없는 버튼이 된다. 답이 오면 서버 값이 이어받고, 거절되면 지워서 되돌린다
+   */
+  const [picked, setPicked] = useState<{ id: string; choice: PollChoice } | null>(null);
   const polls = state.announcements
     .filter((a) => a.poll)
     .sort((x, y) => Number(x.poll!.closed) - Number(y.poll!.closed));
@@ -200,11 +208,13 @@ function Polls({ state, onVote }: { state: ParticipantState; onVote: (id: string
 
   async function pick(id: string, choice: PollChoice) {
     setBusy(id);
+    setPicked({ id, choice });
     try {
       await onVote(id, choice);
     } catch {
-      // 그 사이 운영자가 마감했을 수 있다. 소켓이 "다시 읽어라" 를 이미 보냈으므로 여기서 더 할 일이 없다
+      // 그 사이 운영자가 마감했을 수 있다. 소켓이 "다시 읽어라" 를 이미 보냈으므로 되돌리기만 한다
     } finally {
+      setPicked(null);
       setBusy(null);
     }
   }
@@ -215,6 +225,7 @@ function Polls({ state, onVote }: { state: ParticipantState; onVote: (id: string
       <div className="stack">
         {polls.map((a) => {
           const poll = a.poll!;
+          const mine = picked?.id === a.id ? picked.choice : poll.mine;
           return (
             <div className="card stack" key={a.id}>
               <div className="name pre">{a.text}</div>
@@ -223,7 +234,7 @@ function Polls({ state, onVote }: { state: ParticipantState; onVote: (id: string
               ) : (
                 <div className="choice">
                   {(["a", "b"] as const).map((c) => (
-                    <button key={c} type="button" aria-pressed={poll.mine === c} disabled={busy === a.id} onClick={() => pick(a.id, c)}>
+                    <button key={c} type="button" aria-pressed={mine === c} disabled={busy === a.id} onClick={() => pick(a.id, c)}>
                       {poll[c]}
                     </button>
                   ))}
