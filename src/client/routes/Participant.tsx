@@ -36,8 +36,6 @@ interface ViewProps {
   source: ParticipantSource;
   /** URL 이 가리키는 회차. 세션이 끊겼을 때 어디로 되돌릴지 판단에 쓴다 */
   code?: string;
-  /** 같은 번호로 다시 들어온 경우의 인사. 한 번만 띄운다 */
-  welcome?: string;
   tab: Tab;
   onTab: (tab: Tab) => void;
   /** 프로필 시트도 라우트다 — 뒤로 가기로 닫힌다 */
@@ -163,7 +161,6 @@ export default function Participant() {
     <ParticipantView
       source={source}
       code={code}
-      welcome={(location.state as { welcome?: string } | null)?.welcome}
       tab={tab}
       onTab={(next) => {
         /**
@@ -295,7 +292,6 @@ function Loaded({
   onEdit,
   seatOpen,
   onSeat,
-  welcome,
   state,
   reload,
   setPoke,
@@ -448,7 +444,6 @@ function Loaded({
 
   return (
     <Overlays>
-      {welcome && <Greeting text={welcome} />}
       {/*
         바탕은 단계를 말하지 않는다 (ADR-67). `data-phase` 를 되살리지 마라 —
         옆 사람이 화면 색만 보고 이 사람이 어디쯤인지 읽는다.
@@ -576,16 +571,6 @@ function Loaded({
       </div>
     </Overlays>
   );
-}
-
-/** 토스트는 Overlays 안에서만 부를 수 있어서 작은 컴포넌트 하나로 감싼다 */
-function Greeting({ text }: { text: string }) {
-  const { toast } = useOverlay();
-  useEffect(() => {
-    toast(text);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return null;
 }
 
 /**

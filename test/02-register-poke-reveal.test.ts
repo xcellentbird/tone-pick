@@ -147,10 +147,11 @@ describe("등록", () => {
     });
     expect(one.status, JSON.stringify(one.body)).toBe(200);
 
-    // 한글·영문을 섞은 건 통과한다
+    // 한글·영문을 섞은 건 통과한다 — 다른 번호로. 등록을 마친 번호는 다시 등록할 수 없다 (ADR-75)
+    const other = await enter(ev.id, await invite(ev.id, nextPhone()));
     const ok = await api("/api/register", {
       method: "POST",
-      cookie: gate.cookie,
+      cookie: other.cookie,
       body: person({ nickname: "달빛moon" }),
     });
     expect(ok.status, JSON.stringify(ok.body)).toBe(200);

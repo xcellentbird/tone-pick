@@ -50,7 +50,10 @@ export function enterMessage(error: string, detail?: number): string | undefined
 }
 
 export function registerMessage(error: string): string | undefined {
-  return error === "nick_taken" ? REGISTER.err.nickTaken : undefined;
+  if (error === "nick_taken") return REGISTER.err.nickTaken;
+  // 이미 등록한 번호다 (ADR-75). 초대 쿠키가 만료된 것과 같은 말 — 문 앞에서 번호 + PIN 번호로 들어온다
+  if (error === "unauthorized") return ENTRY.enterAgain;
+  return undefined;
 }
 
 /**
