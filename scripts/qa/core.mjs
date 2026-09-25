@@ -336,7 +336,7 @@ export const HELP = `
   spray [N]               콕 뿌리기 — 남은 콕을 아무 이성에게 N번 (기본 20, 많아야 40)
   crowd A [N]             콕 모으기 — A 에게 이성 N명이 한 번씩 (기본 5)
   pairs [N]               서로 콕 N쌍 — 남녀를 무작위로 짝지어 (기본 3, 많아야 10)
-  late [m|f]              한 명 더 등록 (늦게 온 사람 — 성별을 안 주면 적은 쪽)
+  late [m|f]              참가자 한 명 추가 (m 은 남자, f 는 여자, 안 주면 적은 쪽)
   kick A · pinreset A     참가자 삭제 · PIN 번호 초기화
   lock A                  A 의 번호로 PIN 을 다섯 번 틀린다 (잠금 재현)
   schedule prevote|party|voteend|reveal +30s|+5m   예약 시각을 지금부터 N 뒤로
@@ -825,7 +825,7 @@ async function runLine(env, stage, line, { say, fail }) {
       if (!p) return;
       stage.cast.push(p);
       await env.onChange?.(stage);
-      return say(`  ✓ ${name(p)} 늦게 합류 (${phone} · PIN ${p.pin})`);
+      return say(`  ✓ ${name(p)} 추가 (${p.gender === "M" ? "남자" : "여자"}, ${p.age}세)`);
     }
     case "spray": {
       // 콕 뿌리기 — 남은 콕을 아무 이성에게. 상한에 닿은 사람은 빼고 이어 간다
