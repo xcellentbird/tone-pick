@@ -54,6 +54,7 @@ import { ENTRY } from "../shared/copy.ts";
 import { topVoters } from "../shared/poke.ts";
 import {
   AGE_RANGE,
+  DEFAULTS,
   ENTRY_TRIES,
   LIMITS,
   NOTE_READ_DELAY,
@@ -72,6 +73,7 @@ import {
   canPoke,
   dueAt,
   dueTransition,
+  reorderSchedule,
   roundOf,
   rulesLocked,
   schedLocked,
@@ -121,7 +123,8 @@ CREATE TABLE IF NOT EXISTS invites (
 );
 CREATE TABLE IF NOT EXISTS entry_tries (
   ip_hash TEXT NOT NULL,          -- 접속지 해시. 원본 IP 는 저장하지 않는다
-  at      INTEGER NOT NULL
+  at      INTEGER NOT NULL,
+  subject TEXT                    -- 넣어본 번호의 키 있는 해시(triedAs). 번호 자체는 적지 않는다
 );
 CREATE INDEX IF NOT EXISTS entry_tries_ip ON entry_tries(ip_hash);
 CREATE TABLE IF NOT EXISTS fortunes (
@@ -249,6 +252,8 @@ export class EventDO extends DurableObject {
         "ALTER TABLE players ADD COLUMN pin_fails INTEGER NOT NULL DEFAULT 0",
         // 단계 안내를 어디까지 봤나 (ADR-96). 옛 참가자는 비어 있다 — 다음에 열면 그 단계 안내가 뜬다. 인덱스 없음
         "ALTER TABLE players ADD COLUMN seen_stage TEXT",
+        // 입장 실패를 번호로 센다 (ADR-75 후기). 옛 줄은 비어 있고 10분 안에 지워진다. 인덱스 없음 — 표가 늘 작다
+        "ALTER TABLE entry_tries ADD COLUMN subject TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS invites_token ON invites(token)",
         "CREATE INDEX IF NOT EXISTS players_token ON players(token)",
       ]) {
@@ -281,11 +286,22 @@ export class EventDO extends DurableObject {
        * 그 뒤 첫 요청이 단계를 넘기는데, 그게 매력 투표였으면 조용히 파티 콕으로 들어간다.
        * DO 가 뜰 때 한 번 본다. 회차 목록이 모든 회차를 깨우므로 운영자가 콘솔을 열면 다 걸린다.
        * 이 자리도 try 안이다 — 판정을 못 하는 옛 모양이어도 DO 는 떠야 한다.
+       *
+       * **순서가 어긋난 옛 일정도 여기서 바로잡는다** (ADR-93 후기 2, `reorderSchedule`). 첫 요청보다 먼저라야 한다 —
+       * 그 요청이 곧 파티를 여는 요청일 수 있고, 그러면 매칭 확인까지 한 번에 간다. 옮긴 시각은 알람도 다시 건다.
+       * 사이 간격은 기본값(`DEFAULTS`)이다 — 운영자의 기본값은 다른 DO 에 있어 여기서 기다려 부르지 않는다.
        */
       try {
         const meta = await ctx.storage.get<EventMeta>("meta");
-        if (meta && dueAt(meta) !== null && (await ctx.storage.getAlarm()) === null) {
-          await this.rearm(meta, Date.now());
+        if (meta) {
+          const fixed = reorderSchedule(meta.schedule, meta.fired, DEFAULTS);
+          if (fixed) {
+            meta.schedule = fixed;
+            await ctx.storage.put("meta", meta);
+          }
+          if (fixed || (dueAt(meta) !== null && (await ctx.storage.getAlarm()) === null)) {
+            await this.rearm(meta, Date.now());
+          }
         }
       } catch {
         /* 판정을 못 하는 옛 모양 — 요청이 오면 그때 넘어간다 */
@@ -591,19 +607,32 @@ export class EventDO extends DurableObject {
    * 실패는 회차·접속지별로 센다 (`ENTRY_TRIES`). **틀린 PIN 번호도 접속지 시도로 센다** —
    * 번호 단계에만 걸면 통과한 뒤 만 번을 두드릴 수 있다.
    * 미등록 번호에 PIN 번호가 함께 와도 쓰지 않는다 — PIN 번호는 등록에서만 정한다 (S-B2).
+   *
+   * **세는 것은 몇 번 두드렸나가 아니라 몇 개의 번호를 넣어봤나다** (ADR-75 후기). 막으려는 둘 —
+   * 주소록을 넣어보는 일(ADR-15)과 여러 사람의 PIN 번호를 두드리는 일 — 은 **번호가 늘어나는** 일이다.
+   * 한 번호를 여러 번 두드려 얻는 것은 없다: 초대 여부는 처음 한 번에 답했고, PIN 번호는 번호마다 5회 잠금이 막는다.
+   * 그래서 파티장 와이파이를 여럿이 나눠 써도 저마다의 실수로 그 망이 통째로 닫히지 않는다.
+   *
+   * ⚠️ **성공이 그 접속지의 기록을 통째로 지우게 하지 마라.** 한동안 그랬고, 그러면 아는 번호 하나(자기 번호,
+   * 친구 번호)로 들어갈 때마다 제한이 되감겼다 — 주소록을 통째로 넣어보는 길이 그대로 열려 있었다 (S-A7b).
+   * 지우는 것은 **들어온 그 번호에 쌓인 것**뿐이다. 자기 PIN 오타다.
    */
   async enter(rawPhone: string, pin: string | undefined, ipHash: string, now: number): Promise<Result<EntryOutcome>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
 
     this.ctx.storage.sql.exec("DELETE FROM entry_tries WHERE at < ?", now - ENTRY_TRIES.windowMs);
-    const tries =
-      this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM entry_tries WHERE ip_hash = ?", ipHash)[0]?.n ?? 0;
-    if (tries >= ENTRY_TRIES.max) return fail("too_many");
-    const strike = () => this.ctx.storage.sql.exec("INSERT INTO entry_tries (ip_hash, at) VALUES (?,?)", ipHash, now);
-    const forgive = () => this.ctx.storage.sql.exec("DELETE FROM entry_tries WHERE ip_hash = ?", ipHash);
-
     const phone = normalizePhone(rawPhone);
+    const subject = await this.triedAs(phone);
+    const tried = this.rows<{ subject: string | null }>(
+      "SELECT DISTINCT subject FROM entry_tries WHERE ip_hash = ?",
+      ipHash,
+    );
+    // 이미 센 번호를 다시 두드리는 것은 막지 않는다 — 넓어지는 것이 없다. 자기 번호를 다시 치는 사람의 길이다
+    if (tried.length >= ENTRY_TRIES.max && !tried.some((r) => r.subject === subject)) return fail("too_many");
+    const strike = () =>
+      this.ctx.storage.sql.exec("INSERT INTO entry_tries (ip_hash, at, subject) VALUES (?,?,?)", ipHash, now, subject);
+
     // 등록을 마친 사람이 먼저다 — 명단에서 지워졌어도 들어온다
     const mine = phone ? this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone)[0] : undefined;
     if (!mine) {
@@ -614,7 +643,7 @@ export class EventDO extends DurableObject {
         strike();
         return fail("not_invited");
       }
-      forgive();
+      // 여기서는 아무것도 지우지 않는다 — 명단에 있다는 답은 누구나 받을 수 있다. 아는 번호 하나가 되감개가 된다
       return ok({ kind: "invited", token: inv.token });
     }
 
@@ -637,8 +666,17 @@ export class EventDO extends DurableObject {
       }
       if (mine.pin_fails) this.ctx.storage.sql.exec("UPDATE players SET pin_fails = 0 WHERE id = ?", mine.id);
     }
-    forgive();
+    // 들어왔다. **이 번호에 쌓인 것만** 지운다 — 자기 PIN 오타다. 접속지의 기록은 그대로다 (위 ⚠️)
+    this.ctx.storage.sql.exec("DELETE FROM entry_tries WHERE ip_hash = ? AND subject = ?", ipHash, subject);
     return ok({ kind: "player", playerId: mine.id, code: meta.code });
+  }
+
+  /**
+   * 입장 실패에 적는 번호 (`entry_tries.subject`). **키 있는 해시로만** 적는다 — 명단에 없는 사람의 번호일 수 있고,
+   * 그대로 적으면 이 표가 곧 *누가 어떤 번호를 넣어봤나* 가 된다. 같은 번호끼리 같은지만 알면 된다
+   */
+  private triedAs(phone: string): Promise<string> {
+    return pinDigest(phone, "entry", this.secret);
   }
 
   /** 후추. 세션 서명과 같은 비밀값이라 회차 DO 밖에 있다 — 표만 빠져나가도 해시가 안 돌아간다 */
