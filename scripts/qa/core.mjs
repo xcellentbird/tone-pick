@@ -10,6 +10,9 @@
  *   publicBase  **사람에게 보여 줄** 주소 머리 — 참가 링크·운영자 주소. 없으면 `base`
  *   log         `createLog()` 가 만든 것. 터미널과 리모컨이 같은 줄을 본다
  *
+ * 그리고 `batch` — 자동 콕을 명령 하나에 몇 번까지 보내나. 워커는 요청 하나의 몫이 있어 `BULK_MAX` 씩
+ * 나눠 보내고(`drain`), CLI 는 한 번에 다 보낸다.
+ *
  * ⚠️ **표적을 고르는 입력을 여기 두지 마라** (S-A2). `base` 는 부르는 쪽의 설정이 정한다 —
  * 명령(`run`)이 주소나 워커 이름을 받는 순간 공개된 워커에서 프로덕션을 겨눌 수 있다.
  * ⚠️ **경로를 받아 QA 로 넘기는 명령도 두지 마라** — 무대 워커가 국가 문 우회로가 된다 (ADR-97 후기).
@@ -43,6 +46,204 @@ const fakePhone = (stamp, n) => `010${String(stamp).slice(-4)}${String(n).padSta
 
 /** 회차 설정 기본값. 앱 기본에 알림만 켠 것 — 받은 콕이 방송으로 닿는 순간을 보는 게 QA 의 절반이라 */
 export const STAGE_CONFIG = { maxPre: 1, maxParty: 2, preNotify: true, pokeNotify: true };
+
+// ─────────────────────────────────────────── 난수 — 무대마다 같은 것
+
+/** 문자열 → 32비트 (FNV-1a). 씨앗을 섞는 데만 쓴다 */
+function hash32(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/**
+ * 씨앗 하나로 도는 난수 (mulberry32). **같은 씨앗이면 같은 수열이다** — 무대가 만든 시각을 씨앗으로 쓰면
+ * 명령을 여러 번 쳐도 같은 사람이 같은 인기 · 같은 성향으로 남는다.
+ */
+export function seeded(seed) {
+  let a = hash32(String(seed));
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffle(xs, rng = Math.random) {
+  const out = xs.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────── 나이 — 남녀를 따로 (슬라이스 37)
+
+/** 앱이 받는 나이. `src/shared/constants.ts` 의 `AGE_RANGE` 와 같아야 한다 (테스트가 맞춰 본다) */
+export const AGE_LIMIT = { min: 18, max: 48 };
+
+/** 무대를 세울 때 고르지 않으면 이 나이로 — 평균과 범위 */
+export const STAGE_AGES = { M: { avg: 32, min: 27, max: 38 }, F: { avg: 29, min: 25, max: 34 } };
+
+/**
+ * 나이 칸을 앱이 받는 범위 안으로 — 최소 ≤ 평균 ≤ 최대. 최소와 최대가 거꾸로 오면 바꾸고,
+ * 평균이 범위 밖이면 가까운 끝으로. 빈 칸은 `fallback` 의 값이다.
+ */
+export function ageRange(given, fallback) {
+  const age = (v, d) => {
+    const x = typeof v === "number" || (typeof v === "string" && v.trim()) ? Math.round(Number(v)) : NaN;
+    return Number.isFinite(x) ? Math.min(AGE_LIMIT.max, Math.max(AGE_LIMIT.min, x)) : d;
+  };
+  let min = age(given?.min, fallback.min);
+  let max = age(given?.max, fallback.max);
+  if (min > max) [min, max] = [max, min];
+  return { avg: Math.min(max, Math.max(min, age(given?.avg, fallback.avg))), min, max };
+}
+
+/**
+ * 나이 분포의 분위수 `u ∈ [0, 1)`. 최소~평균, 평균~최대의 두 삼각형을 평균에서 맞붙였다 —
+ * **평균 근처가 가장 많고, 기댓값이 정확히 평균이다.** 왼쪽 몫 `p` 가 그것을 맞춘다
+ * (왼쪽 삼각형의 평균은 평균에서 (평균−최소)/3 아래, 오른쪽은 (최대−평균)/3 위).
+ */
+function ageAt(u, { avg, min, max }) {
+  if (max <= min) return min;
+  const p = (max - avg) / (max - min);
+  if (u < p) return min + (avg - min) * Math.sqrt(u / p);
+  return max - (max - avg) * Math.sqrt((1 - u) / (1 - p));
+}
+
+/**
+ * 한 성별의 나이 `count` 개. 분위수를 고르게 찍어서(무작위로 뽑지 않는다) **적은 인원에서도 평균이 맞는다.**
+ * 반올림에 어긋난 합은 가장 많이 깎인 것부터 한 살씩 돌려준다. 순서는 섞는다 — 번호 순서가 나이 순서면 어색하다.
+ */
+export function spreadAges(count, range, rng = Math.random) {
+  const raw = Array.from({ length: count }, (_, i) => ageAt((i + 0.5) / count, range));
+  const ages = raw.map((x) => Math.floor(x));
+  let off = Math.round(range.avg * count) - ages.reduce((a, b) => a + b, 0);
+  const byLoss = raw.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0]).map(([, i]) => i);
+  // 평균이 범위 안이라 합은 언제나 맞출 수 있다 — 돌 횟수는 그 끝까지
+  const rounds = count * (range.max - range.min + 1);
+  for (let i = 0; off > 0 && i < rounds; i++) {
+    const j = byLoss[i % count];
+    if (ages[j] < range.max) ages[j]++, off--;
+  }
+  for (let i = 0; off < 0 && i < rounds; i++) {
+    const j = byLoss[count - 1 - (i % count)];
+    if (ages[j] > range.min) ages[j]--, off++;
+  }
+  return shuffle(ages, rng);
+}
+
+// ─────────────────────────────────────────── 자동 콕 — 실제 파티처럼 (슬라이스 37)
+
+/**
+ * 자동 콕의 모양. 운영자가 실제 파티에서 본 것이다 (2026-09-25):
+ *
+ *   남자  거의 모두가 콕을 다 쓰고, **몇몇 여자에게 몰린다**
+ *   여자  절반쯤은 안 쓰거나 덜 쓴다. 역시 몇몇에게 모이지만 **남자보다 두 배 넓게** 흩어진다
+ *   때    뒤 자리일수록 많이 찌르고, **마지막 자리에서 가장 많다**
+ *
+ * 몰림은 **유효 인원**(1/Σp², 받은 콕의 몫 p)으로 잰다 — 콕이 이성 몇 명에게 고르게 간 것과 같은가.
+ * `spread` 는 그것이 이성 수의 몇 몫인가다. 받는 쪽의 인기는 1/순위^s 이고, s 는 그 몫이 맞게 고른다.
+ */
+const AUTO_POKE = {
+  /** 마음먹은 만큼 — 다 쓴다(`full`) · 반만 쓴다(`half`) · 나머지는 안 쓴다 */
+  habit: { M: { full: 0.92, half: 0.05 }, F: { full: 0.5, half: 0.25 } },
+  /**
+   * 인기 가중치의 유효 인원이 이성 수의 몇 몫인가. 남자 쪽이 두 배보다 조금 좁은 것은 **한 사람이 같은 상대를
+   * 두 번 안 찌르기 때문이다** — 몰린 쪽일수록 그 때문에 더 퍼져서, 실제로 받은 콕의 유효 인원은
+   * 여자가 남자의 두 배가 된다 (이성 12~50명에서 2.0~2.1, 테스트가 잰다).
+   */
+  spread: { M: 0.27, F: 0.6 },
+  /**
+   * 마지막이 아닌 자리 k 에서, 남은 콕 하나하나를 지금 쓸 확률. 뒤로 갈수록 오르고, 마지막 자리는 1 이다.
+   * 0.2 에서 멈추는 까닭은 **자리가 몇 라운드일지 모르기 때문이다** — 20분마다 돌리는 파티는 열 라운드도 된다.
+   * 이 값이면 열두 라운드까지 마지막 자리가 가장 많다 (더 빠르게 올리면 긴 파티는 중간에 콕이 바닥난다).
+   */
+  pace: (k) => Math.min(0.2, 0.08 + 0.03 * (Math.max(1, k) - 1)),
+};
+
+/** 이 사람이 이 라운드에 쓰려는 콕 수 — 무대마다, 사람마다, 라운드마다 정해져 있다 (씨앗) */
+function intentOf(seed, round, p, max) {
+  const { full, half } = AUTO_POKE.habit[p.gender];
+  const u = seeded(`${seed}:habit:${round}:${p.n}`)();
+  return u < full ? max : u < full + half ? Math.floor(max / 2) : 0;
+}
+
+const effective = (w) => {
+  const sum = w.reduce((a, b) => a + b, 0);
+  return (sum * sum) / w.reduce((a, b) => a + b * b, 0);
+};
+const zipf = (count, s) => Array.from({ length: count }, (_, r) => 1 / Math.pow(r + 1, s));
+
+/** 인기 순서대로의 가중치 — 유효 인원이 `share × count` 가 되게 (1 과 count 사이) */
+function appealWeights(count, share) {
+  if (count <= 0) return [];
+  const target = Math.max(1, Math.min(count, share * count));
+  let lo = 0;
+  let hi = 40;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (effective(zipf(count, mid)) > target) lo = mid;
+    else hi = mid;
+  }
+  return zipf(count, (lo + hi) / 2);
+}
+
+/**
+ * 자동 콕 한 판의 계획 — `[보내는 사람 번호, 받는 사람 번호]` 의 목록. **QA 를 부르지 않는 순수 함수**다.
+ *
+ * 사람마다 이번 라운드에 쓰려는 수(`intentOf`)에서 이미 쓴 수(`used` — 손으로 찌른 것까지)를 빼고,
+ * 남은 것을 마지막 자리면 다 쓰고 아니면 `pace(k)` 의 확률로 하나씩 쓴다. 받는 사람은 이성 중에서
+ * 인기 가중치로 뽑되, 한 사람이 같은 상대를 두 번 찌르지 않는다(`history` — 앞선 자동 콕).
+ * 매력 투표는 한 번뿐이라 늘 `last` 다.
+ *
+ * @param {object} a
+ * @param {{ n: number, gender: "M" | "F" }[]} a.cast   지금 회차에 있는 배역
+ * @param {Record<number, number>} [a.used]  번호 → 이 라운드에 이미 쓴 콕
+ * @param {number} a.max       한 사람의 상한 (이 라운드)
+ * @param {"pre" | "party"} a.round
+ * @param {number} [a.k]       자리 라운드 (1부터)
+ * @param {boolean} [a.last]   마지막 자리 — 마음먹은 만큼 다 쓴다
+ * @param {unknown} a.seed     무대의 씨앗 — 인기와 성향이 여기서 정해진다
+ * @param {() => number} [a.rng]  이번 판의 난수
+ * @param {Record<number, number[]>} [a.history]  번호 → 앞서 자동으로 찌른 상대
+ * @returns {[number, number][]}
+ */
+export function planPokes({ cast, used = {}, max, round, k = 1, last = false, seed, rng = Math.random, history = {} }) {
+  const appeal = new Map(cast.map((p) => [p.n, seeded(`${seed}:appeal:${p.n}`)()]));
+  const pool = (g) => {
+    const targets = cast.filter((q) => q.gender !== g).sort((a, b) => appeal.get(b.n) - appeal.get(a.n));
+    return { targets, weights: appealWeights(targets.length, AUTO_POKE.spread[g]) };
+  };
+  const pools = { M: pool("M"), F: pool("F") };
+  const q = last ? 1 : AUTO_POKE.pace(k);
+  const plan = [];
+  for (const p of cast) {
+    const left = Math.max(0, intentOf(seed, round, p, max) - (used[p.n] ?? 0));
+    const { targets, weights } = pools[p.gender];
+    const taken = new Set(history[p.n] ?? []);
+    for (let i = 0; i < left; i++) {
+      if (rng() >= q) continue;
+      // 아직 안 찌른 사람 중에서 — 다 찔렀으면 누구든 (앱은 같은 상대를 또 찌를 수 있다)
+      let idx = targets.map((t, j) => (taken.has(t.n) ? -1 : j)).filter((j) => j >= 0);
+      if (!idx.length) idx = targets.map((_, j) => j);
+      if (!idx.length) break;
+      let r = rng() * idx.reduce((s, c) => s + weights[c], 0);
+      const j = idx.find((c) => (r -= weights[c]) < 0) ?? idx[idx.length - 1];
+      taken.add(targets[j].n);
+      plan.push([p.n, targets[j].n]);
+    }
+  }
+  // 한 사람이 몰아 보내지 않게 섞는다 — 틀 속 화면에 콕이 여기저기서 도착한다
+  return shuffle(plan, rng);
+}
 
 /** 이 무대가 끝났을 때 남는 줄 수. 리모컨은 그중 뒤 60줄을 본다 (S-D3) */
 const LOG_MAX = 200;
@@ -130,6 +331,8 @@ export const HELP = `
   voteend                 매력 투표 지금 마감
   seating T [-x A,B]      자리 초안 (T 테이블, -x 뺄 사람) · publish · shuffle · swap A B · seat A · unseat A · discard
   announce 문구 [| 보기A | 보기B]   운영자 알림 (보기 둘을 주면 투표)
+  auto [last]             자동 콕 — 실제 파티처럼. 남자는 거의 다 쓰고 몇 명에게 몰리고, 여자는 절반쯤
+                          안 쓰거나 덜 쓰고 두 배 넓게 흩어진다. 뒤 자리일수록 많고, last 는 마지막 자리
   spray [N]               콕 뿌리기 — 남은 콕을 아무 이성에게 N번 (기본 20, 많아야 40)
   crowd A [N]             콕 모으기 — A 에게 이성 N명이 한 번씩 (기본 5)
   pairs [N]               서로 콕 N쌍 — 남녀를 무작위로 짝지어 (기본 3, 많아야 10)
@@ -206,6 +409,7 @@ export async function beginStage(env, want) {
   if (!want.pin) throw new StageError("no_pin", "운영자 PIN 이 없습니다.");
   const { men, women } = headcount(want);
   const stage = makeStage(env, { tables: want.tables ?? autoTables(men + women) });
+  stage.ages = { M: ageRange(want.ages?.M, STAGE_AGES.M), F: ageRange(want.ages?.F, STAGE_AGES.F) };
   const h = stage.newClient();
   const login = await h.call("/host/pin", { method: "POST", body: { pin: want.pin } });
   if (login.status !== 200) throw new StageError("login", failText("운영자 PIN", login));
@@ -232,11 +436,15 @@ export async function beginStage(env, want) {
   log.say(`회차 ${stage.event.code} (${stage.event.id}) · 설정 ${JSON.stringify(config)}`);
 
   try {
-    stage.pending = genders(men, women).map((gender, i) => ({ n: i + 1, gender, phone: fakePhone(stamp, i + 1) }));
+    // 나이는 명단을 짤 때 정한다 — 등록을 묶음으로 나눠도 성별마다 평균이 맞게
+    const rng = seeded(`${stamp}:ages`);
+    const ages = { M: spreadAges(men, stage.ages.M, rng), F: spreadAges(women, stage.ages.F, rng) };
+    stage.pending = genders(men, women).map((gender, i) => ({ n: i + 1, gender, age: ages[gender].pop(), phone: fakePhone(stamp, i + 1) }));
     const phones = stage.pending.map((p) => p.phone);
     const inv = await h.call(`/host/events/${stage.event.id}/invites`, { method: "POST", body: { phones } });
     if (inv.status !== 200) throw new StageError("invites", failText("초대 명단", inv));
-    log.say(`명단 ${men + women}명 (남 ${men} · 여 ${women})`);
+    const ageText = ({ avg, min, max }) => `평균 ${avg}살 (${min}~${max})`;
+    log.say(`명단 ${men + women}명 (남 ${men} · 여 ${women}) · 나이 남 ${ageText(stage.ages.M)} · 여 ${ageText(stage.ages.F)}`);
     await env.onChange?.(stage);
   } catch (e) {
     await stage.close().catch(() => {});
@@ -268,6 +476,10 @@ export function restoreStage(env, saved) {
   stage.pending = saved.pending ?? [];
   stage.phase = saved.phase ?? "reg";
   stage.deleted = !!saved.deleted;
+  stage.ages = saved.ages ?? STAGE_AGES;
+  stage.backlog = saved.backlog ?? [];
+  stage.autoSent = saved.autoSent ?? {};
+  stage.autoRun = saved.autoRun ?? null;
   return stage;
 }
 
@@ -293,6 +505,14 @@ function makeStage(env, { tables = 2 } = {}) {
     stamp: 0,
     /** 회차를 지웠는가. 지운 뒤에는 닫을 때 다시 지우지 않는다 */
     deleted: false,
+    /** 성별마다 평균 · 최소 · 최대 나이. 늦게 온 사람도 여기서 뽑는다 */
+    ages: STAGE_AGES,
+    /** 아직 안 보낸 자동 콕 — `drain` 이 앞에서부터 보낸다. 요청 하나가 QA 를 부를 수 있는 횟수에 끝이 있어서다 */
+    backlog: [],
+    /** 라운드 → 번호 → 자동으로 찌른 상대. 같은 사람을 두 번 찌르지 않게 */
+    autoSent: {},
+    /** 지금 보내는 자동 콕 한 판의 셈 — 다 보내면 한 줄로 말한다 */
+    autoRun: null,
     skew: 0,
     log,
     serverNow: () => Date.now() + stage.skew,
@@ -312,6 +532,10 @@ function makeStage(env, { tables = 2 } = {}) {
         phase: stage.phase,
         pending: stage.pending,
         deleted: stage.deleted,
+        ages: stage.ages,
+        backlog: stage.backlog,
+        autoSent: stage.autoSent,
+        autoRun: stage.autoRun,
         host: stage.host.toJSON(),
         cast: stage.cast.map((p) => ({
           n: p.n, id: p.id, nickname: p.nickname, gender: p.gender, age: p.age, phone: p.phone, pin: p.pin,
@@ -336,8 +560,8 @@ function makeStage(env, { tables = 2 } = {}) {
       return stage.pending.length;
     },
 
-    /** 배역 하나를 실제 경로로 등록한다 — 명단 확인(초대 쿠키) → 등록(참가자 쿠키) */
-    async enroll({ n, gender, phone }) {
+    /** 배역 하나를 실제 경로로 등록한다 — 명단 확인(초대 쿠키) → 등록(참가자 쿠키). 나이가 없으면 그 성별의 분포에서 뽑는다 */
+    async enroll({ n, gender, phone, age = Math.round(ageAt(Math.random(), stage.ages[gender])) }) {
       const i = n - 1;
       const session = stage.newClient();
       const probe = await session.call(`/events/${stage.event.id}/enter`, { method: "POST", body: { phone } });
@@ -347,7 +571,7 @@ function makeStage(env, { tables = 2 } = {}) {
       const input = {
         nickname,
         realName: `가상${hangulSeq(n)}`,
-        age: 24 + ((i * 7) % 18),
+        age,
         gender,
         instagram: `stage_${n}`,
         mbti: MBTI[i % MBTI.length],
@@ -357,6 +581,46 @@ function makeStage(env, { tables = 2 } = {}) {
       const reg = await session.call("/register", { method: "POST", body: input });
       if (reg.status !== 200) return fail(`${n}번 등록`, reg), null;
       return { n, id: reg.body.state.me.id, nickname, gender: input.gender, age: input.age, phone, pin: STAGE_PIN, session };
+    },
+
+    /**
+     * 자동 콕 줄(`backlog`)에서 QA 를 많아야 `max` 번 불러 보낸다. 남은 수를 돌려준다.
+     * 그사이 손으로 찔러 상한에 닿은 사람은 건너뛰고, 단계가 닫혔으면 줄을 비운다.
+     */
+    async drain(max = BULK_MAX) {
+      const run = stage.autoRun;
+      let calls = 0;
+      while (stage.backlog.length && calls < max) {
+        const { from: a, to: b, round } = stage.backlog.shift();
+        const from = stage.persona(a);
+        const to = stage.persona(b);
+        if (!from || !to) continue;
+        calls++;
+        const res = await from.session.call("/poke", { method: "POST", body: { toId: to.id } });
+        if (res.status === 200) {
+          ((stage.autoSent[round] ??= {})[a] ??= []).push(b);
+          if (run) {
+            run.pokes[from.gender]++;
+            if (!run.senders[from.gender].includes(a)) run.senders[from.gender].push(a);
+          }
+          continue;
+        }
+        // 그사이 손으로 찔러 상한에 닿았다 — 그 사람만 건너뛴다
+        if (res.body?.error === "no_budget") continue;
+        stage.backlog = [];
+        stage.autoRun = null;
+        if (res.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 받지 않아요. 매력 투표가 마감됐거나 파티가 끝났어요");
+        else fail("자동 콕", res);
+        return 0;
+      }
+      if (run && stage.backlog.length) {
+        say(`  … 자동 콕 ${run.pokes.M + run.pokes.F}/${run.total} — 이어서 보내요`);
+      } else if (run) {
+        const part = (g, who) => `${who} ${run.of[g]}명 중 ${run.senders[g].length}명이 ${run.pokes[g]}번`;
+        say(`  ✓ 자동 콕 · ${run.what} — ${part("M", "남")}, ${part("F", "여")}`);
+        stage.autoRun = null;
+      }
+      return stage.backlog.length;
     },
 
     /** 단계를 만든다. party 는 표를 닫고 자리를 발행해야 파티가 열려 있는 모양이 된다 */
@@ -407,7 +671,7 @@ function makeStage(env, { tables = 2 } = {}) {
             `<tr><td>${p.n}</td><td>${esc(p.nickname)}</td><td>${p.gender === "M" ? "남" : "여"} ${p.age}</td><td>${p.phone}</td><td>${p.pin}</td></tr>`,
         )
         .join("");
-      const all = ["cast", "state", "phase prevote", "voteend", `seating ${stage.tables}`, "publish", "shuffle", "phase party", "phase done", "spray", "pairs", "late", ...chips];
+      const all = ["cast", "state", "phase prevote", "voteend", `seating ${stage.tables}`, "publish", "shuffle", "phase party", "phase done", "auto", "auto last", "pairs", "late", ...chips];
       const chipHtml = all.map((c) => `<button data-cmd="${esc(c)}">${esc(c)}</button>`).join("");
       return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>무대 · ${esc(stage.event.code)}</title>
@@ -566,6 +830,41 @@ async function runLine(env, stage, line, { say, fail }) {
       }
       if (!made) return say("  ? 콕을 보낼 수 있는 사람이 없어요 — 다 썼거나 이성이 없어요");
       return say(`  ✓ 콕 ${made}번 뿌림${spent.size ? ` · 다 쓴 사람 ${spent.size}명` : ""}`);
+    }
+    case "auto": {
+      // 자동 콕 — 실제 파티처럼 (`AUTO_POKE`). 계획을 줄에 세우고 요청 하나의 몫만큼 보낸다 — 남은 것은 `drain`
+      const last = /^(last|마지막)$/.test(rest[0] ?? "");
+      const st = await H("/state");
+      if (st.status !== 200) return fail("자동 콕", st);
+      const { meta, players, sent, seatings } = st.body;
+      // 운영자 틀에서 단계를 넘겼을 수 있다 — 무대가 기억하는 단계를 콘솔에 맞춘다
+      stage.phase = meta.phase;
+      if (meta.phase !== "prevote" && meta.phase !== "party") return say("  ? 자동 콕은 매력 투표나 파티 중에만 돼요");
+      const round = meta.phase === "prevote" ? "pre" : "party";
+      const k = Math.max(1, ...(seatings ?? []).filter((r) => r.status === "published").map((r) => r.round));
+      const here = new Set(players.map((p) => p.id));
+      const cast = stage.cast.filter((p) => here.has(p.id));
+      const plan = planPokes({
+        cast,
+        used: Object.fromEntries(cast.map((p) => [p.n, sent?.[round]?.[p.id] ?? 0])),
+        max: round === "pre" ? meta.config.maxPre : meta.config.maxParty,
+        round,
+        k,
+        last: last || round === "pre",
+        seed: stage.stamp,
+        history: stage.autoSent[round] ?? {},
+      });
+      const what = round === "pre" ? "매력 투표" : last ? `마지막 자리 (${k}라운드)` : `자리 ${k}라운드`;
+      stage.backlog = plan.map(([from, to]) => ({ from, to, round }));
+      if (!plan.length) {
+        stage.autoRun = null;
+        return say(`  ? 자동 콕 · ${what} — 이번에는 찌를 사람이 없어요. 다 썼거나 안 쓰기로 한 사람뿐이에요`);
+      }
+      const of = (g) => cast.filter((p) => p.gender === g).length;
+      stage.autoRun = { what, total: plan.length, of: { M: of("M"), F: of("F") }, pokes: { M: 0, F: 0 }, senders: { M: [], F: [] } };
+      // 상태를 읽은 한 번까지 쳐서 명령 한 줄이 `batch` 를 넘지 않게
+      await stage.drain((env.batch ?? BULK_MAX) - 1);
+      return;
     }
     case "crowd": {
       // 콕 모으기 — 한 사람에게 이성 N명이 한 번씩. 받은 콕 알림이 쌓이는 모양을 보는 명령이다

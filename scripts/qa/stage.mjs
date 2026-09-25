@@ -161,6 +161,8 @@ const env = {
   help: CLI_HELP,
   // 훅이 없는 곳(QA·프로덕션)에서는 core 가 404 를 보고 그렇다고 말한다
   timeTravel: true,
+  // 요청 하나의 몫이 없다 — 자동 콕을 한 번에 다 보낸다 (무대 워커는 `BULK_MAX` 씩 나눈다)
+  batch: Infinity,
   onChange: (s) => save(s),
 };
 

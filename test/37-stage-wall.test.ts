@@ -7,6 +7,8 @@
  *   쿠키   틀에 심는 것은 참가자 쿠키 하나 — 그 쿠키로 QA 가 그 참가자를 알아본다
  *   화면   틀은 QA 의 공개 주소로, 페이지에 세션 토큰이 없다
  *
+ * 나이와 자동 콕은 `37-stage-auto.test.ts` 다 — 파일이 길어지면 뒤 테스트가 초선형으로 느려진다 (`helpers/party.ts`).
+ *
  * core 는 **`SELF.fetch` 를 넣어 진짜 앱에 대고** 돌린다 (35 와 같다). 워커의 라우터 · DO 와 틀 여럿을 붙여
  * 브라우저에서 돌려 본 기록은 ADR-99 에 있다.
  */
@@ -147,7 +149,7 @@ describe("하루 상한 — QA 를 부른 횟수로 센다", () => {
   it("★ 묶음 명령은 요청 하나의 몫 안에서 끝난다 — 서브요청 상한 아래", async () => {
     const e = env();
     const stage = await buildStage(e, want({ men: 6, women: 6 }));
-    for (const line of [`spray ${BULK_MAX}`, `crowd 1 ${BULK_MAX}`, "pairs 10", "lock 2"]) {
+    for (const line of ["auto last", `spray ${BULK_MAX}`, `crowd 1 ${BULK_MAX}`, "pairs 10", "lock 2"]) {
       e.counter.calls = 0;
       await stage.run(line);
       expect(e.counter.calls, line).toBeLessThanOrEqual(BULK_MAX);
@@ -205,7 +207,7 @@ describe("무대 화면 — 틀은 QA 를 직접 연다", () => {
     }));
     const page = stagePage({
       id: "0".repeat(64),
-      view: { event: stage.event, phase: stage.phase, tables: stage.tables, cast, lines: [] },
+      view: { event: stage.event, phase: stage.phase, tables: stage.tables, cast, lines: [], backlog: 0 },
       left: DAILY,
       daily: DAILY,
       qa: PUBLIC,
