@@ -190,6 +190,7 @@ type Fail =
   | "no_budget"
   | "pin_wrong"     // PIN 번호가 틀렸다. detail = 남은 횟수 (ADR-75)
   | "pin_locked"    // 다섯 번 틀려 잠겼다. 운영자만 푼다 (ADR-75)
+  | "note_floor"    // 이미 그만큼 보낸 익명 쪽지가 있다. detail = 가장 많이 보낸 장 수 (콕의 `conflict` 와 문구가 다르다)
   | "unauthorized"; // 초대 쿠키로 들어올 수 없는 사람이다 — 이미 등록했다. 문(번호 + PIN 번호)으로 간다
 
 /** `detail` 은 문구에 들어갈 숫자다 (예: 남은 콕 최대 횟수). 문장은 Worker 가 고른다 */
@@ -203,6 +204,12 @@ const fail = <T,>(error: Fail, detail?: number): Result<T> => ({ ok: false, erro
 interface Attachment {
   playerId?: string;
 }
+
+/**
+ * 콕 응답이 제 로그 줄을 기다리는 가장 긴 시간 (ADR-84). 화면의 시간 제한(10초, `api.ts`)보다 한참 아래여야 한다 —
+ * 닿으면 저장된 콕이 실패로 보여 한 번 더 찌르게 된다. 평소 R2 왕복은 이보다 훨씬 짧다.
+ */
+const LOG_WAIT_MS = 2_000;
 
 export class EventDO extends DurableObject {
   /**
@@ -266,6 +273,22 @@ export class EventDO extends DurableObject {
         }
       } catch {
         /* 명단이 아직 없다 */
+      }
+
+      /*
+       * **빠진 예약 알람을 다시 건다.** ADR-93 전 버전은 매력 투표 단계에 알람을 걸지 않았다(`dueAt` 이 null
+       * 이라 들어서는 순간 지웠다). 그대로 두면 그 회차는 파티 일시에 아무 일도 안 일어나고 — 화면이 안 바뀌고 —
+       * 그 뒤 첫 요청이 단계를 넘기는데, 그게 매력 투표였으면 조용히 파티 콕으로 들어간다.
+       * DO 가 뜰 때 한 번 본다. 회차 목록이 모든 회차를 깨우므로 운영자가 콘솔을 열면 다 걸린다.
+       * 이 자리도 try 안이다 — 판정을 못 하는 옛 모양이어도 DO 는 떠야 한다.
+       */
+      try {
+        const meta = await ctx.storage.get<EventMeta>("meta");
+        if (meta && dueAt(meta) !== null && (await ctx.storage.getAlarm()) === null) {
+          await this.rearm(meta, Date.now());
+        }
+      } catch {
+        /* 판정을 못 하는 옛 모양 — 요청이 오면 그때 넘어간다 */
       }
     });
   }
@@ -456,10 +479,14 @@ export class EventDO extends DurableObject {
          * **1위의 보너스는 바닥에 넣지 않는다** (ADR-100). 1위가 `maxParty + 1` 을 다 썼어도
          * `maxParty` 를 그대로 저장할 수 있어야 한다 — 사람마다 쓴 수에서 그 사람의 보너스를 뺀 것이 바닥이다.
          */
+        /*
+         * **지금 있는 사람이 보낸 것만** 센다. 지워진 사람이 보낸 콕은 남아 있는데(ADR-29) 그것까지 바닥에
+         * 넣으면, 운영자 화면(`hostState` — 지금 있는 사람만 센다)은 내려도 된다고 하는데 여기서 막혔다.
+         */
         const used = Math.max(
           0,
           ...this.rows<{ from_id: string; n: number }>(
-            "SELECT from_id, COUNT(*) AS n FROM pokes WHERE round = ? GROUP BY from_id",
+            "SELECT from_id, COUNT(*) AS n FROM pokes WHERE round = ? AND from_id IN (SELECT id FROM players) GROUP BY from_id",
             round,
           ).map((r) => r.n - (round === "party" ? this.bonusOf(meta, r.from_id) : 0)),
         );
@@ -474,10 +501,11 @@ export class EventDO extends DurableObject {
        * 사고가 났을 때 운영자에게 쓸 수 있는 것이 하나도 없다.
        */
       if (maxNotes) {
+        // 콕과 같다 — 지금 있는 사람이 보낸 것만. 문구도 쪽지로 말한다(`note_floor`) — 콕 문구가 나가면 엉뚱한 것을 찾는다
         const used = this.rows<{ n: number }>(
-          "SELECT COUNT(*) AS n FROM notes GROUP BY from_id ORDER BY n DESC LIMIT 1",
+          "SELECT COUNT(*) AS n FROM notes WHERE from_id IN (SELECT id FROM players) GROUP BY from_id ORDER BY n DESC LIMIT 1",
         )[0]?.n;
-        if (used && maxNotes < used) return fail("conflict", used);
+        if (used && maxNotes < used) return fail("note_floor", used);
       }
       /*
        * 기본과 다를 때만 적는다. 기본값을 굳이 써 넣으면 설정 모양이 회차마다 달라진다.
@@ -904,7 +932,7 @@ export class EventDO extends DurableObject {
     if (notifyOn(meta.config, round)) {
       this.toPlayer(toId, { type: "poke", received: this.visibleReceived(toId, meta) });
     }
-    await this.logPoke(meta.id, { kind: "poke", round, at: now, from: me, to: target });
+    await this.logWait(this.logPoke(meta.id, { kind: "poke", round, at: now, from: me, to: target }));
     return ok(await this.pokeState(fromId, meta));
   }
 
@@ -921,6 +949,12 @@ export class EventDO extends DurableObject {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (!canPoke(meta.phase)) return fail("closed");
+    /*
+     * **지워진 사람은 되돌리지 못한다.** 그가 보낸 콕은 남기기로 했다 (ADR-29) — 받은 쪽 숫자가 나중에
+     * 한 칸 줄면 그 순간 누가 나갔는지와 맞춰진다. 세션 쿠키는 서명만 된 것이라 지운 뒤에도 한동안 산다.
+     */
+    const me = this.player(fromId);
+    if (!me) return fail("not_found");
 
     const round = roundOf(meta.phase);
 
@@ -937,9 +971,8 @@ export class EventDO extends DurableObject {
       this.toPlayer(toId, { type: "poke", received: this.visibleReceived(toId, meta) });
     }
     // 콕 표에서는 줄이 사라졌다. 누가 무엇을 되돌렸는지는 이 로그에만 남는다 (ADR-84)
-    const me = this.player(fromId);
     const target = this.player(toId);
-    if (me && target) await this.logPoke(meta.id, { kind: "undo", round, at: now, from: me, to: target });
+    if (target) await this.logWait(this.logPoke(meta.id, { kind: "undo", round, at: now, from: me, to: target }));
     return ok(await this.pokeState(fromId, meta));
   }
 
@@ -965,11 +998,27 @@ export class EventDO extends DurableObject {
           this.logBody = await appendPokeLog(bucket, eventId, lines, this.logBody);
         } catch (e) {
           this.logBody = undefined;
+          /*
+           * **실패한 줄은 버리지 않는다** — 다음 쓰기의 맨 앞에 다시 싣는다. 그 사이에 모인 줄은 뒤에 있으니
+           * 순서는 그대로다. 되돌림은 콕 표에서 줄을 지우므로 이 파일 말고는 어디에도 안 남는다 (ADR-84).
+           */
+          this.logLines.unshift(lines);
           console.error("poke log failed", e instanceof Error ? e.message : String(e));
         }
       });
     }
     return this.logQueue;
+  }
+
+  /**
+   * 로그 쓰기를 기다리되 **`LOG_WAIT_MS` 까지만**. 쓰기는 그 뒤에도 줄에서 계속된다.
+   *
+   * R2 가 느리면 콕 응답이 화면의 시간 제한(10초, `api.ts`)에 닿는다 — 화면은 `연결이 끊겼어요` 로
+   * 콕을 되돌려 놓는데 서버에는 저장돼 있어서, 사람이 다시 눌러 한 번을 더 쓴다. 평소에는 이 안에 끝나므로
+   * 순서도 지금과 같다 (순서는 기다림이 아니라 줄이 지킨다).
+   */
+  private logWait(write: Promise<void>): Promise<void> {
+    return Promise.race([write, new Promise<void>((r) => setTimeout(r, LOG_WAIT_MS))]);
   }
 
   // ─────────────────────────── 참가자 화면
@@ -1197,6 +1246,8 @@ export class EventDO extends DurableObject {
   async ackSeat(playerId: string, round: number): Promise<Result<true>> {
     const s = this.seatings().find((x) => x.round === round && x.status === "published");
     if (!s) return fail("not_found");
+    // 그 라운드에 앉은 사람만 확인한다 — 지워졌거나 비워진 사람의 확인이 쌓이면 운영자의 `확인 N/M` 이 넘친다
+    if (!s.seats.some((x) => x.playerId === playerId)) return fail("not_found");
     if (!s.acks.includes(playerId)) {
       s.acks.push(playerId);
       this.ctx.storage.sql.exec(
@@ -1242,7 +1293,11 @@ export class EventDO extends DurableObject {
     }
     const pokeUsedMax: Record<PokeRound, number> = {
       pre: Math.max(0, ...Object.values(usedBy.pre)),
-      party: Math.max(0, ...Object.values(usedBy.party)),
+      /*
+       * 1위의 보너스 콕은 빼고 센다 (ADR-100) — 설정 저장의 바닥(`patchMeta`)과 **같은 셈**이어야 한다.
+       * 이 값이 설정 화면 스테퍼의 바닥이라, 보너스를 넣어 세면 서버가 받는 값을 화면이 먼저 막는다.
+       */
+      party: Math.max(0, ...Object.entries(usedBy.party).map(([id, n]) => n - this.bonusOf(meta, id))),
     };
     /*
      * 매칭은 **파티 콕만** 센다 (ADR-34). 매력 투표는 프로필만 보고 고른 것이라
@@ -1403,7 +1458,13 @@ export class EventDO extends DurableObject {
       playerId,
       choice,
     );
-    this.broadcast({ type: "notice" });
+    /*
+     * **운영자와 본인에게만** 알린다. 참가자 응답에는 남의 답도 숫자도 없어서(ADR-88) 한 사람의 답으로
+     * 달라지는 남의 화면이 없다 — 전원에게 보내면 답 하나가 인원수만큼의 재조회가 되고, 50명이 답하면
+     * 2,500번이 이 DO 에 줄을 서서 콕 앞을 막는다. 본인은 다른 탭에도 고른 것이 떠야 해서 받는다.
+     */
+    this.toHosts({ type: "notice" });
+    this.toPlayer(playerId, { type: "notice" });
     return ok(this.publicAnnouncements(playerId).find((x) => x.id === id)!);
   }
 
@@ -1947,9 +2008,18 @@ export class EventDO extends DurableObject {
    */
   private freezeTop(meta: EventMeta) {
     if (meta.topVoters !== undefined || !meta.config.topVoteBonus) return;
+    /*
+     * **지금 있는 사람끼리의 표만** 센다 — 운영자 화면(`hostState`)이 세는 것과 같은 수다.
+     * 나간 사람이 보낸 콕은 남아 있는데(ADR-29) 그것까지 세면, 확인창이 `이 사람이 받아요` 라고
+     * 말한 사람과 다른 사람이 보너스를 받았다.
+     */
+    const players = this.players();
+    const here = new Set(players.map((p) => p.id));
     const received: Record<string, number> = {};
-    for (const k of this.pokes()) if (k.round === "pre") received[k.toId] = (received[k.toId] ?? 0) + 1;
-    meta.topVoters = topVoters(this.players(), received);
+    for (const k of this.pokes()) {
+      if (k.round === "pre" && here.has(k.fromId) && here.has(k.toId)) received[k.toId] = (received[k.toId] ?? 0) + 1;
+    }
+    meta.topVoters = topVoters(players, received);
   }
 
   /** 이 사람이 1위라서 더 받는 파티 콕. 아니면 0 (ADR-100) */

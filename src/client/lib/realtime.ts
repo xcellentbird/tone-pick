@@ -36,9 +36,16 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
      * 주소에 실려도 되고, 증명은 여전히 쿠키다 (ADR-44).
      */
     const ref = tabRef();
-    ws = new WebSocket(`${proto}://${location.host}/ws/${code}${ref ? `?ref=${ref}` : ""}`);
+    const sock = new WebSocket(`${proto}://${location.host}/ws/${code}${ref ? `?ref=${ref}` : ""}`);
+    ws = sock;
 
-    ws.onopen = () => {
+    /*
+     * **버린 소켓은 아무 말도 못 한다.** 앱으로 돌아올 때(`onVisible`) 붙는 중이던 소켓을 닫고 새로 여는데,
+     * 닫은 소켓의 `close` 는 **나중에** 온다. 그게 재연결을 한 번 더 걸면 방금 연 소켓이 `ws` 에서 밀려나
+     * 주인 없이 남는다 — 닫는 길이 없어 화면을 떠나도 계속 "다시 읽어라" 를 받고, 돌아올 때마다 하나씩 는다.
+     */
+    sock.onopen = () => {
+      if (sock !== ws) return;
       // 다시 붙은 것과 처음 붙은 것을 갈라 센다 (ADR-56) — 파티장 와이파이가 여기서만 보인다
       pulseWs(opened ? "retry" : "open");
       retry = 0;
@@ -48,7 +55,8 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
       opened = true;
     };
 
-    ws.onmessage = (e) => {
+    sock.onmessage = (e) => {
+      if (sock !== ws) return;
       lastSeen = Date.now();
       try {
         const ev = JSON.parse(e.data) as ServerEvent;
@@ -59,8 +67,8 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
       }
     };
 
-    ws.onclose = () => {
-      if (closed) return;
+    sock.onclose = () => {
+      if (closed || sock !== ws) return;
       pulseWs("drop");
       // 파티장 와이파이는 끊긴다. 지수 백오프로 조용히 재연결한다.
       timer = setTimeout(open, Math.min(30_000, 1000 * 2 ** retry++));

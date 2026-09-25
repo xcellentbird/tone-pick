@@ -121,7 +121,8 @@ export default function HostDefaults() {
         <Num
           label={HOST_UI.fields.prevoteBeforeH}
           value={form.prevoteBeforeH}
-          min={0}
+          /* 0 이면 매력 투표 시작이 파티 일시와 같아져서 회차를 만들 수 없다 — 서버도 막는다 */
+          min={1}
           max={720}
           onChange={(v) => set("prevoteBeforeH", v)}
         />

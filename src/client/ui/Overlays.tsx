@@ -9,7 +9,8 @@
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { BTN, type ActionCopy } from "../../shared/copy.ts";
+import { BTN, FAIL, type ActionCopy } from "../../shared/copy.ts";
+import { messageOf } from "../lib/api.ts";
 import { useTimeouts } from "../lib/useLoad.ts";
 import Sheet from "./Sheet.tsx";
 
@@ -40,7 +41,16 @@ export function useOverlay(): Overlay {
   return ctx;
 }
 
-export function Overlays({ children }: { children: ReactNode }) {
+export function Overlays({
+  children,
+  suspend = false,
+}: {
+  children: ReactNode;
+  /**
+   * 덮개(자리 확인 · 단계 안내)가 떴다. **열려 있던 확인창은 취소한다** — 아래 `suspend` 효과
+   */
+  suspend?: boolean;
+}) {
   const [toasts, setToasts] = useState<Array<{ id: number; text: string }>>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const navigate = useNavigate();
@@ -92,13 +102,37 @@ export function Overlays({ children }: { children: ReactNode }) {
     if (dialogInHistory) navigate(-1);
   };
 
+  /**
+   * **덮개가 뜨면 열려 있던 확인창은 취소한다.** 시트는 라우트라 덮개를 닫으면 돌아오지만 확인창은 돌려놓지 않는다 —
+   * 매력 투표 확인창이 떠 있는 채로 파티가 열리면 그 `찌르기` 는 이제 파티 콕이라, 사람이 고른 것과 다른 일을 한다.
+   * 그리고 덮개 뒤에 열려 있는 모달은 덮개의 버튼을 먹는다 (`Participant` 의 `seatUp`).
+   */
+  // **바뀌는 순간에만** 취소한다. 덮개를 기다리는 동안 새로 연 확인창(새 단계의 콕)까지 막으면 아무것도 못 누른다
+  useEffect(() => {
+    if (suspend && pending) close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suspend]);
+
+  /**
+   * 확인을 거친 일은 **실패하면 반드시 말한다** (ADR-8). 창은 이미 닫혔으니, 여기서 말하지 않으면
+   * 발행도 삭제도 단계 전환도 파티장 와이파이가 흔들린 순간 **된 것처럼** 끝난다.
+   * 부른 자리가 스스로 잡는 실패(콕 · 쪽지 보내기 · 설정 저장)는 여기까지 오지 않는다.
+   */
+  const attempt = async (run: () => Promise<void> | void) => {
+    try {
+      await run();
+    } catch (e) {
+      toast(messageOf(e, FAIL.action));
+    }
+  };
+
   const accept = async () => {
     const job = pending;
     setPending(null);
     armed.current = false;
     // 실행 **전에** 히스토리를 정리한다
     if (dialogInHistory) navigate(-1);
-    await job?.run();
+    if (job) await attempt(job.run);
   };
 
   return (
@@ -137,7 +171,7 @@ export function Overlays({ children }: { children: ReactNode }) {
                   onClick={() => {
                     const run = pending.copy.second!.run;
                     close();
-                    void run();
+                    void attempt(run);
                   }}
                 >
                   {pending.copy.second.label}

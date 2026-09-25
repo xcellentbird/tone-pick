@@ -126,6 +126,25 @@ const hostState = (ev: EventMeta) => api<HostState>(`/api/host/events/${ev.id}/s
 const vote = (cookie: string | null, id: string, choice: "a" | "b") =>
   api<PublicAnnouncement>("/api/vote", { method: "POST", cookie, body: { id, choice } });
 
+/**
+ * 소켓 하나를 열고 받은 신호를 모은다. 쿠키가 있으면 그 참가자의 소켓이고,
+ * 없으면 운영자 콘솔 쪽이다 — Worker 가 세션 쿠키를 보고 가른다.
+ */
+async function listen(ev: EventMeta, cookie?: string | null) {
+  const res = await fetchApp(`https://tone-pick.test/ws/${ev.code}`, {
+    headers: { Upgrade: "websocket", ...(cookie ? { cookie } : {}) },
+  });
+  const ws = res.webSocket;
+  expect(ws, `소켓이 안 열렸다 (${res.status})`).toBeTruthy();
+  const got: string[] = [];
+  ws!.accept();
+  ws!.addEventListener("message", (e) => got.push(String(e.data)));
+  return got;
+}
+
+/** 소켓 신호는 응답보다 늦게 닿는다. 한 박자 기다린다 */
+const settle = () => new Promise((r) => setTimeout(r, 50));
+
 // ─────────────────────────────────────────── 텍스트
 
 describe("텍스트 알림", () => {
@@ -194,6 +213,27 @@ describe("설문 — 두 선택지", () => {
     expect(text).not.toContain(q.id);
     expect(text).not.toContain("count");
     expect(text).not.toContain("choices");
+  });
+
+  it("★ 답은 운영자에게만 알린다 — 남의 답으로 바뀌는 참가자 화면이 없다", async () => {
+    /*
+     * 참가자 응답에는 남의 답도 숫자도 없다 (위). 그러니 한 사람의 답에 전원이 다시 읽을 까닭이 없다 —
+     * 신호 하나가 곧 인원수만큼의 재조회이고 (ADR-26), 그 읽기는 한 DO 에 줄을 선다.
+     * 50명이 한꺼번에 답하면 2,500번이 콕보다 앞에 선다.
+     */
+    const ev = await freshEvent();
+    const [p, q] = [await join(ev), await join(ev)];
+    const made = await send(ev, { text: "2차 갈래요?", poll: { a: "갈래요", b: "못 가요" } });
+    const host = await listen(ev);
+    const other = await listen(ev, q.cookie);
+    await settle();
+    const [h0, o0] = [host.length, other.length];
+
+    expect((await vote(p.cookie, made.body.id, "a")).status).toBe(200);
+    await settle();
+
+    expect(host.length, "운영자 콘솔은 누가 골랐는지 다시 읽어야 한다").toBeGreaterThan(h0);
+    expect(other.slice(o0), "다른 참가자에게 신호가 갔다").toEqual([]);
   });
 
   it("★ 한 사람은 한 표다 — 다시 고르면 옮겨간다", async () => {

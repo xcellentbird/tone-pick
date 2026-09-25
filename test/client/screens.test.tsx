@@ -478,6 +478,53 @@ describe("뿌리 화면", () => {
     render(<RouterProvider router={router} />);
     await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF"));
   });
+
+  it("★ 못 물었으면 링크로 오라고 하지 않는다 — 망이 돌아오면 자기 회차로 간다", async () => {
+    /*
+     * 홈 화면 아이콘으로 앱을 연 사람은 이 화면을 지나 자기 회차로 간다. 그 순간 망이 흔들리면
+     * `참가 링크로 들어와주세요` 가 떴다 — 이미 들어와 있는 사람에게 링크를 찾아오라는 막다른 길이다.
+     */
+    vi.useFakeTimers();
+    let down = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (down) throw new TypeError("Failed to fetch");
+        return new Response(JSON.stringify(participantState()), { headers: { "content-type": "application/json" } });
+      }),
+    );
+    const router = createMemoryRouter(
+      [
+        { path: "/", element: <Entry /> },
+        { path: "/e/:code", element: <div>event</div> },
+      ],
+      { initialEntries: ["/"] },
+    );
+    render(<RouterProvider router={router} />);
+    await pump(4000);
+    expect(screen.queryByText(ENTRY.linkOnly), "망이 흔들렸는데 링크로 오라고 했다").toBeNull();
+    expect(screen.getByText(new RegExp(FAIL.offline.split("\n")[0]))).toBeTruthy();
+
+    // 무선이 올라왔다. 아무것도 누르지 않는다
+    down = false;
+    await pump(8000);
+    expect(router.state.location.pathname).toBe("/e/ABCDEF");
+    vi.useRealTimers();
+  });
+
+  it("★ 나라 문에 막히면 왜 막혔는지 말한다 (ADR-92)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: "region_blocked", message: FAIL.region }), { status: 403 })),
+    );
+    render(
+      <MemoryRouter>
+        <Entry />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(new RegExp(FAIL.region.split("\n")[0]))).toBeTruthy();
+    expect(screen.queryByText(ENTRY.linkOnly)).toBeNull();
+  });
 });
 
 // ─────────────────────────────────────────── 콕

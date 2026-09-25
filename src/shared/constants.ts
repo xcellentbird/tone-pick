@@ -75,7 +75,9 @@ export function withDefaults(saved: Partial<Defaults> | null | undefined): Defau
     place: text(saved?.place, DEFAULTS.place),
     // 닉네임 문구도 **비워두는 것에 뜻이 있다** — 안내 없이 칸만 두겠다는 뜻이다
     nickHint: typeof saved?.nickHint === "string" ? saved.nickHint : DEFAULTS.nickHint,
-    prevoteBeforeH: num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH),
+    // 1시간 전이 가장 가깝다. 0 이면 매력 투표 시작이 파티 일시와 같아져서 순서 검사(ADR-93 후기)가
+    // 회차 만들기를 매번 거절했다 — 저장은 이제 막지만, 전에 저장해 둔 0 이 남아 있다
+    prevoteBeforeH: Math.max(1, num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH)),
     // 매력 투표 1위 보너스 콕 (ADR-100). 없으면 0 — 주지 않는다
     topVoteBonus: num(saved?.topVoteBonus, DEFAULTS.topVoteBonus ?? 0),
     revealAfterH: num(saved?.revealAfterH, DEFAULTS.revealAfterH),

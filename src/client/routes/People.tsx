@@ -47,6 +47,11 @@ interface Props {
    */
   covered: boolean;
   setCovered: (on: boolean) => void;
+  /**
+   * 덮개(자리 확인 · 단계 안내)가 떠 있다. **그동안 시트를 열지 않는다** — 모달 시트가 열려 있으면
+   * 덮개의 버튼이 그려지기만 하고 눌리지 않는다 (`Participant` 의 `seatUp`). 라우트는 그대로라 덮개를 닫으면 돌아온다
+   */
+  underTakeover?: boolean;
 }
 
 export default function People({
@@ -62,6 +67,7 @@ export default function People({
   onTab,
   covered,
   setCovered,
+  underTakeover = false,
 }: Props) {
   // 동성에게도 찌를 수 있는 회차라면 처음부터 전체를 보여준다 — 반쪽만 보이면 설정이 무색해진다
   const sameGenderOk = state.event.config.allowSameGender !== false;
@@ -121,7 +127,12 @@ export default function People({
   /** 이 회차에 익명 쪽지가 있고, 지금이 그 창인가. **파티 중에만이다** */
   const noteOn = noteBudget.max > 0 && canNote(state.event.phase);
   const noteLeft = Math.max(0, noteBudget.max - noteBudget.used);
-  const [draft, setDraft] = useState("");
+  /**
+   * 쓰던 글은 **그 사람 것**이다. 시트를 닫았다 다시 열면 남아 있지만, 다른 사람의 ✉️ 로 가면 빈 칸이다 —
+   * 남겨 두면 한 사람에게 쓰던 글이 다른 사람의 작성 시트에 그대로 서 있고, 확인창은 받는 사람만 말한다.
+   */
+  const [draftFor, setDraftFor] = useState({ to: "", text: "" });
+  const draft = profile && draftFor.to === profile.id ? draftFor.text : "";
   /**
    * 이 사람에게 보낸 장 수 — ✉️ 안의 숫자이자 확인창 제목(`한 장 더`)의 근거다.
    * **본문과 읽음은 여기 없다** — 익명 쪽지함으로 갔다 (ADR-98 후기 3). 읽음을 시트를 연 순간의 값으로
@@ -160,7 +171,7 @@ export default function People({
     sending.current = true;
     try {
       setNote(await source.sendNote(target.id, text));
-      setDraft("");
+      setDraftFor({ to: "", text: "" });
       // 성공하면 작성 시트를 닫아 프로필 시트로 돌아간다 — ✉️ 안의 숫자가 바뀐 것이 곧 알림이다 (ADR-65)
       onNote(false);
     } catch (e) {
@@ -447,7 +458,7 @@ export default function People({
          * (운영자 콘솔의 떨어뜨리기 시트가 `!!picked && !atApart` 로 같은 일을 한다).
          * 뒤로 가면 작성 시트가 닫히고 프로필 시트가 되살아난다.
          */
-        open={!!profile && !composing}
+        open={!!profile && !composing && !underTakeover}
         onClose={() => onProfile(null)}
         title={profile?.nickname ?? ""}
         titleHidden
@@ -529,7 +540,7 @@ export default function People({
         사람이 `익명 쪽지 쓰기` 를 눌러 들어왔다. 시트는 `--kb` 만큼 올라와 키보드 위에 선다.
       */}
       <Sheet
-        open={composing}
+        open={composing && !underTakeover}
         onClose={() => onNote(false)}
         title={profile ? NOTE.compose.title(profile.nickname) : ""}
         autoFocus
@@ -545,7 +556,7 @@ export default function People({
               /* 글자수는 화면이 말하지 않는다 — `maxLength` 가 조용히 막는다 */
               maxLength={LIMITS.noteMax}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => setDraftFor({ to: profile.id, text: e.target.value })}
             />
             {noteErr && <p className="err">{noteErr}</p>}
             <button
