@@ -122,6 +122,32 @@ export function scheduleInOrder(schedule: EventSchedule, fired: FiredMap): boole
   return true;
 }
 
+const HOUR = 3_600_000;
+
+/**
+ * 순서가 어긋난 일정을 **파티 시작을 기준으로** 바로잡는다. 어긋나지 않았으면 `null` (ADR-93 후기 2).
+ *
+ * 설정 탭은 2026-09-18 전까지 순서를 보지 않았다 — 그 사이 파티를 미루고 발표를 그대로 두었거나, 파티를 당기고
+ * 매력 투표 시작을 그대로 둔 회차가 남아 있을 수 있다. 그대로 두면 시계가 따라가서 **파티가 열리는 순간 매칭 확인까지
+ * 가거나** 매력 투표가 통째로 사라진다. 지금 API 로는 만들 수 없는 모양이라 옛 회차에만 있다.
+ *
+ * **파티 시작은 옮기지 않는다** — 나머지가 거기서 재어지는 기준이다. 옮기는 쪽은 `gaps` 만큼 떨어뜨린다 —
+ * 회차를 새로 만들 때와 같은 셈이다. **지난 것은 건드리지 않는다** (`scheduleInOrder` 가 견주지 않는 것과 같다).
+ */
+export function reorderSchedule(
+  schedule: EventSchedule,
+  fired: FiredMap,
+  gaps: { prevoteBeforeH: number; revealAfterH: number },
+): EventSchedule | null {
+  const { partyAt } = schedule;
+  if (partyAt === undefined || scheduleInOrder(schedule, fired)) return null;
+  const next: EventSchedule = { ...schedule };
+  const live = (k: (typeof TRANSITION_KEYS)[number]) => next[k] !== undefined && !schedLocked(fired, k);
+  if (live("prevoteAt") && next.prevoteAt! >= partyAt) next.prevoteAt = partyAt - gaps.prevoteBeforeH * HOUR;
+  if (live("revealAt") && next.revealAt! <= partyAt) next.revealAt = partyAt + gaps.revealAfterH * HOUR;
+  return scheduleInOrder(next, fired) ? next : null;
+}
+
 /**
  * 지금 콕(또는 매력 투표)을 찌를 수 있나. **단계가 곧 기간이다.**
  *

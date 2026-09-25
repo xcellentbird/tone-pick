@@ -129,6 +129,53 @@ describe("파티 시작 예약", () => {
   });
 });
 
+// ─────────────────────────────────────────── 순서가 어긋난 옛 일정
+
+/**
+ * **설정 탭은 2026-09-18 전까지 일정의 순서를 보지 않았다** (ADR-93 후기). 그 사이 파티를 미루고 발표를 그대로 두었거나
+ * 파티를 당기고 매력 투표를 그대로 둔 회차가 남아 있을 수 있다 — 지금의 API 로는 만들 수 없는 모양이라 저장소에 직접 넣는다.
+ * 그대로 두면 시계가 따라간다: 발표가 앞이면 **파티가 열리는 순간 매칭 확인까지 가고**, 파티가 앞이면 매력 투표가 사라진다.
+ * DO 가 뜰 때 파티 시작을 기준으로 바로잡는다.
+ */
+describe("순서가 어긋난 옛 일정", () => {
+  const ns = () => (env as unknown as { EVENT: DurableObjectNamespace }).EVENT;
+  const stubOf = (id: string) => ns().get(ns().idFromName(id));
+
+  /** 옛 설정 탭이 남긴 일정을 저장소에 그대로 넣고 DO 를 내린다 (배포). 다음 요청이 새로 띄운다 */
+  async function legacy(id: string, patch: Record<string, number>) {
+    await runInDurableObject(stubOf(id), async (_i, ctx) => {
+      const meta = (await ctx.storage.get<EventMeta>("meta"))!;
+      meta.schedule = { ...meta.schedule, ...patch };
+      await ctx.storage.put("meta", meta);
+    });
+    await runInDurableObject(stubOf(id), (_i, ctx) => ctx.abort("배포")).catch(() => {});
+  }
+
+  it("★ 발표가 파티보다 앞인 옛 회차 — 파티가 열려도 매칭 확인까지 가지 않는다", async () => {
+    const ev = await freshEvent();
+    await setPhase(ev.id, "prevote");
+    // 파티를 미뤘고 발표는 두었다. 그리고 둘 다 지났다 — 이 요청이 파티를 연다
+    const past = Date.now() - 1000;
+    await legacy(ev.id, { partyAt: past, revealAt: past - HOUR });
+
+    expect(await phaseNow(ev.id), "파티가 열리자마자 매칭 확인까지 갔다").toBe("party");
+    const { schedule } = (await api<EventMeta>(`/api/host/events/${ev.id}`, { cookie: master })).body;
+    expect(schedule.revealAt!, "매칭 확인은 파티 시작 뒤여야 한다").toBeGreaterThan(schedule.partyAt!);
+  });
+
+  it("★ 파티가 매력 투표보다 앞인 옛 회차 — 바로잡히고, 설정 저장이 순서에 걸리지 않는다", async () => {
+    const ev = await freshEvent();
+    // 파티를 당겼고 매력 투표 시작은 두었다
+    await legacy(ev.id, { prevoteAt: ev.schedule.partyAt! + HOUR });
+
+    const { schedule } = (await api<EventMeta>(`/api/host/events/${ev.id}`, { cookie: master })).body;
+    expect(schedule.prevoteAt!, "매력 투표 시작은 파티 시작 앞이어야 한다").toBeLessThan(schedule.partyAt!);
+    expect(schedule.partyAt, "기준인 파티 시작은 옮기지 않는다").toBe(ev.schedule.partyAt);
+    // 설정 탭은 저장할 때마다 일정을 통째로 보낸다 — 어긋난 채였으면 이름 하나 고치는 저장도 `순서` 로 막혔다
+    expect((await putSchedule(ev.id, {})).status).toBe(200);
+  });
+});
+
 // ─────────────────────────────────────────── 커플 발표 예약
 
 describe("커플 발표 예약", () => {
