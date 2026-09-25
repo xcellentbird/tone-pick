@@ -305,6 +305,43 @@ describe("B. 등록", () => {
     const back = await enter(ev.id, phone, PIN);
     expect(read(back.cookie)).not.toContain(phone);
   });
+
+  it("S-B7 ★ 이미 등록한 번호는 다시 등록할 수 없다 — 먼저 받아 둔 초대 쿠키로도 PIN 번호를 건너뛰지 못한다", async () => {
+    /*
+     * 초대 쿠키는 **등록 전에** 번호만 치면 나온다 (S-B1). 남의 번호를 아는 사람이 그때 받아 두면,
+     * 주인이 등록한 뒤에도 쿠키가 한 시간 산다. 그 쿠키로 등록 폼을 다시 내면 주인의 정보와
+     * PIN 번호를 갈아 끼우고 주인의 세션을 받아 갔다 — ADR-75 가 받아들인 `첫 입장의 선점` 은
+     * **등록 전**의 이야기다. 등록한 사람에게 들어가는 문은 번호 + PIN 번호 하나뿐이다.
+     */
+    const ev = await freshEvent();
+    const phone = await invite(ev.id, nextPhone());
+
+    // Given 주인이 등록하기 전에, 번호를 아는 누군가가 그 번호로 초대 쿠키를 받아 뒀다
+    const early = await enter(ev.id, phone);
+    expect(early.body.registered).toBe(false);
+
+    // And   주인이 등록을 마쳤다
+    const own = await enter(ev.id, phone);
+    const owner = person({ pin: "2468" });
+    const done = await api<RegisterResult>("/api/register", { method: "POST", cookie: own.cookie, body: owner });
+    expect(done.status, JSON.stringify(done.body)).toBe(200);
+
+    // When  먼저 받아 둔 쿠키로 등록 폼을 다시 낸다
+    const again = await api<RegisterResult>("/api/register", {
+      method: "POST",
+      cookie: early.cookie,
+      body: person({ nickname: "가로채기", pin: "1357" }),
+    });
+
+    // Then  문 앞으로 돌려보낸다 — 세션도 안 나간다 (화면은 401 이면 입장 확인창으로 간다)
+    expect(again.status).toBe(401);
+    expect(again.setCookies.some((c) => c.startsWith("tp_play"))).toBe(false);
+    // And   주인의 PIN 번호도 정보도 그대로다
+    expect((await enter(ev.id, phone, "2468")).status).toBe(200);
+    expect((await enter(ev.id, phone, "1357")).status).toBe(403);
+    const me = (await hostState(ev.id)).players.find((p) => p.phone === phone);
+    expect(me?.nickname).toBe(owner.nickname);
+  });
 });
 
 // ─────────────────────────────────────────── C. 잠금과 재설정

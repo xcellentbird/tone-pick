@@ -165,7 +165,7 @@ export async function join(ev: EventMeta, over: Partial<RegisterInput> = {}) {
     body: input,
   });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
-  return { cookie: res.cookie, id: res.body.state.me.id, input, phone, pin: input.pin, resumed: res.body.resumed };
+  return { cookie: res.cookie, id: res.body.state.me.id, input, phone, pin: input.pin };
 }
 
 export async function setPhase(id: string, to: string) {

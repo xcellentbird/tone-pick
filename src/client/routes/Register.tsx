@@ -140,10 +140,7 @@ export default function Register() {
       const done = await post<RegisterResult>("/register", toInput(draft));
       const home = `/e/${done.state.event.code}`;
       // 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
-      navigate(home, {
-        replace: true,
-        state: done.resumed ? { welcome: REGISTER.welcomeBack(done.state.me.nickname) } : undefined,
-      });
+      navigate(home, { replace: true });
       /*
        * **등록을 마친 사람에게 진행 방식을 한 번 밀어준다** (슬라이스 21).
        *
@@ -156,9 +153,9 @@ export default function Register() {
        *
        * 본 적이 있다는 기록은 남기지 않는다 (ADR-4). **`등록 완료` 라는 사건에 붙는다** —
        * 새로고침하면 안 뜨고, 다시 보고 싶으면 물음표이거나 홈 카드의 `진행 방식 보기` 다.
-       * `resumed` 는 새로 등록한 게 아니라 돌아온 것이라 밀지 않는다.
+       * 등록이 성공했다면 늘 새 사람이다 — 이미 등록한 번호는 서버가 401 로 문 앞에 돌려보낸다 (ADR-75).
        */
-      if (!done.resumed) navigate(`${home}/help`);
+      navigate(`${home}/help`);
     } catch (e) {
       setBusy(false);
       if (e instanceof ApiError && e.code === "nick_taken") {

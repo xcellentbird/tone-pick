@@ -765,10 +765,12 @@ export interface ParticipantState {
   announcements: PublicAnnouncement[];
 }
 
-/** 등록 응답. 같은 번호로 다시 들어온 경우 `resumed` 로 알린다 (REGISTER.welcomeBack) */
+/**
+ * 등록 응답. **새로 등록한 사람만** 받는다 — 이미 등록한 번호는 401 로 문 앞에 돌려보낸다 (ADR-75).
+ * 그래서 `다시 오셨네요` 갈래(`resumed`)가 없다. 돌아온 사람은 번호 + PIN 번호로 들어온다
+ */
 export interface RegisterResult {
   state: ParticipantState;
-  resumed: boolean;
 }
 
 /** 운영자 콘솔 한 벌. 운영자만 전체를 본다 */

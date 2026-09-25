@@ -189,7 +189,8 @@ type Fail =
   | "order"
   | "no_budget"
   | "pin_wrong"     // PIN 번호가 틀렸다. detail = 남은 횟수 (ADR-75)
-  | "pin_locked";   // 다섯 번 틀려 잠겼다. 운영자만 푼다 (ADR-75)
+  | "pin_locked"    // 다섯 번 틀려 잠겼다. 운영자만 푼다 (ADR-75)
+  | "unauthorized"; // 초대 쿠키로 들어올 수 없는 사람이다 — 이미 등록했다. 문(번호 + PIN 번호)으로 간다
 
 /** `detail` 은 문구에 들어갈 숫자다 (예: 남은 콕 최대 횟수). 문장은 Worker 가 고른다 */
 export type Result<T> =
@@ -687,12 +688,14 @@ export class EventDO extends DurableObject {
     // PIN 번호는 등록을 마쳐야 저장된다 (ADR-75). 재입력 대조는 화면 몫이라 여기엔 하나뿐이다
     if (!validPin(input.pin)) return fail("bad_request");
 
-    const mine = this.rows<PlayerRow>("SELECT * FROM players WHERE phone = ?", phone)[0];
-    const saved = this.writeProfile(clean, {
-      id: mine?.id ?? randomHex(8),
-      phone,
-      createdAt: mine?.created_at ?? now,
-    });
+    /*
+     * **이미 등록한 번호는 여기서 끝난다** (ADR-75). 초대 쿠키는 등록 전에 번호만 치면 나오고 한 시간 산다 —
+     * 주인보다 먼저 받아 둔 쿠키로 다시 내면 주인의 정보와 PIN 번호를 갈아 끼우고 그 사람의 세션을
+     * 받아 갔다. `첫 입장의 선점` 은 **등록 전**의 이야기다. 등록한 사람의 문은 번호 + PIN 번호(`enter`) 하나다.
+     * 같은 사람의 두 번째 탭도 여기서 막힌다 — 화면은 401 이면 문 앞으로 가고, 거기서 PIN 번호로 들어온다.
+     */
+    if (this.rows<{ id: string }>("SELECT id FROM players WHERE phone = ?", phone)[0]) return fail("unauthorized");
+    const saved = this.writeProfile(clean, { id: randomHex(8), phone, createdAt: now });
     if (!saved.ok) return saved;
 
     /*
@@ -807,14 +810,13 @@ export class EventDO extends DurableObject {
     // 번호는 **여기서** 푼다. 쿠키에는 명단 행의 토큰만 들어 있다 (ADR-75)
     const phone = this.phoneOf(token);
     if (!phone) return fail("not_invited") as Result<RegisterResult>;
-    const before = this.rows<{ id: string }>("SELECT id FROM players WHERE phone = ?", phone)[0];
 
     const made = await this.register(input, phone, now);
     if (!made.ok) return made as Result<RegisterResult>;
 
     const state = await this.participantState(made.value.id, now);
     if (!state.ok) return state as Result<RegisterResult>;
-    return ok({ state: state.value, resumed: !!before });
+    return ok({ state: state.value });
   }
 
   async deletePlayer(playerId: string): Promise<Result<true>> {

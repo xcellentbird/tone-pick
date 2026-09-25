@@ -318,8 +318,6 @@ export const REGISTER = {
      */
     nickTaken: "이미 쓰고 있는 닉네임이에요. 다른 닉네임을 골라주세요.",
   },
-  /** 같은 번호로 다시 들어온 경우 */
-  welcomeBack: (nick: string) => `${nick}님, 다시 오셨네요 👋`,
   draftGuard: "쓰던 내용이 사라집니다. 나갈까요?",
 } as const;
 
