@@ -1303,7 +1303,7 @@ export class EventDO extends DurableObject {
   async ackSeat(playerId: string, round: number): Promise<Result<true>> {
     const s = this.seatings().find((x) => x.round === round && x.status === "published");
     if (!s) return fail("not_found");
-    // 그 라운드에 앉은 사람만 확인한다 — 지워졌거나 비워진 사람의 확인이 쌓이면 운영자의 `확인 N/M` 이 넘친다
+    // 그 라운드에 앉은 사람만 확인한다 — 자리가 없는 사람이 "이 자리를 안다" 로 적히면 `acks` 가 뜻을 잃는다
     if (!s.seats.some((x) => x.playerId === playerId)) return fail("not_found");
     if (!s.acks.includes(playerId)) {
       s.acks.push(playerId);
@@ -1312,8 +1312,7 @@ export class EventDO extends DurableObject {
         JSON.stringify(s.acks),
         round,
       );
-      // 운영자의 `자리 이동 확인 N/M` 이 바뀌었다 (ADR-107)
-      this.toHosts({ type: "counts" });
+      // 운영자에게는 보내지 않는다 (ADR-110) — 운영자 화면에 이 확인으로 바뀌는 것이 없어서 다시 읽기만 헛돈다
     }
     return ok(true);
   }

@@ -18,7 +18,7 @@ const PING_MS = 25_000;
 const SILENT_MS = 70_000;
 
 /**
- * `host` 는 운영자 콘솔만 켠다 (ADR-107). 서버가 운영자 쿠키로 확인하면 운영자 신호(콕·자리 이동 확인·PIN 번호)까지 받는다.
+ * `host` 는 운영자 콘솔만 켠다 (ADR-107). 서버가 운영자 쿠키로 확인하면 운영자 신호(콕·되돌리기·PIN 번호)까지 받는다.
  * 참가자 화면은 켜지 않는다 — 한 브라우저에 운영자 쿠키가 같이 있어도(스테이지의 참가자 틀) 운영자 신호를 받으면 안 된다.
  */
 export function connect(code: string, onEvent: (ev: ServerEvent) => void, opts: { host?: boolean } = {}) {

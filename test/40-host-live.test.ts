@@ -1,8 +1,9 @@
 /**
  * 운영자 콘솔은 참가자가 한 일도 실시간으로 받는다 (ADR-107).
  *
- * 콕, 되돌리기, 자리 이동 확인, PIN 번호 — 참가자가 한 일인데 운영자 화면의 숫자만 바꾸는 것들이
+ * 콕, 되돌리기, PIN 번호 — 참가자가 한 일인데 운영자 화면의 숫자만 바꾸는 것들이
  * 운영자에게 신호를 안 보내서, 운영자는 새로고침을 눌러야 현황을 봤다.
+ * 자리 이동 확인은 거기서 빠졌다 (ADR-110) — 운영자 화면에 그 숫자가 없다.
  *
  * **신호는 로그인한 운영자 소켓에만 간다.** 회차 코드만 알면 누구나 소켓을 열 수 있고,
  * 콕 신호가 그런 소켓에 가면 *방금 누가 찔렀다* 는 시점이 샌다 — 파티장에서 누가 폰을 만졌는지와 맞추면
@@ -73,7 +74,11 @@ describe("운영자 콘솔은 참가자가 한 일을 실시간으로 받는다"
     expect(types(tab)).not.toContain("counts");
   });
 
-  it("★ 자리 이동 확인도 운영자에게 간다", async () => {
+  it("★ 자리 이동 확인은 운영자에게 가지 않는다 — 운영자 화면에 바뀔 것이 없다 (ADR-110)", async () => {
+    /*
+     * 신호가 가면 콘솔이 다시 읽는다. 자리를 보낸 직후에는 확인이 몰려서
+     * 바뀐 것 하나 없는 읽기가 운영자 탭마다 2초에 한 번씩 돈다.
+     */
     const { ev, m } = await prevote();
     await api(`/api/host/events/${ev.id}/seating`, { method: "POST", cookie: master, body: { tableCount: 1 } });
     await api(`/api/host/events/${ev.id}/seating/publish`, { method: "POST", cookie: master });
@@ -82,7 +87,7 @@ describe("운영자 콘솔은 참가자가 한 일을 실시간으로 받는다"
 
     expect((await api("/api/seat/ack", { method: "POST", cookie: m.cookie, body: { round: 1 } })).status).toBe(200);
     await settle();
-    expect(types(host), "자리 이동 확인이 운영자에게 안 갔다").toContain("counts");
+    expect(host, "자리 이동 확인이 운영자 콘솔을 다시 읽게 했다").toEqual([]);
   });
 
   it("★ PIN 번호가 잠기거나 새로 정해지면 운영자에게 간다", async () => {

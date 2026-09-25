@@ -1007,7 +1007,7 @@ describe("운영자 콘솔", () => {
 
   it("★ 콘솔은 운영자로 밝히고 붙고, 신호가 몰려도 모아서 읽는다 (ADR-107)", async () => {
     /*
-     * 콕·자리 이동 확인·PIN 번호는 **로그인한 운영자 소켓에만** 간다. 콘솔이 `?host=1` 로 밝히지 않으면
+     * 콕·되돌리기·PIN 번호는 **로그인한 운영자 소켓에만** 간다. 콘솔이 `?host=1` 로 밝히지 않으면
      * 서버가 운영자로 치지 않아 그 신호를 못 받는다 — 참가자 이름표는 싣지 않는다.
      * 그리고 파티 중에는 콕이 잇따라 온다. 신호마다 읽으면 요청이 몰리므로 첫 신호만 바로 읽고 나머지는 모은다.
      */
@@ -1474,80 +1474,42 @@ describe("발행된 자리를 고치는 문", () => {
 });
 
 /**
- * 자리를 **아직 확인 안 한 사람**을 이름으로 보여준다.
+ * 자리 이동 확인은 **운영자 화면에 없다** (ADR-110). 참가자의 확인은 본인의 전체 화면을 닫는 데만 쓴다 —
+ * 운영자는 시계를 보고 파티를 이끌고, 안 옮긴 사람은 방을 둘러보고 부른다.
  *
- * 숫자(`HOST.ack.progress`)만 있을 때는 운영자가 할 수 있는 일이 없었다 — 몇 명인지는
- * 알아도 누구인지를 몰라서다. 화장실에 갔거나 밖에 나간 사람은 방에 대고 말해도 안 들린다.
+ * 지운 문구는 가리킬 수 없으니 **확인만 다른 두 상태**를 그려 자리 탭이 같은지 본다.
+ * 숫자(`N/M명`)든 이름 목록이든 다시 생기면 둘이 갈린다.
  */
-describe("자리를 아직 확인 안 한 사람", () => {
-  const round = (n: number, over: Partial<SeatingRound> = {}): SeatingRound => ({
-    round: n,
-    tableCount: 2,
-    status: "published",
-    seats: [{ playerId: "p1", table: 2 }, { playerId: "p2", table: 1 }],
-    acks: [],
-    createdAt: n,
-    publishedAt: n,
-    ...over,
-  });
-  const card = (n: number) => screen.getByText(HOST_UI.seats.roundTitle(n)).closest(".card") as HTMLElement;
-  const seatsState = (over: Partial<HostState["meta"]> = {}, rounds: SeatingRound[] = [round(1), round(2)]) =>
-    hostState({ phase: "party", ...over }, { seatings: rounds });
+describe("자리 이동 확인은 운영자에게 보이지 않는다 (ADR-110)", () => {
+  const rounds = (acks: string[]): SeatingRound[] =>
+    [1, 2].map((n) => ({
+      round: n,
+      tableCount: 2,
+      status: "published",
+      seats: [{ playerId: "p1", table: 2 }, { playerId: "p2", table: 1 }],
+      acks,
+      createdAt: n,
+      publishedAt: n,
+    }));
 
-  it("★ 이름으로 보여준다 — 숫자만으로는 찾아갈 수가 없다", async () => {
-    stubFetch(seatsState());
-    renderConsole("/host/e1/seats");
+  /** 자리 탭의 글자. 고치는 중인 카드도 읽는다 — 확인 수는 거기서도 남아 있었다 */
+  async function seatTab(acks: string[]) {
+    stubFetch(hostState({ phase: "party" }, { seatings: rounds(acks) }));
+    const view = renderConsole("/host/e1/seats");
     await screen.findByText(HOST_UI.seats.roundTitle(2));
+    const text = () => document.querySelector(".body")?.textContent ?? "";
+    const reading = text();
+    fireEvent.click(screen.getByText(HOST_UI.seats.edit));
+    const editing = text();
+    view.unmount();
+    return { reading, editing };
+  }
 
-    const body = card(2).textContent ?? "";
-    // 옮겨갈 테이블을 함께 준다 — 찾았을 때 알려줄 값이 이름 옆에 있어야 한다
-    expect(body, "이름이 없다").toContain(HOST_UI.seats.notAckedAt("가", 2));
-    expect(body, "이름이 없다").toContain(HOST_UI.seats.notAckedAt("나", 1));
-    // 테이블 순 — 같은 번호끼리 붙어 있어야 한 번에 말해줄 수 있다
-    expect(body.indexOf("나 · 1번"), "테이블 순이 아니다").toBeLessThan(body.indexOf("가 · 2번"));
-  });
-
-  it("★ 전원이 확인하면 사라진다 — `0명` 을 띄우지 않는다", async () => {
-    stubFetch(seatsState({}, [round(1, { acks: ["p1", "p2"] }), round(2, { acks: ["p1", "p2"] })]));
-    renderConsole("/host/e1/seats");
-    await screen.findByText(HOST_UI.seats.roundTitle(2));
-
-    expect(screen.queryByText(HOST_UI.seats.notAcked), "할 일이 없는데 목록이 떴다").toBeNull();
-  });
-
-  it("★ 한 명만 남으면 그 한 명만 선다", async () => {
-    stubFetch(seatsState({}, [round(2, { acks: ["p2"] })]));
-    renderConsole("/host/e1/seats");
-    await screen.findByText(HOST_UI.seats.roundTitle(2));
-
-    const body = card(2).textContent ?? "";
-    expect(body).toContain(HOST_UI.seats.notAckedAt("가", 2));
-    expect(body, "확인한 사람이 남아 있다").not.toContain(HOST_UI.seats.notAckedAt("나", 1));
-  });
-
-  /**
-   * ★ **지난 라운드에는 서지 않는다.** 사람들은 이미 다음 자리에 앉아 있어서
-   * 그 라운드의 확인을 이제 와서 받을 길이 없다 — 영영 안 지워지는 할 일이 된다.
-   */
-  it("★ 지난 라운드에는 서지 않는다 — 최신 하나만", async () => {
-    stubFetch(seatsState());
-    renderConsole("/host/e1/seats");
-    await screen.findByText(HOST_UI.seats.roundTitle(1));
-
-    expect(within(card(2)).queryByText(HOST_UI.seats.notAcked), "최신 라운드에 안 선다").toBeTruthy();
-    expect(within(card(1)).queryByText(HOST_UI.seats.notAcked), "지난 라운드에 섰다").toBeNull();
-  });
-
-  /**
-   * ★ **발표 뒤에는 서지 않는다.** 참가자 화면에 자리 카드가 아예 안 뜨므로
-   * (`SeatTakeover`) 확인이 올 수 없다. 그때 이 목록은 아무도 지울 수 없는 이름표다.
-   */
-  it("★ 발표 뒤에는 서지 않는다 — 확인이 올 수 없는 자리다", async () => {
-    stubFetch(seatsState({ phase: "done", fired: { reg: 1, prevote: 2, party: 3, done: 4 } }));
-    renderConsole("/host/e1/seats");
-    await screen.findByText(HOST_UI.seats.roundTitle(2));
-
-    expect(screen.queryByText(HOST_UI.seats.notAcked), "발표 뒤에 섰다").toBeNull();
+  it("★ 아무도 확인 안 했을 때와 전원이 확인했을 때 자리 탭이 같다", async () => {
+    const none = await seatTab([]);
+    const all = await seatTab(["p1", "p2"]);
+    expect(all.reading, "자리 탭에 확인이 보인다").toBe(none.reading);
+    expect(all.editing, "고치는 중인 카드에 확인이 보인다").toBe(none.editing);
   });
 });
 

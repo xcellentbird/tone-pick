@@ -1234,14 +1234,14 @@ describe("참가자 화면 · 자리", () => {
   it("★ 파티 전과 파티 중이 다르게 말한다 (ADR-39)", async () => {
     /*
      * 첫 자리는 파티가 시작되기 전에 나간다. 그때 이 화면을 받는 사람은 **아직 오는 중**일 수 있어서
-     * "이동해주세요" 도 "지켜보고 있어요" 도 그 사람에게는 재촉이다.
+     * "이동해주세요" 는 그 사람에게 재촉이다.
      */
     const party = fakeSource({
       load: async () => participantState({ seat, event: { ...participantState().event, phase: "party" } }),
     });
     renderParticipant(party);
     await screen.findByText(SEAT.ack.headline(2, true));
-    expect(screen.getByText(SEAT.ack.watching)).toBeTruthy();
+    expect(screen.getByText(SEAT.ack.submit(true))).toBeTruthy();
 
     cleanup();
 
@@ -1249,13 +1249,25 @@ describe("참가자 화면 · 자리", () => {
     renderParticipant(fakeSource({ load: async () => participantState({ seat }) }));
     await screen.findByText(SEAT.ack.headline(2, false));
     expect(screen.getByText(SEAT.ack.beforeParty)).toBeTruthy();
-    expect(screen.queryByText(SEAT.ack.watching)).toBeNull();
+  });
+
+  it("★ 운영자가 본다고 말하지 않는다 — 운영자는 자리 확인을 보지 않는다 (ADR-110)", async () => {
+    /*
+     * 파티 중에는 `운영자가 이동 현황을 보고 있어요` 가 섰다. 운영자 화면에서 확인을 걷은 뒤로는
+     * 보지 않는 것을 본다고 말하는 문장이다 — 문구가 코드보다 넓게 말하면 그 순간부터 거짓말이다.
+     */
+    renderParticipant(
+      fakeSource({ load: async () => participantState({ seat, event: { ...participantState().event, phase: "party" } }) }),
+    );
+    await screen.findByText(SEAT.ack.headline(2, true));
+    const takeover = document.querySelector(".takeover")?.textContent ?? "";
+    expect(takeover, "자리 전체 화면이 운영자를 말한다 — 본다는 약속으로 읽힌다").not.toMatch(/운영자/);
   });
 
   it("★ 확인 저장이 실패하면 안내가 그대로 남는다 — 조용히 삼키지 않는다", async () => {
     /*
      * 삼키면 화면에서는 사라지고 서버에는 미확인으로 남아,
-     * 운영자가 보는 이동 확인 수가 조용히 모자란다.
+     * 앱을 다시 열 때 전체 화면이 또 덮친다.
      */
     const source = fakeSource({
       load: async () => participantState({ seat }),

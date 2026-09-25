@@ -201,7 +201,7 @@ export default function Dash() {
       />
       {/* 파티 전에는 보너스가 있다는 것만 말한다. 누가 받을지는 파티 시작 확인창이 이름으로 말한다 */}
       {bonus && !started && <p className="tiny dim">{HOST_UI.dash.topVoteHint}</p>}
-      {/* 자리 이동 확인율은 여기 두지 않는다 — 자리를 보낸 직후에 보는 숫자라 자리 탭 라운드 카드에 있다 */}
+      {/* 자리 이동 확인은 운영자 화면 어디에도 두지 않는다 (ADR-110) — 여기도, 자리 탭에도 */}
     </div>
   );
 }
