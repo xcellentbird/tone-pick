@@ -17,7 +17,11 @@ const PING_MS = 25_000;
 /** 이만큼 아무 소식이 없으면 죽은 줄로 본다. ping 두 번을 놓친 셈이다 */
 const SILENT_MS = 70_000;
 
-export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
+/**
+ * `host` 는 운영자 콘솔만 켠다 (ADR-107). 서버가 운영자 쿠키로 확인하면 운영자 신호(콕·자리 이동 확인·PIN 번호)까지 받는다.
+ * 참가자 화면은 켜지 않는다 — 한 브라우저에 운영자 쿠키가 같이 있어도(스테이지의 참가자 틀) 운영자 신호를 받으면 안 된다.
+ */
+export function connect(code: string, onEvent: (ev: ServerEvent) => void, opts: { host?: boolean } = {}) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   let ws: WebSocket | null = null;
   let retry = 0;
@@ -36,7 +40,9 @@ export function connect(code: string, onEvent: (ev: ServerEvent) => void) {
      * 주소에 실려도 되고, 증명은 여전히 쿠키다 (ADR-44).
      */
     const ref = tabRef();
-    const sock = new WebSocket(`${proto}://${location.host}/ws/${code}${ref ? `?ref=${ref}` : ""}`);
+    // 운영자 콘솔은 참가자 이름표를 싣지 않는다 — 그 소켓은 누구의 참가자 소켓도 아니다
+    const query = opts.host ? "?host=1" : ref ? `?ref=${ref}` : "";
+    const sock = new WebSocket(`${proto}://${location.host}/ws/${code}${query}`);
     ws = sock;
 
     /*

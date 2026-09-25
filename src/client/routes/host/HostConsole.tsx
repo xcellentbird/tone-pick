@@ -7,13 +7,20 @@ import { NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams 
 import { HOST_UI, PHASE_LABEL, TABS_HOST } from "../../../shared/copy.ts";
 import type { HostState } from "../../../shared/types.ts";
 import { api } from "../../lib/api.ts";
-import { useLoad } from "../../lib/useLoad.ts";
+import { useLoad, useTimeouts } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
 import { LoadFailed } from "../../ui/Boom.tsx";
 import { connect } from "../../lib/realtime.ts";
 import { Overlays } from "../../ui/Overlays.tsx";
 
 export type ConsoleState = HostState;
+
+/**
+ * 신호가 몰릴 때 다시 읽는 간격 (ADR-107). 콘솔은 콕 하나에도 다시 읽는데, 파티 중에는 콕이 잇따라 온다 —
+ * 신호마다 읽으면 요청이 몰린다. **첫 신호는 바로 읽고**, 그 뒤 이만큼 안에 온 것은 모아서 한 번 더 읽는다.
+ * 운영자 탭 하나가 많아야 분당 30번이다.
+ */
+export const HOST_RELOAD_GAP_MS = 2_000;
 
 export interface ConsoleCtx {
   state: ConsoleState;
@@ -32,10 +39,31 @@ export default function HostConsole() {
   useAuthRedirect(loaded.error, `/host?event=${id}`);
 
   const code = loaded.data?.meta.code;
+  const later = useTimeouts();
   useEffect(() => {
     if (!code) return;
-    const socket = connect(code, () => loaded.reload());
-    return () => socket.close();
+    /** 마지막으로 다시 읽은 때, 그리고 모아 둔 한 번 */
+    let last = 0;
+    let pending: (() => void) | null = null;
+    const pull = () => {
+      pending = null;
+      last = Date.now();
+      loaded.reload();
+    };
+    const socket = connect(
+      code,
+      () => {
+        if (pending) return;
+        const wait = last + HOST_RELOAD_GAP_MS - Date.now();
+        if (wait <= 0) pull();
+        else pending = later(pull, wait);
+      },
+      { host: true },
+    );
+    return () => {
+      socket.close();
+      pending?.();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
 

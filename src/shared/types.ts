@@ -443,6 +443,11 @@ export type ServerEvent =
    * **아무것도 싣지 않는다.** 받는 쪽은 어차피 다시 읽는다 (ADR-26).
    */
   | { type: "notice" }
+  /**
+   * 운영자 화면의 숫자가 바뀌었다 — 콕·되돌리기·자리 이동 확인·PIN 번호 (ADR-107).
+   * **로그인한 운영자 소켓에만 간다** (`toHosts`). 아무것도 싣지 않는다 — 콘솔은 받으면 다시 읽는다.
+   */
+  | { type: "counts" }
   | { type: "reveal" }                                // 클라이언트가 다시 fetch 한다
   | { type: "pong"; serverTime: number }
   /**
