@@ -86,7 +86,6 @@ export async function freshEvent(config: Partial<EventConfig> = {}): Promise<Eve
       name: `${seq}회차`,
       partyAt: Date.now() + 3 * 24 * HOUR,
       prevoteAt: Date.now() + 24 * HOUR,
-      voteEndAt: Date.now() + 3 * 24 * HOUR - HOUR,
       // 발표는 파티 **뒤**다 (ADR-43). 여기 테스트들은 발표를 직접 눌러 넘기므로 넉넉히 둔다
       revealAt: Date.now() + 3 * 24 * HOUR + 3 * HOUR,
       /*

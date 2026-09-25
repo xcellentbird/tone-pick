@@ -89,11 +89,11 @@ hostRoutes.put("/defaults", async (c) => {
       maxPre: body.maxPre,
       maxParty: body.maxParty,
       maxNotes: body.maxNotes,
+      topVoteBonus: body.topVoteBonus,
       place: String(body.place ?? "").trim().slice(0, LIMITS.placeMax),
       // 앞뒤 공백만 턴다. 안쪽 줄바꿈은 막지 않는다 — 한 줄로 쓰라고 강제할 이유가 없다
       nickHint: String(body.nickHint ?? "").trim().slice(0, LIMITS.nickHintMax),
       prevoteBeforeH: body.prevoteBeforeH,
-      voteEndBeforeH: body.voteEndBeforeH,
       revealAfterH: body.revealAfterH,
       inviteTemplate: String(body.inviteTemplate ?? "").slice(0, LIMITS.inviteTemplateMax),
     }),
@@ -133,9 +133,9 @@ hostRoutes.post("/events", async (c) => {
    */
   const partyAt = Number(body.partyAt);
   const prevoteAt = Number(body.prevoteAt);
-  const voteEndAt = Number(body.voteEndAt);
   const revealAt = Number(body.revealAt);
-  if (![partyAt, prevoteAt, voteEndAt, revealAt].every(Number.isFinite)) return apiError(c, "bad_request");
+  // 매력 투표 마감 시각은 받지 않는다 (ADR-100) — 보내와도 읽지 않는다. 매력 투표는 파티 시작에 닫힌다
+  if (![partyAt, prevoteAt, revealAt].every(Number.isFinite)) return apiError(c, "bad_request");
   // 예약 전환 셋의 순서 (ADR-93 후기). 고칠 때(`EventDO.setSchedule`)와 **같은 함수**다 — 여기서는 아직 아무것도 안 울렸다
   if (!scheduleInOrder({ prevoteAt, partyAt, revealAt }, {})) return apiError(c, "order", HOST_UI.scheduleOrder);
 
@@ -161,7 +161,7 @@ hostRoutes.post("/events", async (c) => {
     // 만드는 순간 등록이 열린다. 시각은 **기록으로** 남긴다 — 지나간 예약을 지우지 않는 것과 같다
     phase: "reg",
     fired: { reg: now },
-    schedule: { partyAt, regOpenAt: now, prevoteAt, voteEndAt, revealAt },
+    schedule: { partyAt, regOpenAt: now, prevoteAt, revealAt },
     // 좁혔을 때만 적는다. 기본값을 굳이 써 넣으면 설정의 모양이 회차마다 달라진다
     config: {
       maxPre: body.config.maxPre,
@@ -172,6 +172,8 @@ hostRoutes.post("/events", async (c) => {
       ...(body.config.pokeNotify === true ? { pokeNotify: true } : {}),
       // 익명 쪽지 (ADR-98). 0 이면 안 적는다 — 옛 회차와 같은 모양으로 남는다
       ...(body.config.maxNotes ? { maxNotes: body.config.maxNotes } : {}),
+      // 매력 투표 1위 보너스 콕 (ADR-100). 0 이면 안 적는다
+      ...(body.config.topVoteBonus ? { topVoteBonus: body.config.topVoteBonus } : {}),
     },
     createdAt: now,
   });
@@ -231,18 +233,6 @@ hostRoutes.post("/events/:id/phase", async (c) => {
   const body = await json<{ to?: Phase }>(c);
   if (!body.to || !PHASE_ORDER.includes(body.to)) return apiError(c, "bad_request");
   const { value, response } = unwrap(c, await gate.stub.setPhase(body.to, serverNow()));
-  return response ?? c.json(value);
-});
-
-/**
- * 매력 투표를 지금 마감한다 (ADR-39 후기). **단계는 넘어가지 않는다** —
- * 표만 닫히고 나이·MBTI 도 파티 콕도 `파티 시작` 이 연다.
- * 시각은 **서버가 찍는다.** 운영자 폰이 빠르면 아직 열려 있는 걸 닫힌 것으로 만든다.
- */
-hostRoutes.post("/events/:id/vote-end", async (c) => {
-  const gate = await openEvent(c);
-  if (gate.response) return gate.response;
-  const { value, response } = unwrap(c, await gate.stub.closeVote(serverNow()));
   return response ?? c.json(value);
 });
 
@@ -487,7 +477,7 @@ async function json<T>(c: Ctx): Promise<T> {
 
 function validConfig(config: EventConfig | undefined): boolean {
   if (!config) return false;
-  const { maxPre, maxParty, maxNotes, allowSameGender, preNotify, pokeNotify } = config;
+  const { maxPre, maxParty, maxNotes, topVoteBonus, allowSameGender, preNotify, pokeNotify } = config;
   /*
    * 없으면 기본값이다. 있으면 불리언이어야 한다 — `"true"` 라는 글자가 들어오면 안 된다.
    * **굳는 규칙 셋이 다 여기 있어야 한다** (ADR-35·95). 하나가 빠지면 그 값만
@@ -502,6 +492,12 @@ function validConfig(config: EventConfig | undefined): boolean {
    */
   if (maxNotes !== undefined) {
     if (!Number.isInteger(maxNotes) || maxNotes < LIMITS.maxNotes.min || maxNotes > LIMITS.maxNotes.max) {
+      return false;
+    }
+  }
+  // 1위 보너스 콕 (ADR-100) — 없으면 0. 있으면 0 이나 1
+  if (topVoteBonus !== undefined) {
+    if (!Number.isInteger(topVoteBonus) || topVoteBonus < LIMITS.topVoteBonus.min || topVoteBonus > LIMITS.topVoteBonus.max) {
       return false;
     }
   }
@@ -526,8 +522,6 @@ function validDefaults(d: Defaults): boolean {
     (d.place === undefined || typeof d.place === "string") &&
     Number.isFinite(d.prevoteBeforeH) &&
     d.prevoteBeforeH >= 0 &&
-    Number.isFinite(d.voteEndBeforeH) &&
-    d.voteEndBeforeH >= 0 &&
     // 발표만 파티 **뒤**를 잰다 (ADR-43). 0 이면 파티 시작과 동시에 발표라 뜻이 없다
     Number.isFinite(d.revealAfterH) &&
     d.revealAfterH > 0

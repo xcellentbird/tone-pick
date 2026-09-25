@@ -328,7 +328,6 @@ export const HELP = `
   poke A B  /  unpoke A B  A가 B를 콕 (매력 투표 중이면 표, 파티 중이면 콕) · 되돌리기
   mutual A B              A→B, B→A 를 한 번에
   phase reg|prevote|party|done      단계 넘기기 (done = 발표)
-  voteend                 매력 투표 지금 마감
   seating T [-x A,B]      자리 초안 (T 테이블, -x 뺄 사람) · publish · shuffle · swap A B · seat A · unseat A · discard
   announce 문구 [| 보기A | 보기B]   운영자 알림 (보기 둘을 주면 투표)
   auto [last]             자동 콕 — 실제 파티처럼. 남자는 대부분 다 쓰고 콕이 여자 몇 명에게 몰린다. 여자는 절반 정도가
@@ -339,7 +338,7 @@ export const HELP = `
   late [m|f]              참가자 한 명 추가 (m 은 남자, f 는 여자, 안 주면 적은 쪽)
   kick A · pinreset A     참가자 삭제 · PIN 번호 초기화
   lock A                  A 의 번호로 PIN 을 다섯 번 틀린다 (잠금 재현)
-  schedule prevote|party|voteend|reveal +30s|+5m   예약 시각을 지금부터 N 뒤로
+  schedule prevote|party|reveal +30s|+5m   예약 시각을 지금부터 N 뒤로
   url A|host              참가 링크 · 번호 · PIN
   delete                  회차 삭제
 `;
@@ -424,7 +423,6 @@ export async function beginStage(env, want) {
       name: `스테이지 ${new Date(stamp + 9 * 3600_000).toISOString().slice(11, 16)}`,
       partyAt,
       prevoteAt: stamp + 3600_000,
-      voteEndAt: partyAt - 3600_000,
       revealAt: partyAt + 3 * 3600_000,
       config,
       requestId: `stage-${stamp}`,
@@ -634,14 +632,13 @@ function makeStage(env, { tables = 2 } = {}) {
       return stage.backlog.length;
     },
 
-    /** 단계를 만든다. party 는 표를 닫고 자리를 발행해야 파티가 열려 있는 모양이 된다 */
+    /** 단계를 만든다. party 는 자리를 발행해야 파티가 열려 있는 모양이 된다 — 매력 투표는 파티 시작이 닫는다 (ADR-100) */
     async gotoPhase(to) {
       if (to === "reg") return;
       const order = ["prevote", "party", "done"];
       if (!order.includes(to)) return say(`  ? 모르는 단계 ${to} (prevote · party · done)`);
       await stage.run("phase prevote");
       if (to === "prevote") return;
-      await stage.run("voteend");
       await stage.run(`seating ${stage.tables}`);
       await stage.run("publish");
       await stage.run("phase party");
@@ -682,7 +679,7 @@ function makeStage(env, { tables = 2 } = {}) {
             `<tr><td>${p.n}</td><td>${esc(p.nickname)}</td><td>${p.gender === "M" ? "남" : "여"} ${p.age}</td><td>${p.phone}</td><td>${p.pin}</td></tr>`,
         )
         .join("");
-      const all = ["cast", "state", "phase prevote", "voteend", `seating ${stage.tables}`, "publish", "shuffle", "phase party", "phase done", "auto", "auto last", "pairs", "late", ...chips];
+      const all = ["cast", "state", "phase prevote", `seating ${stage.tables}`, "publish", "shuffle", "phase party", "phase done", "auto", "auto last", "pairs", "late", ...chips];
       const chipHtml = all.map((c) => `<button data-cmd="${esc(c)}">${esc(c)}</button>`).join("");
       return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>스테이지 · ${esc(stage.event.code)}</title>
@@ -782,8 +779,6 @@ async function runLine(env, stage, line, { say, fail }) {
       const done = { reg: "등록 단계로", prevote: "매력 투표 시작", party: "파티 시작", done: "커플 발표" }[rest[0]];
       return ok(done ?? `단계 → ${rest[0]}`, res);
     }
-    case "voteend":
-      return ok("매력 투표 마감", await H("/vote-end", { method: "POST" }));
     case "seating": {
       const tableCount = Number(rest[0] ?? stage.tables);
       const xi = rest.indexOf("-x");
@@ -945,7 +940,7 @@ async function runLine(env, stage, line, { say, fail }) {
       return;
     }
     case "schedule": {
-      const key = { prevote: "prevoteAt", party: "partyAt", voteend: "voteEndAt", reveal: "revealAt" }[rest[0]];
+      const key = { prevote: "prevoteAt", party: "partyAt", reveal: "revealAt" }[rest[0]];
       const d = dur(rest[1]);
       if (!key || d === null) return say("  ? 예: schedule reveal +30s");
       const cur = await H("/state");

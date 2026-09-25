@@ -50,7 +50,7 @@ beforeEach(async () => {
 
 async function freshEvent(
   config: Partial<EventConfig> = {},
-  schedule: Partial<{ prevoteAt: number; voteEndAt: number }> = {},
+  schedule: Partial<{ prevoteAt: number }> = {},
 ): Promise<EventMeta> {
   seq++;
   const now = Date.now();
@@ -61,7 +61,6 @@ async function freshEvent(
       name: `${seq}회차`,
       partyAt: now + 3 * 24 * HOUR,
       prevoteAt: now + 24 * HOUR,
-      voteEndAt: now + 3 * 24 * HOUR - HOUR,
       revealAt: now + 3 * 24 * HOUR + 3 * HOUR,
       ...schedule,
       config: { maxPre: 2, maxParty: 3, ...config },
@@ -306,22 +305,19 @@ describe("굳는 설정", () => {
 
   it("★ 일정은 지나온 것씩 굳는다 (ADR-39)", async () => {
     /*
-     * ADR-35 는 일정을 통째로 묶었는데, 매력 투표 마감에 시각이 생기면서 갈라야 했다 —
-     * **파티가 늦어지면 마감도 미뤄야 한다.** 지나온 것만 잠근다.
+     * ADR-35 는 일정을 통째로 묶었는데 그러면 **파티가 늦어질 때 파티 일시를 못 미룬다.** 지나온 것만 잠근다.
      */
     const ev = await freshEvent();
     await setPhase(ev.id, "prevote");
 
     // 매력 투표는 이미 시작됐다 — 그 시각은 잠긴다
     expect((await putSchedule(ev.id, { prevoteAt: ev.schedule.prevoteAt! + HOUR })).status).toBe(409);
-    // 파티 일시와 투표 마감은 아직 앞에 있다 — 미룰 수 있어야 한다
+    // 파티 일시는 아직 앞에 있다 — 미룰 수 있어야 한다
     expect((await putSchedule(ev.id, { partyAt: ev.schedule.partyAt! + HOUR })).status).toBe(200);
-    expect((await putSchedule(ev.id, { voteEndAt: ev.schedule.voteEndAt! + HOUR })).status).toBe(200);
 
     // 파티가 시작되면 남은 일정이 없다 — 전부 잠긴다
     await setPhase(ev.id, "party");
     expect((await putSchedule(ev.id, { partyAt: ev.schedule.partyAt! + 2 * HOUR })).status).toBe(409);
-    expect((await putSchedule(ev.id, { voteEndAt: ev.schedule.voteEndAt! + 2 * HOUR })).status).toBe(409);
   });
 
   it("★ 그 전에는 바꿀 수 있다 — 굳는 것은 콕이 오간 뒤부터다", async () => {
@@ -361,98 +357,15 @@ describe("굳는 설정", () => {
 });
 
 /**
- * 매력 투표는 **시각으로 닫힌다** (ADR-39).
+ * 매력 투표는 **파티 시작에 닫힌다** (ADR-100) — 단계가 곧 기간이다.
  *
- * 전환이 아니라 판정이다 — 단계는 `prevote` 그대로고 알람도 울리지 않는다.
- * 이 시각과 파티 시작 사이가 운영자가 첫 자리를 짜는 시간이다.
+ * 한때 마감 시각(ADR-39)과 앞당겨 닫는 버튼(ADR-39 후기)이 있었고, 여기 그 규칙들이 있었다.
+ * 둘 다 걷어냈다. 파티 시작에 닫히는 것과 옛 마감 시각을 읽지 않는 것은 `38-charm-top-bonus` 가 본다.
  */
 describe("매력 투표 마감", () => {
-  it("★ 마감 시각이 지나면 투표가 닫힌다", async () => {
-    const ev = await freshEvent({}, { voteEndAt: Date.now() - HOUR });
-    const me = await join(ev);
-    const her = await join(ev, "F");
-    await setPhase(ev.id, "prevote");
-
-    const res = await poke(her.cookie, me.id);
-    expect(res.status, JSON.stringify(res.body)).toBe(409);
-  });
-
-  it("★ 닫혀도 단계는 그대로다 — 명단과 프로필은 계속 보인다", async () => {
-    /*
-     * 마감은 **투표만** 닫는다. 단계까지 넘겨버리면 나이·MBTI 가 함께 열리고(ADR-21)
-     * 콕이 열려서, 아직 아무도 안 온 자리에서 파티가 시작된 것이 된다.
-     */
-    const ev = await freshEvent({}, { voteEndAt: Date.now() - HOUR });
-    const me = await join(ev);
-    await join(ev, "F");
-    await setPhase(ev.id, "prevote");
-
-    const state = await meOf(me.cookie);
-    expect(state.body.event.phase).toBe("prevote");
-    // 명단은 나를 뺀 나머지다
-    expect(state.body.roster.length).toBe(1);
-  });
-
-  it("★ 파티 콕은 마감 시각을 보지 않는다", async () => {
-    // 파티 시작과 발표는 운영자가 누르는 것이라 그 사이에 마감할 시각이 없다 (ADR-14)
-    const ev = await freshEvent({}, { voteEndAt: Date.now() - HOUR });
-    const me = await join(ev);
-    const her = await join(ev, "F");
-    await setPhase(ev.id, "party");
-
-    expect((await poke(her.cookie, me.id)).status).toBe(200);
-  });
-
-  it("마감 전에는 평소대로 찌른다", async () => {
-    const ev = await freshEvent({}, { voteEndAt: Date.now() + HOUR });
-    const me = await join(ev);
-    const her = await join(ev, "F");
-    await setPhase(ev.id, "prevote");
-
-    expect((await poke(her.cookie, me.id)).status).toBe(200);
-  });
-
-  it("★ 마감 시각이 없는 옛 회차는 닫히지 않는다", () => {
-    // 없는 마감을 만들어 조용히 막지 않는다. 이 결정 전에 만든 회차가 프로덕션에 있다
-    expect(canPoke("prevote", Date.now(), {})).toBe(true);
-    expect(canPoke("prevote", Date.now(), { voteEndAt: Date.now() - 1 })).toBe(false);
-    // 운영자가 앞당겨 닫은 것도 같은 값이다 (ADR-39 후기)
-    expect(canPoke("prevote", Date.now(), {}, { voteEnd: Date.now() - 1 })).toBe(false);
-  });
-
-  /**
-   * 운영자가 마감을 **앞당겨도 단계는 그대로다** (ADR-39 후기).
-   *
-   * 넘기면 나이·MBTI(ADR-21)와 파티 콕이 함께 열려, **아직 아무도 안 온 자리에서
-   * 파티가 시작된 것**이 된다. 마감이 닫는 건 표를 더 낼 수 있는가 하나뿐이다.
-   */
-  it("★ 마감을 앞당겨도 단계는 매력 투표 그대로다", async () => {
-    const ev = await freshEvent({}, { voteEndAt: Date.now() + HOUR });
-    const me = await join(ev);
-    const her = await join(ev, "F");
-    await setPhase(ev.id, "prevote");
-    expect((await poke(her.cookie, me.id)).status).toBe(200);
-
-    const closed = await api<EventMeta>(`/api/host/events/${ev.id}/vote-end`, { method: "POST", cookie: master });
-    expect(closed.status, JSON.stringify(closed.body)).toBe(200);
-
-    // 단계는 그대로 — 나이·MBTI 도 파티 콕도 아직 열리지 않았다
-    expect(closed.body.phase).toBe("prevote");
-    expect(closed.body.fired.party).toBeUndefined();
-    // 표만 닫혔다
-    expect((await poke(her.cookie, me.id)).status).toBe(409);
-    // **예약은 기록으로 남는다** — 덮어쓰면 "예약은 몇 시였는데 언제 닫았다" 를 말할 수 없다
-    expect(closed.body.schedule.voteEndAt).toBeTypeOf("number");
-    expect(closed.body.fired.voteEnd).toBeTypeOf("number");
-    expect(closed.body.fired.voteEnd).not.toBe(closed.body.schedule.voteEndAt);
-  });
-
-  it("두 번 눌러도 처음 닫은 시각이 남는다", async () => {
-    const ev = await freshEvent({}, { voteEndAt: Date.now() + HOUR });
-    await setPhase(ev.id, "prevote");
-    const first = await api<EventMeta>(`/api/host/events/${ev.id}/vote-end`, { method: "POST", cookie: master });
-    const again = await api<EventMeta>(`/api/host/events/${ev.id}/vote-end`, { method: "POST", cookie: master });
-    expect(again.status).toBe(200);
-    expect(again.body.fired.voteEnd).toBe(first.body.fired.voteEnd);
+  it("★ 단계가 곧 기간이다 — 매력 투표와 파티에서만 찌른다", () => {
+    expect(canPoke("prevote")).toBe(true);
+    expect(canPoke("party")).toBe(true);
+    for (const phase of ["prep", "reg", "done"] as const) expect(canPoke(phase), phase).toBe(false);
   });
 });

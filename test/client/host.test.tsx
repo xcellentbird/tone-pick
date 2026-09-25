@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, UNIT, VOTE_END, phaseAction, schedDiff } from "../../src/shared/copy.ts";
+import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, UNIT, phaseAction, schedDiff } from "../../src/shared/copy.ts";
 import { formatGap, formatWhen, toLocalInput } from "../../src/shared/time.ts";
 import type { HostState, SeatingRound } from "../../src/shared/types.ts";
 import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
@@ -350,13 +350,13 @@ describe("운영자 콘솔", () => {
     cleanup();
 
     /*
-     * 매력 투표가 닫힌 뒤 — 다음은 파티 시작이다. `partyAt` 이 예약이 되면서(ADR-93)
-     * 이 숫자도 나머지 셋과 같은 뜻이 됐다: **가만히 두면 그때 넘어간다.**
+     * 매력 투표 중 — 다음은 파티 시작이다 (매력 투표도 그때 닫힌다, ADR-100). `partyAt` 이 예약이 되면서(ADR-93)
+     * 이 숫자도 나머지와 같은 뜻이 됐다: **가만히 두면 그때 넘어간다.**
      */
     stubFetch(
       hostState({
         phase: "prevote",
-        fired: { reg: Date.now() - 3 * HOUR, prevote: Date.now() - 2 * HOUR, voteEnd: Date.now() - HOUR },
+        fired: { reg: Date.now() - 3 * HOUR, prevote: Date.now() - 2 * HOUR },
       }),
     );
     renderConsole();
@@ -374,7 +374,7 @@ describe("운영자 콘솔", () => {
       hostState({
         phase: "prevote",
         schedule: { partyAt: soon, regOpenAt: Date.now() - 3 * HOUR, prevoteAt: Date.now() - 2 * HOUR },
-        fired: { reg: Date.now() - 3 * HOUR, prevote: Date.now() - 2 * HOUR, voteEnd: Date.now() - HOUR },
+        fired: { reg: Date.now() - 3 * HOUR, prevote: Date.now() - 2 * HOUR },
       }),
     );
     renderConsole();
@@ -391,32 +391,31 @@ describe("운영자 콘솔", () => {
   });
 
   /**
-   * 매력 투표 마감은 버튼이지만 **단계를 넘기지 않는다** (ADR-39 + 후기).
-   *
-   * 넘기면 나이·MBTI(ADR-21)와 파티 콕이 함께 열려, 아직 아무도 안 온 자리에서
-   * 파티가 시작된 것이 된다. 그래서 이 버튼은 `/phase` 가 아니라 `/vote-end` 로 간다 —
-   * **어느 길로 가는지가 곧 그 규칙이다.**
+   * ★ **매력 투표 다음 버튼은 파티 시작이다** (ADR-100) — `매력 투표 마감` 버튼은 걷어냈다.
+   * 그리고 1위 보너스를 켠 회차면 확인창이 **누가 받는지 이름으로** 말한다 (규칙 4).
+   * 서버와 같은 함수(`topVoters`)로 세므로 확인창이 말한 사람이 실제로 받는다.
    */
-  it("★ 매력 투표 마감은 단계를 넘기지 않는다", async () => {
-    const voteEndAt = Date.now() + 30 * 60_000;
+  it("★ 매력 투표 다음은 파티 시작이고, 확인창이 1위 보너스를 받을 사람을 말한다", async () => {
     stubFetch(
-      hostState({
-        phase: "prevote",
-        fired: { reg: Date.now() - 2 * HOUR, prevote: Date.now() - HOUR },
-        schedule: { partyAt: Date.now() + 2 * HOUR, regOpenAt: Date.now() - 2 * HOUR, voteEndAt },
-      }),
+      hostState(
+        {
+          phase: "prevote",
+          fired: { reg: Date.now() - 2 * HOUR, prevote: Date.now() - HOUR },
+          config: { maxPre: 3, maxParty: 3, topVoteBonus: 1 },
+        },
+        // 남자는 가 가 2표, 여자는 나 가 1표 — 1표뿐인 성별에는 1위가 없다
+        { received: { pre: { p1: 2, p2: 1 }, party: {} } },
+      ),
     );
     renderConsole();
 
-    // 매력 투표 다음에 서는 버튼은 마감이다 — 파티 시작이 아니다
-    fireEvent.click(await screen.findByText(VOTE_END.btn));
-    await screen.findByText(VOTE_END.title);
-    expect(screen.queryByText(phaseAction("party", { maxPre: 3, maxParty: 3 })!.btn)).toBeNull();
-
-    fireEvent.click(screen.getAllByText(VOTE_END.btn)[1]);
-    await waitFor(() => expect(calls.some((c) => c.url.includes("/vote-end"))).toBe(true));
-    // **단계는 건드리지 않는다.** 나이·MBTI 와 파티 콕은 파티 시작이 연다
-    expect(calls.some((c) => c.url.includes("/phase"))).toBe(false);
+    const copy = phaseAction("party", { maxPre: 3, maxParty: 3, topVoters: ["가"] })!;
+    fireEvent.click(await screen.findByText(copy.btn));
+    await screen.findByText(copy.title);
+    const line = copy.facts.find(([k]) => k === "매력 투표 1위")!;
+    expect(screen.getByText(line[1])).toBeTruthy();
+    // 파티 전에는 칩이 없다 — 1위는 파티가 시작되는 순간 정해진다
+    expect(screen.queryByText(HOST_UI.dash.topVoteChip)).toBeNull();
   });
 
   it("★ 단계 전환은 확인을 거치고, 확인창이 바뀌는 것을 항목으로 보여준다", async () => {
@@ -1021,11 +1020,8 @@ describe("운영자 콘솔", () => {
      * ⚠️ **등록 시작도 없다** (ADR-93). 회차를 만든 시각이라 고칠 수도 없고
      * 운영자가 볼 일도 없었다 — 못 누르는 칸이 맨 위에 서서 나머지를 한 칸씩 밀었다.
      */
-    expect(labels, "예약 묶음에 예약 아닌 칸이 있다").toEqual([
-      HOST_UI.fields.prevoteAt,
-      HOST_UI.fields.voteEndAt,
-      HOST_UI.fields.revealAt,
-    ]);
+    // 매력 투표 마감도 없다 (ADR-100) — 파티가 시작될 때 함께 닫힌다
+    expect(labels, "예약 묶음에 예약 아닌 칸이 있다").toEqual([HOST_UI.fields.prevoteAt, HOST_UI.fields.revealAt]);
   });
 
   /**
@@ -1109,7 +1105,7 @@ describe("운영자 콘솔", () => {
 
     // 일정도 함께 굳는다 — 다른 묶음이라 옮겨가서 본다
     fireEvent.click(screen.getByText(HOST_UI.settings.schedule));
-    for (const label of [HOST_UI.fields.prevoteAt, HOST_UI.fields.voteEndAt]) {
+    for (const label of [HOST_UI.fields.prevoteAt]) {
       expect((row(label).querySelector("input") as HTMLInputElement).disabled, label).toBe(true);
     }
     // 파티 시작도 굳는다 — 다만 `기본 정보` 묶음에 있다 (ADR-54)

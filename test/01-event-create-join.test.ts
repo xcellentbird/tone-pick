@@ -91,7 +91,6 @@ function draft(over: Partial<CreateEventInput> = {}): CreateEventInput {
     name: `${seq}회차 솔로 파티`,
     partyAt: now + 7 * DAY,
     prevoteAt: now + 25 * HOUR,
-    voteEndAt: now + 7 * DAY - HOUR,
     revealAt: now + 7 * DAY + 3 * HOUR,
     config: { maxPre: 3, maxParty: 3 },
     requestId: `req-${seq}-${now}`,

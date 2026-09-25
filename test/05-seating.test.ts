@@ -90,7 +90,7 @@ function runRounds(
   players: Player[],
   tableCount: number,
   rounds: number,
-  opts: { votes?: Sent; pokes?: Sent; maxVote?: number; maxPoke?: number } = {},
+  opts: { pokes?: Sent; maxPoke?: number } = {},
 ) {
   const history: Seat[][] = [];
   for (let r = 1; r <= rounds; r++) {
@@ -100,9 +100,7 @@ function runRounds(
         tableCount,
         round: r,
         history: [...history],
-        votes: opts.votes ?? {},
         pokes: opts.pokes ?? {},
-        maxVote: opts.maxVote ?? 3,
         maxPoke: opts.maxPoke ?? 3,
         seed: 20260826 + r,
       }),
@@ -221,59 +219,49 @@ describe("나이차 벌점은 10살에서 멈춘다 (ADR-78)", () => {
       const players = makePlayers(8, 8).map((p, i) => ({ ...p, age: i === 0 ? odd : ages[i] }));
       return buildSeating({
         players, tableCount: 4, round: 1, history: [],
-        votes: {}, pokes: {}, maxVote: 2, maxPoke: 3, seed: 77,
+        pokes: {}, maxPoke: 3, seed: 77,
       });
     };
     expect(seatFor(91)).toEqual(seatFor(41));
   });
 
   /**
-   * ★ **10살과 20살이 같으므로, 그 둘은 표가 가른다.**
+   * ★ **10살과 25살이 같으므로, 그 둘은 다른 값이 가른다.**
    *
    * 앞 테스트가 "구별하지 않는다" 를 잡고 이 테스트는 **그래서 무엇이 달라지는가**를 잡는다.
-   * 문턱이 없던 때는 20살(8.0)과 10살(1.0)의 차이가 7.0 이라 표(최대 0.4)가 낄 자리가
-   * 아예 없었다. 상한 뒤로는 둘 다 1.0 이고, 그 위에서 표가 자리를 정한다.
+   * 상한이 없으면 25살(2.5)과 10살(1.0)의 차이가 1.5 라, 재회 한 번(1.0)으로는 못 뒤집는다.
+   * 상한 뒤로는 둘 다 1.0 이고, 그 위에서 **재회**가 자리를 정한다.
    *
-   * ⚠️ 이 판은 **10살 미만을 공짜로 만들지 않는다** — 아래 테스트가 그 경계를 지킨다.
+   * 한때 이 자리의 손잡이는 매력 투표였다. 매력 투표가 자리에서 빠져서(ADR-100) 재회로 바꿨다 —
+   * 재회 벌점은 크기가 고정(`SEAT_W.REP` 1.0)이라 손잡이로 쓰기 좋다.
+   *
+   * 판: 남 A30 · D47, 여 B40 · C55, 2테이블. A 는 지난 라운드에 B 와 앉았다.
+   * D 는 B(7살)·C(8살) 모두 나이대 이성이라 어느 쪽이든 새 만남 하나다 — D 가 판을 정하지 않는다.
+   *
+   *   상한 있음   {A,C}{D,B} = 1.0 + 0.7   ·  {A,B}{D,C} = (1.0 + 재회 1.0) + 0.8  → A 는 C 와
+   *   상한 없음   {A,C}{D,B} = 2.5 + 0.7   ·  {A,B}{D,C} = (1.0 + 재회 1.0) + 0.8  → A 는 B 와
+   *
+   * ⚠️ **10살 아래를 공짜로 만드는 변이는 이 판이 못 잡는다** — 그건 `이성 쌍의 나이차 벌점은 그대로다` 가 잡는다.
    */
-  it("★ 10살차와 20살차 사이는 표가 가른다", () => {
-    /*
-     * D 를 B·C 로부터 **등거리(5살)** 에 둔다. 그래야 D 가 어느 쪽에 앉든 값이 같아서
-     * 판이 A 의 선택 하나로 좁혀진다 — D 를 한쪽에 붙여 두면 A 가 아니라 D 가 자리를 정한다.
-     */
+  it("★ 10살차와 25살차 사이는 재회가 가른다", () => {
     const players: Player[] = [
       { ...makePlayers(1, 0)[0], id: "A", gender: "M", age: 30 },
-      { ...makePlayers(1, 0)[0], id: "D", gender: "M", age: 45 },
+      { ...makePlayers(1, 0)[0], id: "D", gender: "M", age: 47 },
       { ...makePlayers(0, 1, 7)[0], id: "B", gender: "F", age: 40 },
-      { ...makePlayers(0, 1, 9)[0], id: "C", gender: "F", age: 50 },
+      { ...makePlayers(0, 1, 9)[0], id: "C", gender: "F", age: 55 },
     ];
-    const seats = buildSeating({
-      players, tableCount: 2, round: 1, history: [],
-      votes: { "A>C": 3 }, pokes: {}, maxVote: 3, maxPoke: 3, seed: 5,
-    });
-    const at = (id: string) => seats.find((s) => s.playerId === id)?.table;
-    expect(at("A")).toBe(at("C"));
-  });
-
-  /**
-   * ★ **상한 아래는 그대로다.** 여기가 무너지면 상한이 아니라 나이차를 걷어낸 것이다.
-   *
-   * 나이순으로 짝지으면(A30-B31 · D39-C38) 둘 다 1살차이고 나이대 이성(±6)이라 새 만남까지
-   * 얹힌다. 표를 따라가면 둘 다 8살차(0.512)가 되고 새 만남도 사라진다 — 표로는 못 뒤집는다.
-   */
-  it("★ 10살 아래에서는 표가 나이차를 못 이긴다", () => {
-    const players: Player[] = [
-      { ...makePlayers(1, 0)[0], id: "A", gender: "M", age: 30 },
-      { ...makePlayers(1, 0)[0], id: "D", gender: "M", age: 39 },
-      { ...makePlayers(0, 1, 7)[0], id: "B", gender: "F", age: 31 },
-      { ...makePlayers(0, 1, 9)[0], id: "C", gender: "F", age: 38 },
+    const met: Seat[] = [
+      { playerId: "A", table: 1 },
+      { playerId: "B", table: 1 },
     ];
-    const seats = buildSeating({
-      players, tableCount: 2, round: 1, history: [],
-      votes: { "A>C": 3 }, pokes: {}, maxVote: 3, maxPoke: 3, seed: 5,
-    });
-    const at = (id: string) => seats.find((s) => s.playerId === id)?.table;
-    expect(at("A")).toBe(at("B"));
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const seats = buildSeating({
+        players, tableCount: 2, round: 2, history: [met],
+        pokes: {}, maxPoke: 3, seed,
+      });
+      const at = (id: string) => seats.find((s) => s.playerId === id)?.table;
+      expect({ seed, withC: at("A") === at("C") }).toEqual({ seed, withC: true });
+    }
   });
 });
 
@@ -303,14 +291,28 @@ describe("같은 성별 쌍은 나이차 벌점을 받지 않는다 (ADR-80)", (
   };
   const at = (seats: Seat[], id: string) => seats.find((s) => s.playerId === id)?.table;
 
-  it("★ 동성 표 하나가 20살차를 이긴다 — 이성 쌍이 상수인 판", () => {
-    const players = board(); // p0 = 20세 남 A · p4 = 40세 남 B
+  /**
+   * ★ **동성 재회 셋이 20살차를 이긴다** — 이성 쌍이 상수인 판.
+   *
+   * 20세 A 는 지난 세 라운드에 20세 남자 셋(p1·p2·p3)과 한 번씩 앉았다. 동성 재회는 한 사람에 0.5 라 셋이면 1.5 —
+   * A 가 40세 쪽 테이블로 건너가면 그만큼 덜어진다. **동성 나이차 벌점이 없으면**(ADR-80) 건너가는 데 드는 값이 없어서
+   * A 가 건너가고, 있으면 40세 셋과의 20살차(3.0)가 막아 제자리에 남는다.
+   * (한때 손잡이는 매력 투표 표였다. 매력 투표가 자리에서 빠져서(ADR-100) 재회로 바꿨다.)
+   */
+  it("★ 동성 재회 셋이 20살차를 이긴다 — 이성 쌍이 상수인 판", () => {
+    const players = board(); // p0 = 20세 남 A · p4~p7 = 40세 남
+    // 라운드마다 한 명씩 — 한 테이블에 넷을 두면 p1·p2·p3 끼리도 재회라 그들까지 흩어져 판이 흐려진다
+    const history: Seat[][] = ["p1", "p2", "p3"].map((id) => [
+      { playerId: "p0", table: 1 },
+      { playerId: id, table: 1 },
+    ]);
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
       const seats = buildSeating({
-        players, tableCount: 2, round: 1, history: [],
-        votes: sent(["p0", "p4", 2]), pokes: {}, maxVote: 2, maxPoke: 2, seed,
+        players, tableCount: 2, round: 4, history,
+        pokes: {}, maxPoke: 2, seed,
       });
-      expect({ seed, together: at(seats, "p0") === at(seats, "p4") }).toEqual({ seed, together: true });
+      const olds = ["p4", "p5", "p6", "p7"].filter((id) => at(seats, id) === at(seats, "p0")).length;
+      expect({ seed, crossed: olds >= 3 }).toEqual({ seed, crossed: true });
     }
   });
 
@@ -326,7 +328,7 @@ describe("같은 성별 쌍은 나이차 벌점을 받지 않는다 (ADR-80)", (
   it("★ 상호가 없으면 한쪽 콕은 자리를 바꾸지 않는다", () => {
     const players = board();
     const seatFor = (pokes: Sent) =>
-      buildSeating({ players, tableCount: 2, round: 1, history: [], votes: {}, pokes, maxVote: 2, maxPoke: 2, seed: 3 });
+      buildSeating({ players, tableCount: 2, round: 1, history: [], pokes, maxPoke: 2, seed: 3 });
     expect(seatFor(sent(["p0", "p4", 1]))).toEqual(seatFor({}));
   });
 
@@ -341,28 +343,38 @@ describe("같은 성별 쌍은 나이차 벌점을 받지 않는다 (ADR-80)", (
     const players = board();
     const seats = buildSeating({
       players, tableCount: 2, round: 1, history: [],
-      votes: {}, pokes: {}, maxVote: 2, maxPoke: 2, seed: 3,
+      pokes: {}, maxPoke: 2, seed: 3,
     });
     const young = ["p0", "p1", "p2", "p3"].map((id) => at(seats, id));
     expect(new Set(young).size).toBe(1);
   });
 
-  it("★ 이성 쌍의 나이차 벌점은 그대로다 — 새 만남이 없는 판에서 표가 20살차를 못 이긴다", () => {
+  it("★ 재회 한 번으로는 나이순 자리가 무너지지 않는다", () => {
     /*
      * 앞 판과 반대로 **동성이 상수고 이성만 변수**인 판. 남자 30·30·44·44, 여자 37·37·51·51.
-     * 이성 쌍의 나이차가 전부 7 이상이라 새 만남 보너스(±6)가 **어디에도 없다** — 이 판은 벌점
-     * 하나로만 갈린다. 나이순 배치({30,30,37,37}+{44,44,51,51}, 벌점 합 2.74)가 최선이고,
-     * 30세 남자가 51세 여자에게 표를 몰아줘도(0.24) 그쪽으로 옮기는 값(+1.31)을 못 낸다.
-     * 이성 쌍의 벌점을 걷어내면 표가 이기고 둘이 붙는다 — 그 변이를 이 테스트가 잡는다.
+     * 나이순 배치({30,30,37,37}+{44,44,51,51})가 최선이고, 30세 남자 p0 가 지난 라운드에 37세 p4 와
+     * 앉았어도(재회 1.0) 51세 옆으로 가지 않는다.
+     *
+     * ⚠️ **이 판만으로는 이성 나이차 벌점을 걷어내는 변이를 못 잡는다.** 나이대 이성 새 만남의 폭이 8살이 되면서(ADR-91)
+     * 37세와 30·44세가 모두 새 만남이라, 벌점이 없어도 새 만남이 같은 자리를 가리킨다. 한때 이 판이 그 변이를 잡는다고
+     * 적었는데 그 무렵부터 이미 못 잡고 있었다 (2026-09 변이로 확인 — 표로 짠 옛 판도 같았다).
+     * 그 변이는 `10살+ 쌍 ≤ N` · `이성 재회를 만들어서라도 흩는다` · `고갈 뒤 쌍이 전부 붙는다` 가 잡는다.
+     * (한때 손잡이는 매력 투표 표였다. 매력 투표가 자리에서 빠져서(ADR-100) 재회로 바꿨다.)
      */
     const ages = [30, 30, 44, 44, 37, 37, 51, 51];
     const players = makePlayers(4, 4).map((p, i) => ({ ...p, age: ages[i] }));
+    const met: Seat[] = [
+      { playerId: "p0", table: 1 },
+      { playerId: "p4", table: 1 },
+    ];
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
       const seats = buildSeating({
-        players, tableCount: 2, round: 1, history: [],
-        votes: sent(["p0", "p6", 3]), pokes: {}, maxVote: 3, maxPoke: 2, seed,
+        players, tableCount: 2, round: 2, history: [met],
+        pokes: {}, maxPoke: 2, seed,
       });
-      expect({ seed, apart: at(seats, "p0") !== at(seats, "p6") }).toEqual({ seed, apart: true });
+      // 벌점이 없으면 p0 가 건너가거나 p4 가 51세와 자리를 바꾼다 — 어느 쪽이든 p0 옆에 51세가 선다
+      const apart = at(seats, "p0") !== at(seats, "p6") && at(seats, "p0") !== at(seats, "p7");
+      expect({ seed, apart }).toEqual({ seed, apart: true });
     }
   });
 });
@@ -399,7 +411,7 @@ describe("동성 재회 벌점은 이성보다 가볍다 (ADR-81)", () => {
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
       const seats = buildSeating({
         players, tableCount: 2, round: 3, history,
-        votes: {}, pokes: {}, maxVote: 2, maxPoke: 2, seed,
+        pokes: {}, maxPoke: 2, seed,
       });
       const apart = (x: string, y: string) => at(seats, x) !== at(seats, y);
       expect({
@@ -433,7 +445,7 @@ describe("동성 재회 벌점은 이성보다 가볍다 (ADR-81)", () => {
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
       const seats = buildSeating({
         players, tableCount: 2, round: 2, history: [r1],
-        votes: {}, pokes: {}, maxVote: 2, maxPoke: 2, seed,
+        pokes: {}, maxPoke: 2, seed,
       });
       const trio = new Set(["p0", "p1", "p2"].map((id) => at(seats, id)));
       expect({ seed, split: trio.size > 1 }).toEqual({ seed, split: true });
@@ -560,7 +572,7 @@ describe("무료 플랜 CPU 10ms", () => {
     const players = makePlayers(50, 50);
     const run = () =>
       buildSeating({ players, tableCount: 12, round: 1, history: [],
-        votes: {}, pokes: {}, maxVote: 3, maxPoke: 3, seed: 1 });
+        pokes: {}, maxPoke: 3, seed: 1 });
 
     run();   // 첫 호출은 JIT 예열까지 포함한다. 재는 건 그다음부터다
     const times: number[] = [];
@@ -591,7 +603,7 @@ describe("여러 쌍 중 무엇을 먼저 붙이나", () => {
     ];
     return buildSeating({
       players, tableCount: 2, round: 1, history: [],
-      votes: {}, pokes: votes, maxVote: 3, maxPoke: 6, seed: 5,
+      pokes: votes, maxPoke: 6, seed: 5,
     });
   }
 
@@ -612,66 +624,6 @@ describe("여러 쌍 중 무엇을 먼저 붙이나", () => {
   it("아무도 앉지 못하고 남는 사람은 없다", () => {
     const seats = triangle(sent(["A","B",3],["B","A",3],["A","C",1],["C","A",1]));
     expect(seats.map((s) => s.playerId).sort()).toEqual(["A", "B", "C", "D"]);
-  });
-});
-
-describe("한쪽만 투표해도 표 수가 자리를 가른다 (ADR-40)", () => {
-  /**
-   * 2테이블 · 남2 여2 → 테이블마다 남1 여1. A 는 둘 중 한 명하고만 앉을 수 있다.
-   * **상호는 하나도 없다** — 단방향 표만으로 갈리는지 보는 게 이 판의 요점이다.
-   */
-  function crush(votes: Sent) {
-    const players: Player[] = [
-      { ...makePlayers(1, 0)[0], id: "A", gender: "M", age: 30 },
-      { ...makePlayers(1, 0)[0], id: "D", gender: "M", age: 30 },
-      { ...makePlayers(0, 1, 7)[0], id: "B", gender: "F", age: 30 },
-      { ...makePlayers(0, 1, 9)[0], id: "C", gender: "F", age: 30 },
-    ];
-    return buildSeating({
-      players, tableCount: 2, round: 1, history: [],
-      votes, pokes: {}, maxVote: 3, maxPoke: 3, seed: 5,
-    });
-  }
-
-  const seatOf = (seats: Seat[], id: string) => seats.find((s) => s.playerId === id)?.table;
-
-  it("★ 세 번 투표한 쪽과 앉는다", () => {
-    /*
-     * 예전에는 단방향이 **한 칸**(−4)이라 표를 몇 장 줬든 같았다.
-     * 매력 투표를 2표 이상으로 연 회차에서는 그 표들이 자리에 아무 말도 하지 않았다.
-     */
-    const seats = crush(sent(["A","B",3],["A","C",1]));
-    expect(seatOf(seats, "A")).toBe(seatOf(seats, "B"));
-    expect(seatOf(seats, "A")).not.toBe(seatOf(seats, "C"));
-  });
-
-  it("★ 반대로 기울면 반대쪽과 앉는다", () => {
-    const seats = crush(sent(["A","B",1],["A","C",3]));
-    expect(seatOf(seats, "A")).toBe(seatOf(seats, "C"));
-    expect(seatOf(seats, "A")).not.toBe(seatOf(seats, "B"));
-  });
-
-  it("★ 표를 아무리 몰아줘도 나이차를 이기지는 못한다", () => {
-    /*
-     * **한쪽 표**의 끌림은 최대 `SEAT_W.VOTE` 0.5 라 이성 나이차 벌점(최대 `SEAT_W.AGE` 1.0)을
-     * 못 넘는다 (ADR-91). 여기에 8살 안 첫 만남 보너스까지 반대쪽에 서 있다.
-     *
-     * ⚠️ **상호 콕에는 이 벽이 없다.** 예전에는 끌림의 상한(24)이 나이차 벌점(30)보다 낮아서
-     * 상호 쌍도 나이차가 크면 못 붙였지만(ADR-11·51), 나이차 상한(ADR-78)이 그 벽을 없앴고
-     * 지금 상호 보너스는 5.0 이라 어떤 나이차도 넘는다 (ADR-91). 이 테스트가 잠그는 것은 **표** 쪽뿐이다.
-     */
-    const players: Player[] = [
-      { ...makePlayers(1, 0)[0], id: "A", gender: "M", age: 45 },
-      { ...makePlayers(1, 0)[0], id: "D", gender: "M", age: 26 },
-      { ...makePlayers(0, 1, 7)[0], id: "B", gender: "F", age: 25 },
-      { ...makePlayers(0, 1, 9)[0], id: "C", gender: "F", age: 44 },
-    ];
-    const seats = buildSeating({
-      players, tableCount: 2, round: 1, history: [],
-      votes: sent(["A", "B", 5]), pokes: {}, maxVote: 5, maxPoke: 3, seed: 5,
-    });
-    // A(45)–B(25) 는 20살 차이다. 5표를 몰아줘도 붙지 않는다
-    expect(seatOf(seats, "A")).not.toBe(seatOf(seats, "B"));
   });
 });
 
@@ -734,7 +686,7 @@ function party(players: Player[], tableCount: number, rounds: number, seed: numb
   for (let r = 1; r <= rounds; r++) {
     const seats = buildSeating({
       players, tableCount, round: r, history: [...history],
-      votes: {}, pokes, maxVote: 3, maxPoke: 2, seed: seed * 1000 + r,
+      pokes, maxPoke: 2, seed: seed * 1000 + r,
     });
     history.push(seats);
     if (r === rounds) break;              // 마지막 라운드 뒤에는 찌를 자리가 없다

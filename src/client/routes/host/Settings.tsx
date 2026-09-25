@@ -30,7 +30,7 @@ import { LIMITS } from "../../../shared/constants.ts";
 import { rulesLocked, schedLocked } from "../../../shared/phase.ts";
 import { SCHEDULE_STEP_MIN, formatWhen, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, del, put } from "../../lib/api.ts";
-import { NOTIFY_OPTIONS, TARGET_OPTIONS, Toggle } from "./HostDefaults.tsx";
+import { NOTIFY_OPTIONS, TARGET_OPTIONS, TOPVOTE_OPTIONS, Toggle, topVoteWord } from "./HostDefaults.tsx";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import { Num } from "./HostDefaults.tsx";
 import { useConsole } from "./HostConsole.tsx";
@@ -52,6 +52,8 @@ export default function Settings() {
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
   const [preNotify, setPreNotify] = useState(meta.config.preNotify === true);
   const [pokeNotify, setPokeNotify] = useState(meta.config.pokeNotify === true);
+  /** 매력 투표 1위 보너스 콕 (ADR-100). 옛 회차는 키가 없고 그게 '안 줌' 이다 */
+  const [topVoteBonus, setTopVoteBonus] = useState(!!meta.config.topVoteBonus);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
   /** 지금 보고 있는 묶음. 라우트가 아니다 — 여는 게 아니라 거르는 것이라 닫을 것이 없다 */
@@ -59,6 +61,8 @@ export default function Settings() {
 
   /** 굳었나 (ADR-35). 서버도 같은 판단을 하니, 여기서는 **못 고르게** 하는 것까지만 한다 */
   const frozen = rulesLocked(meta.fired);
+  /** 1위 보너스는 **파티가 시작되면** 굳는다 (ADR-100) — 1위가 그때 정해지고, 보너스 콕을 쓴 뒤에 끄면 한도를 넘는다 */
+  const topVoteFrozen = !!(meta.fired.party || meta.fired.done);
 
   useEffect(() => {
     setName(meta.name);
@@ -68,6 +72,7 @@ export default function Settings() {
     setAllowSameGender(meta.config.allowSameGender !== false);
     setPreNotify(meta.config.preNotify === true);
     setPokeNotify(meta.config.pokeNotify === true);
+    setTopVoteBonus(!!meta.config.topVoteBonus);
     setPlace(meta.place ?? "");
     setNickHint(meta.nickHint ?? "");
     setSchedule(meta.schedule);
@@ -109,6 +114,7 @@ export default function Settings() {
     const notifyWord = (on: boolean) => (on ? HOST_UI.fields.pokeNotifyOn : HOST_UI.fields.pokeNotifyOff);
     changed("rules", HOST_UI.fields.preNotify, notifyWord(meta.config.preNotify === true), notifyWord(preNotify));
     changed("rules", HOST_UI.fields.pokeNotify, notifyWord(meta.config.pokeNotify === true), notifyWord(pokeNotify));
+    changed("rules", HOST_UI.fields.topVoteBonus, topVoteWord(!!meta.config.topVoteBonus), topVoteWord(topVoteBonus));
     // 시간 순으로 센다 — 확인창에 뜨는 순서가 화면 순서와 같아야 어디를 고쳤는지 짚인다
     for (const key of SCHED_ORDER) {
       // 파티 시작은 `기본 정보` 묶음에 있다 (ADR-54) — 고쳤다는 점도 거기 붙어야 한다
@@ -146,7 +152,7 @@ export default function Settings() {
         name,
         place,
         nickHint,
-        config: { maxPre, maxParty, maxNotes, allowSameGender, preNotify, pokeNotify },
+        config: { maxPre, maxParty, maxNotes, allowSameGender, preNotify, pokeNotify, topVoteBonus: topVoteBonus ? 1 : 0 },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
       toast(BTN.saved);
@@ -278,17 +284,7 @@ export default function Settings() {
             locked={schedLocked(meta.fired, "prevoteAt")}
             onChange={(v) => setSchedule({ ...schedule, prevoteAt: v })}
           />
-          {/*
-            매력 투표 마감 (ADR-39). **파티가 시작될 때까지 열려 있다** — 파티가 늦어지면
-            마감도 미뤄야 하기 때문이다. 그래서 일정 잠금을 규칙 잠금에서 갈랐다.
-          */}
-          <When
-            label={HOST_UI.fields.voteEndAt}
-            value={schedule.voteEndAt}
-            locked={schedLocked(meta.fired, "voteEndAt")}
-            hint={HOST_UI.fields.voteEndHint}
-            onChange={(v) => setSchedule({ ...schedule, voteEndAt: v })}
-          />
+          {/* 매력 투표 마감 줄은 없다 (ADR-100) — 파티가 시작될 때 함께 닫힌다 */}
           {/*
             커플 발표 (ADR-43). **파티가 시작된 뒤에도 열려 있는 유일한 일정이다** —
             파티가 길어지면 미뤄야 하는데 파티 시작에 잠그면 손쓸 방법이 없다.
@@ -357,6 +353,14 @@ export default function Settings() {
             locked={frozen}
             onChange={setPokeNotify}
           />
+          {/* 매력 투표 1위 보너스 콕 (ADR-100). 굳는 때가 위 셋과 다르다 — 매력 투표 시작이 아니라 **파티 시작** */}
+          <Toggle
+            label={HOST_UI.fields.topVoteBonus}
+            value={topVoteBonus}
+            options={TOPVOTE_OPTIONS}
+            locked={topVoteFrozen}
+            onChange={setTopVoteBonus}
+          />
           {/*
             익명 쪽지는 **묶음의 맨 끝에 혼자 선다** (슬라이스 36). 콕의 다섯은 콕 하나의
             규칙이라 붙어 있어야 하고, 굳는 셋이 한 덩어리로 잠기는 모양도 그대로 남는다 —
@@ -409,7 +413,7 @@ type Group = (typeof GROUPS)[number];
  * 예약 칸의 **시간 순.** 화면도 확인창도 이 순서를 쓴다.
  * `regOpenAt` 은 없다 (ADR-93) — 화면에 줄이 없으니 확인창에 뜰 일도 없다.
  */
-const SCHED_ORDER = ["prevoteAt", "voteEndAt", "partyAt", "revealAt"] as const;
+const SCHED_ORDER = ["prevoteAt", "partyAt", "revealAt"] as const;
 
 /**
  * 익명 쪽지 스테퍼의 다음 값. **0 은 바닥 아래의 한 칸**이다 (슬라이스 36 S-D2).

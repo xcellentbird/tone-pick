@@ -159,12 +159,17 @@ export class RegistryDO extends DurableObject {
     snap.defaults = {
       maxPre: next.maxPre,
       maxParty: next.maxParty,
+      /*
+       * 익명 쪽지 장 수 (ADR-98) · 1위 보너스 콕 (ADR-100). **이 리터럴은 통째로 교체다** —
+       * 여기 안 적힌 키는 저장 한 번에 사라져 읽을 때 기본값으로 돌아온다. 쪽지 장 수가 그렇게 빠져 있었다
+       */
+      maxNotes: next.maxNotes,
+      topVoteBonus: next.topVoteBonus,
       // 빈 장소는 그대로 둔다 — "회차마다 다른 곳에서 연다" 는 뜻이다 (ADR-38)
       place: next.place ?? "",
       // 빈 문구는 그대로 둔다 — 닉네임 칸에 아무 안내도 안 붙인다는 뜻이다 (ADR-59)
       nickHint: (next.nickHint ?? "").slice(0, LIMITS.nickHintMax),
       prevoteBeforeH: next.prevoteBeforeH,
-      voteEndBeforeH: next.voteEndBeforeH,
       revealAfterH: next.revealAfterH,
       // 빈 문구를 저장하면 안내문이 링크 없이 나간다. 비면 기본 문구로 되돌린다
       inviteTemplate: next.inviteTemplate?.trim() ? next.inviteTemplate : DEFAULTS.inviteTemplate,

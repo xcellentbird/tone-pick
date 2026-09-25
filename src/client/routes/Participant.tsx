@@ -8,13 +8,12 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, FAIL, FORTUNE, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { MyNoteState, MyPokeState, PublicAnnouncement, ParticipantState, StageKey } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
-import { canPoke, voteClosed } from "../../shared/phase.ts";
-import { TICK_WINDOW } from "../../shared/time.ts";
+import { canPoke } from "../../shared/phase.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
 import { sessionSource, type ParticipantSource } from "../lib/participant.ts";
 import { useCovered } from "../lib/covered.ts";
-import { useLoad, useTicker } from "../lib/useLoad.ts";
+import { useLoad } from "../lib/useLoad.ts";
 import { ApiError } from "../lib/api.ts";
 import { nav, startPulse } from "../lib/pulse.ts";
 import type { NavKey } from "../../shared/pulse.ts";
@@ -298,23 +297,7 @@ function Loaded({
   setAnnouncement: (a: PublicAnnouncement) => void;
 }) {
   const [acked, setAcked] = useState<number[]>([]);
-  /**
-   * **마감은 아무도 밀어주지 않는다** (ADR-55). 예약대로 닫히는 쪽에는 서버가 보낼 신호가 없다 —
-   * 그 순간 코드를 돌리는 사람이 없기 때문이다. 그래서 마감이 가까우면 여기서 1초마다 다시 그린다.
-   *
-   * 홈에만 두면 모자란다. 투표 중에 참가자가 있는 곳은 대개 **참가자 탭**이고,
-   * 거기서 마감이 지나면 배너도 안 뜨고 콕 버튼도 열린 채로 남는다.
-   *
-   * **마감이 지나면 꺼진다** — 그 뒤로는 1초마다 다시 그릴 이유가 없다.
-   * (운영자가 앞당겨 닫는 쪽은 소켓이 밀어준다.)
-   */
-  const untilVoteEnd = (state.event.schedule.voteEndAt ?? 0) - now();
-  useTicker(
-    !voteClosed(state.event.schedule, state.event.fired, now()) &&
-      untilVoteEnd > 0 &&
-      untilVoteEnd <= TICK_WINDOW,
-  );
-  const banner = bannerOf(noticesOf(state, now()), now());
+  const banner = bannerOf(noticesOf(state), now());
 
   const ack = useCallback(async () => {
     if (!state.seat) return;
@@ -372,11 +355,9 @@ function Loaded({
    * 봤다는 건 서버가 안다(`me.seenStage`, 사건이 아니라 상태다 — 예약이 여는 순간 앱을 켜둔 사람이 없다).
    * 누른 즉시 감추고, 저장이 실패하면 되돌린다 — 자리 확인과 같다.
    *
-   * **마감 뒤에는 뜨지 않는다.** 등록은 발표 전까지 열려 있어서 마감과 파티 사이에 등록한 사람이 여기 오는데,
-   * 그때 `투표해보세요` 는 할 수 없는 일을 시키는 것이다. 문은 참가자 탭의 버튼과 **같은 판정**(`canPoke`)이다 —
-   * 닫는 길이 하나 더 생겨도 여기와 거기가 따로 갈 수 없다.
+   * 문은 참가자 탭의 버튼과 **같은 판정**(`canPoke`)이다 — 닫는 길이 하나 더 생겨도 여기와 거기가 따로 갈 수 없다.
    */
-  const stage: StageKey | null = !canPoke(state.event.phase, now(), state.event.schedule, state.event.fired)
+  const stage: StageKey | null = !canPoke(state.event.phase)
     ? null
     : state.event.phase === "party"
       ? "party"

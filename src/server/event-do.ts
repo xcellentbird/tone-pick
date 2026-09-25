@@ -51,6 +51,7 @@ import { isStageKey, rosterOpen, toMe, toPublic } from "../shared/types.ts";
 import { apartClashes, apartFrom, autoTable, isApart, pairKey, sortPair } from "../shared/seats.ts";
 import { appendPokeLog, pokeLogLine, type PokeLogEntry } from "./poke-log.ts";
 import { ENTRY } from "../shared/copy.ts";
+import { topVoters } from "../shared/poke.ts";
 import {
   AGE_RANGE,
   ENTRY_TRIES,
@@ -75,7 +76,6 @@ import {
   rulesLocked,
   schedLocked,
   scheduleInOrder,
-  voteClosed,
 } from "../shared/phase.ts";
 import { buildSeating } from "./seating.ts";
 import { randomHex } from "./auth.ts";
@@ -348,6 +348,7 @@ export class EventDO extends DurableObject {
     const forward = PHASE_ORDER.indexOf(to) > PHASE_ORDER.indexOf(meta.phase);
     meta.phase = to;
     if (forward && to !== "prep") meta.fired[to] = now;
+    if (to === "party") this.freezeTop(meta);
     await this.ctx.storage.put("meta", meta);
     await this.rearm(meta, now);
     this.broadcast({ type: "phase", phase: meta.phase, fired: meta.fired });
@@ -355,39 +356,19 @@ export class EventDO extends DurableObject {
     return ok(meta);
   }
 
-  /**
-   * 매력 투표를 **지금** 마감한다 (ADR-39 후기).
-   *
-   * 다른 단계 버튼과 같은 꼴이다 — 예약(`voteEndAt`)을 앞당긴다. 다만 **단계는 넘기지 않는다**:
-   * `phase` 는 `prevote` 그대로고, 나이·MBTI(ADR-21)도 파티 콕도 `파티 시작` 이 연다.
-   * 넘기면 아직 아무도 안 온 자리에서 파티가 시작된 것이 된다.
-   *
-   * **예약 시각은 덮어쓰지 않는다.** 실제로 닫은 시각만 `fired.voteEnd` 에 남긴다 —
-   * 지나간 예약은 기록이라, 덮으면 "예약은 20시였는데 19시에 닫았다" 를 말할 수 없다.
-   *
-   * 이미 닫혀 있으면 **아무 일도 하지 않는다** — 두 번 눌러도 처음 닫은 시각이 남아야 한다.
-   * 알람은 다시 걸지 않는다. 마감에는 알람이 없다 (`dueAt` 이 이 값을 모른다).
-   */
-  async closeVote(now: number): Promise<Result<EventMeta>> {
-    const meta = await this.touch(now);
-    if (!meta) return fail("not_found");
-    if (meta.phase !== "prevote") return fail("bad_request");
-    if (voteClosed(meta.schedule, meta.fired, now)) return ok(meta);
-
-    meta.fired.voteEnd = now;
-    await this.ctx.storage.put("meta", meta);
-    // 참가자 화면은 콕 버튼이 닫힌 걸 그 자리에서 알아야 한다 — 단계 신호를 그대로 쓴다
-    this.broadcast({ type: "phase", phase: meta.phase, fired: meta.fired });
-    return ok(meta);
-  }
-
   async setSchedule(patch: EventSchedule, now: number): Promise<Result<EventMeta>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    const next: EventSchedule = { ...meta.schedule, ...patch };
     /*
-     * 잠긴 항목은 못 고친다. **키마다 따로 본다** (ADR-39) — 매력 투표 마감과 파티 일시는
-     * 파티가 시작될 때까지 열려 있어야 한다. 파티가 늦어지면 마감도 미뤄야 하기 때문이다.
+     * 아는 키만 옮긴다 — 매력 투표 마감 시각(`voteEndAt`)은 받지 않고, 옛 회차에 적혀 있던 것도 여기서 떨어진다 (ADR-100).
+     * 남겨 두면 설정 화면에 칸이 없는 값이 저장소에 계속 산다.
+     */
+    const merged: EventSchedule = { ...meta.schedule, ...patch };
+    const next: EventSchedule = {};
+    for (const k of SCHEDULE_KEYS) if (merged[k] !== undefined) next[k] = merged[k];
+    /*
+     * 잠긴 항목은 못 고친다. **키마다 따로 본다** (ADR-39) — 파티 일시는 파티가 시작될 때까지
+     * 열려 있어야 한다. 사람이 덜 왔으면 미뤄야 하기 때문이다.
      *
      * **같은 값이 오는 건 통과시킨다** — 설정 탭은 저장할 때마다 일정을 통째로 다시 보내므로,
      * 있고 없고로 막으면 이름만 고쳐도 거절당한다. 막는 것은 '보냈나'가 아니라 '달라졌나'다.
@@ -439,6 +420,16 @@ export class EventDO extends DurableObject {
        * 함께 없어진다.** 에러도 확인창도 없다. 옛 회차의 `allowUndo` 가 그렇게 없어졌다 (ADR-95).
        */
       const maxNotes = patch.config.maxNotes ?? meta.config.maxNotes;
+      // 1위 보너스 콕 (ADR-100). 같은 이유로 받아서 아래 리터럴에 다시 적는다
+      const topVoteBonus = patch.config.topVoteBonus ?? meta.config.topVoteBonus;
+      if (topVoteBonus !== undefined && !inRange(topVoteBonus, LIMITS.topVoteBonus)) return fail("bad_request");
+      /*
+       * **파티가 시작되면 굳는다** (ADR-100) — 1위는 그때 정해졌고, 보너스 콕을 쓴 뒤에 끄면 쓴 횟수가 한도를 넘는다.
+       * 뜻으로 견준다: 없음과 0 은 같다. 같은 값이 오는 건 통과한다 — 설정 탭은 통째로 보낸다.
+       */
+      if ((meta.fired.party || meta.fired.done) && (topVoteBonus ?? 0) !== (meta.config.topVoteBonus ?? 0)) {
+        return fail("locked");
+      }
       if (!inRange(maxPre, LIMITS.maxPre) || !inRange(maxParty, LIMITS.maxParty)) return fail("bad_request");
       if (maxNotes !== undefined && !inRange(maxNotes, LIMITS.maxNotes)) return fail("bad_request");
 
@@ -460,10 +451,17 @@ export class EventDO extends DurableObject {
        * `detail` 에 지금 가장 많이 쓴 횟수를 실어 보낸다. 문장은 Worker 가 만든다
        */
       for (const [round, next] of [["pre", maxPre], ["party", maxParty]] as const) {
-        const used = this.rows<{ n: number }>(
-          "SELECT COUNT(*) AS n FROM pokes WHERE round = ? GROUP BY from_id ORDER BY n DESC LIMIT 1",
-          round,
-        )[0]?.n;
+        /*
+         * **1위의 보너스는 바닥에 넣지 않는다** (ADR-100). 1위가 `maxParty + 1` 을 다 썼어도
+         * `maxParty` 를 그대로 저장할 수 있어야 한다 — 사람마다 쓴 수에서 그 사람의 보너스를 뺀 것이 바닥이다.
+         */
+        const used = Math.max(
+          0,
+          ...this.rows<{ from_id: string; n: number }>(
+            "SELECT from_id, COUNT(*) AS n FROM pokes WHERE round = ? GROUP BY from_id",
+            round,
+          ).map((r) => r.n - (round === "party" ? this.bonusOf(meta, r.from_id) : 0)),
+        );
         if (used && next < used) return fail("conflict", used);
       }
       /*
@@ -495,6 +493,8 @@ export class EventDO extends DurableObject {
         ...(pokeNotify === true ? { pokeNotify: true } : {}),
         // 기본은 0 이다 — 0 이면 안 적는다 (옛 회차와 같은 모양으로 남는다)
         ...(maxNotes ? { maxNotes } : {}),
+        // 1위 보너스 콕 (ADR-100). 0 이면 안 적는다
+        ...(topVoteBonus ? { topVoteBonus } : {}),
       };
     }
     await this.ctx.storage.put("meta", meta);
@@ -872,7 +872,7 @@ export class EventDO extends DurableObject {
   async poke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    if (!canPoke(meta.phase, now, meta.schedule, meta.fired)) return fail("closed");
+    if (!canPoke(meta.phase)) return fail("closed");
 
     const me = this.player(fromId);
     const target = this.player(toId);
@@ -883,7 +883,7 @@ export class EventDO extends DurableObject {
     if (meta.config.allowSameGender === false && me.gender === target.gender) return fail("same_gender");
 
     const round = roundOf(meta.phase);
-    const max = round === "pre" ? meta.config.maxPre : meta.config.maxParty;
+    const max = round === "pre" ? meta.config.maxPre : meta.config.maxParty + this.bonusOf(meta, fromId);
     if (this.sentCount(fromId, round) >= max) return fail("no_budget", max);
 
     this.ctx.storage.sql.exec(
@@ -918,7 +918,7 @@ export class EventDO extends DurableObject {
   async unpoke(fromId: string, toId: string, now: number): Promise<Result<MyPokeState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    if (!canPoke(meta.phase, now, meta.schedule, meta.fired)) return fail("closed");
+    if (!canPoke(meta.phase)) return fail("closed");
 
     const round = roundOf(meta.phase);
 
@@ -1487,9 +1487,7 @@ export class EventDO extends DurableObject {
       tableCount,
       round,
       history: published.map((s) => s.seats),
-      votes: this.sentBy("pre"),
       pokes: this.sentBy("party"),
-      maxVote: meta.config.maxPre,
       maxPoke: meta.config.maxParty,
       // 누를 때마다 다른 초안이 나온다. 같은 씨앗이면 같은 자리다 — 순수 함수를 지킨다
       seed: now,
@@ -1702,9 +1700,7 @@ export class EventDO extends DurableObject {
       // **이 초안의 라운드 그대로다.** 다시 세면 재회 벌점이 한 칸씩 밀린다
       round: draft.round,
       history: published.map((s) => s.seats),
-      votes: this.sentBy("pre"),
       pokes: this.sentBy("party"),
-      maxVote: meta.config.maxPre,
       maxPoke: meta.config.maxParty,
       seed: now,
       apart: this.apartPairs(),
@@ -1805,6 +1801,8 @@ export class EventDO extends DurableObject {
       const to = dueTransition(meta, now);
       if (!to) break;
       meta = { ...meta, phase: to, fired: { ...meta.fired, [to]: now } };
+      // 예약으로 열린 파티도 버튼과 **같은 1위**를 정한다 (ADR-100, S-A6)
+      if (to === "party") this.freezeTop(meta);
       moved = true;
     }
     if (moved) {
@@ -1936,6 +1934,25 @@ export class EventDO extends DurableObject {
    * 총합을 읽는 갈래가 있었는데, 알림이 라운드마다 갈리면서(`visibleReceived`) 부르는 곳이 없어졌다.
    * 되살리지 마라 — 총합을 그대로 내려보내면 꺼둔 라운드가 파티 시작·발표와 함께 얹힌다.
    */
+  /**
+   * 매력 투표 1위를 **한 번** 정해 `meta.topVoters` 에 적는다 (ADR-100). 파티가 열리는 두 길이 다 부른다.
+   *
+   * **이미 적혀 있으면 건드리지 않는다.** 매력 투표로 되돌아갔다 와도, 1위가 파티 중에 빠져도 그대로다 —
+   * 다시 세면 2위의 한도가 파티 중에 조용히 는다. 보너스를 끈 회차에서는 적지 않는다.
+   * 부르는 쪽이 `meta` 를 저장한다.
+   */
+  private freezeTop(meta: EventMeta) {
+    if (meta.topVoters !== undefined || !meta.config.topVoteBonus) return;
+    const received: Record<string, number> = {};
+    for (const k of this.pokes()) if (k.round === "pre") received[k.toId] = (received[k.toId] ?? 0) + 1;
+    meta.topVoters = topVoters(this.players(), received);
+  }
+
+  /** 이 사람이 1위라서 더 받는 파티 콕. 아니면 0 (ADR-100) */
+  private bonusOf(meta: EventMeta, playerId: string): number {
+    return meta.config.topVoteBonus && meta.topVoters?.includes(playerId) ? meta.config.topVoteBonus : 0;
+  }
+
   private receivedCount(toId: string, round: PokeRound): number {
     return (
       this.rows<{ n: number }>(
@@ -2035,8 +2052,11 @@ export class EventDO extends DurableObject {
     return {
       budget: {
         pre: { max: meta.config.maxPre, used: used.pre },
-        party: { max: meta.config.maxParty, used: used.party },
+        // 1위 보너스는 한도에 **이미 들어간 채로** 나간다 (ADR-100) — 화면은 더하지 않는다
+        party: { max: meta.config.maxParty + this.bonusOf(meta, playerId), used: used.party },
       },
+      // 1위 본인에게만 키가 선다. 몇 표인지는 싣지 않는다
+      ...(this.bonusOf(meta, playerId) ? { topVote: true as const } : {}),
       sentTo,
       // 알림을 끈 라운드는 발표 뒤에도 세지 않는다 (ADR-34·43·85) — `visibleReceived` 가 판단한다
       received: this.visibleReceived(playerId, meta),
@@ -2054,15 +2074,13 @@ export class EventDO extends DurableObject {
    * 쌍을 센다. `only` 를 주면 그 라운드만 본다.
    *
    * **매칭은 `party` 만 본다** (ADR-34). 매력 투표는 프로필만 보고 고른 것이라
-   * 첫 자리 배정의 재료일 뿐이고, 만나보고 찌른 것과 같은 무게로 세면 안 된다.
-   * 자리 배정은 반대로 **둘 다** 본다 — 첫 라운드를 정하는 게 매력 투표다.
+   * 만나보고 찌른 것과 같은 무게로 세면 안 된다. 자리 배정도 매력 투표를 보지 않는다 (ADR-100) —
+   * 매력 투표가 쓰이는 곳은 1위를 정하는 것(`topVoters`) 하나다.
    */
   /**
-   * 서로 찌른 쌍과 한쪽만 찌른 쌍, 그리고 **쌍마다 오간 표의 총합**.
+   * 서로 찌른 쌍과 한쪽만 찌른 쌍, 그리고 **쌍마다 오간 콕의 총합**(`votes` — 이름만 옛것이다).
    *
-   * `votes` 는 **단방향 쌍에도 채운다** (ADR-40) — 자리 배정의 끌림이 표 하나하나에서
-   * 나오기 때문이다. 예전에는 상호 쌍에만 있었고, 그래서 한 사람에게 세 번 투표한 것과
-   * 한 번 투표한 것이 자리에서는 똑같았다.
+   * 총합은 **단방향 쌍에도 채운다** (ADR-40). 상호 쌍의 순서(ADR-25)가 이 값으로 정해진다.
    */
   /**
    * 그 라운드에 **누가 누구에게 몇 번** 보냈나. `"보낸이>받는이"` → 횟수.
@@ -2367,7 +2385,7 @@ function notifyOn(config: EventConfig, round: PokeRound): boolean {
 /**
  * 일정 칸의 이름들. `setSchedule` 이 "무엇이 잠겼나" 를 훑는 데 쓴다 (`schedLocked`).
  */
-const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt", "voteEndAt", "revealAt"] as const;
+const SCHEDULE_KEYS = ["partyAt", "regOpenAt", "prevoteAt", "revealAt"] as const;
 
 /**
  * 굳는 규칙 셋을 **뜻으로** 편다 (ADR-35·43·95).

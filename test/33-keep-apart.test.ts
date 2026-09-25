@@ -57,7 +57,7 @@ function run(
     history.push(
       buildSeating({
         players, tableCount, round: r, history: [...history],
-        votes: {}, pokes: opts.pokes ?? {}, maxVote: 3, maxPoke: 3,
+        pokes: opts.pokes ?? {}, maxPoke: 3,
         seed: seed * 1000 + r,
         apart: opts.apart,
       }),

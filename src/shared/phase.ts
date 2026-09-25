@@ -83,25 +83,25 @@ export function rulesLocked(fired: FiredMap): boolean {
 /**
  * 일정은 **지나온 것씩** 잠근다 (ADR-39). 파티가 시작되면 남은 일정이 없으니 전부 잠근다.
  *
- * ADR-35 는 규칙과 일정을 한 잠금으로 묶었는데, 매력 투표 마감에 시각이 생기면서
- * 그 묶음이 깨졌다 — **파티가 늦어지면 마감도 미뤄야 하는데** `fired.prevote` 하나로
- * 일정 전체를 잠그면 손쓸 방법이 없다. 규칙 셋(`rulesLocked` — 대상·알림 둘)은 그대로 묶여 있다.
+ * ADR-35 는 규칙과 일정을 한 잠금으로 묶었는데 그러면 **파티가 늦어질 때 파티 일시를 못 미룬다** —
+ * `fired.prevote` 하나로 일정 전체를 잠그면 손쓸 방법이 없다. 규칙 셋(`rulesLocked` — 대상·알림 둘)은
+ * 그대로 묶여 있다. (매력 투표 마감 시각은 ADR-100 이 걷었다.)
  */
 export function schedLocked(fired: FiredMap, key: string): boolean {
   /*
    * **발표 시각만 파티가 시작된 뒤에도 열려 있다** (ADR-43).
    * 파티가 길어지면 미뤄야 하는데, 파티 시작에 잠그면 손쓸 방법이 없다 —
-   * ADR-39 가 `voteEndAt` 에서 겪은 것과 같은 자리다. 이 줄이 `fired.party` 보다 **먼저** 온다.
+   * 파티 일시가 파티 전까지 열려 있는 것과 같은 자리다. 이 줄이 `fired.party` 보다 **먼저** 온다.
    */
   if (key === "revealAt") return !!fired.done;
   if (fired.party || fired.done) return true;
   if (key === "regOpenAt") return !!fired.reg;
   if (key === "prevoteAt") return !!fired.prevote;
-  // voteEndAt · partyAt — 파티가 시작될 때까지 고칠 수 있다
+  // partyAt — 파티가 시작될 때까지 고칠 수 있다
   return false;
 }
 
-/** 시계가 단계를 넘기는 셋, 일어나는 순서대로 (ADR-93). 마감(`voteEndAt`)은 판정이지 전환이 아니라 여기 없다 (ADR-39) */
+/** 시계가 단계를 넘기는 셋, 일어나는 순서대로 (ADR-93) */
 export const TRANSITION_KEYS = ["prevoteAt", "partyAt", "revealAt"] as const;
 
 /**
@@ -123,18 +123,17 @@ export function scheduleInOrder(schedule: EventSchedule, fired: FiredMap): boole
 }
 
 /**
- * 지금 콕(또는 매력 투표)을 찌를 수 있나.
+ * 지금 콕(또는 매력 투표)을 찌를 수 있나. **단계가 곧 기간이다.**
  *
- * **매력 투표는 시각으로 닫힌다** (ADR-39) — `voteEndAt` 이 지나면 `prevote` 단계인 채로
- * 투표만 닫힌다. 단계는 그대로라 명단도 프로필도 그대로 보인다. 파티 콕은 시각을 보지 않는다 —
- * 파티 콕은 단계(`party`)가 곧 기간이고, 발표(`revealAt`, ADR-43)가 단계를 넘기며 닫는다.
+ * 매력 투표는 `prevote` 동안 열려 있고 **파티가 시작되면 닫힌다** (ADR-100) — 파티 시작이 그대로
+ * 파티 콕을 연다. 한때 마감 시각(`voteEndAt`, ADR-39)이 따로 있었다. 표가 자리 배정의 재료라
+ * 자리를 짤 시간을 벌어야 했기 때문인데, 표가 자리에서 빠지면서 그 시간이 필요 없어졌다.
+ * **마감 시각이 적힌 옛 회차도 그 시각에 닫지 않는다** — 설정 화면에 칸이 없어 고칠 수 없는 마감이 된다.
  *
- * `voteEndAt` 이 없는 옛 회차는 **닫히지 않는다.** 없는 마감을 만들어 조용히 막지 않는다.
+ * 파티 콕은 발표(`revealAt`, ADR-43)가 단계를 넘기며 닫는다.
  */
-export function canPoke(phase: Phase, now: number, schedule: EventSchedule, fired: FiredMap = {}): boolean {
-  if (phase === "party") return true;
-  if (phase !== "prevote") return false;
-  return !voteClosed(schedule, fired, now);
+export function canPoke(phase: Phase): boolean {
+  return phase === "prevote" || phase === "party";
 }
 
 /**
@@ -148,23 +147,6 @@ export function canPoke(phase: Phase, now: number, schedule: EventSchedule, fire
  */
 export function canNote(phase: Phase): boolean {
   return phase === "party";
-}
-
-/**
- * 매력 투표가 닫혔나. **닫는 길이 둘이다** (ADR-39 + 후기).
- *
- * ① 시각이 지났다 (`voteEndAt`) — 예약대로 저절로 닫힌다
- * ② 운영자가 앞당겨 닫았다 (`fired.voteEnd`) — 다른 버튼들과 같은 꼴로, 예약을 앞당긴다
- *
- * **둘 다 단계를 넘기지 않는다.** 닫히는 건 표를 더 낼 수 있는가 하나뿐이고,
- * 나이·MBTI(ADR-21)와 파티 콕은 `파티 시작` 이 연다. 그게 ADR-39 의 핵심이다.
- *
- * `voteEndAt` 도 `fired.voteEnd` 도 없는 옛 회차는 **닫히지 않는다.**
- * 없는 마감을 만들어 조용히 막지 않는다.
- */
-export function voteClosed(schedule: EventSchedule, fired: FiredMap, now: number): boolean {
-  if (fired.voteEnd) return true;
-  return !!schedule.voteEndAt && now >= schedule.voteEndAt;
 }
 
 /**

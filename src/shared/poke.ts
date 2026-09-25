@@ -15,7 +15,7 @@
  *
  * 순수 함수라 테스트를 먼저 쓰고 구현했다 (`buildSeating` 과 같은 예외).
  */
-import type { MyPokeState, PokeRound } from "./types.ts";
+import type { Gender, MyPokeState, PokeRound } from "./types.ts";
 
 export function afterPoke(poke: MyPokeState, toId: string, round: PokeRound): MyPokeState {
   const budget = poke.budget[round];
@@ -24,4 +24,28 @@ export function afterPoke(poke: MyPokeState, toId: string, round: PokeRound): My
     sentTo: { ...poke.sentTo, [toId]: (poke.sentTo[toId] ?? 0) + 1 },
     budget: { ...poke.budget, [round]: { ...budget, used: budget.used + 1 } },
   };
+}
+
+/** 매력 투표 1위가 되려면 적어도 몇 표를 받아야 하나 (ADR-100). 1표뿐이면 1표 받은 여럿이 모두 1위가 된다 */
+export const TOP_VOTE_MIN = 2;
+
+/**
+ * 매력 투표 1위 (ADR-100). **성별마다** 받은 표가 가장 많은 사람이고, 공동 1위는 모두다.
+ * 가장 많은 표가 `TOP_VOTE_MIN` 에 못 미치는 성별에서는 아무도 없다.
+ *
+ * 서버가 파티를 여는 순간 한 번 부르고(`meta.topVoters`), 운영자 화면은 파티 전에 **누가 받게 될지** 미리 보는 데 쓴다 —
+ * 같은 함수라 확인창이 말한 사람과 실제로 받는 사람이 어긋나지 않는다.
+ */
+export function topVoters(
+  players: readonly { id: string; gender: Gender }[],
+  received: Readonly<Record<string, number>>,
+): string[] {
+  const out: string[] = [];
+  for (const g of ["M", "F"] as const) {
+    const mine = players.filter((p) => p.gender === g);
+    const best = Math.max(0, ...mine.map((p) => received[p.id] ?? 0));
+    if (best < TOP_VOTE_MIN) continue;
+    out.push(...mine.filter((p) => (received[p.id] ?? 0) === best).map((p) => p.id));
+  }
+  return out;
 }

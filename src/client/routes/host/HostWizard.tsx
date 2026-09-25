@@ -20,7 +20,7 @@ import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from ".
 import { ApiError, api, post } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
-import { NOTIFY_OPTIONS, Num, TARGET_OPTIONS, Toggle } from "./HostDefaults.tsx";
+import { NOTIFY_OPTIONS, Num, TARGET_OPTIONS, TOPVOTE_OPTIONS, Toggle } from "./HostDefaults.tsx";
 
 const HOUR = 3600_000;
 
@@ -56,16 +56,16 @@ export default function HostWizard() {
   const [pokeNotify, setPokeNotify] = useState(false);
   const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
   const [prevoteAt, setPrevoteAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.prevoteBeforeH * HOUR);
-  /** 매력 투표 마감 (ADR-39). 이 뒤로 파티 시작까지가 운영자가 첫 자리를 짜는 시간이다 */
-  const [voteEndAt, setVoteEndAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.voteEndBeforeH * HOUR);
   /** 커플 발표 (ADR-43). **더하기다** — 파티 뒤를 재는 유일한 값이라 부호가 반대다 */
   const [revealAt, setRevealAt] = useState<number>(() => defaultPartyAt(Date.now()) + DEFAULTS.revealAfterH * HOUR);
   // 직접 고친 값은 파티 일시를 옮겨도 따라가지 않는다. 고쳐놓은 걸 되돌리는 건 사고다
-  const [touched, setTouched] = useState<{ prevote?: boolean; voteEnd?: boolean; reveal?: boolean }>({});
+  const [touched, setTouched] = useState<{ prevote?: boolean; reveal?: boolean }>({});
   const [maxPre, setMaxPre] = useState(DEFAULTS.maxPre);
   const [maxParty, setMaxParty] = useState(DEFAULTS.maxParty);
   /** 익명 쪽지 (슬라이스 36). 기본값 화면에서 가져온다 — 0 이면 그 회차에는 없다 */
   const [maxNotes, setMaxNotes] = useState(DEFAULTS.maxNotes ?? 0);
+  /** 매력 투표 1위 보너스 콕 (ADR-100). 기본값 화면에서 가져온다 */
+  const [topVoteBonus, setTopVoteBonus] = useState(!!DEFAULTS.topVoteBonus);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -80,10 +80,10 @@ export default function HostWizard() {
     setMaxPre(d.maxPre);
     setMaxParty(d.maxParty);
     setMaxNotes(d.maxNotes ?? 0);
+    setTopVoteBonus(!!d.topVoteBonus);
     // 장소는 **비어 있을 때만** 채운다. 운영자가 이미 적었으면 기본값이 덮지 않는다
     setPlace((prev) => prev || d.place);
     setPrevoteAt((prev) => (touched.prevote ? prev : partyAt - d.prevoteBeforeH * HOUR));
-    setVoteEndAt((prev) => (touched.voteEnd ? prev : partyAt - d.voteEndBeforeH * HOUR));
     setRevealAt((prev) => (touched.reveal ? prev : partyAt + d.revealAfterH * HOUR));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaults.data]);
@@ -95,18 +95,16 @@ export default function HostWizard() {
     setPartyAt(ts);
     const d = { ...DEFAULTS, ...defaults.data };
     if (!touched.prevote) setPrevoteAt(ts - d.prevoteBeforeH * HOUR);
-    if (!touched.voteEnd) setVoteEndAt(ts - d.voteEndBeforeH * HOUR);
     if (!touched.reveal) setRevealAt(ts + d.revealAfterH * HOUR);
   }
 
-  function changeWhen(key: "prevote" | "voteEnd" | "reveal", value: string) {
+  function changeWhen(key: "prevote" | "reveal", value: string) {
     const raw = fromLocalInput(value);
     if (!raw) return;
     // 직접 타이핑하면 브라우저가 step 을 강제하지 않는다. 받은 값을 여기서 맞춘다
     const ts = snapSchedule(raw);
     setTouched({ ...touched, [key]: true });
     if (key === "prevote") setPrevoteAt(ts);
-    else if (key === "voteEnd") setVoteEndAt(ts);
     else setRevealAt(ts);
   }
 
@@ -119,9 +117,8 @@ export default function HostWizard() {
         place: place.trim(),
         partyAt,
         prevoteAt,
-        voteEndAt,
         revealAt,
-        config: { maxPre, maxParty, maxNotes, allowSameGender, preNotify, pokeNotify },
+        config: { maxPre, maxParty, maxNotes, allowSameGender, preNotify, pokeNotify, topVoteBonus: topVoteBonus ? 1 : 0 },
         requestId,
       };
       const made = await post<EventMeta>("/host/events", body);
@@ -214,17 +211,7 @@ export default function HostWizard() {
                 onChange={(e) => changeWhen("prevote", e.target.value)}
               />
             </div>
-            {/* 매력 투표 마감 (ADR-39). 이 시각과 파티 시작 사이가 첫 자리를 짜는 시간이다 */}
-            <div className="field">
-              <label htmlFor="voteEnd">{HOST_UI.fields.voteEndAt}</label>
-              <input
-                id="voteEnd"
-                type="datetime-local"
-                step={SCHEDULE_STEP_MIN * 60}
-                value={toLocalInput(voteEndAt)}
-                onChange={(e) => changeWhen("voteEnd", e.target.value)}
-              />
-            </div>
+            {/* 매력 투표 마감은 묻지 않는다 (ADR-100) — 파티가 시작될 때 함께 닫힌다 */}
             {/* 커플 발표 (ADR-43). 파티를 시작해야 울린다 — 설정 탭이 그 사실을 말한다 */}
             <div className="field">
               <label htmlFor="reveal">{HOST_UI.fields.revealAt}</label>
@@ -285,6 +272,13 @@ export default function HostWizard() {
               value={pokeNotify}
               options={NOTIFY_OPTIONS}
               onChange={setPokeNotify}
+            />
+            {/* 매력 투표 1위 보너스 콕 (ADR-100). 콕의 규칙이라 콕 줄들 뒤, 익명 쪽지 앞에 선다 */}
+            <Toggle
+              label={HOST_UI.fields.topVoteBonus}
+              value={topVoteBonus}
+              options={TOPVOTE_OPTIONS}
+              onChange={setTopVoteBonus}
             />
             {/*
               익명 쪽지는 묶음의 **맨 끝에 혼자** 선다 (슬라이스 36) — 콕이 아니고 굳지도 않는다.

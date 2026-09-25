@@ -7,7 +7,6 @@
  */
 import { ACT, NOTE, NOTICE, POKE } from "../../shared/copy.ts";
 import type { ParticipantState, PokeRound } from "../../shared/types.ts";
-import { voteClosed } from "../../shared/phase.ts";
 
 /**
  * 받은 줄은 **라운드마다 따로 쌓인다** (ADR-46 후기).
@@ -62,39 +61,15 @@ export interface Notice {
 export const BANNER_WINDOW = 3 * 60_000;
 
 /**
- * `now` 를 받는 이유는 **매력 투표 마감 때문**이다 (ADR-55).
- * 단계 셋은 `fired` 에 시각이 찍혀 있어 지금이 언제든 상관없는데,
- * 마감은 예약대로 닫히는 쪽이 **시각과 지금을 견줘야** 알 수 있다.
- *
- * ⚠️ **`Date.now()` 를 여기서 부르지 마라** (CLAUDE.md 3번). 폰 시계를 바꿔
- * 마감을 먼저 넘길 수 있다 — 부르는 쪽이 서버 보정된 `now()` 를 넘긴다.
+ * 소식은 전부 `fired` 에 찍힌 시각에서 나온다 — 지금이 언제인지 몰라도 된다.
+ * (한때 매력 투표 마감이 시각과 지금을 견줘야 해서 `now` 를 받았다. 마감은 ADR-100 이 걷었다)
  */
-export function noticesOf(state: ParticipantState, now: number): Notice[] {
-  const { fired, config, phase, schedule } = state.event;
+export function noticesOf(state: ParticipantState): Notice[] {
+  const { fired, config, phase } = state.event;
   const list: Notice[] = [];
 
   if (fired.prevote) {
     list.push({ key: "prevote", ...NOTICE.prevote(config.maxPre), at: fired.prevote, order: fired.prevote, bannerable: true, tab: "home" });
-  }
-  /*
-   * 매력 투표 마감 (ADR-55). **닫는 길이 둘이라 시각도 둘이다** (ADR-39 후기) —
-   * 운영자가 앞당겨 닫았으면 `fired.voteEnd`, 예약대로면 `schedule.voteEndAt` 이다.
-   * 실제로 닫힌 순간을 쓴다.
-   *
-   * ⚠️ **`fired.prevote` 를 함께 본다.** 투표가 열린 적도 없는데 지나간 예약 시각만으로
-   * `마감됐어요` 가 뜨면, 아무 일도 없었던 회차에 없던 일이 적힌다.
-   */
-  const closedAt = fired.voteEnd ?? schedule.voteEndAt;
-  if (fired.prevote && closedAt && voteClosed(schedule, fired, now)) {
-    /*
-     * **목적지는 참가자 탭이다.** 단계 알림 셋은 홈을 가리키는데 이것만 다르다 —
-     * `tab` 은 *소식 그 자체가 있는 화면*이고, 마감이 실제로 보이는 곳은 거기다.
-     * 콕 버튼이 잠기고 `매력 투표가 마감됐어요` 가 명단 위에 선다.
-     *
-     * 홈으로 두면 **참가자 탭에서 같은 문장이 두 줄 연달아** 뜬다. 배너는
-     * `tab !== banner.tab` 일 때만 뜨므로, 목적지가 그 화면이면 저절로 안 뜬다.
-     */
-    list.push({ key: "voteEnd", ...NOTICE.voteEnd, at: closedAt, order: closedAt, bannerable: true, tab: "people" });
   }
   if (fired.party) {
     // 익명 쪽지가 있는 회차면 몸글에 둘째 줄이 붙는다 (슬라이스 36). **과거형이다** — 이 줄은 발표 뒤에도 남는다
@@ -106,6 +81,22 @@ export function noticesOf(state: ParticipantState, now: number): Notice[] {
       bannerable: true,
       tab: "home",
     });
+    /*
+     * **매력 투표 1위** (ADR-100). 1위 본인의 응답에만 `topVote` 가 있다 — 이 줄은 그 사람 화면에만 선다.
+     * 파티 시작 줄 **바로 위**에 선다(`+0.5` — 받은 콕 줄의 `+1` 보다 아래). 모두의 화면이 함께 바뀌는
+     * 순간이라 옆 사람이 알아챌 신호가 없다 (ADR-64). **배너로는 띄우지 않는다** — 그 순간의 배너는
+     * `파티가 시작됐어요` 의 자리다.
+     */
+    if (state.poke.topVote) {
+      list.push({
+        key: "topVote",
+        ...NOTICE.topVote,
+        at: fired.party,
+        order: fired.party + 0.5,
+        bannerable: false,
+        tab: "people",
+      });
+    }
   }
   /*
    * **발표는 되돌릴 수 없다** (ADR-50). 그래서 되돌린 자리에 놓던 문장(`unrevealed`)이 없다.

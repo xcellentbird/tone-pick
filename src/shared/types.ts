@@ -184,7 +184,13 @@ export interface MyNoteState {
 
 /** 참가자 본인에게만 내려가는 요약. 누가 찔렀는지는 발표 전까지 절대 포함하지 않는다. */
 export interface MyPokeState {
+  /** 파티 콕의 `max` 에는 1위 보너스가 이미 들어 있다 (ADR-100) — 화면은 더하지 않는다 */
   budget: Record<PokeRound, { max: number; used: number }>;
+  /**
+   * **내가 매력 투표 1위다** (ADR-100). 1위 본인에게만 있다 — 아니면 키 자체가 없다.
+   * 몇 표인지는 싣지 않는다. 그 숫자가 곧 *몇 명이 나를 골랐나* 다.
+   */
+  topVote?: true;
   /**
    * playerId -> **이번 라운드에** 내가 보낸 횟수 (ADR-34).
    *
@@ -223,9 +229,10 @@ export interface SeatingRound {
 // ─────────────────────────── 회차
 
 /**
- * 알람이 울리는 시각은 **셋**이다 — `prevoteAt` · `partyAt` · `revealAt` (ADR-38·43·92).
+ * 알람이 울리는 시각은 **셋**이다 — `prevoteAt` · `partyAt` · `revealAt` (ADR-38·43·93).
  *
- * `voteEndAt` 만 시각이 있어도 **전환이 아니라 판정이라** 알람이 없다 (ADR-39).
+ * ⚠️ **매력 투표 마감 시각(`voteEndAt`)을 되살리지 마라** (ADR-100). 매력 투표는 파티 시작에 닫힌다 —
+ * 표가 자리 배정에 들어가지 않으니 자리를 짤 시간을 벌 이유가 없다. 옛 회차에 적힌 값은 읽지 않는다.
  * `regOpenAt` 은 회차를 만든 시각의 기록이다 (ADR-38) — 운영자 설정에는 줄이 없다 (ADR-93).
  *
  * `partyAt` 은 알람이면서 **기준점**이기도 하다. 나머지 일정이 여기서 거꾸로 계산되고,
@@ -243,20 +250,6 @@ export interface EventSchedule {
   regOpenAt?: number;
   prevoteAt?: number;
   /**
-   * 매력 투표가 닫히는 시각 (ADR-39). 기본은 파티 **1시간 전**.
-   *
-   * **전환이 아니라 판정이다.** 알람이 울리지 않고 `phase` 도 그대로 `prevote` 다 —
-   * `canPoke()` 가 서버 시각과 견줘 답한다. 그건 지금도 그대로다.
-   *
-   * 운영자가 이 시각을 **앞당길 수 있다** (ADR-39 후기) — 그때 실제로 닫힌 시각은
-   * `fired.voteEnd` 에 남고, **여기 적힌 예약은 기록으로 그대로 둔다.**
-   * 덮어쓰면 "예약은 20시였는데 19시에 닫았다" 를 말할 수 없게 된다.
-   *
-   * 시각으로 못 박은 이유는 **현장이 아니라 준비가 이 시각을 쓰기** 때문이다.
-   * 마감돼야 자리를 짤 수 있고, 짜는 데 시간이 걸린다 (ADR-14 예외).
-   */
-  voteEndAt?: number;
-  /**
    * 커플 발표가 예약된 시각 (ADR-43). 기본은 파티 **3시간 뒤**.
    *
    * ⚠️ **파티가 시작된 뒤에만 울린다** (`dueTransition`). 막으려던 건 **아무도 안 온
@@ -272,14 +265,6 @@ export interface EventSchedule {
 
 /** 실제로 전환이 일어난 시각. 예약은 여기가 비어 있을 때만 한 번 울린다. (ADR-2) */
 export interface FiredMap {
-  /**
-   * 매력 투표가 **실제로 닫힌 시각** (ADR-39 후기). 운영자가 마감을 앞당겼을 때만 찬다.
-   *
-   * **단계 전환이 아니다** — 이게 차도 `phase` 는 `prevote` 그대로고, 나이·MBTI(ADR-21)도
-   * 파티 콕도 열리지 않는다. 여기 있는 이유는 `fired` 가 *예약과 실제를 가르는 자리*이기 때문이다.
-   * `dueTransition` 은 이 값을 보지 않는다.
-   */
-  voteEnd?: number;
   reg?: number;
   prevote?: number;
   party?: number;
@@ -335,6 +320,16 @@ export interface EventConfig {
    * 안 적히면 저장 한 번에 사라진다 — 옛 회차의 `allowUndo` 가 그렇게 없어졌다 (ADR-95).
    */
   maxNotes?: number;
+  /**
+   * **매력 투표 1위**에게 더 주는 파티 콕 (ADR-100). **없으면 0 — 주지 않는다.** 지금은 1 하나뿐이다.
+   *
+   * 1위는 파티가 시작되는 순간 한 번 정한다(`EventMeta.topVoters`). 그래서 **파티가 시작되면 굳는다** —
+   * 1위가 보너스 콕을 쓴 뒤에 끄면 쓴 횟수가 한도를 넘는다. `rulesLocked`(매력 투표 시작)보다 늦은 것은
+   * 참가자가 보는 규칙이 아니어서다 — 도움말에도 적지 않는다.
+   *
+   * ⚠️ **`meta.config` 교체 리터럴에 이 키를 적어라** — `maxNotes` 와 같은 이유다 (ADR-95).
+   */
+  topVoteBonus?: number;
 }
 
 export interface EventMeta {
@@ -356,6 +351,15 @@ export interface EventMeta {
   schedule: EventSchedule;
   config: EventConfig;
   createdAt: number;
+  /**
+   * 매력 투표 1위 (ADR-100). **파티가 시작되는 순간 한 번** 적고 다시 세지 않는다 —
+   * 1위가 빠져도 2위가 이어받지 않고, 매력 투표로 되돌아갔다 와도 바뀌지 않는다.
+   * 보너스를 켠 회차에서만 적힌다. 빈 배열은 *정했는데 아무도 없다* 이고, 없으면 *정한 적이 없다* 다.
+   *
+   * ⚠️ **참가자 응답에 싣지 마라.** 운영자만 본다 — 참가자 응답의 `event` 는 필드를 골라 옮긴다.
+   * 1위 본인에게 가는 것은 `MyPokeState.topVote` 하나다.
+   */
+  topVoters?: string[];
 }
 
 /**
@@ -374,7 +378,6 @@ export interface Defaults extends EventConfig {
    */
   nickHint: string;
   prevoteBeforeH: number;   // 파티 N시간 전에 매력 투표 시작
-  voteEndBeforeH: number;   // 파티 N시간 전에 매력 투표 마감 (ADR-39)
   /**
    * 파티 N시간 **뒤**에 커플 발표 (ADR-43). 다른 일정과 방향이 반대인 유일한 값이다 —
    * 나머지는 파티 일시에서 거꾸로 재고 이것만 앞으로 잰다.
@@ -459,8 +462,6 @@ export interface CreateEventInput {
    * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열 이유가 없었다.
    */
   prevoteAt: number;
-  /** 매력 투표 마감 (ADR-39). 기본은 파티 1시간 전 */
-  voteEndAt: number;
   /** 커플 발표 (ADR-43). 기본은 파티 3시간 **뒤**. `partyAt` 보다 뒤여야 한다 */
   revealAt: number;
   config: EventConfig;

@@ -408,7 +408,7 @@ h1,
 .field > label,
 .sheetTitle,
 .person .age,
-.rank .name, .rank .no, .rank .ct,
+.rank .name, .rank .no, .rank .ct, .rank .topVote,
 .mineCell .n, .mineCell .t {
   line-height: 1.3;
 }
@@ -890,6 +890,8 @@ h1,
   overflow: hidden;
 }
 .rank .bar i { display: block; height: 100%; border-radius: 3px; background: var(--meter); }
+/* 매력 투표 1위 보너스 칩 (ADR-100). 알약 모양은 `.badge` 그대로, 한글이 들어가서 줄 간격만 손잡이 묶음(1.3)이다 */
+.rank .topVote { margin-left: 6px; padding: 1px 7px; }
 .rank .ct { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; width: 22px; text-align: right; flex: none; }
 
 /*

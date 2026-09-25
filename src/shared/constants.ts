@@ -26,11 +26,7 @@ export const DEFAULTS: Defaults = {
   maxParty: 2,
   place: "",
   prevoteBeforeH: 20,
-  /**
-   * 매력 투표는 파티 **1시간 전**에 닫힌다 (ADR-39).
-   * 그 한 시간이 운영자가 첫 자리를 짜고 손보고 내보내는 시간이다.
-   */
-  voteEndBeforeH: 1,
+  // 매력 투표는 **파티 시작에 닫힌다** (ADR-100) — 마감까지 몇 시간을 따로 두지 않는다
   /**
    * 커플 발표는 파티 **3시간 뒤** (ADR-43). 두세 시간이면 라운드가 다 돌고
    * 이야기도 한 바퀴 돈다 — 그보다 이르면 아직 안 만나본 사람이 남는다.
@@ -51,6 +47,8 @@ export const DEFAULTS: Defaults = {
    * 회차에서 0 으로 내리면 그 회차에는 익명 쪽지가 없다.
    */
   maxNotes: 2,
+  /** 매력 투표 1위 보너스 콕 (ADR-100). 기본은 **안 줌** — 켜는 회차에서만 켠다 */
+  topVoteBonus: 0,
   inviteTemplate: INVITE_TEMPLATE,
 };
 
@@ -78,7 +76,8 @@ export function withDefaults(saved: Partial<Defaults> | null | undefined): Defau
     // 닉네임 문구도 **비워두는 것에 뜻이 있다** — 안내 없이 칸만 두겠다는 뜻이다
     nickHint: typeof saved?.nickHint === "string" ? saved.nickHint : DEFAULTS.nickHint,
     prevoteBeforeH: num(saved?.prevoteBeforeH, DEFAULTS.prevoteBeforeH),
-    voteEndBeforeH: num(saved?.voteEndBeforeH, DEFAULTS.voteEndBeforeH),
+    // 매력 투표 1위 보너스 콕 (ADR-100). 없으면 0 — 주지 않는다
+    topVoteBonus: num(saved?.topVoteBonus, DEFAULTS.topVoteBonus ?? 0),
     revealAfterH: num(saved?.revealAfterH, DEFAULTS.revealAfterH),
     // ADR-32 시절의 기본 문구가 저장돼 있으면 새 기본 문구로 읽는다 — 링크가 안내문 안으로 돌아왔다 (ADR-75)
     inviteTemplate:
@@ -109,6 +108,8 @@ export const LIMITS = {
    * 최댓값이 5 인 것은 **한 사람에게 갈 수 있는 최대**이기도 하다 — 뒤쫓기를 막는 것이 이 숫자다.
    */
   maxNotes: { min: 0, max: 5 },
+  /** 매력 투표 1위 보너스 콕 (ADR-100). `안 줌` 과 `1회` 둘뿐이다 */
+  topVoteBonus: { min: 0, max: 1 },
   charms: 3,
   nicknameMin: 1,
   nicknameMax: 15,
@@ -172,12 +173,10 @@ export const SEAT_W = {
    * 되돌릴 거라면 ADR-91 부터 읽어라.
    */
   REP_SAME: 0.5,
-  /**
-   * 매력 투표 — **호기심이라 콕보다 가볍다.** 진행도와 무관하게 일정하다.
-   * 첫 배정에서는 재회도 콕도 없어서 **나이차와 이 값 둘만** 자리를 정하는데,
-   * 나이차(최대 1.0)의 절반이라 나이가 더 크게 말한다 (ADR-91).
+  /*
+   * ⚠️ **매력 투표 항(`VOTE`)을 되살리지 마라** (ADR-100). 매력 투표는 자리에 들어가지 않는다 —
+   * 1위를 정하는 데만 쓰인다. 되살리면 마감 시각(자리 짤 시간)도 함께 되살려야 한다.
    */
-  VOTE: 0.5,
   /**
    * 서로 콕을 찌른 쌍에 얹는 값. **한 번 붙여준 뒤에도 사라지지 않는다** (ADR-57).
    *
