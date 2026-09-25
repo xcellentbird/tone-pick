@@ -63,7 +63,7 @@ describe("콕 로그 파일 (ADR-84)", () => {
     expect(kinds).toEqual(["찌름", "찌름", "되돌림", "찌름"]);
 
     const [pre, , undo, back] = body;
-    expect(col(header, pre, "라운드")).toBe("사전 투표");
+    expect(col(header, pre, "라운드")).toBe("프로필 투표");
     expect(col(header, pre, "보낸 사람")).toBe("철수");
     expect(col(header, pre, "보낸 사람 실명")).toBe("김철수");
     expect(col(header, pre, "보낸 나이")).toBe("31");

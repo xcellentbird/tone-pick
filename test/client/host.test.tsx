@@ -412,7 +412,7 @@ describe("운영자 콘솔", () => {
     const copy = phaseAction("party", { maxPre: 3, maxParty: 3, topVoters: ["가"] })!;
     fireEvent.click(await screen.findByText(copy.btn));
     await screen.findByText(copy.title);
-    const line = copy.facts.find(([k]) => k === "매력 투표 1위")!;
+    const line = copy.facts.find(([k]) => k === "프로필 투표 1위")!;
     expect(screen.getByText(line[1])).toBeTruthy();
     // 파티 전에는 칩이 없다 — 1위는 파티가 시작되는 순간 정해진다
     expect(screen.queryByText(HOST_UI.dash.topVoteChip)).toBeNull();
