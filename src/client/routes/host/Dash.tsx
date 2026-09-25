@@ -2,7 +2,7 @@
  * 현황 탭. 맨 위가 단계 컨트롤이다 — 이 화면에서 가장 자주 하는 일이라서.
  *
  * 모든 전환은 확인창을 거치고, 확인창은 **참가자 화면이 어떻게 바뀌는지** 항목으로 보여준다.
- * 예약이 있는 전환(매력 투표 시작 · 마감 · 파티 시작)은 예약과의 차이가 한 줄 더 붙는다 (`schedDiff`).
+ * 예약이 있는 전환(매력 투표 시작 · 파티 시작)은 예약과의 차이가 한 줄 더 붙는다 (`schedDiff`).
  *
  * 그 아래는 **지금 쓰이는 것이 위로 온다** (ADR-46).
  *
@@ -18,9 +18,10 @@
  * 성비는 참가자 탭 명단에 있고, '콕을 못 받은 사람'은 일부러 두지 않는다 —
  * 알면 그 사람을 다르게 대하게 되고, 그건 이 앱이 없애려던 경험이다.
  */
-import { HOST_UI, VOTE_END, phaseAction, schedDiff, type ActionCopy } from "../../../shared/copy.ts";
+import { HOST_UI, phaseAction, schedDiff, type ActionCopy } from "../../../shared/copy.ts";
 import type { Phase } from "../../../shared/types.ts";
-import { PHASE_ORDER, dueAt, voteClosed } from "../../../shared/phase.ts";
+import { PHASE_ORDER, dueAt } from "../../../shared/phase.ts";
+import { topVoters } from "../../../shared/poke.ts";
 import { TICK_WINDOW, formatCountdown, formatDayHour, formatGap, formatWhen } from "../../../shared/time.ts";
 import { post } from "../../lib/api.ts";
 import Avatar from "../../ui/Avatar.tsx";
@@ -44,15 +45,11 @@ export default function Dash() {
   const started = PHASE_ORDER.indexOf(meta.phase) >= PHASE_ORDER.indexOf("party");
 
   /**
-   * 매력 투표 마감은 **시각이 답한다** (ADR-39). 확인창 두 개가 이걸 읽는다 —
-   * 매력 투표 시작은 "언제 닫히나", 파티 시작은 "이미 닫혔나".
-   * 서버 시각으로 잰다. 운영자 폰이 빠르면 아직 열려 있는 걸 닫혔다고 말한다.
+   * 매력 투표 1위 (ADR-100). 파티가 열렸으면 서버가 정해 둔 것(`meta.topVoters`), 아직이면 **지금 표로 미리 센 것**이다 —
+   * 서버와 같은 함수라 확인창이 말한 사람과 실제로 받는 사람이 어긋나지 않는다. 보너스를 끈 회차에는 없다.
    */
-  const closed = voteClosed(meta.schedule, meta.fired, now());
-  const voteEnd = {
-    voteEndText: meta.schedule.voteEndAt ? formatWhen(meta.schedule.voteEndAt) : undefined,
-    voteClosed: closed,
-  };
+  const bonus = !!meta.config.topVoteBonus;
+  const top = !bonus ? [] : meta.topVoters ?? (started ? [] : topVoters(players, received.pre));
 
   /**
    * 이 버튼이 하는 일은 **예약을 앞당기는 것**이다. 그래서 무엇을 앞당기는지와,
@@ -62,18 +59,12 @@ export default function Dash() {
    * | 지금 | 버튼 | 앞당기는 시각 | 가만히 두면 |
    * |---|---|---|---|
    * | `prep`·`reg` | 등록/매력 투표 시작 | `dueAt` | 저절로 넘어간다 (알람) |
-   * | `prevote` · 투표 열림 | **매력 투표 마감** | `voteEndAt` | 저절로 닫힌다 (ADR-39) |
-   * | `prevote` · 투표 닫힘 | 파티 시작 | `dueAt`(`partyAt`) | 저절로 넘어간다 (ADR-93) |
+   * | `prevote` | 파티 시작 | `dueAt`(`partyAt`) | 저절로 넘어간다 (ADR-93) — 매력 투표도 함께 닫힌다 (ADR-100) |
    * | `party` | 결과 발표 | `dueAt`(`revealAt`) | 저절로 넘어간다 (ADR-43) |
    *
-   * **넷이 다 같다** (ADR-93). 파티 시작만 `아무 일도 없다` 였고 그래서 숫자 옆에
-   * 안내가 한 줄 붙어 있었는데, 예약이 되면서 그 예외가 없어졌다.
-   * 마감만 단계가 아니라 행동이라 `voteEnd` 로 따로 온다.
+   * **셋이 다 같다** (ADR-93). `매력 투표 마감` 버튼은 걷어냈다 (ADR-100) — 매력 투표는 파티 시작에 닫힌다.
    */
-  const step: { to: Phase | "voteEnd"; at?: number } =
-    meta.phase === "prevote" && !closed
-      ? { to: "voteEnd", at: meta.schedule.voteEndAt }
-      : { to: nextPhase!, at: dueAt(meta) ?? undefined };
+  const step: { to: Phase; at?: number } = { to: nextPhase!, at: dueAt(meta) ?? undefined };
 
   const until = (step.at ?? 0) - now();
   const counting = until > 0;
@@ -84,19 +75,11 @@ export default function Dash() {
   /** 남은 시간 한 조각. 하루 안쪽이면 초를 세고, 그보다 멀면 접는다 (홈 카운트다운과 같은 규칙) */
   const remain = (ms: number) => (ms <= TICK_WINDOW ? formatCountdown(ms) : formatDayHour(ms));
 
-  /** 그 버튼이 무엇을 하는지. 마감만 단계가 아니라 행동이라 따로 온다 */
-  const stepCopy =
-    step.to === "voteEnd"
-      ? VOTE_END
-      : phaseAction(step.to, { maxPre: meta.config.maxPre, maxParty: meta.config.maxParty });
+  /** 그 버튼이 무엇을 하는지 */
+  const stepCopy = step.to && phaseAction(step.to, { maxPre: meta.config.maxPre, maxParty: meta.config.maxParty });
 
-  /**
-   * **마감은 단계를 넘기지 않는다** (ADR-39) — 다른 길로 간다.
-   * 표만 닫히고 `phase` 는 `prevote` 그대로다. 나이·MBTI 와 파티 콕은 `파티 시작` 이 연다.
-   */
-  async function go(to: Phase | "voteEnd") {
-    if (to === "voteEnd") await post(`/host/events/${meta.id}/vote-end`);
-    else await post(`/host/events/${meta.id}/phase`, { to });
+  async function go(to: Phase) {
+    await post(`/host/events/${meta.id}/phase`, { to });
     reload();
   }
 
@@ -104,22 +87,20 @@ export default function Dash() {
     const to = step.to;
     // 마지막으로 발행한 라운드에 몇 명이 앉아 있나. 초안은 아직 참가자에게 안 나갔으므로 세지 않는다
     const published = state.seatings.filter((s) => s.status === "published");
-    const copy =
-      to === "voteEnd"
-        ? VOTE_END
-        : phaseAction(to, {
-            maxPre: meta.config.maxPre,
-            maxParty: meta.config.maxParty,
-            seated: published.at(-1)?.seats.length ?? 0,
-            players: players.length,
-            ...voteEnd,
-          });
+    const copy = phaseAction(to, {
+      maxPre: meta.config.maxPre,
+      maxParty: meta.config.maxParty,
+      seated: published.at(-1)?.seats.length ?? 0,
+      players: players.length,
+      // 받을 사람의 닉네임. 보너스를 끈 회차는 줄 자체가 없다 (ADR-100)
+      ...(bonus ? { topVoters: top.map((id) => who(id)?.nickname).filter((n): n is string => !!n) } : {}),
+    });
     if (!copy) return;
 
     const facts = [...copy.facts];
     /*
-     * 예약을 앞당기는 것이면 얼마나 이른지 한 줄 붙는다. `step.at` 이 곧 이 버튼이 앞당기는 예약 시각이다
-     * (마감은 `voteEndAt`, 나머지는 `dueAt`) — 어느 전환에 줄이 붙는지는 `schedDiff` 하나가 정한다 (발표에는 없다).
+     * 예약을 앞당기는 것이면 얼마나 이른지 한 줄 붙는다. `step.at`(`dueAt`) 이 곧 이 버튼이 앞당기는 예약 시각이다 —
+     * 어느 전환에 줄이 붙는지는 `schedDiff` 하나가 정한다 (발표에는 없다).
      * 되돌린 회차는 알람이 없어(`fired` 가 남아 `dueAt` 이 비다) 줄도 없다 — 없는 예약을 앞당긴다고 말하지 않는다.
      */
     const scheduled = step.at;
@@ -135,7 +116,7 @@ export default function Dash() {
     run({ ...copy, facts }, to);
   }
 
-  function run(copy: ActionCopy, to: Phase | "voteEnd") {
+  function run(copy: ActionCopy, to: Phase) {
     confirm(copy, async () => {
       await go(to);
       toast(copy.btn);
@@ -150,12 +131,6 @@ export default function Dash() {
           {/* 셀 시각이 없으면 자리도 만들지 않는다 — 빈 칸은 무엇을 세다 멈춘 것처럼 보인다 */}
           {counting && <span className="due">{remain(until)}</span>}
         </button>
-      )}
-      {/* 마감된 뒤에는 **다음에 할 수 있는 일**을 말한다. 시각만으로는 무엇을 하라는지 모른다 */}
-      {meta.phase === "prevote" && closed && <p className="tiny dim">{HOST_UI.dash.voteClosed}</p>}
-      {/* 마감 시각이 없는 옛 회차 — 버튼을 눌러야 닫힌다는 걸 그 자리에서 알린다 */}
-      {meta.phase === "prevote" && !closed && !meta.schedule.voteEndAt && (
-        <p className="tiny dim">{HOST_UI.dash.noVoteEnd}</p>
       )}
       {/*
         **파티가 시작돼야 나오는 둘.** 매칭도 파티 콕도 그전에는 있을 수가 없다 (ADR-34) —
@@ -217,7 +192,11 @@ export default function Dash() {
         received={received.pre}
         title={HOST_UI.dash.preRankTitle}
         empty={HOST_UI.dash.preRankEmpty}
+        // 파티가 열린 뒤에만 칩을 단다 — 그 전의 1위는 아직 정해지지 않은 것이다 (ADR-100)
+        marked={started ? top : []}
       />
+      {/* 파티 전에는 보너스가 있다는 것만 말한다. 누가 받을지는 파티 시작 확인창이 이름으로 말한다 */}
+      {bonus && !started && <p className="tiny dim">{HOST_UI.dash.topVoteHint}</p>}
       {/* 자리 이동 확인율은 여기 두지 않는다 — 자리를 보낸 직후에 보는 숫자라 자리 탭 라운드 카드에 있다 */}
     </div>
   );
@@ -251,6 +230,7 @@ function Ranking({
   received,
   title,
   empty,
+  marked = [],
 }: {
   players: ConsoleState["players"];
   received: Record<string, number>;
@@ -258,6 +238,8 @@ function Ranking({
   title: (n: number) => string;
   /** 아무도 못 받았을 때. 라운드마다 낱말이 다르다 (ADR-34) — 매력 투표는 `표`, 파티는 `콕` */
   empty: string;
+  /** 매력 투표 1위 보너스를 받은 사람 (ADR-100). 이름 옆에 칩이 선다 */
+  marked?: string[];
 }) {
   const rows = topRanks(players, received);
   const top = Math.max(1, rows[0]?.n ?? 0);
@@ -285,6 +267,7 @@ function Ranking({
             <span className="who">
               <span className="name">{r.p.nickname}</span>
               <span className="small dim"> {r.p.realName}</span>
+              {marked.includes(r.p.id) && <span className="badge topVote">{HOST_UI.dash.topVoteChip}</span>}
               <span className="bar">
                 <i style={{ width: `${(r.n / top) * 100}%` }} />
               </span>

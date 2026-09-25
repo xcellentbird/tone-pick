@@ -683,7 +683,6 @@ describe("콕", () => {
           name: "이상한 설정",
           partyAt: now + 3 * 24 * HOUR,
           prevoteAt: now + 24 * HOUR,
-          voteEndAt: now + 3 * 24 * HOUR - HOUR,
           revealAt: now + 3 * 24 * HOUR + 3 * HOUR,
           config: { maxPre: 2, maxParty: 3, ...bad },
           requestId: `bad-${JSON.stringify(bad)}-${now}`,

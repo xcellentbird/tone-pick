@@ -106,7 +106,6 @@ body.busy .panel button,body.busy .panel select{opacity:.55;pointer-events:none}
   <div class="panel" id="panel">
     <div class="row"><b>단계</b>
       <button type="button" data-cmd="phase prevote">매력 투표 시작</button>
-      <button type="button" data-cmd="voteend">투표 마감</button>
       <button type="button" id="seatBtn">자리 짜기</button>
       <button type="button" data-cmd="publish">자리 발행</button>
       <button type="button" data-cmd="shuffle">자리 섞기</button>

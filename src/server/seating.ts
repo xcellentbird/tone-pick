@@ -63,12 +63,13 @@ export interface BuildInput {
   round: number;
   /** 이전 라운드들의 **발행된** 좌석. 재회 회피와 공정성 가중이 여기서 나온다 */
   history: Seat[][];
-  /** 매력 투표 — 프로필만 보고 고른 것이라 가볍게 본다 */
-  votes: SentCounts;
-  /** 파티 콕 — 만나본 뒤에 고른 것이라 무겁게 본다 */
+  /*
+   * ⚠️ **매력 투표(`votes`)는 여기 없다** (ADR-100). 자리에 들어가지 않는다 — 1위를 정하는 데만 쓰인다.
+   * 입력에 자리가 없는 것이 그 방어다.
+   */
+  /** 파티 콕 — 만나본 뒤에 고른 것이다 */
   pokes: SentCounts;
   /** 회차 설정의 상한. 끌림을 여기에 맞춰 [0,1] 로 정규화한다 */
-  maxVote: number;
   maxPoke: number;
   /** 같은 상태면 같은 자리가 나오도록 **부르는 쪽이** 준다 (보통 서버 시각) */
   seed: number;
@@ -230,7 +231,7 @@ class World {
   readonly apart: Uint8Array;
 
   constructor(input: BuildInput) {
-    const { players, history, votes, pokes, maxVote, maxPoke } = input;
+    const { players, history, pokes, maxPoke } = input;
     const n = (this.n = players.length);
     this.age = new Int32Array(n);
     this.male = new Uint8Array(n);
@@ -276,7 +277,6 @@ class World {
       }
       return board;
     };
-    const voteOut = counts(votes);
     const pokeOut = counts(pokes);
 
     for (const [a, b] of input.apart ?? []) {
@@ -359,7 +359,6 @@ class World {
 
         let v = 0;
         v += wPoke * pull(pokeOut[k], pokeOut[j * n + i], maxPoke);
-        v += SEAT_W.VOTE * pull(voteOut[k], voteOut[j * n + i], maxVote);
         if (mutual) v += SEAT_W.MUTUAL;
         /*
          * **나이차 벌점은 이성 쌍에만** (ADR-80). 이 앱이 자리로 지키려는 건 *이어질 수 있는*

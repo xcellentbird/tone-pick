@@ -178,7 +178,6 @@ describe("커플 발표 예약", () => {
         name: "거꾸로",
         partyAt: now + 3 * 24 * HOUR,
         prevoteAt: now + 24 * HOUR,
-        voteEndAt: now + 3 * 24 * HOUR - HOUR,
         // 파티보다 한 시간 **앞**
         revealAt: now + 3 * 24 * HOUR - HOUR,
         config: { maxPre: 2, maxParty: 3 },
@@ -198,7 +197,6 @@ describe("커플 발표 예약", () => {
     const now = Date.now();
     const good = {
       prevoteAt: now + 24 * HOUR,
-      voteEndAt: now + 3 * 24 * HOUR - HOUR,
       partyAt: now + 3 * 24 * HOUR,
       revealAt: now + 3 * 24 * HOUR + 3 * HOUR,
     };
@@ -216,13 +214,6 @@ describe("커플 발표 예약", () => {
       expect(res.status, JSON.stringify(patch)).toBe(400);
       expect(res.body.message).toBe(HOST_UI.scheduleOrder);
     }
-    // 마감은 검사하지 않는다 — 어긋나도 파티 전까지 고칠 수 있다
-    const odd = await api("/api/host/events", {
-      method: "POST",
-      cookie: master,
-      body: { name: "마감만", ...good, voteEndAt: good.partyAt + HOUR, config: { maxPre: 2, maxParty: 3 }, requestId: `ord-v-${now}` },
-    });
-    expect(odd.status, JSON.stringify(odd.body)).toBe(200);
   });
 
   it("★ 고칠 때도 순서를 지킨다 — 발표를 파티 앞으로, 파티를 매력 투표 앞으로 옮길 수 없다", async () => {
@@ -249,7 +240,7 @@ describe("커플 발표 예약", () => {
 
   /**
    * **발표 시각만 파티가 시작된 뒤에도 고칠 수 있다** — 파티가 길어지면 미뤄야 한다.
-   * ADR-39 가 `voteEndAt` 에서 겪은 것과 같은 자리다.
+   * 파티 일시가 파티 전까지 열려 있는 것과 같은 자리다.
    */
   it("★ 파티 중에는 미룰 수 있고, 발표된 뒤에는 잠긴다", async () => {
     const ev = await freshEvent();
@@ -259,7 +250,7 @@ describe("커플 발표 예약", () => {
     const later = Date.now() + 6 * HOUR;
     expect((await putSchedule(ev.id, { revealAt: later })).status, "파티 중에 못 미뤘다").toBe(200);
     // 다른 일정은 파티가 시작되면 잠긴다 — 발표만 예외라는 게 요점이다
-    expect((await putSchedule(ev.id, { voteEndAt: Date.now() + HOUR })).status).toBe(409);
+    expect((await putSchedule(ev.id, { partyAt: Date.now() + HOUR })).status).toBe(409);
 
     await setPhase(ev.id, "done");
     expect((await putSchedule(ev.id, { revealAt: later + HOUR })).status, "발표 뒤에도 열려 있다").toBe(409);

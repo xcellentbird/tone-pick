@@ -149,7 +149,7 @@ Then   `DELETE /api/host/events/:id` — `keep` 을 골랐으면 남긴다. 무�
 > 흔하고, 그러면 QA 에 가짜 회차가 쌓인다. 명령을 칠 때마다 시계가 다시 간다.
 
 ### S-C4 ★ 명령은 공개 API 뿐이다
-> `poke 3 5` · `unpoke 3 5` · `phase party` · `voteend` · `seating 2` · `publish` · `shuffle` · `late` ·
+> `poke 3 5` · `unpoke 3 5` · `phase party` · `seating 2` · `publish` · `shuffle` · `late` ·
 > `schedule reveal +30s` · `lock 4` — CLI 의 `run()` 그대로다. `open` · `close` · `snap` · `now` 는
 > "이 무대에는 없어요" 로 답한다 — 조용히 무시하지 않는다.
 
