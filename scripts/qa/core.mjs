@@ -352,7 +352,7 @@ export const HELP = `
   mutual A B              A→B, B→A 를 한 번에
   phase reg|prevote|party|done      단계 넘기기 (done = 매칭 확인)
   seating T [-x A,B]      자리 초안 (T 테이블, -x 뺄 사람) · publish · shuffle · swap A B · seat A · unseat A · discard
-  announce 문구 [| 보기A | 보기B]   운영자 알림 (보기 둘을 주면 투표)
+  announce 문구 [| 보기A | 보기B]   운영자 공지 (보기 둘을 주면 설문)
   auto [last]             자동 콕 — 실제 파티처럼. 남자는 대부분 다 쓰고 콕이 여자 몇 명에게 몰린다. 여자는 절반 정도가
                           안 쓰거나 일부만 쓰고 두 배 넓게 나눠 찌른다. 누를 때마다 새 콕이 나오고 뒤로 갈수록 많다.
                           ${AUTO_STEPS}번이면 쓰려던 것을 다 쓴다. last 는 남은 것을 한 번에
@@ -680,7 +680,7 @@ function makeStage(env, { tables = 2 } = {}) {
       if (stopped) {
         stage.backlog = [];
         stage.autoRun = null;
-        if (stopped.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 찌를 수 없어요. 프로필 투표가 마감됐거나 매칭 확인이 열렸어요");
+        if (stopped.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 찌를 수 없어요. 프로필 투표가 마감됐거나 매칭 결과가 나왔어요");
         else fail("자동 콕", stopped);
         return 0;
       }
@@ -825,7 +825,7 @@ async function runLine(env, stage, line, { say, fail }) {
       if (st.status !== 200) return fail("상태", st);
       const m = st.body.meta;
       const rounds = (st.body.seatings ?? []).map((r) => `${r.round}라운드 ${r.status} ${r.tableCount}테이블`).join(" · ") || "없음";
-      say(`  단계 ${m.phase} · 참가자 ${st.body.players.length} · 콕 사전 ${st.body.pokeCount?.pre ?? 0} 파티 ${st.body.pokeCount?.party ?? 0} · 상호 ${st.body.mutual?.length ?? 0}쌍 · 자리 ${rounds}`);
+      say(`  단계 ${m.phase} · 참가자 ${st.body.players.length} · 투표 ${st.body.pokeCount?.pre ?? 0} · 콕 ${st.body.pokeCount?.party ?? 0} · 서로 찌른 ${st.body.mutual?.length ?? 0}쌍 · 자리 ${rounds}`);
       say(`  일정 ${Object.entries(m.schedule).map(([k, v]) => `${k} ${v ? new Date(v).toTimeString().slice(0, 8) : "-"}`).join(" · ")}`);
       return;
     }
@@ -848,7 +848,7 @@ async function runLine(env, stage, line, { say, fail }) {
       const res = await H("/phase", { method: "POST", body: { to: rest[0] } });
       if (res.status === 200) stage.phase = rest[0];
       // 단추 이름과 같은 말로 — 영어 단계 이름(prevote)은 명령에만 쓴다
-      const done = { reg: "등록 단계로", prevote: "프로필 투표 시작", party: "파티 시작", done: "매칭 확인 열기" }[rest[0]];
+      const done = { reg: "등록 단계로", prevote: "프로필 투표 시작", party: "파티 시작", done: "매칭 확인 시작" }[rest[0]];
       return ok(done ?? `단계 → ${rest[0]}`, res);
     }
     case "seating": {
@@ -878,7 +878,7 @@ async function runLine(env, stage, line, { say, fail }) {
     case "announce": {
       const [text, a, b] = rest.join(" ").split("|").map((s) => s.trim());
       if (!text) return say("  ? 문구가 필요합니다");
-      return ok(`알림 "${text}"${a && b ? ` (투표 ${a} / ${b})` : ""}`, await H("/announcements", { method: "POST", body: { text, ...(a && b ? { poll: { a, b } } : {}) } }));
+      return ok(a && b ? `설문 "${text}" (${a} / ${b})` : `공지 "${text}"`, await H("/announcements", { method: "POST", body: { text, ...(a && b ? { poll: { a, b } } : {}) } }));
     }
     case "late": {
       // 번호는 가장 큰 번호 다음 — 등록에 실패해 빠진 번호가 있어도 겹치지 않는다
