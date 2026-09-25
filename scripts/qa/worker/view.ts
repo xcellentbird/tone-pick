@@ -1,7 +1,7 @@
 /**
- * 무대 화면 — **한 탭에 운영자와 참가자 화면을 한꺼번에** (슬라이스 37, ADR-99).
+ * 스테이지 화면 — **한 탭에 운영자와 참가자 화면을 한꺼번에** (슬라이스 37, ADR-99).
  *
- * 화면은 전부 **진짜 QA 를 틀(iframe)로** 연다. 무대가 흉내 내 그리면 그 순간부터 진짜와 달라진다 (ADR-7).
+ * 화면은 전부 **진짜 QA 를 틀(iframe)로** 연다. 스테이지가 흉내 내 그리면 그 순간부터 진짜와 달라진다 (ADR-7).
  * 참가자 틀은 이름이 `tp.<이름표>` 라서 그 참가자로 뜨고(앱 `session.ts`), 세션 쿠키는 `/view` 가 심는다 —
  * **틀을 만들기 전에 심는다.** 운영자 틀은 쿠키를 안 심으므로 처음 한 번 운영자 PIN 을 친다 (`plant.ts`).
  *
@@ -9,12 +9,15 @@
  * 참가자는 위 단추로 고른다 — `MAX_SCREENS - 1` 명까지, 더 고르면 가장 먼저 고른 사람이 빠진다.
  * 이미 떠 있는 틀은 **옮기지 않는다** — 틀을 DOM 에서 옮기면 다시 읽혀서 보던 자리를 잃는다.
  *
+ * **단계를 넘기는 단추는 두지 않는다** (슬라이스 37 S-A10) — 운영자 틀에 다 있다. 이 화면에는 운영자 화면에 없는
+ * 것만 둔다: 볼 화면 고르기, 참가자 추가, 콕. 이 화면은 단계를 따로 기억해서 틀과 어긋나므로 단계를 보여 주지도 않는다.
+ *
  * **폰에서는 한 화면씩 옆으로 넘긴다** (가로 스크롤 + 스냅). 앱은 가로로 스크롤하지 않아서 틀 속을 옆으로 밀어도
  * 그 밀기가 이 페이지로 넘어온다 — 크롬의 터치 에뮬레이션으로 앱의 머리 · 목록 · 탭바에서 확인했다.
  * 기기마다 다를 수 있어 **밀지 않고 가는 길**도 둔다: 맨 위 탭, 이름 줄의 ‹ ›. 앱을 도구에 맞추지 않는다 (ADR-99).
  *
  * ⚠️ **이 페이지는 스스로 다시 읽지 않는다** (S-A6). 틀들은 QA 의 실시간을 각자 듣고, 이 페이지의 상태 줄은
- * 명령을 친 뒤에만 바뀐다 — 명령의 답에 무대가 실려 온다. 켜 둔 탭이 몇 초마다 읽으면 하루에 한도를 혼자 넘는다.
+ * 명령을 친 뒤에만 바뀐다 — 명령의 답에 스테이지가 실려 온다. 켜 둔 탭이 몇 초마다 읽으면 하루에 한도를 혼자 넘는다.
  * 자동 콕의 `drain` 을 잇는 것은 다시 읽기가 아니다 — 누른 명령의 남은 몫이고, 줄이 줄지 않으면 멈춘다.
  *
  * 페이지 본문에는 **세션 토큰이 없다.** 이름표(비밀이 아니다)와 가짜 번호 · PIN 까지다.
@@ -44,7 +47,7 @@ const embed = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
 export function stagePage(m: PageModel): string {
   const code = m.view.event.code.replace(/[^0-9A-Za-z]/g, "");
   return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>무대 ${code} · QA 도구</title>
+<title>스테이지 ${code}</title>
 <link rel="icon" href="data:,">
 <style>
 :root{color-scheme:dark}
@@ -53,7 +56,7 @@ body{margin:0;height:100vh;height:100dvh;display:flex;flex-direction:column;over
 a{color:#a29bfe}small,.dim{color:#9a9}
 .top{flex:none;padding:6px 10px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid #333}
 .bar{display:flex;gap:8px;align-items:center;min-width:0}
-.bar b{white-space:nowrap}
+.bar b,.bar button{flex:none;white-space:nowrap}
 .meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .grow{flex:1}
 .status{font-size:13px;color:#b8f5c9;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
@@ -71,7 +74,6 @@ button.danger{background:#b33;border-color:#b33;color:#fff}
 .chip.m{box-shadow:inset 3px 0 #74b9ff}.chip.f{box-shadow:inset 3px 0 #fd79a8}
 .chip.on{background:#6c5ce7;border-color:#6c5ce7;color:#fff}
 .sep{width:1px;align-self:stretch;background:#333;margin:0 2px}
-.hint{flex-basis:100%;padding-left:54px;font-size:12px}
 .warn{background:#5a3a00;color:#ffd;padding:6px 10px;border-radius:8px}
 .pager{display:none;gap:4px;overflow-x:auto;scrollbar-width:none}
 .pager button{flex:none;padding:5px 11px;border-radius:999px}
@@ -88,7 +90,6 @@ button.danger{background:#b33;border-color:#b33;color:#fff}
 body.busy .panel button,body.busy .panel select{opacity:.55;pointer-events:none}
 @media (max-width:${NARROW}px){
 .pager{display:flex}
-.hint{padding-left:0}
 .wall{padding:0;gap:0;justify-content:flex-start;scroll-snap-type:x mandatory}
 .screen{flex:0 0 100%;max-width:none;border-radius:0;scroll-snap-align:start;scroll-snap-stop:always}
 .screen.host{position:static;box-shadow:none}
@@ -98,29 +99,21 @@ body.busy .panel button,body.busy .panel select{opacity:.55;pointer-events:none}
 </style>
 <header class="top" id="top">
   <div class="bar">
-    <b>무대 ${code}</b><span class="meta dim" id="meta"></span>
+    <b>스테이지 ${code}</b><span class="meta dim" id="meta"></span>
     <span class="grow"></span>
-    <button type="button" id="panelBtn" aria-controls="panel" aria-expanded="true">조작</button>
+    <button type="button" id="panelBtn" aria-controls="panel" aria-expanded="true">메뉴</button>
   </div>
   <div class="status" id="status" role="status"></div>
   <div class="panel" id="panel">
-    <div class="row"><b>단계</b>
-      <button type="button" data-cmd="phase prevote">매력 투표 시작</button>
-      <button type="button" id="seatBtn">자리 짜기</button>
-      <button type="button" data-cmd="publish">자리 발행</button>
-      <button type="button" data-cmd="shuffle">자리 섞기</button>
-      <button type="button" data-cmd="phase party">파티 시작</button>
-      <button type="button" data-cmd="phase done">커플 발표</button>
-      <span class="sep"></span>
-      <button type="button" data-cmd="late">늦게 온 사람</button>
-    </div>
     <div class="row"><b>화면</b><span class="dim">남</span><div class="strip" id="men"></div></div>
     <div class="row"><b></b><span class="dim">여</span><div class="strip" id="women"></div></div>
+    <div class="row"><b>참가자</b>
+      <button type="button" data-cmd="late m">남자 추가</button>
+      <button type="button" data-cmd="late f">여자 추가</button>
+    </div>
     <div class="row"><b>자동 콕</b>
       <button type="button" class="main" data-cmd="auto">자동 콕</button>
       <button type="button" class="main" data-cmd="auto last">마지막 자리 자동 콕</button>
-      <small class="hint">남자는 거의 다 쓰고 몇 명에게 몰려요. 여자는 절반쯤 안 쓰거나 덜 쓰고, 남자보다 두 배 넓게 흩어져요.
-      자리가 뒤로 갈수록 많이 찌르고 마지막 자리에서 가장 많아요. 매력 투표에서는 한 번에 다 해요.</small>
     </div>
     <div class="row"><b>콕</b>
       <select id="from" aria-label="보내는 사람"></select> → <select id="to" aria-label="받는 사람"></select>
@@ -132,11 +125,11 @@ body.busy .panel button,body.busy .panel select{opacity:.55;pointer-events:none}
       <button type="button" data-cmd="pairs 3">서로 콕 3쌍</button>
     </div>
     <div class="row"><b></b><small id="left"></small><span class="grow"></span>
-      <button type="button" id="reread">무대 다시 읽기</button>
+      <button type="button" id="reread">스테이지 새로고침</button>
       <a href="../../">목록</a>
-      <form method="post" action="close" id="closeForm"><input type="hidden" name="planted" id="planted"><button class="danger">닫기 · 회차 삭제</button></form>
+      <form method="post" action="close" id="closeForm"><input type="hidden" name="planted" id="planted"><button class="danger">스테이지 닫기</button></form>
     </div>
-    ${m.plantable ? "" : `<div class="warn">이 주소로 연 도구는 참가자 화면에 자동으로 들어갈 수 없어요. QA 와 같은 사이트의 도구 주소로 열어주세요.</div>`}
+    ${m.plantable ? "" : `<div class="warn">지금 주소로는 참가자 화면에 자동으로 로그인할 수 없어요. QA 와 같은 도메인에 있는 도구 주소로 열어주세요.</div>`}
   </div>
   <nav class="pager" id="pager" aria-label="화면"></nav>
 </header>
@@ -147,7 +140,6 @@ const M = JSON.parse(document.getElementById('model').textContent);
 const $ = (s) => document.querySelector(s);
 const MAX_PEOPLE = ${MAX_SCREENS - 1};
 const narrow = matchMedia('(max-width:${NARROW}px)');
-const PHASE = { reg: '등록 중', prevote: '매력 투표', party: '파티', done: '발표 뒤' };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const who = (n) => M.view.cast.find((p) => p.n === n);
 const label = (p) => p.n + ' ' + p.nickname + ' · ' + (p.gender === 'M' ? '남' : '여') + ' ' + p.age;
@@ -202,11 +194,11 @@ function frameFor(k) {
   const el = document.createElement('section');
   const p = k === 'host' ? null : who(k);
   el.className = p ? 'screen' : 'screen host';
-  const name = p ? esc(label(p)) : '운영자 <small>· 처음 한 번 PIN ' + esc(M.hostPin) + '</small>';
-  el.innerHTML = '<header><button type="button" class="nav" data-step="-1" aria-label="앞 화면">‹</button>'
+  const name = p ? esc(label(p)) : '운영자 <small>PIN ' + esc(M.hostPin) + '</small>';
+  el.innerHTML = '<header><button type="button" class="nav" data-step="-1" aria-label="이전 화면">‹</button>'
     + '<span class="name">' + name + '</span>'
-    + '<button type="button" data-act="reload" title="이 화면 다시 읽기">↻</button>'
-    + (p ? '<button type="button" data-act="drop" title="이 화면 빼기">✕</button>' : '')
+    + '<button type="button" data-act="reload" title="이 화면 새로고침">↻</button>'
+    + (p ? '<button type="button" data-act="drop" title="이 화면 닫기">✕</button>' : '')
     + '<button type="button" class="nav" data-step="1" aria-label="다음 화면">›</button></header>';
   const f = document.createElement('iframe');
   if (p) f.name = 'tp.' + p.ref;
@@ -238,7 +230,7 @@ function renderPager() {
   $('#pager').innerHTML = order().map((k) => {
     const p = k === 'host' ? null : who(k);
     return '<button type="button" data-go="' + k + '">' + esc(p ? p.n + ' ' + p.nickname : '운영자') + '</button>';
-  }).join('') + '<button type="button" data-open="panel">+ 화면</button>';
+  }).join('') + '<button type="button" data-open="panel">+ 화면 추가</button>';
   markPager();
 }
 function markPager() {
@@ -254,7 +246,7 @@ wall.addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(()
 function setPanel(open) {
   $('#top').classList.toggle('closed', !open);
   $('#panelBtn').setAttribute('aria-expanded', String(open));
-  $('#panelBtn').textContent = open ? '조작 접기' : '조작';
+  $('#panelBtn').textContent = open ? '메뉴 닫기' : '메뉴';
 }
 
 /** 보내는 사람 · 받는 사람 — 지금 보는 참가자 둘로 채운다. A 가 B 를 찌르고 B 의 화면을 보는 게 가장 흔하다 */
@@ -286,9 +278,8 @@ function apply(data) {
   const castChanged = data.view.cast.length !== M.view.cast.length;
   M.view = data.view; M.left = data.left;
   const men = M.view.cast.filter((p) => p.gender === 'M').length;
-  $('#meta').textContent = '· ' + (PHASE[M.view.phase] || M.view.phase) + ' · 남 ' + men + ' · 여 ' + (M.view.cast.length - men);
+  $('#meta').textContent = '· 남 ' + men + ' · 여 ' + (M.view.cast.length - men);
   $('#left').textContent = '남은 QA 호출 ' + M.left.toLocaleString('ko-KR') + ' / ' + M.daily.toLocaleString('ko-KR');
-  $('#seatBtn').textContent = '자리 짜기 (' + M.view.tables + '테이블)';
   const said = lastSaid();
   status(said, /^[✗?]/.test(said));
   if (castChanged) { renderChips(); renderSelects(); pickDefaults(); }
@@ -298,7 +289,7 @@ let busy = false, isClosed = false;
 function closed() {
   isClosed = true;
   document.body.classList.add('busy');
-  status('무대가 닫혔어요. 목록으로 돌아가 새로 세워주세요.', true);
+  status('스테이지가 닫혔어요. 목록으로 돌아가서 새로 만들어주세요.', true);
 }
 async function post(path, body) {
   const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
@@ -321,7 +312,7 @@ async function run(line) {
       if (M.view.backlog >= before) break;
     }
   } catch {
-    status('✗ 도구에 닿지 못했어요 — 다시 눌러주세요', true);
+    status('✗ 도구 서버에 연결하지 못했어요. 다시 눌러주세요', true);
   } finally {
     busy = false;
     if (!isClosed) document.body.classList.remove('busy');
@@ -338,7 +329,6 @@ document.addEventListener('click', (e) => {
   if (t.dataset.poke) return run(t.dataset.poke + ' ' + $('#from').value + ' ' + $('#to').value);
 });
 $('#panelBtn').onclick = () => setPanel($('#top').classList.contains('closed'));
-$('#seatBtn').onclick = () => run('seating ' + M.view.tables);
 $('#crowdBtn').onclick = () => run('crowd ' + $('#to').value + ' 5');
 $('#reread').onclick = async () => {
   const r = await fetch('state').catch(() => null);
@@ -346,11 +336,11 @@ $('#reread').onclick = async () => {
   if (r.status === 404) return closed();
   apply(await r.json());
 };
-$('#closeForm').onsubmit = () => confirm('회차 ' + M.view.event.code + '와 가짜 참가자 ' + M.view.cast.length + '명을 지우고 무대를 닫을까요? 되돌릴 수 없어요.');
+$('#closeForm').onsubmit = () => confirm('회차 ' + M.view.event.code + '와 가짜 참가자 ' + M.view.cast.length + '명을 지우고 스테이지를 닫을까요? 되돌릴 수 없어요.');
 
 renderChips(); renderSelects(); pickDefaults();
 apply({ view: M.view, left: M.left });
-// 폰에서는 조작을 접어 두고 틀에 자리를 준다
+// 폰에서는 메뉴를 접어 두고 틀에 자리를 준다
 setPanel(!narrow.matches);
 // 처음 뜰 때 지금 볼 참가자를 모두 심고 나서 틀을 만든다
 plant(people, []).then(() => { renderWall(); renderPager(); });

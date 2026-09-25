@@ -1,12 +1,12 @@
 /**
- * 무대 워커 — 컴퓨터 없이 온라인에서 QA 무대를 세운다 (슬라이스 35 · 37, ADR-97 · ADR-99).
+ * 스테이지 워커 — 컴퓨터 없이 온라인에서 QA 스테이지를 만든다 (슬라이스 35 · 37, ADR-97 · ADR-99).
  *
- *   /                   무대 목록 · 새 무대 · 남은 몫
- *   POST /new           무대를 세운다 (걸음을 나눠서) → /s/<id>/
- *   /s/<id>/            무대 화면 — 한 탭에 운영자와 참가자 화면을 틀로 (`view.ts`)
- *   /s/<id>/state       무대 화면이 그릴 것 (JSON)
- *   POST /s/<id>/cmd    명령 한 줄 → 무대 화면이 그릴 것
- *   POST /s/<id>/drain  자동 콕의 남은 줄을 한 묶음 → 무대 화면이 그릴 것
+ *   /                   스테이지 목록 · 새 스테이지 · 남은 몫
+ *   POST /new           스테이지를 만든다 (걸음을 나눠서) → /s/<id>/
+ *   /s/<id>/            스테이지 화면 — 한 탭에 운영자와 참가자 화면을 틀로 (`view.ts`)
+ *   /s/<id>/state       스테이지 화면이 그릴 것 (JSON)
+ *   POST /s/<id>/cmd    명령 한 줄 → 스테이지 화면이 그릴 것
+ *   POST /s/<id>/drain  자동 콕의 남은 줄을 한 묶음 → 스테이지 화면이 그릴 것
  *   POST /s/<id>/view   고른 참가자의 세션을 심고, 뺀 사람의 것을 거둔다 (`plant.ts`)
  *   POST /s/<id>/close  닫기 · 회차 삭제
  *
@@ -28,9 +28,10 @@ import { stagePage } from "./view.ts";
 export { LobbyDO, StageDO } from "./stage-do.ts";
 
 const PHASE_NAME: Record<Want["phase"], string> = {
+  reg: "등록",
   prevote: "매력 투표",
-  party: "파티 (자리 발행까지)",
-  done: "발표 뒤",
+  party: "파티",
+  done: "커플 발표 후",
 };
 
 const esc = (s: unknown) =>
@@ -84,65 +85,120 @@ async function lobbyPage(env: Env, error = ""): Promise<Response> {
       .then((r) => r.json() as Promise<{ ok?: boolean; label?: string }>)
       .catch(() => null),
   ]);
-  const qa = health?.ok ? `QA 연결됨 · ${esc(health.label ?? "라벨 없음")}` : "QA 에 닿지 못했어요";
-  const list = rows.length
-    ? rows
-        .map(
-          (r) =>
-            `<li><a href="s/${esc(r.id)}/">무대 ${esc(r.code)}</a> <small>${r.people}명 · ${new Date(r.at).toISOString().slice(5, 16).replace("T", " ")} UTC</small></li>`,
-        )
-        .join("")
-    : "<li><small>열린 무대가 없어요</small></li>";
-  const opts = (xs: readonly string[], names?: Record<string, string>, pick?: string) =>
-    xs.map((x) => `<option value="${x}"${x === pick ? " selected" : ""}>${names?.[x] ?? x}</option>`).join("");
-  const nums = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => String(a + i));
+  // 연습용 표시(ENV_LABEL)가 없는 서버에는 스테이지를 만들지 않는다 (`beginStage` 의 practiceOnly)
+  const conn = !health?.ok
+    ? { cls: "bad", text: "QA 연결 안 됨" }
+    : health.label
+      ? { cls: "ok", text: "QA 연결됨" }
+      : { cls: "warn", text: "연습용 서버가 아니에요" };
+  /** 만든 시각 — 한국 시간으로. 하루 몫이 다시 차는 때(오전 9시)도 한국 시간이다 */
+  const kst = (at: number) => {
+    const d = new Date(at + 9 * 3600_000);
+    return `${d.getUTCMonth() + 1}월 ${d.getUTCDate()}일 ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+  };
+  const stages = rows
+    .map(
+      (r) =>
+        `<li><a class="stage" href="s/${esc(r.id)}/"><b>${esc(r.code)}</b><span>${r.people}명 · ${kst(r.at)}</span></a></li>`,
+    )
+    .join("");
+  const nums = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
   const age = (name: string, value: number, label: string) =>
     `<input type="number" inputmode="numeric" name="${name}" value="${value}" min="${AGE_LIMIT.min}" max="${AGE_LIMIT.max}" step="1" aria-label="${label}">`;
   /** 한 성별의 칸 — 인원 · 평균 나이 · 나이 범위 */
   const side = (key: "m" | "f", g: "M" | "F", title: string, count: string) => {
     const a = STAGE_AGES[g];
-    return `<fieldset><legend>${title}</legend>
-<label>인원</label><select name="${count}">${opts(nums(PER_GENDER.min, PER_GENDER.max), undefined, "6")}</select>
-<label>평균 나이</label>${age(`${key}_avg`, a.avg, `${title} 평균 나이`)}
-<label>나이 범위</label><div class="range">${age(`${key}_min`, a.min, `${title} 가장 어린 나이`)}<span>~</span>${age(`${key}_max`, a.max, `${title} 가장 많은 나이`)}</div>
+    const people = nums(PER_GENDER.min, PER_GENDER.max)
+      .map((n) => `<option value="${n}"${n === 6 ? " selected" : ""}>${n}명</option>`)
+      .join("");
+    return `<fieldset class="side ${key}"><legend>${title}</legend>
+<label>인원<select name="${count}">${people}</select></label>
+<label>평균 나이<input type="number" inputmode="numeric" name="${key}_avg" value="${a.avg}" min="${AGE_LIMIT.min}" max="${AGE_LIMIT.max}" step="1"></label>
+<div class="lab">나이 범위</div>
+<div class="range">${age(`${key}_min`, a.min, `${title} 최소 나이`)}<span>~</span>${age(`${key}_max`, a.max, `${title} 최대 나이`)}</div>
 </fieldset>`;
   };
+  const phases = START_PHASES.map(
+    (p, i) => `<label><input type="radio" name="phase" value="${p}"${i === 0 ? " checked" : ""}><span>${PHASE_NAME[p]}</span></label>`,
+  ).join("");
   return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>무대 · QA 도구</title>
+<title>QA 스테이지</title>
 <link rel="icon" href="data:,">
 <style>
-body{margin:0;padding:12px;font:16px/1.5 system-ui;background:#111;color:#eee;max-width:560px}
-h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:18px 0 6px}small{color:#9a9}a{color:#a29bfe}
-label{display:block;margin:8px 0 2px;font-size:14px;color:#bbb}
-.pair{display:flex;gap:10px}.pair>fieldset{flex:1;min-width:0}
-fieldset{margin:0;padding:4px 10px 10px;border:1px solid #333;border-radius:12px}legend{padding:0 4px;color:#ddd}
-select,input{width:100%;box-sizing:border-box;font-size:17px;padding:10px;border-radius:10px;border:1px solid #444;background:#222;color:#fff}
-.range{display:flex;gap:6px;align-items:center}.range input{min-width:0}
-button{width:100%;margin-top:14px;font-size:17px;padding:13px;border-radius:10px;border:0;background:#6c5ce7;color:#fff}
-ul{padding-left:18px}.err{color:#ff7675}
+:root{color-scheme:dark;--bg:#0f0f14;--panel:#17171f;--panel-2:#1f1f29;--line:#2d2d3a;--text:#ececf2;--dim:#9b9bb0;
+--accent:#7565f2;--accent-soft:#a29bfe;--on-accent:#fff;--men:#74b9ff;--women:#fd79a8;--ok:#4cd28a;--warn:#ffb86b;--bad:#ff7675;
+--r-lg:18px;--r:14px;--r-sm:10px;--gap:12px}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:32px 20px 56px}
+header{display:flex;align-items:center;flex-wrap:wrap;gap:var(--gap);margin-bottom:32px}
+h1{margin:0;font-size:24px;letter-spacing:-.02em}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;background:var(--panel);border:1px solid var(--line);color:var(--dim);font-size:13px;line-height:1.3;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.pill.warn .dot{background:var(--warn)}.pill.bad .dot{background:var(--bad)}
+section{margin-bottom:32px}
+h2{margin:0 0 12px;font-size:13px;font-weight:600;color:var(--dim);letter-spacing:.04em}
+.stages{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.stage{display:flex;flex-direction:column;gap:2px;padding:14px 16px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line);color:inherit;text-decoration:none}
+.stage:hover,.stage:focus-visible{border-color:var(--accent);outline:none}
+.stage b{font-size:18px;letter-spacing:.06em}
+.stage span{color:var(--dim);font-size:13px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px}
+.sides{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap)}
+.side{margin:0;min-width:0;padding:14px 14px 16px;border:0;border-radius:var(--r);background:var(--panel-2);box-shadow:inset 0 3px 0 var(--men)}
+.side.f{box-shadow:inset 0 3px 0 var(--women)}
+.side legend{float:left;width:100%;margin:0 0 4px;padding:0;font-size:16px;font-weight:700}
+.side legend::before{content:"";display:inline-block;width:9px;height:9px;margin-right:8px;border-radius:50%;background:var(--men);vertical-align:1px}
+.side.f legend::before{background:var(--women)}
+label,.lab{display:block;margin-top:12px;font-size:13px;color:var(--dim)}
+label>select,label>input{display:block;margin-top:5px}
+select,input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px}
+input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+select:focus,input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.range{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;margin-top:5px;color:var(--dim)}
+.phase{margin-top:18px}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}
+.seg label{margin:0;position:relative}
+.seg input{position:absolute;opacity:0;width:1px;height:1px}
+.seg span{display:block;padding:10px 4px;border-radius:var(--r-sm);background:var(--bg);border:1px solid var(--line);color:var(--dim);font-size:14px;text-align:center;cursor:pointer;white-space:nowrap}
+.seg input:checked+span{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.seg input:focus-visible+span{outline:2px solid var(--accent-soft);outline-offset:1px}
+.go{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;margin-top:20px;padding:14px;border:0;border-radius:var(--r);background:var(--accent);color:var(--on-accent);font:inherit;font-size:16px;font-weight:700;cursor:pointer}
+.go:disabled{opacity:.7;cursor:progress}
+.go:disabled::before{content:"";width:16px;height:16px;border-radius:50%;border:2px solid var(--on-accent);border-right-color:transparent;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.err{margin:0 0 24px;padding:12px 16px;border-radius:var(--r);background:rgba(255,118,117,.12);border:1px solid var(--bad);color:var(--text)}
+@media (max-width:520px){.wrap{padding:24px 16px 40px}header{margin-bottom:24px}.pills{margin-left:0}.card{padding:14px}.seg{grid-template-columns:repeat(2,1fr)}}
 </style>
-<h1>무대</h1><small>${qa}</small>
-${error ? `<p class="err">${esc(error)}</p>` : ""}
-<h2>열린 무대</h2><ul>${list}</ul>
-<h2>새 무대</h2>
-<form method="post" action="new" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='세우는 중… (사람이 많으면 수십 초 걸려요)'">
-<div class="pair">${side("m", "M", "남자", "men")}${side("f", "F", "여자", "women")}</div>
-<p><small>나이는 ${AGE_LIMIT.min}~${AGE_LIMIT.max}살 안에서 골라주세요. 평균 근처가 가장 많고, 범위 끝으로 갈수록 적어요.</small></p>
-<label>시작 단계 — 모두 등록을 마친 뒤예요</label><select name="phase">${opts(START_PHASES, PHASE_NAME, "prevote")}</select>
-<button>무대 세우기</button>
+<div class="wrap">
+<header>
+  <h1>QA 스테이지</h1>
+  <div class="pills">
+    <span class="pill ${conn.cls}"><i class="dot"></i>${conn.text}</span>
+    <span class="pill">남은 호출 ${fmt(left)} / ${fmt(DAILY)}</span>
+  </div>
+</header>
+${error ? `<div class="err" role="alert">${esc(error)}</div>` : ""}
+${stages ? `<section><h2>진행 중인 스테이지</h2><ul class="stages">${stages}</ul></section>` : ""}
+<section>
+<h2>새 스테이지</h2>
+<form class="card" method="post" action="new" onsubmit="const b=this.querySelector('.go');b.disabled=true;b.lastChild.textContent='만드는 중…'">
+<div class="sides">${side("m", "M", "남자", "men")}${side("f", "F", "여자", "women")}</div>
+<div class="phase"><div class="lab">시작 단계</div><div class="seg" role="radiogroup" aria-label="시작 단계">${phases}</div></div>
+<button class="go"><span>스테이지 만들기</span></button>
 </form>
-<p><small>남은 QA 호출: ${fmt(left)}번. 매일 오전 9시에 ${fmt(DAILY)}번으로 다시 채워져요. 무대 하나는 사람 수의 두 배쯤 들고, 자동 콕은 찌른 수만큼 들어요.</small></p>
-<p><small>로그인이 없어서 주소를 아는 사람은 누구나 쓸 수 있어요. 다른 사람이 세운 무대는 닫지 말아주세요.</small></p>
-<p><small>번호는 전부 가짜예요. 무대를 닫으면 회차를 지우고, 12시간 동안 손대지 않은 무대는 저절로 닫혀요.</small></p>`);
+</section>
+</div>`);
 }
 
 /**
- * 무대를 세운다 — 걸음을 나눠서 (`core.mjs` 의 `beginStage`). 요청 하나가 QA 를 부를 수 있는 횟수에 끝이 있어서,
- * 등록은 `ENROLL_BATCH` 명씩 무대 DO 를 여러 번 부른다. 하루 몫이 모자랄 무대는 **시작하기 전에** 거절한다 —
+ * 스테이지를 만든다 — 걸음을 나눠서 (`core.mjs` 의 `beginStage`). 요청 하나가 QA 를 부를 수 있는 횟수에 끝이 있어서,
+ * 등록은 `ENROLL_BATCH` 명씩 스테이지 DO 를 여러 번 부른다. 하루 몫이 모자랄 스테이지는 **시작하기 전에** 거절한다 —
  * 가다가 막히면 등록하던 사람들이 몫만 먹고 지워진다.
  */
 async function build(env: Env, form: FormData): Promise<{ id: string; code: string; people: number } | { error: string }> {
-  const phase = String(form.get("phase") ?? "prevote") as Want["phase"];
+  const phase = String(form.get("phase") ?? "reg") as Want["phase"];
   // 나이는 앱이 받는 범위 안으로, 최소 ≤ 평균 ≤ 최대 — 폼을 손으로 고쳐 보내도 등록이 거절되지 않게
   const ages = (g: "M" | "F", key: string) =>
     ageRange({ avg: form.get(`${key}_avg`), min: form.get(`${key}_min`), max: form.get(`${key}_max`) }, STAGE_AGES[g]);
@@ -150,7 +206,7 @@ async function build(env: Env, form: FormData): Promise<{ id: string; code: stri
     men: clamp(form.get("men"), PER_GENDER.min, PER_GENDER.max, 6),
     women: clamp(form.get("women"), PER_GENDER.min, PER_GENDER.max, 6),
     ages: { M: ages("M", "m"), F: ages("F", "f") },
-    phase: START_PHASES.includes(phase) ? phase : "prevote",
+    phase: START_PHASES.includes(phase) ? phase : "reg",
   };
   const people = want.men + want.women;
   const need = buildCost(people, Math.ceil(people / ENROLL_BATCH));
@@ -162,12 +218,12 @@ async function build(env: Env, form: FormData): Promise<{ id: string; code: stri
   let step = await stub.start(want);
   while (step.ok && step.pending > 0) step = await stub.enroll();
   if (step.ok) step = await stub.finish(want.phase);
-  if (!step.ok) return { error: `무대를 못 세웠어요 — ${step.message}` };
+  if (!step.ok) return { error: `스테이지를 만들지 못했어요. ${step.message}` };
   const view = await stub.view();
   return { id: id.toString(), code: view?.event.code ?? "?", people };
 }
 
-/** 페이지가 보낸 번호 목록. 숫자만, 많아야 무대 인원만큼 */
+/** 페이지가 보낸 번호 목록. 숫자만, 많아야 스테이지 인원만큼 */
 const numbers = (v: unknown): number[] =>
   Array.isArray(v) ? v.filter((x): x is number => Number.isInteger(x) && x > 0).slice(0, 200) : [];
 
@@ -193,30 +249,30 @@ export default {
     if (m) {
       const [, id, rest = ""] = m;
       // 목록에 없는 아이디로 빈 DO 를 깨우지 않는다
-      if (!(await lobbyOf(env).has(id))) return text("그런 무대가 없어요.", 404);
+      if (!(await lobbyOf(env).has(id))) return text("그런 스테이지가 없어요.", 404);
       const stub = env.STAGE.get(env.STAGE.idFromString(id));
       const lobby = lobbyOf(env);
       if (rest === "") return see(`/s/${id}/`);
 
       if (rest === "/" && request.method === "GET") {
         const [view, left] = await Promise.all([stub.view(), lobby.left(Date.now())]);
-        if (!view) return text("그런 무대가 없어요.", 404);
+        if (!view) return text("그런 스테이지가 없어요.", 404);
         return html(
           stagePage({ id, view, left, daily: DAILY, qa: env.QA_PUBLIC_URL, hostPin: env.QA_PIN, plantable: !!whereToPlant(request, env) }),
         );
       }
       if (rest === "/state" && request.method === "GET") {
         const [view, left] = await Promise.all([stub.view(), lobby.left(Date.now())]);
-        return view ? json({ view, left }) : text("그런 무대가 없어요.", 404);
+        return view ? json({ view, left }) : text("그런 스테이지가 없어요.", 404);
       }
       if (rest === "/cmd" && request.method === "POST") {
         const { line } = (await request.json().catch(() => ({}))) as { line?: unknown };
         const view = typeof line === "string" && line.trim() ? await stub.command(line.slice(0, 200)) : await stub.view();
-        return view ? json({ view, left: await lobby.left(Date.now()) }) : text("그런 무대가 없어요.", 404);
+        return view ? json({ view, left: await lobby.left(Date.now()) }) : text("그런 스테이지가 없어요.", 404);
       }
       if (rest === "/drain" && request.method === "POST") {
         const view = await stub.drain();
-        return view ? json({ view, left: await lobby.left(Date.now()) }) : text("그런 무대가 없어요.", 404);
+        return view ? json({ view, left: await lobby.left(Date.now()) }) : text("그런 스테이지가 없어요.", 404);
       }
       if (rest === "/view" && request.method === "POST") {
         const where = whereToPlant(request, env);
@@ -235,7 +291,7 @@ export default {
         return new Response(null, { status: 204, headers });
       }
       if (rest === "/close" && request.method === "POST") {
-        // 이 페이지가 심은 세션도 함께 거둔다 — 닫힌 무대의 쿠키를 부모 도메인에 남기지 않는다
+        // 이 페이지가 심은 세션도 함께 거둔다 — 닫힌 스테이지의 쿠키를 부모 도메인에 남기지 않는다
         const form = await request.formData().catch(() => null);
         const hide = String(form?.get("planted") ?? "")
           .split(",")
