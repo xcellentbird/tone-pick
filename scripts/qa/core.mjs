@@ -348,7 +348,7 @@ const dur = (s) => {
 export const HELP = `
   cast                    가짜 참가자 명단 (번호, 닉네임, 성별, 전화번호, PIN)
   state                   회차 단계 · 콕 수 · 자리 라운드
-  poke A B  /  unpoke A B  A가 B를 콕 (매력 투표 중이면 표, 파티 중이면 콕) · 되돌리기
+  poke A B  /  unpoke A B  A가 B를 콕 (프로필 투표 중이면 표, 파티 중이면 콕) · 되돌리기
   mutual A B              A→B, B→A 를 한 번에
   phase reg|prevote|party|done      단계 넘기기 (done = 매칭 확인)
   seating T [-x A,B]      자리 초안 (T 테이블, -x 뺄 사람) · publish · shuffle · swap A B · seat A · unseat A · discard
@@ -680,7 +680,7 @@ function makeStage(env, { tables = 2 } = {}) {
       if (stopped) {
         stage.backlog = [];
         stage.autoRun = null;
-        if (stopped.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 찌를 수 없어요. 매력 투표가 마감됐거나 매칭 확인이 열렸어요");
+        if (stopped.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 찌를 수 없어요. 프로필 투표가 마감됐거나 매칭 확인이 열렸어요");
         else fail("자동 콕", stopped);
         return 0;
       }
@@ -848,7 +848,7 @@ async function runLine(env, stage, line, { say, fail }) {
       const res = await H("/phase", { method: "POST", body: { to: rest[0] } });
       if (res.status === 200) stage.phase = rest[0];
       // 단추 이름과 같은 말로 — 영어 단계 이름(prevote)은 명령에만 쓴다
-      const done = { reg: "등록 단계로", prevote: "매력 투표 시작", party: "파티 시작", done: "매칭 확인 열기" }[rest[0]];
+      const done = { reg: "등록 단계로", prevote: "프로필 투표 시작", party: "파티 시작", done: "매칭 확인 열기" }[rest[0]];
       return ok(done ?? `단계 → ${rest[0]}`, res);
     }
     case "seating": {
@@ -919,7 +919,7 @@ async function runLine(env, stage, line, { say, fail }) {
       const { meta, players, sent } = st.body;
       // 운영자 틀에서 단계를 넘겼을 수 있다 — 스테이지가 기억하는 단계를 콘솔에 맞춘다
       stage.phase = meta.phase;
-      if (meta.phase !== "prevote" && meta.phase !== "party") return say("  ? 자동 콕은 매력 투표나 파티 중에만 쓸 수 있어요");
+      if (meta.phase !== "prevote" && meta.phase !== "party") return say("  ? 자동 콕은 프로필 투표나 파티 중에만 쓸 수 있어요");
       const round = meta.phase === "prevote" ? "pre" : "party";
       const step = last ? AUTO_STEPS : Math.min(AUTO_STEPS, (stage.autoStep[round] ?? 0) + 1);
       stage.autoStep[round] = step;
@@ -934,7 +934,7 @@ async function runLine(env, stage, line, { say, fail }) {
         seed: stage.stamp,
         history: stage.autoSent[round] ?? {},
       });
-      const name = round === "pre" ? "매력 투표" : "파티";
+      const name = round === "pre" ? "프로필 투표" : "파티";
       const what = `${name} ${step}/${AUTO_STEPS}`;
       stage.backlog = plan.map(([from, to]) => ({ from, to, round }));
       if (!plan.length) {

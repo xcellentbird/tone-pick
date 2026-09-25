@@ -29,7 +29,7 @@ export { LobbyDO, StageDO } from "./stage-do.ts";
 
 const PHASE_NAME: Record<Want["phase"], string> = {
   reg: "등록",
-  prevote: "매력 투표",
+  prevote: "프로필 투표",
   party: "파티",
   done: "매칭 확인",
 };

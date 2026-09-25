@@ -237,7 +237,7 @@ describe("자동 콕 — 진짜 앱에서", () => {
     for (let i = 1; i <= AUTO_STEPS; i++) if (counts[i - 1] < done) expect(counts[i], `${i}번째`).toBeGreaterThan(counts[i - 1]);
     // 끝까지 눌렀으면 다 냈다 — 더 눌러도 나오지 않는다
     expect(counts[AUTO_STEPS + 1]).toBe(done);
-    expect(e.log.lines.join("\n")).toContain(`✓ 자동 콕 (매력 투표 1/${AUTO_STEPS})`);
+    expect(e.log.lines.join("\n")).toContain(`✓ 자동 콕 (프로필 투표 1/${AUTO_STEPS})`);
     for (const p of stage.cast as Persona[]) expect((await me(p)).budget.pre.used).toBeLessThanOrEqual(1);
     await stage.close();
   });
