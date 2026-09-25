@@ -4,7 +4,8 @@
  *   나이   남녀를 따로 평균과 범위 — 평균이 맞고, 모두 앱이 받는 범위 안이다
  *   자동   실제 파티처럼. 운영자가 본 것 (2026-09-25):
  *          남자는 거의 모두 다 쓰고 몇몇에게 몰린다. 여자는 절반쯤이 안 쓰거나 덜 쓰고, 두 배 넓게 흩어진다.
- *          뒤 자리일수록 많이 찌르고 마지막 자리에서 가장 많다
+ *          뒤로 갈수록 많이 찌르고 마지막에 가장 많다
+ *          누를 때마다 새 콕이 나온다 — 다섯 번이면 쓰려던 것을 다 쓴다 (ADR-99 후기 6)
  *
  * 확률로 정한 모양은 **씨앗 하나로 재지 않는다** (ADR-57 과 같은 까닭) — 씨앗 여러 개의 평균으로 본다.
  * 계획(`planPokes`)은 앱을 부르지 않는 순수 함수라 그렇게 돌리고, 앱과 붙인 것은 `SELF.fetch` 로 따로 본다.
@@ -12,7 +13,7 @@
  */
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { AGE_LIMIT, BULK_MAX, STAGE_AGES, ageRange, beginStage, buildStage, createLog, planPokes, seeded, spreadAges } from "../scripts/qa/core.mjs";
+import { AGE_LIMIT, AUTO_STEPS, BULK_MAX, STAGE_AGES, ageRange, beginStage, buildStage, createLog, planPokes, seeded, spreadAges } from "../scripts/qa/core.mjs";
 import { AGE_RANGE } from "../src/shared/constants.ts";
 import type { HostState, ParticipantState } from "../src/shared/types.ts";
 import { api, master, signInMaster } from "./helpers/party.ts";
@@ -85,19 +86,23 @@ describe("나이 — 남녀를 따로, 평균과 범위", () => {
 
 type Sex = "M" | "F";
 /**
- * 파티 한 판을 끝까지 — 자리 몇 라운드 뒤 마지막 자리(기본 1~3라운드 + 마지막). **씨앗마다 다른 스테이지**다
+ * 파티 한 판을 끝까지 — 자동 콕을 `presses` 번 누른다(기본은 끝까지). **씨앗마다 다른 스테이지**다
  * (인기 · 성향이 씨앗에서 나온다). 앱을 부르지 않는다 — 계획만 세어 본다. 앱과 붙인 것은 아래 `자동 콕 — 진짜 앱에서` 가 본다.
+ * `left` 는 누르기 전에 남아 있던 콕 — 한 번에 다 쓰는 계획(`last`)의 길이로 잰다.
  */
-function party(seed: number, size = 20, max = 2, seatings = 4) {
+function party(seed: number, size = 20, max = 2, presses = AUTO_STEPS) {
   const cast = [...Array(size * 2)].map((_, i) => ({ n: i + 1, gender: (i < size ? "M" : "F") as Sex }));
   const used: Record<number, number> = {};
   const history: Record<number, number[]> = {};
   const got = { M: new Map<number, number>(), F: new Map<number, number>() };
   const pokes: number[] = [];
   const pokers: number[] = [];
+  const left: number[] = [];
   const rng = seeded(`run:${seed}`);
-  for (let k = 1; k <= seatings; k++) {
-    const plan: [number, number][] = planPokes({ cast, used, max, round: "party", k, last: k === seatings, seed, rng, history });
+  const remaining = () => planPokes({ cast, used, max, round: "party", last: true, seed, rng: seeded(0), history }).length;
+  for (let step = 1; step <= presses; step++) {
+    left.push(remaining());
+    const plan: [number, number][] = planPokes({ cast, used, max, round: "party", step, seed, rng, history });
     pokes.push(plan.length);
     pokers.push(new Set(plan.map(([a]) => a)).size);
     for (const [a, b] of plan) {
@@ -108,7 +113,7 @@ function party(seed: number, size = 20, max = 2, seatings = 4) {
     }
   }
   const share = (g: Sex, pred: (u: number) => boolean) => cast.filter((p) => p.gender === g && pred(used[p.n] ?? 0)).length / size;
-  return { used, pokes, pokers, got, share };
+  return { used, pokes, pokers, left, got, share, remaining };
 }
 const SEEDS = 200;
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -140,17 +145,30 @@ describe("자동 콕 — 실제 파티처럼 (씨앗 여러 개의 평균으로)
     expect(women / men).toBeLessThan(2.4);
   });
 
-  it("★ 뒤 자리일수록 많이 찌르고, 마지막 자리에서 가장 많다 — 콕 수도 찌른 사람 수도", () => {
+  it("★ 누를수록 많이 찌르고, 마지막에 가장 많다 — 콕 수도 찌른 사람 수도", () => {
     for (const key of ["pokes", "pokers"] as const) {
-      const [r1, r2, r3, last] = [0, 1, 2, 3].map((k) => mean(runs.map((r) => r[key][k])));
-      expect(r1, key).toBeLessThan(r2);
-      expect(r2, key).toBeLessThan(r3);
-      expect(last, key).toBeGreaterThan(r3 * 2);
+      const per = [...Array(AUTO_STEPS)].map((_, i) => mean(runs.map((r) => r[key][i])));
+      for (let i = 1; i < AUTO_STEPS; i++) expect(per[i], `${key} ${i + 1}번째`).toBeGreaterThan(per[i - 1]);
     }
-    // 자리가 몇 라운드일지 스테이지는 모른다 — 20분마다 돌리는 열 라운드 파티에서도 마지막이 가장 많다
-    const long = Array.from({ length: 100 }, (_, i) => party(i + 1, 20, 2, 10));
-    const per = [...Array(10)].map((_, k) => mean(long.map((r) => r.pokes[k])));
-    expect(per[9]).toBeGreaterThan(Math.max(...per.slice(0, 9)));
+  });
+
+  it("★ 누를 때마다 새 콕이 나온다 — 쓰려던 콕이 남아 있는 동안은 사람이 적어도", () => {
+    for (const size of [2, 3, 6, 20]) {
+      for (let seed = 1; seed <= SEEDS; seed++) {
+        const r = size === 20 ? runs[seed - 1] : party(seed, size);
+        for (let i = 0; i < AUTO_STEPS; i++) if (r.left[i] > 0) expect(r.pokes[i], `${size}+${size} 씨앗 ${seed} ${i + 1}번째`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it(`★ ${AUTO_STEPS}번이면 쓰려던 콕을 다 쓴다 — 더 눌러도 나오지 않는다`, () => {
+    for (const size of [2, 6, 20]) {
+      for (let seed = 1; seed <= 50; seed++) {
+        const r = party(seed, size, 2, AUTO_STEPS + 2);
+        expect(r.pokes.slice(AUTO_STEPS), `${size}+${size} 씨앗 ${seed}`).toEqual([0, 0]);
+        expect(r.remaining(), `${size}+${size} 씨앗 ${seed}`).toBe(0);
+      }
+    }
   });
 
   it("★ 앱의 규칙 안이다 — 상한에서 이미 쓴 것을 빼고, 이성에게만, 자기 자신은 없다", () => {
@@ -161,7 +179,7 @@ describe("자동 콕 — 실제 파티처럼 (씨앗 여러 개의 평균으로)
       // 손으로 이미 찌른 사람도 있다 — 앱이 센 수를 그대로 받는다
       const used = Object.fromEntries(cast.map((p) => [p.n, Math.floor(rng() * (max + 1))]));
       for (const round of ["pre", "party"] as const) {
-        const plan: [number, number][] = planPokes({ cast, used, max, round, k: 1 + (seed % 5), last: seed % 2 === 0, seed, rng });
+        const plan: [number, number][] = planPokes({ cast, used, max, round, step: 1 + (seed % 5), last: seed % 2 === 0, seed, rng });
         const sent = new Map<number, number>();
         for (const [a, b] of plan) {
           expect(a).not.toBe(b);
@@ -190,7 +208,7 @@ describe("자동 콕 — 진짜 앱에서", () => {
       await stage.drain(BULK_MAX);
       expect(e.counter.calls).toBeLessThanOrEqual(BULK_MAX);
     }
-    expect(e.log.lines.at(-1)).toContain("✓ 자동 콕 (마지막 자리");
+    expect(e.log.lines.at(-1)).toContain(`✓ 자동 콕 (파티 ${AUTO_STEPS}/${AUTO_STEPS})`);
 
     const gender = new Map((stage.cast as Persona[]).map((p) => [p.id, p.gender]));
     let total = 0;
@@ -204,17 +222,23 @@ describe("자동 콕 — 진짜 앱에서", () => {
     await stage.close();
   });
 
-  it("★ 매력 투표에서는 한 번에 — 쓰려던 표를 다 내고, 표는 한 사람에 하나다", async () => {
+  it("★ 누를 때마다 새 표가 나온다 — 끝까지 누르면 쓰려던 표를 다 내고, 표는 한 사람에 하나다", async () => {
     const e = env();
     const stage = await buildStage(e, want({ men: 4, women: 4, phase: "prevote" }));
-    await stage.run("auto");
-    expect(stage.backlog).toHaveLength(0);
-    expect(e.log.lines.at(-1)).toContain("자동 콕 (매력 투표)");
+    const votes = async () => (await hostState(stage.event.id)).pokeCount.pre;
+    const counts = [0];
+    for (let i = 1; i <= AUTO_STEPS + 1; i++) {
+      await stage.run("auto");
+      counts.push(await votes());
+    }
+    const done = counts[AUTO_STEPS];
+    expect(done).toBeGreaterThan(0);
+    // 쓰려던 표가 남아 있는 동안은 누를 때마다 는다
+    for (let i = 1; i <= AUTO_STEPS; i++) if (counts[i - 1] < done) expect(counts[i], `${i}번째`).toBeGreaterThan(counts[i - 1]);
+    // 끝까지 눌렀으면 다 냈다 — 더 눌러도 나오지 않는다
+    expect(counts[AUTO_STEPS + 1]).toBe(done);
+    expect(e.log.lines.join("\n")).toContain(`✓ 자동 콕 (매력 투표 1/${AUTO_STEPS})`);
     for (const p of stage.cast as Persona[]) expect((await me(p)).budget.pre.used).toBeLessThanOrEqual(1);
-    // 다시 눌러도 더 내지 않는다 — 쓰려던 만큼은 이미 냈다
-    const before = (await hostState(stage.event.id)).pokeCount.pre;
-    await stage.run("auto");
-    expect((await hostState(stage.event.id)).pokeCount.pre).toBe(before);
     await stage.close();
   });
 });
