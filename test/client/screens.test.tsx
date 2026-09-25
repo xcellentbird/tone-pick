@@ -1875,6 +1875,47 @@ describe("참가 링크", () => {
     expect(router.state.location.pathname).toBe("/j/e1/enter");
   });
 
+  it("★ 11자리가 차는 그 순간 묻는다 — 기다렸다 묻지 않는다", async () => {
+    /*
+     * 한동안 11자리가 찬 뒤 300ms 를 기다렸다 물었다(고치는 중에 문구가 깜빡일까 봐). 번호 칸은 11자리에서
+     * 잘리고, 한 자리를 지우면 요청은 순번으로 버려진다 — 기다림이 막는 것이 없고 사람마다 0.3초씩 늦었다.
+     */
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const calls = stubGate({ probe: () => ({ status: 200, body: { registered: true, pin: "required" } }) });
+      renderJoin();
+      const input = await openGate();
+      type(input, PHONE);
+      await act(async () => void (await vi.advanceTimersByTimeAsync(10)));
+      expect(enters(calls)).toEqual([{ phone: PHONE }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("★ 답이 늦으면 확인 중이라고 말한다 — 빈 창으로 기다리게 두지 않는다", async () => {
+    let answer: (r: Reply) => void = () => {};
+    const calls = stubGate({ probe: () => ({ status: 200, body: { registered: true, pin: "required" } }) });
+    const real = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (!String(url).includes("/enter")) return real(url, init);
+        calls.push({ url: String(url), body: JSON.parse(String(init!.body)) });
+        const r = await new Promise<Reply>((ok) => (answer = ok));
+        return new Response(JSON.stringify(r.body), { status: r.status, headers: { "content-type": "application/json" } });
+      }),
+    );
+    renderJoin();
+    const input = await openGate();
+    type(input, PHONE);
+    expect(await screen.findByText(ENTRY.checking, {}, { timeout: 2000 })).toBeTruthy();
+
+    await act(async () => answer({ status: 200, body: { registered: true, pin: "required" } }));
+    expect(await screen.findByLabelText(ENTRY.pin)).toBeTruthy();
+    expect(screen.queryByText(ENTRY.checking)).toBeNull();
+  });
+
   it("★ 아직 등록 안 한 번호는 PIN 번호 없이 등록으로 간다 (S-B1)", async () => {
     stubGate({ probe: () => ({ status: 200, body: { registered: false, ref: "aabbccdd" } }) });
     const router = renderJoin();

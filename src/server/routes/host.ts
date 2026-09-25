@@ -23,6 +23,7 @@ import { HOST_COOKIE, resolvePin, sessionTtl, setCookie, signSession } from "../
 import {
   apiError,
   eventStub,
+  forgetEvent,
   hostScope,
   ipHash,
   HOST_SCOPE,
@@ -250,6 +251,7 @@ hostRoutes.delete("/events/:id", async (c) => {
   const id = c.req.param("id");
   await eventStub(c.env, id).destroy();
   await registry(c.env).removeEvent(id);
+  forgetEvent(id);
   return c.json({ ok: true });
 });
 

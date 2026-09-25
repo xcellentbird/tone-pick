@@ -62,6 +62,25 @@ describe("A. 문", () => {
     expect((res.body as unknown as { message: string }).message).toBe(ENTRY.notInvited);
   });
 
+  it("S-A2 ★ 지운 파티는 방금 열어 본 뒤에도 문이 안 열린다 — 파티를 알아 둔 것이 문을 열어 두지 않는다", async () => {
+    /*
+     * Worker 는 **있는 파티**를 잠깐 기억해 레지스트리 왕복을 던다(입장 확인이 빨라진다).
+     * 기억은 문이 아니다 — 판정은 여전히 회차 DO 가 한다. 지운 파티의 DO 는 비어 있어 `그런 파티가 없어요` 다.
+     */
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(200);
+    expect((await enter(ev.id, phone)).status, "지우기 전에는 열린다").toBe(200);
+
+    expect((await api(`/api/host/events/${ev.id}`, { method: "DELETE", cookie: master })).status).toBe(200);
+    const after = await enter(ev.id, phone);
+    expect(after.status).toBe(404);
+    expect(after.cookie).toBeNull();
+    expect((after.body as unknown as { message: string }).message).toBe(ENTRY.notFound);
+    expect((await api(`/api/events/by-id/${ev.id}`)).status).toBe(404);
+  });
+
   it("S-A3 ★ 초대된 번호 + 맞는 PIN 번호면 들어온다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
