@@ -350,7 +350,7 @@ export const HELP = `
   state                   회차 단계 · 콕 수 · 자리 라운드
   poke A B  /  unpoke A B  A가 B를 콕 (매력 투표 중이면 표, 파티 중이면 콕) · 되돌리기
   mutual A B              A→B, B→A 를 한 번에
-  phase reg|prevote|party|done      단계 넘기기 (done = 발표)
+  phase reg|prevote|party|done      단계 넘기기 (done = 매칭 확인)
   seating T [-x A,B]      자리 초안 (T 테이블, -x 뺄 사람) · publish · shuffle · swap A B · seat A · unseat A · discard
   announce 문구 [| 보기A | 보기B]   운영자 알림 (보기 둘을 주면 투표)
   auto [last]             자동 콕 — 실제 파티처럼. 남자는 대부분 다 쓰고 콕이 여자 몇 명에게 몰린다. 여자는 절반 정도가
@@ -636,7 +636,7 @@ function makeStage(env, { tables = 2 } = {}) {
         if (res.body?.error === "no_budget") continue;
         stage.backlog = [];
         stage.autoRun = null;
-        if (res.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 찌를 수 없어요. 매력 투표가 마감됐거나 커플 발표가 끝났어요");
+        if (res.body?.error === "closed") say("  ✗ 자동 콕 — 지금은 콕을 찌를 수 없어요. 매력 투표가 마감됐거나 매칭 확인이 열렸어요");
         else fail("자동 콕", res);
         return 0;
       }
@@ -804,7 +804,7 @@ async function runLine(env, stage, line, { say, fail }) {
       const res = await H("/phase", { method: "POST", body: { to: rest[0] } });
       if (res.status === 200) stage.phase = rest[0];
       // 단추 이름과 같은 말로 — 영어 단계 이름(prevote)은 명령에만 쓴다
-      const done = { reg: "등록 단계로", prevote: "매력 투표 시작", party: "파티 시작", done: "커플 발표" }[rest[0]];
+      const done = { reg: "등록 단계로", prevote: "매력 투표 시작", party: "파티 시작", done: "매칭 확인 열기" }[rest[0]];
       return ok(done ?? `단계 → ${rest[0]}`, res);
     }
     case "seating": {
