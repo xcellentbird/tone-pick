@@ -12,6 +12,7 @@
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { StageError, buildStage, createLog, restoreStage } from "../scripts/qa/core.mjs";
+import { DEFAULTS } from "../src/shared/constants.ts";
 import type { HostState, ParticipantState } from "../src/shared/types.ts";
 import { api, master, signInMaster } from "./helpers/party.ts";
 
@@ -69,6 +70,30 @@ describe("스테이지 — 가짜 참가자", () => {
     expect(withPhone.cast[0].phone).not.toBe("01099998888");
     await stage.close();
     await withPhone.close();
+  });
+
+  /**
+   * ★ **스테이지 회차의 횟수와 장 수는 앱 기본값이다** — 알림만 켠다 (`STAGE_CONFIG`).
+   *
+   * 익명 쪽지(슬라이스 36)가 들어오고도 `STAGE_CONFIG` 에 장 수가 없어서, 스테이지로 만든 회차는
+   * 쪽지가 **0장**이었다. 서버는 값이 없으면 0 으로 보고 버튼을 안 그린다 — 시뮬레이터에서만
+   * 기능이 통째로 없어 보였다. QA 가 가장 먼저 보는 곳이 여기라 "구현이 안 됐다" 로 읽혔다.
+   *
+   * 횟수·장 수 칸은 전부 `max` 로 시작한다. 그래서 키 이름을 적지 않고 **`DEFAULTS` 에서 고른다** —
+   * 새 칸이 생기면 적지 않아도 여기 걸린다. `maxNotes` 가 빠졌던 것이 바로 그 모양이었다.
+   */
+  it("★ 스테이지 회차의 횟수와 장 수는 앱 기본값이다 — 익명 쪽지도 열린다", async () => {
+    const stage = await buildStage(env(), want({ people: 2 }));
+    const config = (await hostState(stage.event.id)).body.meta.config as unknown as Record<string, unknown>;
+    const defaults = DEFAULTS as unknown as Record<string, unknown>;
+    const counts = Object.keys(defaults).filter((k) => k.startsWith("max"));
+    expect(counts, "횟수 칸을 하나도 못 찾았다 — 검사가 헛돈다").toContain("maxNotes");
+    for (const k of counts) expect(config[k], k).toBe(defaults[k]);
+
+    // 참가자가 받는 것 — 이 값이 0 이면 프로필 시트에 `익명 쪽지 쓰기` 가 없다
+    const me = await stage.cast[0].session.call("/me");
+    expect((me.body as ParticipantState).note.budget.max).toBe(DEFAULTS.maxNotes);
+    await stage.close();
   });
 
   it("★ 연습용 환경이 아니면 만들지 않는다 — 회차도 만들지 않는다", async () => {

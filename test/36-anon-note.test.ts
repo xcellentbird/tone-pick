@@ -12,7 +12,7 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { LIMITS } from "../src/shared/constants.ts";
-import type { EventConfig, EventMeta, HostState, MyNoteState, ParticipantState } from "../src/shared/types.ts";
+import type { Defaults, EventConfig, EventMeta, HostState, MyNoteState, ParticipantState } from "../src/shared/types.ts";
 import { api, freshEvent, join, master, setPhase, signInMaster } from "./helpers/party.ts";
 
 beforeAll(signInMaster);
@@ -327,6 +327,36 @@ describe("운영자", () => {
     });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body.config.maxNotes, "안 보낸 값은 지금 값을 지킨다").toBe(3);
+  });
+
+  /**
+   * ★ **운영자 기본값도 통째로 교체다.** 위 `meta.config` 와 같은 사고가 기본값 저장에서 났다 —
+   * 라우트는 장 수를 넘기는데 레지스트리가 그 칸을 안 적어서, 기본값 화면에서 몇 장으로 바꾸든
+   * 다시 읽으면 앱 기본값(2장)이었다. 에러도 없이 조용히 무시됐다. 슬라이스 38 이 리터럴을 고쳤고
+   * 이 테스트가 그 자리를 지킨다.
+   *
+   * **0 을 꼭 본다.** 익명 쪽지를 기본으로 끄는 것이 운영자가 고를 수 있어야 하는 값이다 —
+   * 0 이 기본값으로 접히면 끈 줄 알고 만든 회차마다 쪽지가 열린다.
+   */
+  it("★ 운영자 기본값의 장 수가 저장된다 — 0 도 그대로 남는다", async () => {
+    const before = await api<Defaults>("/api/host/defaults", { cookie: master });
+    try {
+      for (const maxNotes of [4, 0]) {
+        const put = await api<Defaults>("/api/host/defaults", {
+          method: "PUT",
+          cookie: master,
+          body: { ...before.body, maxNotes },
+        });
+        expect(put.status, JSON.stringify(put.body)).toBe(200);
+        expect(put.body.maxNotes, `${maxNotes}장 저장 응답`).toBe(maxNotes);
+        const again = await api<Defaults>("/api/host/defaults", { cookie: master });
+        expect(again.body.maxNotes, `${maxNotes}장으로 저장하고 다시 읽었다`).toBe(maxNotes);
+      }
+
+    } finally {
+      // 다른 테스트가 기본값을 읽는다 — 되돌려 둔다
+      await api("/api/host/defaults", { method: "PUT", cookie: master, body: before.body });
+    }
   });
 });
 

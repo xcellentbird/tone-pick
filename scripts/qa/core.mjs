@@ -44,8 +44,15 @@ const CHARMS = [
  */
 const fakePhone = (stamp, n) => `010${String(stamp).slice(-4)}${String(n).padStart(4, "0")}`;
 
-/** 회차 설정 기본값. 앱 기본에 알림만 켠 것 — 받은 콕이 방송으로 닿는 순간을 보는 게 QA 의 절반이라 */
-export const STAGE_CONFIG = { maxPre: 1, maxParty: 2, preNotify: true, pokeNotify: true };
+/**
+ * 회차 설정 기본값. 앱 기본에 알림만 켠 것 — 받은 콕이 방송으로 닿는 순간을 보는 게 QA 의 절반이라.
+ *
+ * ⚠️ **횟수·장 수는 앱 기본값(`DEFAULTS`)과 같아야 한다.** 이 파일은 `.ts` 를 못 불러와서
+ * 숫자를 옮겨 적는다 — 어긋나면 `35-stage-core` 의 `횟수와 장 수는 앱 기본값이다` 가 빨개진다.
+ * 익명 쪽지(`maxNotes`)가 빠져 있어서 스테이지 회차만 쪽지가 0장이었다 — 서버는 값이 없으면
+ * 0 으로 읽고, 참가자 프로필 시트에 `익명 쪽지 쓰기` 가 아예 없었다.
+ */
+export const STAGE_CONFIG = { maxPre: 1, maxParty: 2, maxNotes: 2, preNotify: true, pokeNotify: true };
 
 // ─────────────────────────────────────────── 난수 — 스테이지마다 같은 것
 
