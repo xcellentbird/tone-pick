@@ -314,6 +314,22 @@ describe("B. 회차 생성", () => {
     expect(after.body.length).toBe(before.body.length + 1);
   });
 
+  /**
+   * ★ **회차 목록은 새것부터다.** 자동 파기가 없어서(ADR-36) 회차는 쌓이기만 하고,
+   * 만든 순으로 늘어놓으면 방금 만든 회차가 목록 끝 — 열세 개면 폰 화면 밖 — 에 선다.
+   * 운영자는 만들고 돌아와서 **안 만들어진 줄 알았다** (실제로 그렇게 신고가 왔다).
+   */
+  it("S-B10 ★ 방금 만든 회차가 목록 맨 위에 선다", async () => {
+    const older = await createEvent(master);
+    const newer = await createEvent(master);
+    expect(newer.status).toBe(200);
+
+    const list = await api<EventSummary[]>("/api/host/events", { cookie: master });
+    const ids = list.body.map((e) => e.id);
+    expect(ids[0], "방금 만든 회차가 맨 위가 아니다").toBe(newer.body.id);
+    expect(ids.indexOf(newer.body.id)).toBeLessThan(ids.indexOf(older.body.id));
+  });
+
   /** 기본값은 통째로 검사한다 — 일부만 보내면 막힌다. 읽어서 한 칸만 갈아끼운다 */
   async function setNickHint(nickHint: string) {
     const now = await api<Record<string, unknown>>("/api/host/defaults", { cookie: master });

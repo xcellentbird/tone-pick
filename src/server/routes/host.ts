@@ -110,7 +110,12 @@ hostRoutes.post("/defaults/reset", async (c) => {
 hostRoutes.get("/events", async (c) => {
   if (!isMaster(await hostScope(c))) return denied(c);
   const now = serverNow();
-  const entries = await registry(c.env).listEvents();
+  /*
+   * **새것부터다.** 레지스트리는 만든 순으로 쌓는데(`reserve` 가 끝에 붙인다), 자동 파기가 없어서
+   * (ADR-36) 회차는 늘기만 한다. 그 순서 그대로 내리면 방금 만든 회차가 목록 끝 — 열세 개면
+   * 폰 화면 밖 — 에 서서, 운영자가 만들고 돌아와 **안 만들어진 줄 알았다.**
+   */
+  const entries = (await registry(c.env).listEvents()).reverse();
   const list: EventSummary[] = [];
   for (const entry of entries) {
     const res = await eventStub(c.env, entry.id).summaryAt(now);
