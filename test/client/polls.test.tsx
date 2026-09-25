@@ -4,7 +4,7 @@
  *   운영자   설문 탭에서 카드를 누르면 답으로 걸러진 참가자 카드가 나온다 — 누가 무엇을 골랐는지
  *   참가자   홈의 설문 카드에는 **숫자가 없다.** 선택지 둘이 버튼이고, 고르면 눌린 채로 남는다
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
 import { FAIL, HOST_UI, POLL } from "../../src/shared/copy.ts";
@@ -177,5 +177,34 @@ describe("참가자 설문 카드", () => {
     expect(b.getAttribute("aria-pressed")).toBe("false");
     expect(voted).toEqual([["q1", "a"]]);
     expect(screen.queryByText(POLL.closed)).toBeNull();
+  });
+
+  it("★ 고른 버튼은 서버 답을 기다리지 않고 눌린다 — 못 받아들여지면 되돌아간다", async () => {
+    // 파티장 와이파이에서 답이 1초 넘게 걸리면, 눌렀는데 아무 일이 없는 버튼이 된다
+    let settle: (ok: boolean) => void = () => {};
+    const slow: ParticipantSource = {
+      ...source,
+      vote: (id, choice) =>
+        new Promise((resolve, reject) => {
+          settle = (ok) => (ok ? resolve({ ...poll, poll: { ...poll.poll!, mine: choice } }) : reject(new Error("closed")));
+        }),
+    };
+    render(
+      <MemoryRouter>
+        <ParticipantView source={slow} tab="home" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={false} onHelp={() => {}} />
+      </MemoryRouter>,
+    );
+    await screen.findByText("2차 갈래요?");
+    const a = screen.getByRole("button", { name: "갈래요" });
+
+    fireEvent.click(a);
+    expect(a.getAttribute("aria-pressed"), "서버 답이 오기 전에 눌려 보여야 한다").toBe("true");
+    await act(async () => settle(false));
+    await waitFor(() => expect(a.getAttribute("aria-pressed"), "거절됐는데 눌린 채로 남았다").toBe("false"));
+
+    fireEvent.click(a);
+    expect(a.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => settle(true));
+    expect(a.getAttribute("aria-pressed")).toBe("true");
   });
 });
