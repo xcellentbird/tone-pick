@@ -344,6 +344,12 @@ head 였던 `qa` 를 지운다 — 실제로 한 번 그랬고, 되살릴 때까
 선형 히스토리(`--merge` 는 머지 커밋을 만든다) · 푸시 제한(`github-actions[bot]` 이 목록에 없으면 막힌다).
 표는 `ci.yml` 의 `automerge` 위에 있다.
 
+**걸려 있다 — 룰셋 `protect qa` 다** (2026-09-25). 규칙은 `deletion` 하나뿐이고 통과 예외는 없다.
+⚠️ **`protected` 값으로 확인하지 마라.** 브랜치 API 의 그 칸은 **고전 브랜치 보호만** 본다 —
+이 저장소는 룰셋을 쓰므로 `qa` 는 보호돼 있는데도 `false` 로 나온다. 그걸 보고 없는 줄 알고
+고전 보호를 덧씌우면 **`automerge` 가 그때 막힌다** (고전 보호는 위 넷을 함께 들고 온다).
+보는 곳은 `/repos/:o/:r/rules/branches/qa` 다 — 그 브랜치에 실제로 걸리는 규칙만 나온다.
+
 **QA 는 스테이지로 한다** — `npm run qa -- --phase party --watch` (`scripts/qa/stage.mjs`).
 로컬 워커에 회차와 가짜 참가자를 **실제 경로로** 만들고, 터미널(또는 `--remote` 로 폰)에서
 `poke 3 5` · `phase done` · `late` 같은 명령을 그때그때 치며, `--watch` 로 운영자·참가자 창을
