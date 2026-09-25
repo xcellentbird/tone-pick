@@ -6,6 +6,10 @@ import { useKeyboardInset } from "./lib/keyboard.ts";
 import EnvBadge from "./ui/EnvBadge.tsx";
 import Boom from "./ui/Boom.tsx";
 import "./styles/theme.css";
+import { prefetchSession } from "./lib/participant.ts";
+
+// 참가자 화면이면 `/me` 를 화면 청크와 함께 출발시킨다 — 청크를 받은 뒤에 묻지 않게
+prefetchSession(location.pathname);
 
 /**
  * 키보드가 가린 높이는 **화면마다가 아니라 앱 전체에** 한 번만 재면 된다.

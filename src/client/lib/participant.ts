@@ -38,32 +38,61 @@ export interface ParticipantSource {
 }
 
 /**
- * **등록 응답이 곧 첫 화면이다.** 등록은 서버가 방금 만든 참가자 상태를 통째로 돌려주는데(`RegisterResult.state`),
- * 홈으로 넘어가서 그걸 버리고 `/me` 를 또 물으면 가장 설레는 순간에 불러오는 화면을 한 번 더 본다.
+ * **첫 화면의 답은 미리 받아둔다.** 화면이 떠서 `/me` 를 부르면 그 앞의 기다림이 통째로 더해지는 두 자리다 —
+ *
+ *   · 등록을 마쳤을 때 — 등록은 서버가 방금 만든 참가자 상태를 통째로 돌려준다(`RegisterResult.state`).
+ *     홈으로 넘어가서 그걸 버리고 `/me` 를 또 물으면 가장 설레는 순간에 불러오는 화면을 한 번 더 본다
+ *   · 참가자 화면을 처음 열 때 — 그 화면은 따로 내려받는 청크라, 안에서 부르면 청크가 다 온 **뒤에야**
+ *     질문이 떠난다. 둘은 서로를 기다릴 이유가 없다 (`prefetchSession`)
  *
  * `lib/boot.ts` 와 같은 약속이다 — **한 번만 받아간다.** 되불러오기는 새 값을 원하는 것이라 이 자리를 쓰면 안 된다.
- * 넘기고 바로 홈으로 가므로 잠깐만 믿는다 — 화면이 못 떠서 남은 값을 한참 뒤에 옛 상태로 그리지 않게.
+ * 잠깐만 믿는다 — 화면이 못 떠서 남은 값을 한참 뒤에 옛 상태로 그리지 않게.
  */
 const SEED_MS = 10_000;
-let seed: { code: string; state: ParticipantState; at: number } | null = null;
+let seed: { code: string; state: Promise<ParticipantState>; at: number } | null = null;
 
 export function seedParticipant(state: ParticipantState) {
-  seed = { code: state.event.code, state, at: Date.now() };
+  seed = { code: state.event.code, state: Promise.resolve(state), at: Date.now() };
 }
 
-function takeSeed(code: string): ParticipantState | null {
+/**
+ * 앱이 올라오는 순간(`main.tsx`) 부른다. 참가자 화면 주소면 `/me` 를 청크와 **함께** 출발시킨다.
+ *
+ * ⚠️ **`index.html` 의 미리 부르기로 옮기지 마라** (ADR-75). 거기서는 이 탭의 이름표를 실을 수 없어
+ *    다른 탭의 세션을 읽는다 (ADR-44). 여기는 `api()` 를 거치므로 이름표가 실린다.
+ */
+export function prefetchSession(pathname: string) {
+  const m = /^\/e\/([^/]+)/.exec(pathname);
+  if (!m) return;
+  let code: string;
+  try {
+    code = decodeURIComponent(m[1]);
+  } catch {
+    return;
+  }
+  const state = api<ParticipantState>(meOf(code));
+  // 받아가기 전에 실패해도 조용히 둔다 — 받아가는 화면이 그 실패를 그대로 받는다
+  state.catch(() => {});
+  seed = { code, state, at: Date.now() };
+}
+
+function takeSeed(code: string): Promise<ParticipantState> | null {
   const held = seed;
-  if (!held || held.code !== code) return null;
+  if (!held) return null;
+  // 다른 회차의 화면이 먼저 떴으면 남겨 둘 이유가 없다
   seed = null;
+  if (held.code !== code) return null;
   return Date.now() - held.at < SEED_MS ? held.state : null;
 }
+
+const meOf = (code: string) => `/me?code=${encodeURIComponent(code)}`;
 
 /** 본인 세션. 참가자 식별은 URL 이 아니라 HttpOnly 쿠키로 한다 */
 export function sessionSource(code: string): ParticipantSource {
   return {
     key: `me:${code}`,
     liveCode: code,
-    load: async () => takeSeed(code) ?? api<ParticipantState>(`/me?code=${encodeURIComponent(code)}`),
+    load: () => takeSeed(code) ?? api<ParticipantState>(meOf(code)),
     poke: (toId) => post<MyPokeState>("/poke", { toId }),
     unpoke: (toId) => post<MyPokeState>("/unpoke", { toId }),
     sendNote: (toId, text) => post<MyNoteState>("/note", { toId, text }),
