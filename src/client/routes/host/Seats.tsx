@@ -21,7 +21,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { FAIL, GENDER, HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Player, SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
-import { apartClashes, apartFrom, autoTable, isApart } from "../../../shared/seats.ts";
+import { apartClashes, apartFrom, autoTable, autoTableCount, isApart } from "../../../shared/seats.ts";
 import { ApiError, del, messageOf, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
@@ -82,8 +82,7 @@ export default function Seats() {
     navigate(`${here}/new`);
   }
   // 두 번째 라운드에서는 같은 테이블 수를 다시 고르는 일이 흔하다. 지난번 값에서 시작한다
-  const lastTableCount =
-    state.seatings.at(-1)?.tableCount ?? Math.max(1, Math.round(state.players.length / 6));
+  const lastTableCount = state.seatings.at(-1)?.tableCount ?? autoTableCount(state.players.length);
 
   const base = `/host/events/${state.meta.id}/seating`;
   const draft = state.seatings.find((s) => s.status === "draft");
@@ -112,6 +111,8 @@ export default function Seats() {
   }
   const published = state.seatings.filter((s) => s.status === "published");
   const revealed = state.meta.phase === "done";
+  // 파티가 열렸나 — 열린 뒤에는 자동 배정이 이미 지나갔다 (ADR-106)
+  const started = state.meta.phase === "party" || revealed;
 
   async function make(tableCount: number) {
     setBusy(true);
@@ -455,6 +456,12 @@ export default function Seats() {
       )}
 
       {published.length === 0 && (!draft || revealed) && <p className="dim center">{HOST_UI.seats.noRounds}</p>}
+      {/* 파티 전에 보낸 자리가 없으면 무엇이 저절로 나가는지 (ADR-106). 두 명이 안 되면 서버도 짜지 않는다 */}
+      {published.length === 0 && !started && (draft || state.players.length >= 2) && (
+        <p className="small dim center">
+          {draft ? HOST_UI.seats.autoDraft : HOST_UI.seats.autoAtParty(autoTableCount(state.players.length))}
+        </p>
+      )}
 
       {[...published].reverse().map((round, i) => {
         /*
