@@ -130,6 +130,49 @@ describe("A. 문", () => {
     expect((await enter(ev.id, me.phone, me.pin)).status).toBe(429);
   });
 
+  /**
+   * **성공은 자기 실수만 지운다** — 그 접속지의 기록을 통째로 지우지 않는다.
+   *
+   * 예전에는 성공 한 번이 그 접속지의 실패를 전부 지웠다. 그러면 아는 번호 하나(자기 번호, 친구 번호)만 있으면
+   * 모르는 번호를 넣어볼 때마다 그 번호로 한 번 들어가 기록을 되감을 수 있었다 — **주소록을 통째로 넣어보는 길**이고,
+   * ADR-15 가 *이 앱이 가장 막아야 하는 유출* 이라 부른 그것이다. 초대받은 번호는 명단에 있다는 답만으로 되감겼다.
+   */
+  it("S-A7b ★ 아는 번호로 들어가도 접속지 제한이 되감기지 않는다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const friend = await invite(ev.id, nextPhone());
+
+    let blocked = 0;
+    for (let i = 0; i < ENTRY_TRIES.max * 2; i++) {
+      if ((await enter(ev.id, `0100000${String(5000 + i)}`)).status === 429) blocked++;
+      // 사이사이 아는 번호로 들어간다 — 등록 전인 친구 번호, 그리고 자기 번호와 PIN 번호
+      await enter(ev.id, friend);
+      await enter(ev.id, me.phone, me.pin);
+    }
+    expect(blocked, "아는 번호 하나로 제한을 계속 되감았다").toBeGreaterThan(0);
+  });
+
+  /**
+   * **세는 것은 몇 번 두드렸나가 아니라 몇 개의 번호를 넣어봤나다.**
+   *
+   * 파티장 와이파이 하나를 여럿이 나눠 쓴다. PIN 번호를 잊은 사람이 몇 번 틀리고, 초대받지 않은 동행이 자기 번호를
+   * 몇 번 넣어봐도 **그것만으로 그 망의 모든 사람이 10분 동안 못 들어오면 안 된다** — 예전에는 누군가 성공할 때
+   * 기록이 통째로 지워지는 것이 이 일을 막고 있었다. 한 번호를 여러 번 두드려 얻는 것은 없다:
+   * 초대 여부는 처음 한 번에 이미 답했고, PIN 번호는 번호마다 5회 잠금이 따로 막는다.
+   */
+  it("S-A7c ★ 한 번호를 여러 번 틀린 것은 한 번으로 센다 — 같은 망의 다른 사람이 막히지 않는다", async () => {
+    const ev = await freshEvent();
+    const forgetful = await join(ev);
+    const other = await join(ev);
+
+    for (let i = 0; i < PIN_RULE.maxFails - 1; i++) {
+      expect((await enter(ev.id, forgetful.phone, "0000")).status).toBe(403);
+    }
+    for (let i = 0; i < ENTRY_TRIES.max; i++) expect((await enter(ev.id, "01000009999")).status).toBe(403);
+
+    expect((await enter(ev.id, other.phone, other.pin)).status, "남의 실수에 문이 닫혔다").toBe(200);
+  });
+
   it("S-A8 ★ 세 가지 실패는 세 가지 문구다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
