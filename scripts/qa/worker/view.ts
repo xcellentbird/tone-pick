@@ -74,7 +74,6 @@ button.danger{background:#b33;border-color:#b33;color:#fff}
 .chip.m{box-shadow:inset 3px 0 #74b9ff}.chip.f{box-shadow:inset 3px 0 #fd79a8}
 .chip.on{background:#6c5ce7;border-color:#6c5ce7;color:#fff}
 .sep{width:1px;align-self:stretch;background:#333;margin:0 2px}
-.hint{flex-basis:100%;padding-left:54px;font-size:12px}
 .warn{background:#5a3a00;color:#ffd;padding:6px 10px;border-radius:8px}
 .pager{display:none;gap:4px;overflow-x:auto;scrollbar-width:none}
 .pager button{flex:none;padding:5px 11px;border-radius:999px}
@@ -91,7 +90,6 @@ button.danger{background:#b33;border-color:#b33;color:#fff}
 body.busy .panel button,body.busy .panel select{opacity:.55;pointer-events:none}
 @media (max-width:${NARROW}px){
 .pager{display:flex}
-.hint{padding-left:0}
 .wall{padding:0;gap:0;justify-content:flex-start;scroll-snap-type:x mandatory}
 .screen{flex:0 0 100%;max-width:none;border-radius:0;scroll-snap-align:start;scroll-snap-stop:always}
 .screen.host{position:static;box-shadow:none}
@@ -116,9 +114,6 @@ body.busy .panel button,body.busy .panel select{opacity:.55;pointer-events:none}
     <div class="row"><b>자동 콕</b>
       <button type="button" class="main" data-cmd="auto">자동 콕</button>
       <button type="button" class="main" data-cmd="auto last">마지막 자리 자동 콕</button>
-      <small class="hint">남자는 대부분 콕을 다 쓰고, 콕이 여자 몇 명에게 몰려요. 여자는 절반 정도가 콕을 쓰지 않거나 일부만 쓰고,
-      남자보다 두 배 넓게 나눠 찔러요. 자리 라운드가 뒤로 갈수록 많이 찌르고, 마지막 자리에서 가장 많이 찔러요.
-      매력 투표에서는 한 번 누르면 투표가 끝나요.</small>
     </div>
     <div class="row"><b>콕</b>
       <select id="from" aria-label="보내는 사람"></select> → <select id="to" aria-label="받는 사람"></select>
@@ -199,7 +194,7 @@ function frameFor(k) {
   const el = document.createElement('section');
   const p = k === 'host' ? null : who(k);
   el.className = p ? 'screen' : 'screen host';
-  const name = p ? esc(label(p)) : '운영자 <small>처음 한 번만 PIN ' + esc(M.hostPin) + ' 입력</small>';
+  const name = p ? esc(label(p)) : '운영자 <small>PIN ' + esc(M.hostPin) + '</small>';
   el.innerHTML = '<header><button type="button" class="nav" data-step="-1" aria-label="이전 화면">‹</button>'
     + '<span class="name">' + name + '</span>'
     + '<button type="button" data-act="reload" title="이 화면 새로고침">↻</button>'

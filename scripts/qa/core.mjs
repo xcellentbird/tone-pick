@@ -89,7 +89,7 @@ function shuffle(xs, rng = Math.random) {
 export const AGE_LIMIT = { min: 18, max: 48 };
 
 /** 스테이지를 만들 때 고르지 않으면 이 나이로 — 평균과 범위 */
-export const STAGE_AGES = { M: { avg: 32, min: 27, max: 38 }, F: { avg: 29, min: 25, max: 34 } };
+export const STAGE_AGES = { M: { avg: 28, min: 24, max: 34 }, F: { avg: 26, min: 22, max: 31 } };
 
 /**
  * 나이 칸을 앱이 받는 범위 안으로 — 최소 ≤ 평균 ≤ 최대. 최소와 최대가 거꾸로 오면 바꾸고,
