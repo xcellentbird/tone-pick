@@ -116,11 +116,15 @@ hostRoutes.get("/events", async (c) => {
    * 폰 화면 밖 — 에 서서, 운영자가 만들고 돌아와 **안 만들어진 줄 알았다.**
    */
   const entries = (await registry(c.env).listEvents()).reverse();
-  const list: EventSummary[] = [];
-  for (const entry of entries) {
-    const res = await eventStub(c.env, entry.id).summaryAt(now);
-    if (res.ok) list.push(res.value);
-  }
+  /*
+   * **한꺼번에 묻고, 던진 회차만 뺀다.** 회차마다 DO 가 따로라 기다릴 까닭이 없다 — 하나씩 물으면
+   * 회차가 쌓일수록 첫 화면이 그만큼 늦게 뜬다. 그리고 하나가 던지면(과부하·배포 중 재시작·옛 모양의
+   * 저장값) 목록 전체가 500 이 되어 **멀쩡한 회차에도 못 들어갔다.** 순서는 `Promise.all` 이 지킨다.
+   */
+  const results = await Promise.all(
+    entries.map((entry) => eventStub(c.env, entry.id).summaryAt(now).catch(() => null)),
+  );
+  const list: EventSummary[] = results.flatMap((res) => (res?.ok ? [res.value] : []));
   return c.json(list);
 });
 
@@ -526,7 +530,8 @@ function validDefaults(d: Defaults): boolean {
     validConfig(d) &&
     (d.place === undefined || typeof d.place === "string") &&
     Number.isFinite(d.prevoteBeforeH) &&
-    d.prevoteBeforeH >= 0 &&
+    // 0 이면 매력 투표 시작이 파티 일시와 겹쳐서, 순서 검사(ADR-93 후기)가 그 기본값으로 만드는 회차를 매번 거절한다
+    d.prevoteBeforeH >= 1 &&
     // 발표만 파티 **뒤**를 잰다 (ADR-43). 0 이면 파티 시작과 동시에 발표라 뜻이 없다
     Number.isFinite(d.revealAfterH) &&
     d.revealAfterH > 0

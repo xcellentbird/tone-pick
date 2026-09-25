@@ -12,6 +12,7 @@
  *     시트가 열릴 때 붙고 닫히면 떨어지므로, 붙는 순간 한 번 받아 둔 값이 곧 그 값이다
  *
  * 읽음을 찍는 것은 여기가 아니라 `Participant` 다 — 덮개가 덮고 있는지를 거기서 안다.
+ * 그래서 **어느 쪽을 보고 있는지(`seg`)도 거기 있다** — 보낸 쪽지를 보는 동안 새로 온 쪽지는 읽은 것이 아니다.
  */
 import { useState } from "react";
 import { BTN, NOTE, PEOPLE } from "../../shared/copy.ts";
@@ -19,9 +20,14 @@ import type { MyNoteState, PublicPlayer, SentNote } from "../../shared/types.ts"
 import { tap } from "../lib/pulse.ts";
 import { useOverlay } from "./Overlays.tsx";
 
+/** 쪽지함의 두 쪽 */
+export type InboxSeg = "received" | "sent";
+
 export default function NoteBox({
   note,
   roster,
+  seg,
+  onSeg,
   open,
   covered,
   setCovered,
@@ -30,6 +36,9 @@ export default function NoteBox({
 }: {
   note: MyNoteState;
   roster: PublicPlayer[];
+  /** 지금 보고 있는 쪽. **열면 늘 받은 쪽지부터다** — 여는 쪽(`Participant`)이 되돌려 둔다 */
+  seg: InboxSeg;
+  onSeg: (seg: InboxSeg) => void;
   /** 지금 쪽지를 보낼 수 있나 (파티 중 · 이 회차에 쪽지가 있다). 남은 장 수와 빈 칸 문구가 갈린다 */
   open: boolean;
   covered: boolean;
@@ -38,8 +47,6 @@ export default function NoteBox({
   onClose: () => void;
 }) {
   const { confirm } = useOverlay();
-  /** 열면 늘 받은 쪽지부터다 — 읽음은 쪽지함을 여는 순간 찍히고, 그때 보이는 것이 받은 쪽지여야 한다 */
-  const [seg, setSeg] = useState<"received" | "sent">("received");
   /** 읽음 배지는 이 시트를 연 순간의 값으로 굳는다 (S-B4). 붙을 때 한 번만 받는다 */
   const [frozen] = useState<Record<string, SentNote[]>>(() => note.sent);
   const left = Math.max(0, note.budget.max - note.budget.used);
@@ -58,7 +65,7 @@ export default function NoteBox({
             ["sent", NOTE.inbox.sent],
           ] as const
         ).map(([key, label]) => (
-          <button key={key} type="button" aria-pressed={seg === key} onClick={() => setSeg(key)}>
+          <button key={key} type="button" aria-pressed={seg === key} onClick={() => onSeg(key)}>
             {label}
           </button>
         ))}

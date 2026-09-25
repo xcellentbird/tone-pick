@@ -18,11 +18,11 @@
  */
 import { useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { GENDER, HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
+import { FAIL, GENDER, HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Player, SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
 import { apartClashes, apartFrom, autoTable, isApart } from "../../../shared/seats.ts";
-import { ApiError, del, post } from "../../lib/api.ts";
+import { ApiError, del, messageOf, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
@@ -120,8 +120,8 @@ export default function Seats() {
       navigate(here, { replace: true });
       reload();
     } catch (e) {
-      // 이 화면에서 400 이 나올 이유는 인원 대비 테이블이 많은 것뿐이다
-      toast(e instanceof ApiError && e.status === 400 ? HOST.seating.tooFewPerTable : HOST.seating.afterReveal);
+      // 이 화면에서 400 이 나올 이유는 인원 대비 테이블이 많은 것뿐이다. 망이 끊긴 것을 `발표 뒤` 라고 하지 않는다
+      toast(e instanceof ApiError && e.status === 400 ? HOST.seating.tooFewPerTable : messageOf(e, HOST.seating.afterReveal));
     } finally {
       setBusy(false);
     }
@@ -129,8 +129,19 @@ export default function Seats() {
 
   const nameOf = (id: string) => nickOf(state.players, id);
 
+  /**
+   * 자리 손질은 대부분 **확인창 없이** 바로 간다 — 되돌릴 수 있어서다. 그래서 막혔을 때 말해 줄 창도 없다.
+   * 조용히 끝나면 운영자는 된 줄 알고 그 자리를 사람에게 불러 준다. 발표 뒤면 서버가 이유를 싣고,
+   * 망이 끊겼으면 그 말이 온다.
+   */
+  const failed = (e: unknown) => toast(messageOf(e, FAIL.action));
+
   async function shuffle() {
-    await post(`${base}/shuffle`);
+    try {
+      await post(`${base}/shuffle`);
+    } catch (e) {
+      return failed(e);
+    }
     /*
      * **붙어 앉은 쌍은 섞어도 제자리다** (ADR-23). 그 사실은 붙은 쌍이 있을 때만 말한다 —
      * 없을 때 말하면 있지도 않은 일을 알리는 것이 된다.
@@ -154,7 +165,11 @@ export default function Seats() {
    */
   async function reseat() {
     const held = draft ? pairStats(draft, couples).together : 0;
-    await post(`${base}/reseat`);
+    try {
+      await post(`${base}/reseat`);
+    } catch (e) {
+      return failed(e);
+    }
     toast(held > 0 ? HOST.seating.reseatedPairs : HOST.seating.reseated);
     setPicked(null);
     reload();
@@ -191,7 +206,11 @@ export default function Seats() {
     // 막지는 않는다 — 현장 사정은 운영자가 안다. 다만 무엇이 깨지는지는 말한다
     const run = async () => {
       // 남녀를 맞바꿔도 된다. 인원은 그대로고, 바뀐 성비는 테이블 머리의 숫자에 바로 보인다
-      await post(`${base}/swap`, { a: first, b: playerId, round: round.round });
+      try {
+        await post(`${base}/swap`, { a: first, b: playerId, round: round.round });
+      } catch (e) {
+        return failed(e);
+      }
       reload();
     };
     const broken = pairsBrokenBy(round, first, playerId);
@@ -219,7 +238,12 @@ export default function Seats() {
    */
   async function seat(round: SeatingRound, playerId: string, table?: number) {
     navigate(-1);
-    const next = await post<SeatingRound>(`${base}/seat`, { playerId, round: round.round, table });
+    let next: SeatingRound;
+    try {
+      next = await post<SeatingRound>(`${base}/seat`, { playerId, round: round.round, table });
+    } catch (e) {
+      return failed(e);
+    }
     const at = next.seats.find((s) => s.playerId === playerId)?.table;
     if (at) toast(HOST_UI.seats.seatedAt(nameOf(playerId), at));
     reload();
@@ -228,7 +252,11 @@ export default function Seats() {
   /** 이 라운드 자리에서만 뺀다. 참가자를 지우는 것과 다른 일이다 — 되돌릴 수 있어 확인이 없다 */
   async function unseat(round: SeatingRound, playerId: string) {
     setPicked(null);
-    await post(`${base}/unseat`, { playerId, round: round.round });
+    try {
+      await post(`${base}/unseat`, { playerId, round: round.round });
+    } catch (e) {
+      return failed(e);
+    }
     toast(HOST_UI.seats.unseated(nameOf(playerId)));
     reload();
   }
@@ -412,7 +440,11 @@ export default function Seats() {
             className="btn block ghost"
             onClick={async () => {
               setPicked(null);
-              await del(base);
+              try {
+                await del(base);
+              } catch (e) {
+                return failed(e);
+              }
               toast(HOST.seating.discarded);
               reload();
             }}

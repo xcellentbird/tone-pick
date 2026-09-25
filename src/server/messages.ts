@@ -68,12 +68,14 @@ export function hostPinMessage(left: number): string {
 /**
  * 설정·일정 저장이 막혔을 때.
  *
- * `conflict` — 이미 쓴 횟수보다 낮게 내리려 했다. `detail` 은 지금 가장 많이 쓴 횟수다
+ * `conflict`   — 콕 상한을 이미 쓴 횟수보다 낮게 내리려 했다. `detail` 은 지금 가장 많이 쓴 횟수다
+ * `note_floor` — 익명 쪽지 장 수를 이미 보낸 장 수보다 낮게 내리려 했다 (0 은 언제나 된다). `detail` 도 같다
  * `locked`   — 콕이 오가기 시작해 굳은 항목이다 (ADR-35)
  * `order`    — 아직 오지 않은 예약 전환의 순서가 어긋났다 (ADR-93 후기)
  */
 export function settingsMessage(error: string, detail?: number): string | undefined {
   if (error === "conflict") return HOST_UI.pokeFloor(detail ?? 0);
+  if (error === "note_floor") return HOST_UI.noteFloor(detail ?? 0);
   if (error === "locked") return HOST_UI.frozen;
   if (error === "order") return HOST_UI.scheduleOrder;
   return undefined;

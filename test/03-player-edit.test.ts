@@ -10,6 +10,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { ENTRY, ME, REGISTER } from "../src/shared/copy.ts";
 import type {
+  EventMeta,
   ParticipantState,
   Player,
   RegisterInput,
@@ -106,6 +107,44 @@ describe("참가자를 지웠을 때", () => {
     // 명단에서는 사라진다. 남는 건 아무것도 가리키지 않는 숫자뿐이다
     expect(after.body.roster).toEqual([]);
     expect(JSON.stringify(after.body.poke)).not.toContain(b.id);
+  });
+
+  it("★ 지워진 사람은 보낸 콕을 되돌리지 못한다 — 남기기로 한 콕이다", async () => {
+    /*
+     * 지워진 사람의 세션 쿠키는 서명만 된 것이라 한동안 그대로 산다. 콕·쪽지·설문은 `없는 사람` 으로
+     * 막혀 있었는데 되돌리기만 열려 있어서, 나간 사람이 ADR-29 가 남긴 콕을 지울 수 있었다 —
+     * 받은 쪽 숫자가 나중에 한 칸 줄면 그 순간 누가 나갔는지와 맞춰진다.
+     */
+    const { ev, a, b } = await pair();
+    await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
+
+    const undo = await api("/api/unpoke", { method: "POST", cookie: b.cookie, body: { toId: a.id } });
+    expect(undo.status).not.toBe(200);
+    const after = await api<ParticipantState>("/api/me", { cookie: a.cookie });
+    expect(after.body.poke.received.pre + after.body.poke.received.party).toBe(1);
+  });
+
+  it("★ 지워진 사람이 보낸 콕은 상한의 바닥이 아니다 — 운영자 화면이 세는 것과 같다", async () => {
+    /*
+     * 지워진 사람이 보낸 콕은 남는다 (ADR-29). 그 줄까지 바닥에 넣으면 운영자 화면(지금 있는 사람만 센다)은
+     * 내려도 된다고 하는데 서버가 409 `이미 N회 찌른 참가자가 있어요` 로 막았다 — 그 참가자는 명단에 없다.
+     */
+    const ev = await freshEvent({ maxPre: 3, maxParty: 3 });
+    const a = await join(ev, { gender: "M", nickname: "나갈이" });
+    const b = await join(ev, { gender: "F", nickname: "남을이" });
+    const c = await join(ev, { gender: "F", nickname: "또남이" });
+    await setPhase(ev.id, "prevote");
+    for (const to of [b, c, b]) {
+      expect((await api("/api/poke", { method: "POST", cookie: a.cookie, body: { toId: to.id } })).status).toBe(200);
+    }
+    await api(`/api/host/events/${ev.id}/players/${a.id}`, { method: "DELETE", cookie: master });
+
+    const put = await api<EventMeta>(`/api/host/events/${ev.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { name: ev.name, config: { ...ev.config, maxPre: 1 } },
+    });
+    expect(put.status, JSON.stringify(put.body)).toBe(200);
   });
 
   it("★ 지운 사람에게 쓴 콕은 예산이 돌아온다", async () => {

@@ -252,10 +252,14 @@ export default function Players() {
       .filter((p): p is NonNullable<typeof p> => !!p);
 
   async function addApart(a: string, b: string) {
+    /*
+     * 고르는 시트를 **먼저 닫는다** — `Seats` 의 앉히기와 같다. 답을 기다리는 동안 시트가 그대로면
+     * 한 번 더 누르게 되고, 뒤로 가기가 두 번 걸려 **상세 시트까지** 닫힌다. 막히면 토스트가 말한다.
+     */
+    navigate(-1);
     try {
       await post(`/host/events/${state.meta.id}/apart`, { a, b });
       reload();
-      navigate(-1);
     } catch (e) {
       failed(e);
     }

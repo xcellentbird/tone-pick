@@ -17,6 +17,7 @@
  * ⚠️ 알림을 끄는 건 **화면에서 감추는 일이 아니다.** `received` 에서 빠져야 한다 —
  * 그 숫자 하나가 곧 "지금까지 몇 명이 나를 골랐나" 다 (ADR-34).
  */
+import { env, runInDurableObject } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { EventConfig, EventMeta, ParticipantState } from "../src/shared/types.ts";
 import { HOST_UI } from "../src/shared/copy.ts";
@@ -105,6 +106,26 @@ describe("파티 시작 예약", () => {
     expect((await putSchedule(ev.id, { partyAt: past - HOUR, revealAt: past })).status).toBe(200);
 
     expect(await phaseNow(ev.id), "두 예약이 이어지지 않았다").toBe("done");
+  });
+
+  /**
+   * **옛 버전에서 매력 투표로 넘어온 회차.** ADR-93 전에는 매력 투표 단계에 알람이 없었다
+   * (`dueAt` 이 null 이라 들어서는 순간 지웠다). 그대로 두면 파티 일시에 **아무 일도 안 일어난다** —
+   * 화면은 안 바뀌고, 그 뒤 첫 요청이 단계를 넘기는데 그게 매력 투표였으면 조용히 파티 콕으로 들어간다.
+   * DO 가 다시 뜰 때(배포 뒤 첫 요청 — 회차 목록이 모든 회차를 깨운다) 빠진 알람을 건다.
+   */
+  it("★ 알람 없이 매력 투표에 있던 회차도 DO 가 다시 뜨면 파티 시작 알람이 걸린다", async () => {
+    const ev = await freshEvent();
+    await setPhase(ev.id, "prevote");
+    const ns = (env as unknown as { EVENT: DurableObjectNamespace }).EVENT;
+    const stub = () => ns.get(ns.idFromName(ev.id));
+    // 옛 버전이 남긴 모양 — 매력 투표인데 알람이 없다. 그리고 DO 를 내린다 (배포)
+    await runInDurableObject(stub(), (_i, ctx) => ctx.storage.deleteAlarm());
+    await runInDurableObject(stub(), (_i, ctx) => ctx.abort("배포")).catch(() => {});
+
+    expect(await phaseNow(ev.id)).toBe("prevote");
+    const alarm = await runInDurableObject(stub(), (_i, ctx) => ctx.storage.getAlarm());
+    expect(alarm, "파티 일시에 울릴 알람이 없다").toBe(ev.schedule.partyAt);
   });
 });
 

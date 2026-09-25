@@ -533,6 +533,7 @@ export type ErrorCode =
   | "same_gender"    // 409 · 이성에게만 찌를 수 있다
   | "locked"         // 409 · 콕이 오가기 시작해 굳은 설정이다 (ADR-35)
   | "region_blocked" // 403 · 허용한 나라 밖에서 들어왔다 (ADR-92)
+  | "note_floor"     // 409 · 이미 그만큼 보낸 익명 쪽지가 있어 장 수를 못 내린다 (ADR-98). detail = 가장 많이 보낸 장 수
   | "conflict"       // 409 · 그 밖의 충돌
   | "order";         // 400 · 아직 오지 않은 예약 전환의 순서가 어긋났다 (ADR-93 후기)
 
@@ -800,7 +801,7 @@ export interface HostState {
   received: Record<PokeRound, Record<string, number>>;
   mutual: Array<[string, string]>;
   pokeCount: Record<PokeRound, number>;
-  /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다 */
+  /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다. 파티 콕은 1위의 보너스를 뺀 횟수다 */
   pokeUsedMax: Record<PokeRound, number>;
   /**
    * playerId → **보낸** 익명 쪽지 장 수 (ADR-98). 운영자가 보는 것은 이것뿐이다.

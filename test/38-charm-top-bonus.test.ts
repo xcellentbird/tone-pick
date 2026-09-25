@@ -133,6 +133,34 @@ describe("A. 1위 정하기", () => {
   });
 });
 
+describe("A-2. 나간 사람의 표", () => {
+  it("S-A7 ★ 나간 사람의 표는 세지 않는다 — 운영자 확인창이 말한 사람이 받는다", async () => {
+    /*
+     * 나간 사람이 보낸 콕은 남는다 (ADR-29 — 받은 쪽 숫자가 줄면 발신자가 드러난다). 그런데 1위를 셀 때
+     * 그 표까지 세면, 운영자 화면(**지금 있는 사람만** 센다)이 `이 사람이 받아요` 라고 말한 사람과
+     * 다른 사람이 보너스를 받는다. 확인창과 결과가 같은 수에서 나와야 한다.
+     */
+    const { ev, A, B, C, D, W } = await room();
+    const X = await join(ev, { gender: "F", nickname: "엑스" });
+    const Y = await join(ev, { gender: "F", nickname: "와이" });
+    // A 2표(C·D) · B 3표(W·X·Y) — 그런데 X·Y 는 파티 전에 빠진다
+    await vote([[C, A], [D, A], [W, B], [X, B], [Y, B]]);
+    for (const p of [X, Y]) {
+      const out = await api(`/api/host/events/${ev.id}/players/${p.id}`, { method: "DELETE", cookie: master });
+      expect(out.status).toBe(200);
+    }
+    // 운영자 화면이 세는 수 — 확인창은 이걸로 A 를 1위라고 말한다
+    const before = await hostState(ev);
+    expect(before.body.received.pre[A.id]).toBe(2);
+    expect(before.body.received.pre[B.id] ?? 0).toBe(1);
+
+    await setPhase(ev.id, "party");
+    expect(await partyMax(A)).toBe(3);
+    expect(await partyMax(B)).toBe(2);
+    expect((await hostState(ev)).body.meta.topVoters).toEqual([A.id]);
+  });
+});
+
 describe("B. 보이는 것", () => {
   it("S-B1 ★ 다른 참가자의 응답에는 1위가 누구인지 없다", async () => {
     const { ev, A, B, C, D, W } = await room();
@@ -190,7 +218,10 @@ describe("C. 설정", () => {
     await vote([[C, A], [D, A], [W, A]]);
     await setPhase(ev.id, "party");
     await vote([[A, C], [A, D], [A, W]]);
-    const live = (await hostState(ev)).body.meta;
+    const state = (await hostState(ev)).body;
+    // 설정 화면의 스테퍼가 멈추는 곳도 같다 — 보너스를 넣어 세면 서버가 받는 2 를 화면이 막는다
+    expect(state.pokeUsedMax.party).toBe(2);
+    const live = state.meta;
     expect((await put(live, { maxParty: 2 })).status).toBe(200);
     expect((await put(live, { maxParty: 1 })).status).toBe(409);
     expect(await partyMax(B)).toBe(2);

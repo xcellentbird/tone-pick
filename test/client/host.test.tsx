@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, UNIT, phaseAction, schedDiff } from "../../src/shared/copy.ts";
+import { BTN, FAIL, GENDER, HOST, HOST_UI, INVITE_TEMPLATE, UNIT, phaseAction, schedDiff } from "../../src/shared/copy.ts";
 import { formatGap, formatWhen, toLocalInput } from "../../src/shared/time.ts";
 import type { HostState, SeatingRound } from "../../src/shared/types.ts";
 import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
@@ -169,6 +169,59 @@ describe("운영자 콘솔이 비어버리지 않는다", () => {
     );
     renderConsole();
     await screen.findByText(FAIL.retry);
+  });
+});
+
+describe("막힌 손짓은 말한다 (ADR-8)", () => {
+  /** 한 경로만 막는다. 나머지는 평소처럼 답한다 */
+  function stubFailing(state: HostState, path: string, fail: () => Promise<Response>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+        if (url.includes(path)) return fail();
+        return json(url.includes("/state") ? state : { ok: true });
+      }),
+    );
+  }
+
+  it("★ 확인창을 거친 일이 막히면 창만 닫히고 끝나지 않는다", async () => {
+    /*
+     * 발행 · 삭제 · 단계 전환은 확인창을 거친다. 창이 닫힌 뒤 요청이 막히면 예전에는 아무 말도 없었다 —
+     * 파티장 와이파이가 흔들린 순간 단계를 넘긴 운영자는 넘어간 줄 안다.
+     */
+    stubFailing(hostState(), "/phase", async () => new Response(JSON.stringify({ error: "boom" }), { status: 500 }));
+    renderConsole();
+    const copy = phaseAction("prevote", { maxPre: 3, maxParty: 3 })!;
+    fireEvent.click(await screen.findByText(copy.btn));
+    await screen.findByText(copy.title);
+    fireEvent.click(screen.getAllByText(copy.btn)[1]);
+    expect(await screen.findByText(FAIL.action)).toBeTruthy();
+  });
+
+  it("★ 확인창 없는 자리 손질도 막히면 말한다 — 망이 끊긴 것은 망이 끊겼다고", async () => {
+    const st = hostState({ phase: "party" });
+    st.seatings = [
+      {
+        round: 1,
+        tableCount: 1,
+        status: "draft",
+        acks: [],
+        createdAt: Date.now(),
+        seats: [
+          { playerId: "p1", table: 1 },
+          { playerId: "p2", table: 1 },
+        ],
+      },
+    ];
+    stubFailing(st, "/shuffle", async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    renderConsole("/host/e1/seats");
+    fireEvent.click(await screen.findByText(new RegExp(HOST_UI.seats.shuffle)));
+    expect(await screen.findByText(new RegExp(FAIL.offline.split("\n")[0]))).toBeTruthy();
+    // 된 것처럼 말하지 않는다
+    expect(screen.queryByText(HOST.seating.shuffled)).toBeNull();
   });
 });
 
@@ -909,6 +962,47 @@ describe("운영자 콘솔", () => {
     );
   });
 
+  it("★ 콘솔이 다시 읽혀도 고치던 칸은 남는다 — 서버 값이 바뀐 칸만 따라간다", async () => {
+    /*
+     * 콘솔은 콕 하나, 등록 하나에도 다시 읽는다. 읽을 때마다 회차 정보가 새로 오는데,
+     * 그때마다 칸을 되돌리면 **파티 중에 설정을 고치던 운영자의 입력이 콕 하나에 사라진다.**
+     */
+    const sockets: Array<{ onmessage: ((e: { data: string }) => void) | null }> = [];
+    vi.stubGlobal(
+      "WebSocket",
+      class {
+        onmessage: ((e: { data: string }) => void) | null = null;
+        constructor() {
+          sockets.push(this);
+        }
+        close() {}
+      },
+    );
+    const st = hostState();
+    stubFetch(st);
+    renderConsole("/host/e1/settings");
+    const name = (await screen.findByLabelText(HOST_UI.fields.name)) as HTMLInputElement;
+    fireEvent.change(name, { target: { value: "고치는 중" } });
+
+    const reads = () => calls.filter((c) => c.url.includes("/state")).length;
+    const notice = () => act(() => sockets[0].onmessage!({ data: JSON.stringify({ type: "notice" }) }));
+
+    // 누가 콕을 찔렀다 — 콘솔이 다시 읽는다. 값은 하나도 안 바뀌었다
+    const before = reads();
+    notice();
+    await waitFor(() => expect(reads()).toBe(before + 1));
+    await act(async () => {});
+    expect(name.value, "다시 읽을 때 고치던 입력이 사라졌다").toBe("고치는 중");
+
+    // 다른 기기에서 장소를 저장했다 — 그 칸은 따라가고, 고치던 이름은 그대로다
+    st.meta = { ...st.meta, place: "강남역 2번 출구" };
+    notice();
+    await waitFor(() =>
+      expect((screen.getByLabelText(HOST_UI.fields.place) as HTMLInputElement).value).toBe("강남역 2번 출구"),
+    );
+    expect(name.value).toBe("고치는 중");
+  });
+
   it("★ 알림을 회차마다, 라운드마다 정한다 (ADR-43)", async () => {
     /*
      * 알림은 **라운드마다 따로다.** 매력 투표는 며칠에 걸쳐 쌓여서, 켜두면 파티 전에
@@ -1006,6 +1100,41 @@ describe("운영자 콘솔", () => {
     fireEvent.click(screen.getByText(HOST_UI.settings.danger));
     expect(screen.getByText(HOST_UI.deleteEvent)).toBeTruthy();
     expect(screen.queryByText(HOST_UI.applySettings), "삭제 묶음에 적용 버튼이 있다").toBeNull();
+  });
+
+  it("★ 예약을 지난 시각으로 고치면 확인창이 저장하는 순간 넘어간다고 말한다", async () => {
+    /*
+     * 서버는 지난 시각을 그대로 받고 알람이 바로 운다 — `가만히 두면 그때 넘어간다` 의 그때가 이미 지났다.
+     * 확인창에 `오후 10:00 → 오전 11:00` 만 있으면 오전·오후 하나를 잘못 누른 것이 **매칭 확인을 연다.**
+     */
+    const t = Date.now();
+    stubFetch(
+      hostState({
+        phase: "party",
+        fired: { reg: t - 5 * HOUR, prevote: t - 3 * HOUR, party: t - HOUR },
+        schedule: { regOpenAt: t - 5 * HOUR, prevoteAt: t - 3 * HOUR, partyAt: t - HOUR, revealAt: t + 2 * HOUR },
+      }),
+    );
+    renderConsole("/host/e1/settings");
+    fireEvent.click(await screen.findByText(HOST_UI.settings.schedule));
+    const reveal = [...document.querySelectorAll(".field")]
+      .find((f) => f.querySelector("label")?.textContent === HOST_UI.fields.revealAt)!
+      .querySelector("input")!;
+    const [, warning] = HOST_UI.schedPast(HOST_UI.fields.revealAt, true);
+
+    // 미루는 것은 평소대로다 — 경고가 붙지 않는다
+    fireEvent.change(reveal, { target: { value: toLocalInput(t + 4 * HOUR) } });
+    fireEvent.click(screen.getByText(HOST_UI.applySettings));
+    await screen.findByText(HOST_UI.applyTitle);
+    expect(screen.queryByText(warning)).toBeNull();
+    fireEvent.click(screen.getByText(BTN.cancel));
+    await waitFor(() => expect(screen.queryByText(HOST_UI.applyTitle)).toBeNull());
+
+    // 오전·오후를 잘못 눌러 지난 시각이 됐다
+    fireEvent.change(reveal, { target: { value: toLocalInput(t - 10 * HOUR) } });
+    fireEvent.click(screen.getByText(HOST_UI.applySettings));
+    await screen.findByText(HOST_UI.applyTitle);
+    expect(screen.getByText(warning)).toBeTruthy();
   });
 
   /**
@@ -1837,6 +1966,38 @@ describe("떨어뜨려 앉히기", () => {
     expect(calls.find((c) => c.url.endsWith("/host/events/e1/apart"))!.body).toEqual({ a: "p1", b: "p2" });
     expect(document.querySelector(".dialog"), "되돌릴 수 있는데 확인창이 떴다").toBeNull();
     expect(document.querySelector(".toast"), "줄이 생기는 것이 알림인데 토스트가 떴다").toBeNull();
+  });
+
+  it("★ 고르면 고르는 시트가 바로 닫힌다 — 기다리는 사이 두 번 눌러도 상세 시트는 남는다", async () => {
+    /*
+     * 답이 올 때까지 시트가 그대로면 한 번 더 누르게 된다. 예전에는 둘 다 끝난 뒤 뒤로 가기가 두 번 걸려
+     * 방금 떼어 놓은 쌍을 보여 줄 **상세 시트까지** 닫혔다.
+     */
+    const waiting: Array<() => void> = [];
+    const release = () => waiting.splice(0).forEach((r) => r());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+        if (url.endsWith("/apart")) await new Promise<void>((r) => waiting.push(r));
+        return json(url.includes("/state") ? hostState() : { ok: true });
+      }),
+    );
+    // 목록 → 상세 시트까지 히스토리에 쌓인 채로 연다. 두 번 뒤로 가면 목록이다
+    const router = createMemoryRouter(
+      [{ path: "/host/:id", element: <HostConsole />, children: HOST_CONSOLE_ROUTES }],
+      { initialEntries: ["/host/e1/players", "/host/e1/players/p1"], initialIndex: 1 },
+    );
+    render(<RouterProvider router={router} />);
+    fireEvent.click(await screen.findByText(HOST_UI.players.apart.add));
+    const sheet = await screen.findByRole("dialog", { name: HOST_UI.players.apart.pickTitle("가") });
+    const pick = within(sheet).getByText(`김나 · 나 · ${UNIT.age(27)}`);
+    fireEvent.click(pick);
+    fireEvent.click(pick);
+    await act(async () => release());
+    await act(async () => {});
+    expect(router.state.location.pathname, "상세 시트까지 닫혔다").toBe("/host/e1/players/p1");
+    expect(calls.filter((c) => c.url.endsWith("/apart"))).toHaveLength(1);
   });
 
   it("★ 이미 넣은 쌍은 상세 시트에 줄로 있고, 빼기도 확인창 없이 간다", async () => {

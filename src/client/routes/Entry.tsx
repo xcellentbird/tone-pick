@@ -14,28 +14,33 @@
  *
  * 운영자 진입 버튼도 뺐다. 운영자는 `/host` 를 직접 연다 — 참가자에게 관리 경로를 광고할 이유가 없다.
  */
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { ENTRY, SCREEN_TITLE } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { api } from "../lib/api.ts";
+import { useLoad } from "../lib/useLoad.ts";
+import { LoadFailed } from "../ui/Boom.tsx";
 
 export default function Entry() {
   const navigate = useNavigate();
-  const [checking, setChecking] = useState(true);
+  const me = useLoad(() => api<ParticipantState>("/me"));
+  const code = me.data?.event.code;
 
   useEffect(() => {
-    let alive = true;
-    api<ParticipantState>("/me")
-      // 뒤로 가기로 이 빈 화면에 되돌아오지 않게 replace 로 넘긴다
-      .then((state) => alive && navigate(`/e/${state.event.code}`, { replace: true }))
-      .catch(() => alive && setChecking(false));
-    return () => {
-      alive = false;
-    };
-  }, [navigate]);
+    // 뒤로 가기로 이 빈 화면에 되돌아오지 않게 replace 로 넘긴다
+    if (code) navigate(`/e/${code}`, { replace: true });
+  }, [code, navigate]);
 
-  if (checking) return <div className="screen" />;
+  /*
+   * **못 물었으면 `링크로 오세요` 가 아니다.** 망이 흔들렸거나(`status 0`) 나라 문에 막혔으면(ADR-92)
+   * 다시 물을 때 답이 달라진다 — 홈 화면 아이콘으로 앱을 연 사람에게 링크를 찾아오라고 하면 막다른 길이다.
+   * 망은 스스로 다시 붙고(`useLoad`), 나라 문은 왜 막혔는지 말한다. 서버가 없다고 답한 것(401)만 아래로 간다.
+   */
+  if (me.error && (me.error.status === 0 || me.error.code === "region_blocked")) {
+    return <LoadFailed error={me.error} onRetry={me.reload} busy={me.loading} />;
+  }
+  if (!me.error) return <div className="screen" />;
 
   return (
     <div className="screen">

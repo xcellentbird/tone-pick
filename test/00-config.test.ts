@@ -72,6 +72,16 @@ describe("옛 모양으로 저장된 기본값", () => {
     expect(withDefaults({ inviteTemplate: mine }).inviteTemplate).toBe(mine);
   });
 
+  /**
+   * ★ **`매력 투표 0시간 전` 은 1시간 전으로 읽는다.** 0 이면 위저드가 매력 투표 시작을 파티 일시와
+   * **같은 시각**에 두는데, 예약 전환은 순서대로여야 해서(ADR-93 후기) 회차 만들기가 매번 거절됐다.
+   * 저장은 이제 막지만(`PUT /defaults`), 전에 저장해 둔 0 이 남아 있다.
+   */
+  it("★ 매력 투표 0시간 전은 1시간 전으로 읽는다 — 0 이면 회차를 만들 수 없다", () => {
+    expect(withDefaults({ prevoteBeforeH: 0 }).prevoteBeforeH).toBe(1);
+    expect(withDefaults({ prevoteBeforeH: 3 }).prevoteBeforeH).toBe(3);
+  });
+
   it("저장된 게 아예 없어도 기본값이 나온다", () => {
     expect(withDefaults(undefined)).toEqual(DEFAULTS);
     expect(withDefaults(null)).toEqual(DEFAULTS);

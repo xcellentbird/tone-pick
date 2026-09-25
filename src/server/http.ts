@@ -130,6 +130,7 @@ const STATUS: Record<ErrorCode, number> = {
   same_gender: 409,
   locked: 409,
   conflict: 409,
+  note_floor: 409,
   region_blocked: 403,
   bad_request: 400,
   order: 400,
