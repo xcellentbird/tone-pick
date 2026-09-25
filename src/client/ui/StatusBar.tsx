@@ -74,33 +74,51 @@ export default function StatusBar({
       )}
 
       {/*
-        **모든 탭에서 항상 보이는 자리는 여기뿐이다.** 운영자가 "여기 눌러보세요" 라고
-        말할 수 있으려면 찾아 들어가지 않아도 되는 곳에 있어야 한다.
-        등록을 마치면 한 번 저절로 열리지만(슬라이스 21), 그 뒤에 다시 찾는 길은 이것뿐이다.
+        오른쪽 버튼들은 **한 묶음**이다 (`.barActions`). 쪽지함이 처음 들어왔을 때 두 버튼이 각자
+        `.statusbar` 의 간격(10px)을 받아 원과 원 사이가 26px 로 벌어졌고, ✉️ 만 컬러 그림이라
+        옆의 `?` 와 다른 물건으로 읽혔다 (운영자가 짚었다). 이제 쪽지함이 있으면 둘이 **알약 하나**
+        안에 가는 칸막이를 두고 선다(`.pair`) — 둘 다 같은 색 글리프다. 탭 영역은 저마다 44px 그대로다.
+        쪽지함이 없으면 `?` 혼자 제 원으로 선다.
       */}
-      {inbox && (
-        <button
-          type="button"
-          className="helpBtn inboxBtn"
-          aria-label={inbox.unread > 0 ? `${NOTE.inbox.open} ${NOTE.inbox.unread(inbox.unread)}` : NOTE.inbox.open}
-          onClick={inbox.onOpen}
-        >
-          <span aria-hidden>✉️</span>
-          {/*
-            배지는 **안 읽은 수**다. 움직이지 않고(ADR-64) 경보 빨강도 아니다 —
-            남이 일으킨 변화라 옆 사람의 눈을 끌면 안 된다. 쪽지함을 열면 사라진다.
-          */}
-          {inbox.unread > 0 && (
-            <b className="count" aria-hidden>
-              {inbox.unread}
-            </b>
-          )}
-        </button>
-      )}
+      <div className={`barActions ${inbox ? "pair" : ""}`}>
+        {inbox && (
+          <button
+            type="button"
+            className="helpBtn inboxBtn"
+            aria-label={inbox.unread > 0 ? `${NOTE.inbox.open} ${NOTE.inbox.unread(inbox.unread)}` : NOTE.inbox.open}
+            onClick={inbox.onOpen}
+          >
+            {/*
+              **그림이 아니라 선이다.** 컬러 이모지(✉️)는 `?` 옆에서 혼자 튀었다 —
+              회차 이름보다 먼저 읽히면 안 되는 자리다. 색은 `?` 와 같은 `currentColor`.
+            */}
+            <span aria-hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2.5" />
+                <path d="m4 7 8 6 8-6" />
+              </svg>
+            </span>
+            {/*
+              배지는 **안 읽은 수**다. 움직이지 않고(ADR-64) 경보 빨강도 아니다 —
+              남이 일으킨 변화라 옆 사람의 눈을 끌면 안 된다. 쪽지함을 열면 사라진다.
+            */}
+            {inbox.unread > 0 && (
+              <b className="count" aria-hidden>
+                {inbox.unread}
+              </b>
+            )}
+          </button>
+        )}
 
-      <button type="button" className="helpBtn" aria-label={HELP.open} onClick={onHelp}>
-        <span aria-hidden>?</span>
-      </button>
+        {/*
+          **모든 탭에서 항상 보이는 자리는 여기뿐이다.** 운영자가 "여기 눌러보세요" 라고
+          말할 수 있으려면 찾아 들어가지 않아도 되는 곳에 있어야 한다.
+          등록을 마치면 한 번 저절로 열리지만(슬라이스 21), 그 뒤에 다시 찾는 길은 이것뿐이다.
+        */}
+        <button type="button" className="helpBtn" aria-label={HELP.open} onClick={onHelp}>
+          <span aria-hidden>?</span>
+        </button>
+      </div>
     </div>
   );
 }

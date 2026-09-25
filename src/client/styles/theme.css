@@ -1110,7 +1110,38 @@ h1,
  * 탭 영역은 도움말처럼 44px 이고, 보이는 원은 28px 이다.
  */
 .inboxBtn { position: relative; }
-.inboxBtn > span { font-size: 13px; font-weight: 400; }
+/* 선 그림의 크기. 색은 `?` 글자와 같은 `currentColor` 라 두 원이 한 벌로 읽힌다 */
+.inboxBtn svg { width: 15px; height: 15px; display: block; }
+/*
+ * 상단 바 오른쪽 버튼 묶음 (ADR-98 후기 3). **안에서는 간격이 없다** — 바깥 `.statusbar` 의 간격은
+ * 이름 칸과 이 묶음 사이에만 선다. 쪽지함이 있으면(`.pair`) 두 버튼의 원을 걷고 **알약 하나**를 깐다 —
+ * 원 둘이 26px 떨어져 서 있을 때는 서로 다른 물건으로 읽혔다. 알약은 보이는 크기(72×28)일 뿐이고
+ * 탭 영역은 버튼마다 44px 그대로다. 옅게 — 회차 이름보다 먼저 읽히면 안 된다.
+ */
+.barActions { flex: none; display: flex; align-items: center; position: relative; }
+.barActions > .helpBtn { position: relative; z-index: 1; }
+.barActions.pair::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 50%;
+  height: 28px;
+  transform: translateY(-50%);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+.barActions.pair::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: 14px;
+  transform: translateY(-50%);
+  background: var(--line);
+}
+.barActions.pair .helpBtn > span { background: transparent; }
 /*
  * 안 읽은 수. **경보 빨강이 아니라 주 색이고, 움직이지 않는다** (ADR-64) —
  * 남이 일으킨 변화라 테이블 건너편 눈을 끌면 그 순간이 샌다. 숫자라 `line-height: 1` 이다 (ADR-62).
