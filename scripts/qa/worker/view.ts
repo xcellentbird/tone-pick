@@ -10,7 +10,8 @@
  * 이미 떠 있는 틀은 **옮기지 않는다** — 틀을 DOM 에서 옮기면 다시 읽혀서 보던 자리를 잃는다.
  *
  * **단계를 넘기는 단추는 두지 않는다** (슬라이스 37 S-A10) — 운영자 틀에 다 있다. 이 화면에는 운영자 화면에 없는
- * 것만 둔다: 볼 화면 고르기, 참가자 추가, 콕. 이 화면은 단계를 따로 기억해서 틀과 어긋나므로 단계를 보여 주지도 않는다.
+ * 것만 둔다: 볼 화면 고르기, 참가자 추가, 자동 콕. 이 화면은 단계를 따로 기억해서 틀과 어긋나므로 단계를 보여 주지도 않는다.
+ * **콕 단추는 자동 콕 하나다** (ADR-99 후기 5) — 한 사람씩 찌르는 것은 틀 속 진짜 화면에서 한다. 나머지 명령은 CLI 에 있다.
  *
  * **폰에서는 한 화면씩 옆으로 넘긴다** (가로 스크롤 + 스냅). 앱은 가로로 스크롤하지 않아서 틀 속을 옆으로 밀어도
  * 그 밀기가 이 페이지로 넘어온다 — 크롬의 터치 에뮬레이션으로 앱의 머리 · 목록 · 탭바에서 확인했다.
@@ -66,14 +67,13 @@ a{color:#a29bfe}small,.dim{color:#9a9}
 .top.closed .panel{display:none}
 .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .row>b{min-width:48px;color:#aaa;font-weight:600}
-button,select{font:inherit;color:#eee;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:8px;padding:5px 9px}
-button{cursor:pointer}button.main{background:#6c5ce7;border-color:#6c5ce7;color:#fff}
+button{font:inherit;color:#eee;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:8px;padding:5px 9px;cursor:pointer}
+button.main{background:#6c5ce7;border-color:#6c5ce7;color:#fff}
 button.danger{background:#b33;border-color:#b33;color:#fff}
 .strip{display:flex;gap:4px;overflow-x:auto;flex:1;min-width:0;padding-bottom:2px;scrollbar-width:thin}
 .chip{padding:3px 8px;border-radius:999px;flex:none;white-space:nowrap}
 .chip.m{box-shadow:inset 3px 0 #74b9ff}.chip.f{box-shadow:inset 3px 0 #fd79a8}
 .chip.on{background:#6c5ce7;border-color:#6c5ce7;color:#fff}
-.sep{width:1px;align-self:stretch;background:#333;margin:0 2px}
 .warn{background:#5a3a00;color:#ffd;padding:6px 10px;border-radius:8px}
 .pager{display:none;gap:4px;overflow-x:auto;scrollbar-width:none}
 .pager button{flex:none;padding:5px 11px;border-radius:999px}
@@ -87,7 +87,7 @@ button.danger{background:#b33;border-color:#b33;color:#fff}
 .screen .nav{display:none}
 .screen:first-child .nav[data-step="-1"],.screen:last-child .nav[data-step="1"]{visibility:hidden}
 .screen iframe{flex:1;border:0;width:100%;background:#fff}
-body.busy .panel button,body.busy .panel select{opacity:.55;pointer-events:none}
+body.busy .panel button{opacity:.55;pointer-events:none}
 @media (max-width:${NARROW}px){
 .pager{display:flex}
 .wall{padding:0;gap:0;justify-content:flex-start;scroll-snap-type:x mandatory}
@@ -111,18 +111,8 @@ body.busy .panel button,body.busy .panel select{opacity:.55;pointer-events:none}
       <button type="button" data-cmd="late m">남자 추가</button>
       <button type="button" data-cmd="late f">여자 추가</button>
     </div>
-    <div class="row"><b>자동 콕</b>
-      <button type="button" class="main" data-cmd="auto">자동 콕</button>
-      <button type="button" class="main" data-cmd="auto last">마지막 자리 자동 콕</button>
-    </div>
     <div class="row"><b>콕</b>
-      <select id="from" aria-label="보내는 사람"></select> → <select id="to" aria-label="받는 사람"></select>
-      <button type="button" data-poke="poke">콕</button>
-      <button type="button" data-poke="unpoke">되돌리기</button>
-      <button type="button" data-poke="mutual">서로 콕</button>
-      <span class="sep"></span>
-      <button type="button" id="crowdBtn">받는 사람에게 5명이 콕</button>
-      <button type="button" data-cmd="pairs 3">서로 콕 3쌍</button>
+      <button type="button" class="main" data-cmd="auto">자동 콕</button>
     </div>
     <div class="row"><b></b><small id="left"></small><span class="grow"></span>
       <button type="button" id="reread">스테이지 새로고침</button>
@@ -175,7 +165,7 @@ function toggle(n) {
   else { people.push(n); if (people.length > MAX_PEOPLE) hide.push(people.shift()); }
   remember();
   const added = people.includes(n);
-  plant(added ? [n] : [], hide).then(() => { renderWall(); renderChips(); renderPager(); pickDefaults(); if (added) go(n); });
+  plant(added ? [n] : [], hide).then(() => { renderWall(); renderChips(); renderPager(); if (added) go(n); });
 }
 
 /** 화면 단추. 남녀를 줄로 갈라 둘 다 늘 보이게 한다 — 100명이면 한 칸에 몰아 넣을 때 한쪽이 밑으로 숨었다 */
@@ -249,20 +239,6 @@ function setPanel(open) {
   $('#panelBtn').textContent = open ? '메뉴 닫기' : '메뉴';
 }
 
-/** 보내는 사람 · 받는 사람 — 지금 보는 참가자 둘로 채운다. A 가 B 를 찌르고 B 의 화면을 보는 게 가장 흔하다 */
-function renderSelects() {
-  const opts = M.view.cast.map((p) => '<option value="' + p.n + '">' + esc(label(p)) + '</option>').join('');
-  $('#from').innerHTML = opts; $('#to').innerHTML = opts;
-}
-function pickDefaults() {
-  const shown = people.map(who).filter(Boolean);
-  const a = shown[0] || M.view.cast[0];
-  if (!a) return;
-  const b = shown.find((p) => p.gender !== a.gender) || shown[1] || M.view.cast.find((p) => p.gender !== a.gender);
-  $('#from').value = a.n;
-  if (b) $('#to').value = b.n;
-}
-
 /** 상태 줄 — 마지막 명령이 남긴 말 한 줄. 로그 전체는 보이지 않는다 */
 function status(text, bad) {
   const s = $('#status');
@@ -282,7 +258,7 @@ function apply(data) {
   $('#left').textContent = '남은 QA 호출 ' + M.left.toLocaleString('ko-KR') + ' / ' + M.daily.toLocaleString('ko-KR');
   const said = lastSaid();
   status(said, /^[✗?]/.test(said));
-  if (castChanged) { renderChips(); renderSelects(); pickDefaults(); }
+  if (castChanged) renderChips();
 }
 
 let busy = false, isClosed = false;
@@ -326,10 +302,8 @@ document.addEventListener('click', (e) => {
   if (t.dataset.go) return go(t.dataset.go === 'host' ? 'host' : Number(t.dataset.go));
   if (t.dataset.open) return setPanel(true);
   if (t.dataset.cmd) return run(t.dataset.cmd);
-  if (t.dataset.poke) return run(t.dataset.poke + ' ' + $('#from').value + ' ' + $('#to').value);
 });
 $('#panelBtn').onclick = () => setPanel($('#top').classList.contains('closed'));
-$('#crowdBtn').onclick = () => run('crowd ' + $('#to').value + ' 5');
 $('#reread').onclick = async () => {
   const r = await fetch('state').catch(() => null);
   if (!r) return;
@@ -338,7 +312,7 @@ $('#reread').onclick = async () => {
 };
 $('#closeForm').onsubmit = () => confirm('회차 ' + M.view.event.code + '와 가짜 참가자 ' + M.view.cast.length + '명을 지우고 스테이지를 닫을까요? 되돌릴 수 없어요.');
 
-renderChips(); renderSelects(); pickDefaults();
+renderChips();
 apply({ view: M.view, left: M.left });
 // 폰에서는 메뉴를 접어 두고 틀에 자리를 준다
 setPanel(!narrow.matches);
