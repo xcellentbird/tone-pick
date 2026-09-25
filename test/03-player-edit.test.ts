@@ -286,6 +286,22 @@ describe("내 정보 고치기", () => {
     }
   });
 
+  /**
+   * ★ **나이는 18~48 만 받는다** (ADR-87).
+   *
+   * 목록에 섞인 `49` 는 *막힌다* 만 말한다 — 경계 안쪽이 열려 있는지는 따로 봐야 한다.
+   * 상한을 잘못 내리면 스물아홉 살이 등록을 못 하는데 그건 아무 테스트도 안 잡는다.
+   */
+  it("★ 18 과 48 은 통과하고 그 밖은 막힌다", async () => {
+    const ev = await freshEvent();
+    const me = await join(ev);
+    const put = (age: number) =>
+      api("/api/me", { method: "PUT", cookie: me.cookie, body: { ...me.input, age } });
+
+    for (const age of [18, 48]) expect((await put(age)).status, `${age}세`).toBe(200);
+    for (const age of [17, 49]) expect((await put(age)).status, `${age}세`).toBe(400);
+  });
+
   it("등록과 같은 검증을 지난다", async () => {
     const ev = await freshEvent();
     const me = await join(ev);
@@ -298,6 +314,7 @@ describe("내 정보 고치기", () => {
       { realName: "" },
       { realName: "김실명3" },
       { age: 17 },
+      { age: 49 },
       { age: 100 },
       { age: 28.5 },
       { gender: "X" as RegisterInput["gender"] },
@@ -331,7 +348,7 @@ describe("내 정보 고치기", () => {
     });
     expect(res.status).toBe(409);
     expect(res.body.error).toBe("nick_taken");
-    expect(res.body.message).toBe(REGISTER.err.nickTaken("달빛"));
+    expect(res.body.message).toBe(REGISTER.err.nickTaken);
   });
 
   it("내 닉네임을 그대로 두고 다른 것만 고칠 수 있다", async () => {

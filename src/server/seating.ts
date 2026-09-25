@@ -10,6 +10,9 @@
  *   ③ 개선 단계의 이웃 연산이 **같은 성별 2인 맞교환뿐**이다
  * 따라서 성비는 "지키려고 노력"하는 게 아니라 바뀔 방법이 없다.
  *
+ * 운영자가 떼어 놓은 쌍(ADR-90)은 가중치 대신 **다른 값을 다 합쳐도 못 넘는 벌점**으로 막는다.
+ * 다 지킬 수 없는 판에서는 어기는 쌍이 가장 적은 배치가 이긴다 — 배정이 실패하지는 않는다.
+ *
  * ⚠️ 무료 플랜은 요청당 CPU 10ms. 안쪽 루프는 사람 객체가 아니라 **번호**로 돌고,
  *    쌍마다의 값은 미리 n×n 판에 펼쳐 둔다 (문자열 키로 Map 을 두드리면 100명에 23ms 였다).
  *
@@ -60,15 +63,21 @@ export interface BuildInput {
   round: number;
   /** 이전 라운드들의 **발행된** 좌석. 재회 회피와 공정성 가중이 여기서 나온다 */
   history: Seat[][];
-  /** 매력 투표 — 프로필만 보고 고른 것이라 가볍게 본다 */
-  votes: SentCounts;
-  /** 파티 콕 — 만나본 뒤에 고른 것이라 무겁게 본다 */
+  /*
+   * ⚠️ **매력 투표(`votes`)는 여기 없다** (ADR-100). 자리에 들어가지 않는다 — 1위를 정하는 데만 쓰인다.
+   * 입력에 자리가 없는 것이 그 방어다.
+   */
+  /** 파티 콕 — 만나본 뒤에 고른 것이다 */
   pokes: SentCounts;
   /** 회차 설정의 상한. 끌림을 여기에 맞춰 [0,1] 로 정규화한다 */
-  maxVote: number;
   maxPoke: number;
   /** 같은 상태면 같은 자리가 나오도록 **부르는 쪽이** 준다 (보통 서버 시각) */
   seed: number;
+  /**
+   * 같은 테이블에 앉히지 않을 쌍 (ADR-90). **방향이 없다** — 순서는 아무 뜻이 없다.
+   * 서로 콕을 찔렀어도 이쪽이 이긴다. 운영자가 사정을 알고 넣은 것이다.
+   */
+  apart?: ReadonlyArray<readonly [string, string]>;
 }
 
 /**
@@ -218,14 +227,17 @@ class World {
   readonly fresh: Float32Array;
   /** 서로 콕을 찌른 이성 쌍. 주고받은 수가 많은 쌍이 앞이다 */
   readonly mutualPairs: Array<[number, number]> = [];
+  /** `i*n+j` → 1 이면 같은 테이블에 앉히지 않는다 (ADR-90). 양쪽 칸이 같이 선다 */
+  readonly apart: Uint8Array;
 
   constructor(input: BuildInput) {
-    const { players, history, votes, pokes, maxVote, maxPoke } = input;
+    const { players, history, pokes, maxPoke } = input;
     const n = (this.n = players.length);
     this.age = new Int32Array(n);
     this.male = new Uint8Array(n);
     this.give = new Float32Array(n * n);
     this.fresh = new Float32Array(n * n);
+    this.apart = new Uint8Array(n * n);
 
     const index = new Map<string, number>();
     players.forEach((p, i) => {
@@ -265,8 +277,14 @@ class World {
       }
       return board;
     };
-    const voteOut = counts(votes);
     const pokeOut = counts(pokes);
+
+    for (const [a, b] of input.apart ?? []) {
+      const i = index.get(a);
+      const j = index.get(b);
+      if (i === undefined || j === undefined || i === j) continue;
+      this.apart[i * n + j] = this.apart[j * n + i] = 1;
+    }
 
     /*
      * **얼마나 채웠나** — 나이대 이성 중 아직 못 만난 비율. 두 곳에 쓴다:
@@ -280,6 +298,11 @@ class World {
       for (let j = 0; j < n; j++) {
         if (j === i || this.male[i] === this.male[j]) continue;
         if (Math.abs(this.age[i] - this.age[j]) > MEET_GAP) continue;
+        /*
+         * 떼어 놓을 상대는 **만나야 할 사람에서 뺀다** (ADR-90). 세면 영영 못 채우는 칸이 남아
+         * 그 사람의 결핍이 줄지 않고, 공정성 가중이 그를 계속 앞에 세운다 — 떼어 놓았다고 우선권을 받는 셈이다.
+         */
+        if (this.apart[i * n + j]) continue;
         all++;
         if (met[i * n + j] > 0) seen++;
       }
@@ -299,7 +322,8 @@ class World {
         if (this.male[i] === this.male[j]) continue;
         if (pokeOut[i * n + j] > 0 && pokeOut[j * n + i] > 0) {
           mutualCount++;
-          this.mutualPairs.push([i, j]);
+          // 떼어 놓을 쌍은 시작 배치에서 붙이지 않는다 — 붙인 뒤 떼느라 예산을 쓸 이유가 없다 (ADR-90)
+          if (!this.apart[i * n + j]) this.mutualPairs.push([i, j]);
         }
       }
     }
@@ -320,10 +344,14 @@ class World {
         if (i === j) continue;
         const k = i * n + j;
         /*
-         * **벌점은 10살에서 멈춘다** (ADR-78). 8~9살은 아직 이어질 자리가 있지만
-         * 그 위로는 다 같다 — 16살과 66살을 다르게 벌할 이유가 없다.
-         * 문턱 없는 세제곱은 66살 차이를 287.5 로 쳐서, 등록 나이 상한(99)까지 적을 수 있는
-         * 한 사람이 목적함수를 통째로 끌고 갔다. 상한에 걸리면 벌점은 `SEAT_W.AGE` 그대로다.
+         * **한 살은 어디서나 같은 값이다** (ADR-83). 0.1 씩 곧게 오르고 10살에서 멈춘다.
+         *
+         * 세제곱이던 때는 3살이 0.027 로 거의 공짜라 좁은 나이대에 뭉쳤고, 7~9살에서
+         * 갑자기 비싸져(0.343~0.729) **딱 그 구간의 이성이 안 이어졌다.** 선형이면
+         * 5살이 0.5 로 새 만남(최대 2.0)에 눌려서, 나이대를 건너뛴 자리가 만들어진다.
+         *
+         * 상한은 그대로다 (ADR-78) — 16살과 66살을 다르게 벌할 이유가 없고,
+         * 상한에 걸리면 벌점은 `SEAT_W.AGE` 그대로다.
          */
         const gap = Math.min(Math.abs(this.age[i] - this.age[j]), AGE_GAP) / 10;
         const opposite = this.male[i] !== this.male[j];
@@ -331,7 +359,6 @@ class World {
 
         let v = 0;
         v += wPoke * pull(pokeOut[k], pokeOut[j * n + i], maxPoke);
-        v += SEAT_W.VOTE * pull(voteOut[k], voteOut[j * n + i], maxVote);
         if (mutual) v += SEAT_W.MUTUAL;
         /*
          * **나이차 벌점은 이성 쌍에만** (ADR-80). 이 앱이 자리로 지키려는 건 *이어질 수 있는*
@@ -339,12 +366,13 @@ class World {
          * 시작 배치(②)는 여전히 나이순이라 첫 라운드의 동성은 대체로 모여 앉는다. 그건 이성
          * 나이차를 위한 출발점이지 벌점이 아니다.
          *
-         * **재회는 동성에도 걸리되 1/3 이다** (ADR-81). 0 이면 이성 쪽 사정이 가르지 않는 한
-         * 같은 남자 셋이 라운드마다 다시 앉는다. 가벼운 값은 **이성 쪽이 아무 말도 하지 않는
-         * 자리에서만** 동성을 가른다 — 이성 재회를 피하는 일과 부딪히면 진다.
+         * **재회는 만난 횟수에 그대로 비례한다** (ADR-91) — 상한이 없다. 두 번이면 2.0,
+         * 세 번이면 3.0. 동성도 절반(0.5)으로 함께 자란다. ADR-81 은 동성을 *이성 재회와
+         * 부딪히면 지는* 크기(0.2)로 뒀는데, 이제는 **어느 쪽이든 두 번째 만남이 비싸다** —
+         * 같은 사람을 다시 만나는 것보다 새 사람을 만나는 것이 앞이라는 것이 이 판의 뜻이다.
          */
-        if (opposite) v -= SEAT_W.AGE * gap * gap * gap;
-        v -= (opposite ? SEAT_W.REP : SEAT_W.REP_SAME) * Math.min(1, met[k] / 2);
+        if (opposite) v -= SEAT_W.AGE * gap;
+        v -= (opposite ? SEAT_W.REP : SEAT_W.REP_SAME) * met[k];
         this.give[k] = lam * v;
 
         const first = opposite && met[k] === 0 && Math.abs(this.age[i] - this.age[j]) <= MEET_GAP;
@@ -368,6 +396,8 @@ function cell(w: World, i: number, group: number[]): number {
     if (j === i) continue;
     sum += (w.give[i * w.n + j] + w.give[j * w.n + i]) / k;
     sum += w.fresh[i * w.n + j] + w.fresh[j * w.n + i];
+    // 인원으로 나누지 않는다 — 큰 테이블에서 가벼워지면 새 만남 점수가 규칙을 이긴다 (ADR-90)
+    if (w.apart[i * w.n + j]) sum -= SEAT_W.APART;
   }
   return sum;
 }
@@ -382,6 +412,7 @@ function total(w: World, tables: number[][]): number {
         const j = group[y];
         sum += (w.give[i * w.n + j] + w.give[j * w.n + i]) / k;
         sum += w.fresh[i * w.n + j] + w.fresh[j * w.n + i];
+        if (w.apart[i * w.n + j]) sum -= SEAT_W.APART;
       }
     }
   }

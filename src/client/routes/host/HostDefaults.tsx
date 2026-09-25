@@ -62,8 +62,10 @@ export default function HostDefaults() {
         facts: [
           [HOST_UI.fields.maxPre, `${UNIT.times(form!.maxPre)} → ${UNIT.times(DEFAULTS.maxPre)}`],
           [HOST_UI.fields.maxParty, `${UNIT.times(form!.maxParty)} → ${UNIT.times(DEFAULTS.maxParty)}`],
+          // 익명 쪽지는 **장**이다 (`UNIT.sheets`) — 콕의 `회` 와 갈라야 두 줄이 다른 것으로 읽힌다
+          [HOST_UI.fields.maxNotes, `${UNIT.sheets(form!.maxNotes ?? 0)} → ${UNIT.sheets(DEFAULTS.maxNotes ?? 0)}`],
+          [HOST_UI.fields.topVoteBonus, `${topVoteWord(!!form!.topVoteBonus)} → ${topVoteWord(!!DEFAULTS.topVoteBonus)}`],
           [HOST_UI.fields.prevoteAt, `${form!.prevoteBeforeH}h → ${DEFAULTS.prevoteBeforeH}h`],
-          [HOST_UI.fields.voteEndAt, `${form!.voteEndBeforeH}h → ${DEFAULTS.voteEndBeforeH}h`],
           [HOST_UI.fields.revealAt, `${form!.revealAfterH}h → ${DEFAULTS.revealAfterH}h`],
           // 빈 값도 뜻이 있다 — 회차마다 다른 곳에서 연다는 뜻이라 '—' 로 보여준다
           [HOST_UI.fields.place, `${form!.place || "—"} → ${DEFAULTS.place || "—"}`],
@@ -101,20 +103,27 @@ export default function HostDefaults() {
           max={LIMITS.maxParty.max}
           onChange={(v) => set("maxParty", v)}
         />
+        {/* 익명 쪽지 (슬라이스 36). 여기는 기본값이라 바닥이 없다 — 아직 아무도 안 보냈다 */}
+        <Num
+          label={HOST_UI.fields.maxNotes}
+          value={form.maxNotes ?? 0}
+          min={LIMITS.maxNotes.min}
+          max={LIMITS.maxNotes.max}
+          onChange={(v) => set("maxNotes", v)}
+        />
+        {/* 매력 투표 1위 보너스 콕 (ADR-100). 기본값이라 굳지 않는다 */}
+        <Toggle
+          label={HOST_UI.fields.topVoteBonus}
+          value={!!form.topVoteBonus}
+          options={TOPVOTE_OPTIONS}
+          onChange={(on) => set("topVoteBonus", on ? 1 : 0)}
+        />
         <Num
           label={HOST_UI.fields.prevoteBeforeH}
           value={form.prevoteBeforeH}
           min={0}
           max={720}
           onChange={(v) => set("prevoteBeforeH", v)}
-        />
-        {/* 이 값과 0 사이가 자리를 짜는 시간이다 (ADR-39). 짧게 잡으면 운영자가 쫓긴다 */}
-        <Num
-          label={HOST_UI.fields.voteEndBeforeH}
-          value={form.voteEndBeforeH}
-          min={0}
-          max={720}
-          onChange={(v) => set("voteEndBeforeH", v)}
         />
         {/* 유일하게 파티 **뒤**를 재는 값이다 (ADR-43). 0 이면 시작과 동시에 발표라 막는다 */}
         <Num
@@ -190,16 +199,16 @@ export default function HostDefaults() {
  * `on` 쪽 라벨을 왼쪽에 둘지 오른쪽에 둘지는 부르는 쪽이 정한다 —
  * 기본값이 왼쪽에 오는 게 읽기 편하다.
  */
-/** 되돌리기 선택지. 기본(할 수 있음)이 왼쪽이다 */
-export const UNDO_OPTIONS = [
-  { on: true, label: HOST_UI.fields.undoOn },
-  { on: false, label: HOST_UI.fields.undoOff },
-] as const;
-
 /** 알림 선택지. 기본(안 보냄)이 왼쪽이다 */
 export const NOTIFY_OPTIONS = [
   { on: false, label: HOST_UI.fields.pokeNotifyOff },
   { on: true, label: HOST_UI.fields.pokeNotifyOn },
+] as const;
+
+/** 매력 투표 1위 보너스 콕 선택지 (ADR-100). 기본(안 줌)이 왼쪽이다 */
+export const TOPVOTE_OPTIONS = [
+  { on: false, label: HOST_UI.fields.topVoteBonusOff },
+  { on: true, label: HOST_UI.fields.topVoteBonusOn },
 ] as const;
 
 /** 콕 대상 선택지. 기본(모두에게)이 오른쪽이다 — 좁히는 쪽을 먼저 읽는 줄이라 그대로 둔다 */
@@ -250,6 +259,10 @@ export function Toggle({
   );
 }
 
+/**
+ * 숫자 스테퍼. **칸 밑에 곁설명을 달 자리가 없다** — 일부러 없다 (ADR-54 후기 2).
+ * 고른 결과가 무엇을 뜻하는지는 **누를 때 확인창이** 말한다 (규칙 4).
+ */
 export function Num({
   label,
   value,
@@ -278,3 +291,6 @@ export function Num({
     </div>
   );
 }
+
+/** 확인창에서 1위 보너스 설정을 읽는 말 — 토글의 두 라벨 그대로 */
+export const topVoteWord = (on: boolean) => (on ? HOST_UI.fields.topVoteBonusOn : HOST_UI.fields.topVoteBonusOff);

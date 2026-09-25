@@ -4,13 +4,28 @@
  * 문장은 전부 `copy.ts` 에서 온다. 여기서 새로 짓지 않는다.
  * 같은 실패에는 어디서 오든 같은 문장이 나가야 해서 한 곳에 모았다.
  */
-import { ENTRY, HOST, HOST_UI, POKE, REGISTER } from "../shared/copy.ts";
+import { ENTRY, HOST, HOST_UI, NOTE, POKE, REGISTER } from "../shared/copy.ts";
+import { HOST_PIN_TRIES } from "../shared/constants.ts";
 
 export function pokeMessage(error: string, detail?: number): string | undefined {
   // 서버는 라운드를 모른다. 중립 문구를 쓴다 (ADR-34)
   if (error === "closed") return POKE.blocked.anyClosed;
   if (error === "same_gender") return POKE.blocked.sameGender;
   if (error === "no_budget") return POKE.blocked.anyNoBudget(detail ?? 0);
+  return undefined;
+}
+
+/**
+ * 익명 쪽지 (ADR-98). **`pokeMessage` 를 돌려쓰지 마라** — 단위가 다르다(`회` 와 `장`).
+ * 두 줄이 나란히 서는 자리가 있어서, 같은 단위로 부르면 한 가지 값으로 읽힌다.
+ *
+ * `bad_request` 에는 문구가 없다 — 빈 글도 120자 초과도 **화면이 먼저 막는다**
+ * (`maxLength` 가 조용히 막고, 빈 글이면 버튼이 안 눌린다). 여기까지 오는 건 화면 밖에서
+ * 두드린 경우라, 설명해 줄 사람이 없다.
+ */
+export function noteMessage(error: string, detail?: number): string | undefined {
+  if (error === "closed") return NOTE.blocked.closed;
+  if (error === "no_budget") return NOTE.blocked.noBudget(detail ?? 0);
   return undefined;
 }
 
@@ -34,9 +49,17 @@ export function enterMessage(error: string, detail?: number): string | undefined
   return undefined;
 }
 
-export function registerMessage(nickname: string) {
-  return (error: string): string | undefined =>
-    error === "nick_taken" ? REGISTER.err.nickTaken(nickname) : undefined;
+export function registerMessage(error: string): string | undefined {
+  return error === "nick_taken" ? REGISTER.err.nickTaken : undefined;
+}
+
+/**
+ * 운영자 PIN 이 틀렸을 때 (ADR-94). 남은 횟수는 `warnAt` 이하부터 말한다 — 참가자의 `enterMessage` 와 같은 자리다.
+ * **다 쓴 순간은 `tooMany` 다.** `0번 더 틀리면 막혀요` 는 말이 안 되고 사실도 아니다 — 이미 막혔다.
+ */
+export function hostPinMessage(left: number): string {
+  if (left === 0) return HOST.pin.tooMany(HOST_PIN_TRIES.windowMs / 60_000);
+  return left <= HOST_PIN_TRIES.warnAt ? HOST.pin.wrongLeft(left) : HOST.pin.wrong;
 }
 
 /**
@@ -44,11 +67,18 @@ export function registerMessage(nickname: string) {
  *
  * `conflict` — 이미 쓴 횟수보다 낮게 내리려 했다. `detail` 은 지금 가장 많이 쓴 횟수다
  * `locked`   — 콕이 오가기 시작해 굳은 항목이다 (ADR-35)
+ * `order`    — 아직 오지 않은 예약 전환의 순서가 어긋났다 (ADR-93 후기)
  */
 export function settingsMessage(error: string, detail?: number): string | undefined {
   if (error === "conflict") return HOST_UI.pokeFloor(detail ?? 0);
   if (error === "locked") return HOST_UI.frozen;
+  if (error === "order") return HOST_UI.scheduleOrder;
   return undefined;
+}
+
+/** 발표가 자리를 끝내면 새 쌍을 넣지 못한다 (ADR-90). 빼기는 언제나 된다 */
+export function apartMessage(error: string): string | undefined {
+  return error === "closed" ? HOST_UI.players.apart.afterReveal : undefined;
 }
 
 /** 발표가 끝나면 자리를 더 바꾸지 않는다. 그 밖에는 막을 일이 없다 */

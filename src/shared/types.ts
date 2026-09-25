@@ -50,7 +50,20 @@ export type PinState = "set" | "none" | "locked";
  * 인스타는 남는다: 고치는 폼이 그 값을 칸에 다시 채워야 하고, 그 칸이 없으면
  * 오타를 낸 사람이 영영 못 고친다. 다만 **읽기 화면에는 그리지 않는다.**
  */
-export type MyProfile = Omit<Player, "phone" | "pin">;
+export type MyProfile = Omit<Player, "phone" | "pin"> & {
+  /**
+   * 단계 안내를 어디까지 봤나 (ADR-96). **본인에게만** 내려간다 — `Player` 에 두지 않는 이유가 그것이다.
+   * 명단(`roster`)에도 운영자 응답에도 없다: 남이 안내를 봤는지는 남의 일이고,
+   * 묻는 사람이 없는 값은 쓰이는 줄 알게 된다.
+   */
+  seenStage?: StageKey;
+};
+
+/** 안내 화면이 뜨는 단계 — 새 행동이 열리는 순간이 둘뿐이다 (ADR-96) */
+export type StageKey = "prevote" | "party";
+export const STAGE_KEYS: readonly StageKey[] = ["prevote", "party"];
+/** 값이 그 둘 중 하나인가 — 요청 본문과 저장된 칸 둘 다 이걸로 거른다 */
+export const isStageKey = (v: unknown): v is StageKey => STAGE_KEYS.includes(v as StageKey);
 
 /**
  * 참가자에게 내려가는 형태. 이 타입 밖의 필드를 참가자 응답에 넣지 말 것.
@@ -86,10 +99,10 @@ export function toPublic(p: MyProfile, phase: Phase): PublicPlayer {
  * 반환 타입이 `Omit<Player, "phone">` 이라, 칸을 늘리고 여기 안 적으면 **빌드가 깨진다.**
  * 그때 하는 일은 한 줄 더 적는 게 아니라 *이 값이 본인에게 가도 되나* 를 정하는 것이다.
  */
-export function toMe(p: Player): MyProfile {
+export function toMe(p: Player, seenStage?: StageKey): MyProfile {
   // `pin` 은 본인에게도 안 간다 — 화면이 쓸 데가 없고, 안 보내면 실수로도 못 보여준다
   const { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt } = p;
-  return { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt };
+  return { id, nickname, realName, age, gender, instagram, mbti, charms, createdAt, ...(seenStage ? { seenStage } : {}) };
 }
 
 // ─────────────────────────── 콕
@@ -124,9 +137,70 @@ export interface MatchInfo {
   realName: string;
 }
 
+/**
+ * 내가 보낸 **익명 쪽지** 한 장 (ADR-98). 발신자 쪽에서만 쓴다.
+ *
+ * `read` 는 boolean 이고 **시각이 아니다.** 그리고 서버가 **5분 늦춰서** 내린다 —
+ * 배지가 답할 질문은 *갔고 봤나* 이지 *지금 보고 있나* 가 아니라서, 늦춰도 그 답은 그대로고
+ * **방금 폰을 든 사람을 눈으로 찾는 길**만 사라진다.
+ */
+export interface SentNote {
+  text: string;
+  read: boolean;
+}
+
+/**
+ * 내가 받은 **익명 쪽지** 한 장 (ADR-98).
+ *
+ * ⚠️ **발신자를 담을 칸이 없는 것이 방어다** (`MatchInfo` 의 논리). `fromId` 도 닉네임도
+ * 성별도 도착 시각도 여기 없다 — 되살리려면 이 타입부터 고쳐야 하고, 그건 이 기능이
+ * 참가자에게 한 약속을 바꾸는 일이다.
+ *
+ * ⚠️ **`seen` 을 더하지 마라.** 안 본 줄을 가려 `/note/seen` 호출을 아끼려고 넣었다가 뺐다 —
+ * `seen: false` 는 **이 줄이 내가 마지막으로 쪽지함을 연 뒤에 왔다**를 줄마다 확정해 주는 값이고,
+ * 여닫기를 되풀이하면 그 창이 초 단위까지 좁아진다. 그때 누가 폰을 들고 있었는지와 맞추면
+ * 발신자가 좁혀진다 — `받은 콕에 시각을 붙이지 마라` 와 **같은 누출이 칸 이름만 바꿔 들어온 것**이다.
+ * 아끼려던 호출은 `received.length` 로 똑같이 아낄 수 있고, 서버는 바뀐 것이 없으면 아무것도 안 쓴다.
+ * 쪽지함 배지가 쓰는 것은 **숫자 하나**(`MyNoteState.unread`)다 — 그 대가는 ADR-98 후기 3 ④.
+ *
+ * `id` 는 지우기에만 쓴다.
+ */
+export interface ReceivedNote {
+  id: string;
+  text: string;
+}
+
+/**
+ * 익명 쪽지의 내 쪽 상태 (ADR-98). **만드는 곳은 하나다.**
+ *
+ * `budget.max` 는 회차의 `maxNotes` 이고 없으면 0 이다 — 0 이면 화면에 버튼도 남은 장 수도 없다.
+ */
+export interface MyNoteState {
+  budget: { max: number; used: number };
+  /** playerId → 내가 그 사람에게 보낸 것들. 내 것이라 담아도 된다 */
+  sent: Record<string, SentNote[]>;
+  /** 최신이 앞. 발신자는 어느 칸에도 없다 */
+  received: ReceivedNote[];
+  /**
+   * **아직 안 읽은 받은 쪽지 수** — 상단 바 익명 쪽지함 ✉️ 의 배지 (ADR-98 후기 3).
+   * 쪽지함을 열면(`/note/seen`) 0 이 된다. 지운 줄은 세지 않는다.
+   *
+   * ⚠️ **줄마다 싣지 마라** (`ReceivedNote` 의 `seen` 경고). 숫자 하나로 충분하다 —
+   * 어느 줄이 새것인지까지 응답이 확정해 줄 이유가 없다.
+   * 이 숫자가 도착을 알린다는 대가는 운영자가 알고 골랐다 (늦춰 배달하지 않는다).
+   */
+  unread: number;
+}
+
 /** 참가자 본인에게만 내려가는 요약. 누가 찔렀는지는 발표 전까지 절대 포함하지 않는다. */
 export interface MyPokeState {
+  /** 파티 콕의 `max` 에는 1위 보너스가 이미 들어 있다 (ADR-100) — 화면은 더하지 않는다 */
   budget: Record<PokeRound, { max: number; used: number }>;
+  /**
+   * **내가 매력 투표 1위다** (ADR-100). 1위 본인에게만 있다 — 아니면 키 자체가 없다.
+   * 몇 표인지는 싣지 않는다. 그 숫자가 곧 *몇 명이 나를 골랐나* 다.
+   */
+  topVote?: true;
   /**
    * playerId -> **이번 라운드에** 내가 보낸 횟수 (ADR-34).
    *
@@ -165,40 +239,33 @@ export interface SeatingRound {
 // ─────────────────────────── 회차
 
 /**
- * 알람이 울리는 시각은 **`prevoteAt` 과 `revealAt` 둘뿐**이다 (ADR-38·43).
+ * 알람이 울리는 시각은 **셋**이다 — `prevoteAt` · `partyAt` · `revealAt` (ADR-38·43·93).
  *
- * **파티 시작은 운영자가 누른다** (ADR-14) — 사람이 다 모였는지, 이야기가 무르익었는지는
- * 시계가 모른다. `voteEndAt` 은 시각이 있지만 **전환이 아니라 판정이라** 알람이 없다 (ADR-39).
- * `regOpenAt` 은 회차를 만든 시각의 기록이다 (ADR-38).
+ * ⚠️ **매력 투표 마감 시각(`voteEndAt`)을 되살리지 마라** (ADR-100). 매력 투표는 파티 시작에 닫힌다 —
+ * 표가 자리 배정에 들어가지 않으니 자리를 짤 시간을 벌 이유가 없다. 옛 회차에 적힌 값은 읽지 않는다.
+ * `regOpenAt` 은 회차를 만든 시각의 기록이다 (ADR-38) — 운영자 설정에는 줄이 없다 (ADR-93).
  *
- * `partyAt` 은 전환을 울리지 않는다. 등록·사전 투표 시작의 기준점이고,
+ * `partyAt` 은 알람이면서 **기준점**이기도 하다. 나머지 일정이 여기서 거꾸로 계산되고,
  * 참가자 화면 카운트다운이 향하는 곳이다.
  */
 export interface EventSchedule {
+  /**
+   * 파티가 열리는 시각 (ADR-93). **매력 투표 중에만 울린다** —
+   * 등록 중에 이 시각이 지났다고 뛰면 매력 투표가 통째로 사라진다.
+   *
+   * 운영자는 언제든 먼저 누를 수 있고(그러면 `fired.party` 가 서서 예약은 울리지 않는다),
+   * 사람이 덜 왔으면 **파티가 시작되기 전까지** 이 시각을 미룰 수 있다 (`schedLocked`).
+   */
   partyAt?: number;
   regOpenAt?: number;
   prevoteAt?: number;
   /**
-   * 매력 투표가 닫히는 시각 (ADR-39). 기본은 파티 **1시간 전**.
-   *
-   * **전환이 아니라 판정이다.** 알람이 울리지 않고 `phase` 도 그대로 `prevote` 다 —
-   * `canPoke()` 가 서버 시각과 견줘 답한다. 그건 지금도 그대로다.
-   *
-   * 운영자가 이 시각을 **앞당길 수 있다** (ADR-39 후기) — 그때 실제로 닫힌 시각은
-   * `fired.voteEnd` 에 남고, **여기 적힌 예약은 기록으로 그대로 둔다.**
-   * 덮어쓰면 "예약은 20시였는데 19시에 닫았다" 를 말할 수 없게 된다.
-   *
-   * 시각으로 못 박은 이유는 **현장이 아니라 준비가 이 시각을 쓰기** 때문이다.
-   * 마감돼야 자리를 짤 수 있고, 짜는 데 시간이 걸린다 (ADR-14 예외).
-   */
-  voteEndAt?: number;
-  /**
    * 커플 발표가 예약된 시각 (ADR-43). 기본은 파티 **3시간 뒤**.
    *
-   * ⚠️ **파티가 시작된 뒤에만 울린다** (`dueTransition`). ADR-14 가 막은 건
-   * *현장이 시계를 따라가는 것*인데, 그중에서도 가장 나쁜 건 **아무도 안 온 자리에서
-   * 발표가 뜨는 것**이다. 운영자가 `파티 시작` 을 누르기 전에는 이 시각이 지나도 아무 일이 없다 —
-   * 시계가 혼자 파티를 끝내지 못한다.
+   * ⚠️ **파티가 시작된 뒤에만 울린다** (`dueTransition`). 막으려던 건 **아무도 안 온
+   * 자리에서 발표가 뜨는 것**이다 — 콕이 열린 적도 없어 매칭 0으로 끝난 회차가 된다.
+   * **파티가 예약이 된 뒤에도 이 조건은 그대로다** (ADR-93): 두 예약이 이어질 뿐,
+   * 발표가 파티를 건너뛰는 길은 없다.
    *
    * 운영자는 언제든 먼저 누를 수 있고(그러면 `fired.done` 이 서서 예약은 울리지 않는다),
    * 파티가 길어지면 **발표 전까지** 이 시각을 미룰 수 있다 (`schedLocked`).
@@ -208,14 +275,6 @@ export interface EventSchedule {
 
 /** 실제로 전환이 일어난 시각. 예약은 여기가 비어 있을 때만 한 번 울린다. (ADR-2) */
 export interface FiredMap {
-  /**
-   * 매력 투표가 **실제로 닫힌 시각** (ADR-39 후기). 운영자가 마감을 앞당겼을 때만 찬다.
-   *
-   * **단계 전환이 아니다** — 이게 차도 `phase` 는 `prevote` 그대로고, 나이·MBTI(ADR-21)도
-   * 파티 콕도 열리지 않는다. 여기 있는 이유는 `fired` 가 *예약과 실제를 가르는 자리*이기 때문이다.
-   * `dueTransition` 은 이 값을 보지 않는다.
-   */
-  voteEnd?: number;
   reg?: number;
   prevote?: number;
   party?: number;
@@ -233,14 +292,15 @@ export interface EventConfig {
    * 회차마다 정한다. 파티 성격이 회차마다 다르기 때문이다.
    */
   allowSameGender?: boolean;
-  /** 파티 콕을 되돌릴 수 있나 (ADR-34). **없으면 된다** — 잘못 누른 것을 못 무르게 할 이유가 없다 */
-  allowUndo?: boolean;
-  /** 매력 투표를 되돌릴 수 있나 (ADR-34). **없으면 된다**. 라운드마다 따로 정한다 */
-  allowUndoPre?: boolean;
+  /*
+   * ⚠️ **되돌리기 설정(`allowUndo`·`allowUndoPre`)을 되살리지 마라** (ADR-95).
+   * 두 라운드 다 **언제나 되돌릴 수 있다** — 잘못 누른 것을 못 무르게 할 이유가 없었고,
+   * 운영자가 실제로 끈 적도 없었다. 설정이 하나 줄면 도움말과 확인창도 한 가지로 말한다.
+   */
   /**
    * **매력 투표**를 받으면 참가자에게 알릴 것인가 (ADR-43). **없으면 알리지 않는다.**
    *
-   * 라운드마다 따로 정한다 — 되돌리기(`allowUndoPre`·`allowUndo`)와 같은 꼴이다.
+   * 라운드마다 따로 정한다 — 파티 콕 알림(`pokeNotify`)과 짝이다.
    * 한동안 `pokeNotify` 하나가 두 라운드를 다 덮었는데, 그 둘은 성격이 다르다:
    * 매력 투표는 **프로필만 보고** 고른 것이고 며칠에 걸쳐 쌓인다.
    * 그 숫자가 실시간으로 보이면 파티 전에 이미 순위가 생긴다.
@@ -259,6 +319,27 @@ export interface EventConfig {
    * 받지 않았던 상태로 돌아간다 — 지울 메시지가 애초에 저장돼 있지 않다.
    */
   pokeNotify?: boolean;
+  /**
+   * 한 사람이 보낼 수 있는 **익명 쪽지** 장 수 (ADR-98). **없으면 0 — 그 회차에는 없다.**
+   *
+   * 콕 횟수처럼 굳지 않는다 (`frozenRules` 밖이다) — 파티 중에 올릴 수 있고,
+   * ⚠️ **0 으로는 언제나 내려간다.** 이미 쓴 장 수가 바닥이 되는 건 1~5 사이에서만이다.
+   * 0 이 바닥에 걸리면 **꺼야 할 때 못 끄고**, 그게 운영자에게 남은 유일한 레버다.
+   *
+   * ⚠️ **`meta.config` 교체 리터럴에 이 키를 적어라.** 거기는 병합이 아니라 통째로 교체라,
+   * 안 적히면 저장 한 번에 사라진다 — 옛 회차의 `allowUndo` 가 그렇게 없어졌다 (ADR-95).
+   */
+  maxNotes?: number;
+  /**
+   * **매력 투표 1위**에게 더 주는 파티 콕 (ADR-100). **없으면 0 — 주지 않는다.** 지금은 1 하나뿐이다.
+   *
+   * 1위는 파티가 시작되는 순간 한 번 정한다(`EventMeta.topVoters`). 그래서 **파티가 시작되면 굳는다** —
+   * 1위가 보너스 콕을 쓴 뒤에 끄면 쓴 횟수가 한도를 넘는다. `rulesLocked`(매력 투표 시작)보다 늦은 것은
+   * 참가자가 보는 규칙이 아니어서다 — 도움말에도 적지 않는다.
+   *
+   * ⚠️ **`meta.config` 교체 리터럴에 이 키를 적어라** — `maxNotes` 와 같은 이유다 (ADR-95).
+   */
+  topVoteBonus?: number;
 }
 
 export interface EventMeta {
@@ -280,6 +361,15 @@ export interface EventMeta {
   schedule: EventSchedule;
   config: EventConfig;
   createdAt: number;
+  /**
+   * 매력 투표 1위 (ADR-100). **파티가 시작되는 순간 한 번** 적고 다시 세지 않는다 —
+   * 1위가 빠져도 2위가 이어받지 않고, 매력 투표로 되돌아갔다 와도 바뀌지 않는다.
+   * 보너스를 켠 회차에서만 적힌다. 빈 배열은 *정했는데 아무도 없다* 이고, 없으면 *정한 적이 없다* 다.
+   *
+   * ⚠️ **참가자 응답에 싣지 마라.** 운영자만 본다 — 참가자 응답의 `event` 는 필드를 골라 옮긴다.
+   * 1위 본인에게 가는 것은 `MyPokeState.topVote` 하나다.
+   */
+  topVoters?: string[];
 }
 
 /**
@@ -298,7 +388,6 @@ export interface Defaults extends EventConfig {
    */
   nickHint: string;
   prevoteBeforeH: number;   // 파티 N시간 전에 매력 투표 시작
-  voteEndBeforeH: number;   // 파티 N시간 전에 매력 투표 마감 (ADR-39)
   /**
    * 파티 N시간 **뒤**에 커플 발표 (ADR-43). 다른 일정과 방향이 반대인 유일한 값이다 —
    * 나머지는 파티 일시에서 거꾸로 재고 이것만 앞으로 잰다.
@@ -383,8 +472,6 @@ export interface CreateEventInput {
    * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열 이유가 없었다.
    */
   prevoteAt: number;
-  /** 매력 투표 마감 (ADR-39). 기본은 파티 1시간 전 */
-  voteEndAt: number;
   /** 커플 발표 (ADR-43). 기본은 파티 3시간 **뒤**. `partyAt` 보다 뒤여야 한다 */
   revealAt: number;
   config: EventConfig;
@@ -445,7 +532,9 @@ export type ErrorCode =
   | "no_budget"      // 409 · 이번 라운드 콕을 다 썼다
   | "same_gender"    // 409 · 이성에게만 찌를 수 있다
   | "locked"         // 409 · 콕이 오가기 시작해 굳은 설정이다 (ADR-35)
-  | "conflict";      // 409 · 그 밖의 충돌
+  | "region_blocked" // 403 · 허용한 나라 밖에서 들어왔다 (ADR-92)
+  | "conflict"       // 409 · 그 밖의 충돌
+  | "order";         // 400 · 아직 오지 않은 예약 전환의 순서가 어긋났다 (ADR-93 후기)
 
 export interface ApiErrorBody {
   error: ErrorCode;
@@ -610,16 +699,16 @@ export interface Announcement {
   at: number;
   /** 텍스트 알림이면 이게 전부. 투표면 질문이다 */
   text: string;
-  /** 있으면 A/B 투표다. **선택지에 사람을 넣지 마라** — 시나리오 14 의 첫 규칙이다 */
+  /** 있으면 두 선택지 설문이다. **선택지에 사람을 넣지 마라** — 시나리오 14 의 첫 규칙이다 */
   poll?: { a: string; b: string; closedAt?: number };
 }
 
 /**
  * 참가자에게 내려가는 모양.
  *
- * **누가 무엇을 골랐는지는 여기 없다** — 숫자 둘과 *내* 선택뿐이다.
- * 한 사람 한 표를 지키려 `playerId → choice` 를 저장하긴 하지만,
- * 그 짝은 **어떤 응답에도 실리지 않는다. 운영자 응답에도.**
+ * **남의 답도, 몇 명이 골랐는지도 여기 없다** (ADR-88). 선택지 둘과 *내* 답, 마감 여부뿐이다.
+ * 숫자를 빼는 이유는 둘이다 — 참가자에게는 필요한 정보가 아니고(운영자가 정하려고 묻는 것이다),
+ * 사람을 묻는 설문이 올라왔을 때 `27 대 1` 이 화면에서 흉기가 되는 일을 처음부터 막는다.
  * 응답에 없으면 화면이 실수로라도 보여줄 수 없다.
  */
 export interface PublicAnnouncement {
@@ -629,19 +718,25 @@ export interface PublicAnnouncement {
   poll?: {
     a: string;
     b: string;
-    count: { a: number; b: number };
     /** 아직 안 골랐으면 없다 */
     mine?: PollChoice;
     closed: boolean;
   };
 }
 
-/** 운영자 화면용. 집계만 더 붙는다 — 표의 주인은 여전히 아무 데도 안 나온다 */
+/**
+ * 운영자 화면용 (ADR-88). **누가 무엇을 골랐는지가 여기 실린다** — `choices` 는 참가자 아이디 → 답이다.
+ * 뒤풀이 인원을 세려면 몇 명이 아니라 **누가** 간다고 했는지 알아야 한다. 운영자의 공개 범위는
+ * 원래 전체라(원칙 2) 새 권한이 아니다. 참가자 응답(`PublicAnnouncement`)에는 여전히 없다.
+ *
+ * 나간 사람의 답은 세지 않는다 — `choices` 도 `count` 도 지금 있는 사람만이다 (ADR-29 와 같은 정리).
+ */
+/** 운영자에게는 **누가 무엇을 골랐는지**까지 간다 (ADR-88). 숫자는 화면이 여기서 센다 — 같은 수를 두 곳에 두지 않는다 */
 export interface HostAnnouncement extends Announcement {
-  count: { a: number; b: number };
+  choices: Record<string, PollChoice>;
 }
 
-/** 운영자가 보낼 때 넘기는 값. `poll` 이 없으면 텍스트 알림이다 */
+/** 운영자가 보낼 때 넘기는 값. `poll` 이 없으면 텍스트 알림이다 (화면은 아직 설문만 만든다 — 슬라이스 27) */
 export interface AnnounceInput {
   text: string;
   poll?: { a: string; b: string };
@@ -661,6 +756,8 @@ export interface ParticipantState {
   me: MyProfile;
   roster: PublicPlayer[];
   poke: MyPokeState;
+  /** 익명 쪽지 (ADR-98). `budget.max` 가 0 이면 이 회차에는 없다 */
+  note: MyNoteState;
   seat?: MySeat;
   /** 오늘의 연애운. 한 번 열면 그대로 남는다 — 아직 안 열었으면 없다 */
   fortune?: Fortune;
@@ -672,34 +769,6 @@ export interface ParticipantState {
 export interface RegisterResult {
   state: ParticipantState;
   resumed: boolean;
-}
-
-/**
- * 콕 이력 한 줄 — **운영자 전용 뽑기** (ADR-82). 콕 하나가 줄 하나다.
- *
- * 운영자의 공개 범위는 `발신자까지` 다 (`docs/DOMAIN.md`). 그래도 이 값이 참가자에게 가는 길은
- * 없어야 한다 — 만드는 곳은 `EventDO.pokeLog()` 하나고 부르는 곳은 운영자 CSV 라우트 하나다.
- * `ParticipantState` 어디에도 넣지 마라.
- *
- * **전화·인스타 칸이 없다.** 이 줄은 DO 밖으로 나가는 파일이 되므로, 새면 돌이킬 수 없다 —
- * 칸이 없는 것이 곧 방어다 (ADR-42 와 같은 논리).
- */
-export interface HostPokeSide {
-  id: string;
-  nickname: string;
-  realName: string;
-  gender: Gender;
-  age: number;
-}
-
-export interface HostPokeRow {
-  round: PokeRound;
-  at: number;
-  /** 나간 사람이면 `null` — 그가 보낸 콕은 남는다 (ADR-29) */
-  from: HostPokeSide | null;
-  to: HostPokeSide | null;
-  /** **같은 라운드에** 상대도 이쪽을 찔렀다. 매칭 규칙(파티 콕만)과 다른, 줄 하나의 사실이다 */
-  mutual: boolean;
 }
 
 /** 운영자 콘솔 한 벌. 운영자만 전체를 본다 */
@@ -731,11 +800,26 @@ export interface HostState {
   pokeCount: Record<PokeRound, number>;
   /** 라운드별로 **한 사람이 가장 많이 쓴 횟수**. 콕 상한을 이 아래로 내릴 수 없다 */
   pokeUsedMax: Record<PokeRound, number>;
+  /**
+   * playerId → **보낸** 익명 쪽지 장 수 (ADR-98). 운영자가 보는 것은 이것뿐이다.
+   *
+   * ⚠️ **본문도, 누가 누구에게 보냈는지도, 받은 장 수도 여기 없다** — 담을 자리를 만들지 마라.
+   * 본문이 콘솔에 뜨는 순간 *누가 누구를 좋아하는지*가 글로 적힌다 (ADR-98 후기 2).
+   * 받은 장 수를 안 싣는 이유는 받은 콕을 개인 행에 안 두는 것과 같다 (ADR-22·30).
+   */
+  noteSent: Record<string, number>;
+  /** 한 사람이 가장 많이 보낸 장 수. **1~5 로 내릴 때만** 바닥이 된다 — 0 은 언제나 통과 */
+  noteUsedMax: number;
   seatings: SeatingRound[];
   /** 초대 명단. 참가자 응답에는 절대 실리지 않는다 */
   invites: Invite[];
   /** 운영자가 보낸 알림. 최신순 */
   announcements: HostAnnouncement[];
+  /**
+   * 같은 테이블에 앉히지 않을 쌍 (ADR-90). **운영자 응답에만 있다** — 참가자는 이런 기능이 있는지 모른다.
+   * 방향이 없다: 한 쌍 안의 두 아이디는 정렬돼 있고 순서는 아무 뜻이 없다.
+   */
+  apart: Array<[string, string]>;
 }
 
 /**

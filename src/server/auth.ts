@@ -88,7 +88,7 @@ export function cookieName(base: string, ref: string | null | undefined): string
 }
 
 /**
- * 참가자 세션은 길게, 운영자 세션은 짧게.
+ * 세션은 둘 다 길다 — 참가자는 한 달, 운영자는 일주일.
  *
  * **7일이었는데 파티 당일에 딱 걸렸다.** 회차는 보통 파티 한 주쯤 전에 만들고,
  * 등록은 만드는 순간 열리므로 (ADR-38) 첫날 등록한 사람은 파티 당일이 7일째다.
@@ -101,9 +101,14 @@ export function cookieName(base: string, ref: string | null | undefined): string
  * Safari ITP 의 7일 상한은 `document.cookie` 로 심은 것에 걸린다.
  * 이 쿠키는 서버가 `Set-Cookie` + `HttpOnly` 로 심으므로 대상이 아니다.
  *
- * 운영자 세션은 전체 권한이라 반대로 짧게 둔다.
+ * **운영자 세션도 일주일이다** (ADR-94). 12시간이었는데, 회차를 만든 날과 파티 당일 사이에
+ * 매번 다시 로그인해야 했다 — 운영자가 가장 자주 하는 일이 PIN 을 치는 것이 됐다.
+ *
+ * 길게 두는 대가는 **훔친 쿠키가 그만큼 오래 산다**는 것이다. 그래서 세션을 늘리는 것과
+ * PIN 을 대보는 횟수를 막는 것(`HOST_PIN_TRIES`)은 **한 몸이다** — 자주 안 치게 만들었으니
+ * 치는 자리는 좁혔다. 둘 중 하나만 하지 마라.
  */
-const TTL = { player: 30 * 24 * 3600_000, host: 12 * 3600_000 } as const;
+const TTL = { player: 30 * 24 * 3600_000, host: 7 * 24 * 3600_000 } as const;
 
 export function sessionTtl(scope: AuthScope): number {
   if (scope.kind === "player") return TTL.player;

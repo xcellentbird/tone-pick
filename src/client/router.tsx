@@ -56,6 +56,7 @@ const HostConsole = lazy(() => import("./routes/host/HostConsole.tsx"));
 const Dash = lazy(() => import("./routes/host/Dash.tsx"));
 const Players = lazy(() => import("./routes/host/Players.tsx"));
 const Seats = lazy(() => import("./routes/host/Seats.tsx"));
+const Polls = lazy(() => import("./routes/host/Polls.tsx"));
 const Settings = lazy(() => import("./routes/host/Settings.tsx"));
 import { Overlays } from "./ui/Overlays.tsx";
 
@@ -90,10 +91,14 @@ export const PARTICIPANT_ROUTES = [
   { path: "/e/:code/me/edit", element: chunk(<Participant />) },
   // 프로필 시트도 라우트다 — 뒤로 가기로 닫히게 하기 위해
   { path: "/e/:code/p/:pid", element: chunk(<Participant />) },
+  // 익명 쪽지 작성 시트 (슬라이스 36). 프로필 시트 위가 아니라 **대신** 선다 — 시트는 겹치지 않는다
+  { path: "/e/:code/p/:pid/note", element: chunk(<Participant />) },
   // 자리 확인 화면을 **다시 여는** 길 (슬라이스 12). 자동으로 뜨는 쪽은 주소가 없다
   { path: "/e/:code/seat", element: chunk(<Participant />) },
   // 파티 룰 도움말. 시트도 라우트라 **여기 없으면 "찾을 수 없어요" 로 떨어진다**
   { path: "/e/:code/help", element: chunk(<Participant />) },
+  // 익명 쪽지함 (ADR-98 후기 3). 도움말과 같다 — 상단 바에서 어느 탭에서든 연다
+  { path: "/e/:code/notes", element: chunk(<Participant />) },
 ];
 
 /**
@@ -107,6 +112,7 @@ export const HOST_CONSOLE_ROUTES = [
     { index: true, element: chunk(<Dash />) },
     { path: "players", element: chunk(<Players />) },
     { path: "players/:pid", element: chunk(<Players />) },   // 상세 시트
+    { path: "players/:pid/apart", element: chunk(<Players />) },   // 떨어뜨릴 사람 고르기 (ADR-90)
     { path: "seats", element: chunk(<Seats />) },
     // 배정 시트도 라우트다 — 뒤로 가기로 닫힌다.
     // **걸음이 곧 주소다** — 뺄 사람 고르기 → 테이블 수 (ADR-45). push 라 뒤로 가면 앞 걸음이다.
@@ -115,6 +121,8 @@ export const HOST_CONSOLE_ROUTES = [
     { path: "seats/new/tables", element: chunk(<Seats />) },
     // 자리 없는 사람을 앉힐 자리 고르기 (ADR-79). 라운드가 주소에 있어야 새로고침해도 같은 카드다
     { path: "seats/seat/:round/:pid", element: chunk(<Seats />) },
+    { path: "polls", element: chunk(<Polls />) },
+    { path: "polls/:aid", element: chunk(<Polls />) },       // `new` 는 보내기 시트, 그 밖은 상세
     { path: "settings", element: chunk(<Settings />) },
 ];
 

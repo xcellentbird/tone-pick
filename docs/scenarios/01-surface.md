@@ -2,10 +2,12 @@
 
 시나리오: `01-event-create-join.md` · 테스트: `test/01-event-create-join.test.ts`
 
-> **⚠️ 이 표면은 그 뒤로 두 번 바뀌었다.** 등록 시작 예약이 없어졌고(ADR-38),
-> 참가자가 코드를 치던 길이 사람마다 다른 링크로 바뀌었다(ADR-32 · 슬라이스 13).
-> 아래 표면은 **그 두 가지를 반영해 고쳐 적은 것**이다. 지금 계약의 원본은 타입(`src/shared/types.ts`)과
-> 규칙 테스트다 — 어긋나면 그쪽이 맞다.
+> **⚠️ 이 표면은 그 뒤로 네 번 바뀌었다.** 등록 시작 예약이 없어졌고(ADR-38),
+> 참가자가 코드를 치던 길이 사람마다 다른 링크로 바뀌었다가(ADR-32 · 슬라이스 13)
+> **회차마다 하나인 링크 + 번호 + PIN 번호로 다시 바뀌었고**(ADR-75 · 슬라이스 15),
+> 파티 시작도 예약이 열게 됐다(ADR-93). 아래 표면은 **그것들을 반영해 고쳐 적은 것**이다
+> (2026-09-24 마지막 고침). 입장의 자세한 계약은 `15-surface.md` 다.
+> 지금 계약의 원본은 타입(`src/shared/types.ts`)과 규칙 테스트다 — 어긋나면 그쪽이 맞다.
 
 **여기 적힌 것만 계약이다.** 내부 구조 — 클래스를 쓸지, 함수로 갈지, DO 안을 어떻게 나눌지 —
 는 구현자가 정한다. 테스트도 이 표면에만 붙어 있다.
@@ -61,8 +63,9 @@ POST /api/host/events/:id/phase      { to: Phase } → EventMeta
 `phase` 전환은 수동 진행이다. 전환하면 `fired[to]` 에 **실제 전환 시각**이 기록되고,
 그 단계의 예약은 다시 울리지 않는다. 예약 값 자체는 지우지 않는다 — 기록으로 남는다.
 
-예약이 걸리는 전환은 `prevote` 와 `done` **둘뿐**이다 (ADR-38·43). 등록은 회차를 만드는 순간
-열리고, **파티 시작은 운영자가 누른다** (ADR-14). `partyAt` 은 전환을 울리지 않는 기준점이다.
+예약이 걸리는 전환은 **셋**이다 — `prevote`(매력 투표 시작) · `party`(파티 시작) · `done`(커플 발표)
+(ADR-38·43·93). 등록은 회차를 만드는 순간 열린다. **파티 시작도 `partyAt` 이 연다** (ADR-93 —
+ADR-14 의 *파티는 운영자가 누른다* 를 뒤집었다). 운영자의 단계 버튼은 예약을 앞당기는 자리로 남는다.
 `revealAt` 은 **파티가 시작된 뒤에만** 울린다 (ADR-43) — 아무도 안 온 자리에서 발표가 뜨면
 콕이 열린 적도 없어 매칭 0 으로 끝난 것이 된다.
 
@@ -75,7 +78,7 @@ POST /api/host/events/:id/phase      { to: Phase } → EventMeta
 |---|---|
 | `code` 를 지정했는데 이미 쓰는 코드 | `409 { error: "code_taken", message: HOST.pin.codeTaken }` |
 | `code` 생략 | 서버가 생성. 기존 코드와 겹치지 않을 때까지 다시 뽑는다 |
-| 발표가 파티보다 앞 | `400 { error: "bad_request" }` (ADR-43). **그 밖의 순서는 검사하지 않는다** (ADR-36) |
+| 매력 투표 시작 → 파티 시작 → 커플 발표 순이 아니다 | `400 { error: "order", message: HOST_UI.scheduleOrder }` (ADR-93 후기). 마감은 검사하지 않는다 (ADR-39) |
 | 언제나 | 만드는 순간 `phase: "reg"`, `fired.reg` 기록 (ADR-38). `regOpenAt` 은 그 시각의 **기록**이다 |
 | 같은 `requestId` 로 재요청 | 새로 만들지 않고 **같은 회차**를 200 으로 돌려준다 (S-B7) |
 
@@ -84,29 +87,32 @@ POST /api/host/events/:id/phase      { to: Phase } → EventMeta
 ## 회차 미리보기 (인증 없음)
 
 ```
-GET /api/events/by-id/:id?t=<토큰>   → PublicEvent | 404     참가 링크가 여는 화면
+GET /api/events/by-id/:id   → PublicEvent | 404     참가 링크(`/j/<회차id>`)가 여는 화면
 ```
 
-**코드로 회차를 찾던 길(`by-code`)은 닫혔다** (ADR-32). 참가 링크는 `/j/<회차id>/<토큰>` 이고,
-**링크가 곧 신원이다** — 회차 아이디만으로는 이름도 일정도 열리지 않는다.
+**코드로 회차를 찾던 길(`by-code`)은 닫힌 채다** (ADR-32). 참가 링크는 회차마다 하나인 `/j/<회차id>` 이고
+**링크에는 신원이 없다** (ADR-75) — 단톡방에 뿌려도 된다. 사람마다 다른 `/j/<회차id>/<토큰>` 은 걷어냈다.
 응답에 입장 코드를 담지 않는 것은 그대로다 (S-C2b).
 
 ```
-POST /api/events/:id/enter   { token }  → { registered, ref, code? }   인증 없음
-POST /api/register           RegisterInput → RegisterResult        초대 쿠키 필요
+POST /api/events/:id/enter   { phone }       → EnterProbe             인증 없음 — 묻기
+POST /api/events/:id/enter   { phone, pin }  → EnterResult            인증 없음 — 들어가기
+POST /api/register           RegisterInput (+ pin) → RegisterResult  초대 쿠키 필요
 POST   /api/host/events/:id/invites       { phones: string[] } → Invite[]   더하기만
 DELETE /api/host/events/:id/invites/:phone                     → Invite[]
 ```
 
-- 토큰이 명단에 없으면 `403 not_invited`, 너무 여러 번이면 `429 too_many`. **문구는 하나뿐이다** —
-  "초대되지 않았어요" 와 "그런 회차가 없어요" 를 갈라주면 그 구분이 곧 "이 사람이 이 파티에 있나" 의 답이 된다
-- 통과하면 서명한 초대 쿠키가 나간다. **번호는 서버가 토큰에서 꺼낸다** (ADR-31).
+- **실패 문구는 셋으로 가른다** (ADR-75) — 회차가 없으면 `404 ENTRY.notFound`, 명단에 없는 번호면
+  `403 ENTRY.notInvited`, PIN 번호가 틀리면 `403 ENTRY.pinWrong`, 잠겼으면 `423 ENTRY.pinLocked`,
+  너무 여러 번이면 `429 ENTRY.tooMany`. 판정 순서는 `15-surface.md` 가 계약이다.
+  *(예전에는 문구가 하나뿐이었다 — 토큰 시절에는 그 구분이 곧 "이 사람이 이 파티에 있나" 의 답이었다)*
+- 미등록이면 서명한 초대 쿠키가 나간다. **번호는 서버가 명단 행에서 꺼낸다** (ADR-31) — 쿠키에는 번호가 없다.
   쿠키는 탭마다 갈린다 — 응답의 `ref` 가 어느 쿠키를 읽을지 고르는 이름표다 (ADR-44)
-- 이미 등록한 사람에게는 참가자 세션이 곧바로 나간다
+- 이미 등록한 사람은 PIN 번호까지 맞으면 참가자 세션이 곧바로 나간다
 - `RegisterInput` 에 **전화번호가 없다.** 폼에서 받으면 명단에 없는 번호로 바꿔 낼 수 있다
 - `invites` 는 `HostState` 에만 실린다. 참가자 응답에는 절대 없다
 
-- 토큰이 없거나 틀리면 `404 { error: "not_found", message: ENTRY.notFound }`
+- 회차가 없으면 `404 { error: "not_found", message: ENTRY.notFound }`
 - `phase: "prep"` → `canRegister: false`, `message: ENTRY.notOpenYetUnknown` (되돌린 회차에서만 본다).
   **시각은 싣지 않는다** (ADR-38) — `regOpenAt` 은 늘 지나간 시각이라 곧 열릴 것처럼 말하게 된다
 - `phase: "done"` → `canRegister: false`, `message: ENTRY.finished`

@@ -42,7 +42,7 @@ describe("등록", () => {
     expect(res.status).toBe(409);
     expect(res.body.error).toBe("nick_taken");
     // 에러는 그 값을 입력한 자리로 되돌릴 수 있게 닉네임을 담아 알려준다
-    expect(res.body.message).toBe(REGISTER.err.nickTaken("겹치는닉"));
+    expect(res.body.message).toBe(REGISTER.err.nickTaken);
   });
 
   it("다른 회차의 같은 닉네임은 상관없다", async () => {
@@ -673,7 +673,7 @@ describe("콕", () => {
     const now = Date.now();
     for (const bad of [
       { allowSameGender: "false" },
-      { allowUndo: 0 },
+      { pokeNotify: 0 },
       { preNotify: "true" },
     ]) {
       const res = await api("/api/host/events", {
@@ -683,7 +683,6 @@ describe("콕", () => {
           name: "이상한 설정",
           partyAt: now + 3 * 24 * HOUR,
           prevoteAt: now + 24 * HOUR,
-          voteEndAt: now + 3 * 24 * HOUR - HOUR,
           revealAt: now + 3 * 24 * HOUR + 3 * HOUR,
           config: { maxPre: 2, maxParty: 3, ...bad },
           requestId: `bad-${JSON.stringify(bad)}-${now}`,

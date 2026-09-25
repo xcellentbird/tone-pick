@@ -140,3 +140,30 @@ export function useTicker(active: boolean) {
     return () => clearInterval(id);
   }, [active]);
 }
+
+/**
+ * **콜백 안에서 거는 타이머.** 화면이 내려가면 남은 것을 전부 지운다 — 효과 밖 `setTimeout` 은 정리가 따라오지
+ * 않아서 늦게 울면 없는 화면에 `setState` 를 걸고, 테스트에서는 `window is not defined` 로 던져 화면 테스트가
+ * 전부 통과하고도 CI 가 빨개진다. 두 번 났다 (토스트 사라짐 · 복사 표시). 돌려주는 함수로 하나를 미리 지울 수 있다.
+ */
+export function useTimeouts() {
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(
+    () => () => {
+      for (const t of timers.current) clearTimeout(t);
+      timers.current.clear();
+    },
+    [],
+  );
+  return useCallback((fn: () => void, ms: number) => {
+    const t = setTimeout(() => {
+      timers.current.delete(t);
+      fn();
+    }, ms);
+    timers.current.add(t);
+    return () => {
+      clearTimeout(t);
+      timers.current.delete(t);
+    };
+  }, []);
+}

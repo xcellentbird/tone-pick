@@ -11,7 +11,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { BTN, GENDER, HELP, HOME, MBTI_AXES, ME, REGISTER, SCREEN_TITLE, STATUS, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
+import { BTN, GENDER, HELP, HOME, MBTI_AXES, ME, NOTE, REGISTER, SCREEN_TITLE, STATUS, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
 import type { ParticipantState } from "../../src/shared/types.ts";
 import { PARTICIPANT_ROUTES } from "../../src/client/router.tsx";
 import Register from "../../src/client/routes/Register.tsx";
@@ -41,6 +41,7 @@ const STATE: ParticipantState = {
   },
   roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["가", "나", "다"] }],
   poke: { budget: { pre: { max: 3, used: 1 }, party: { max: 3, used: 0 } }, sentTo: {}, received: { pre: 0, party: 0 }, matches: [] },
+  note: { budget: { max: 0, used: 0 }, sent: {}, received: [], unread: 0 },
   announcements: [],
 };
 
@@ -174,6 +175,40 @@ describe("도움말", () => {
     router.navigate(-1);
     await waitFor(() => expect(screen.queryByText(HELP.title)).toBeNull());
     expect(router.state.location.pathname).toBe("/e/ABCDEF");
+  });
+});
+
+describe("익명 쪽지함", () => {
+  /** 파티 중이고 쪽지가 2장 열린 회차 — 쪽지함이 있는 회차다 (ADR-98 후기 3) */
+  beforeEach(() => {
+    const party: ParticipantState = {
+      ...STATE,
+      event: { ...STATE.event, phase: "party", fired: { reg: 1, prevote: 2, party: 3 }, config: { maxPre: 3, maxParty: 3, maxNotes: 2 } },
+      me: { ...STATE.me, seenStage: "party" },
+      note: { budget: { max: 2, used: 0 }, sent: {}, received: [{ id: "n1", text: "쪽지 본문" }], unread: 1 },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(party), { status: 200, headers: { "content-type": "application/json" } })),
+    );
+  });
+
+  it("★ 주소로 열면 쪽지함이 뜬다 — 라우터 표에 빠져 있으면 여기서 걸린다", async () => {
+    // 도움말이 한 번 겪은 사고다 — 화면이 경로를 읽어도 표에 없으면 "찾을 수 없어요" 로 떨어진다
+    render(<RouterProvider router={participantRouter("/e/ABCDEF/notes")} />);
+    await screen.findByText(NOTE.inbox.title);
+  });
+
+  it("★ 상단 바 ✉️ 로 열고, 뒤로 가면 쪽지함만 닫힌다", async () => {
+    const router = participantRouter("/e/ABCDEF/people");
+    render(<RouterProvider router={router} />);
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(NOTE.inbox.open) }));
+    await screen.findByText(NOTE.inbox.title);
+    expect(router.state.location.pathname).toBe("/e/ABCDEF/notes");
+
+    router.navigate(-1);
+    await waitFor(() => expect(screen.queryByText(NOTE.inbox.title)).toBeNull());
+    expect(router.state.location.pathname).toBe("/e/ABCDEF/people");
   });
 });
 

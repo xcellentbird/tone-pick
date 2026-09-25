@@ -15,7 +15,7 @@ import { FORTUNE } from "../../shared/copy.ts";
 import { canOpenMission } from "../../shared/phase.ts";
 import { paragraphs, validBirth, type Fortune } from "../../shared/fortune.ts";
 import type { ParticipantState } from "../../shared/types.ts";
-import { ApiError, post } from "../lib/api.ts";
+import { messageOf, post } from "../lib/api.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
 
 export default function FortuneTab({ state, reload }: { state: ParticipantState; reload: () => void }) {
@@ -44,7 +44,7 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
       // 다음에 이 화면을 열 때는 이미 열린 채로 시작한다
       reload();
     } catch (e) {
-      toast(e instanceof ApiError && e.userMessage ? e.userMessage : FORTUNE.closed);
+      toast(messageOf(e, FORTUNE.closed));
     } finally {
       setOpening(false);
     }
@@ -62,7 +62,7 @@ export default function FortuneTab({ state, reload }: { state: ParticipantState;
       setCard(await post<Fortune>("/fortune/mission", {}));
       reload();
     } catch (e) {
-      toast(e instanceof ApiError && e.userMessage ? e.userMessage : FORTUNE.missionClosed);
+      toast(messageOf(e, FORTUNE.missionClosed));
     } finally {
       setMissionOpening(false);
     }

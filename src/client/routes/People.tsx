@@ -9,18 +9,17 @@
  * 가린 동안 그 버튼이 "이 사람을 골랐다" 를 그대로 흘린다. 닫아둔 회차에서는
  * 창이 "되돌릴 수 없다" 고 분명히 말한다 (`POKE.confirm.note`).
  */
-import { useRef, useState } from "react";
-import { ACT, BTN, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
-import type { MatchInfo, MyPokeState, MyProfile, ParticipantState, Phase, PokeRound, PublicPlayer } from "../../shared/types.ts";
+import { useEffect, useRef, useState } from "react";
+import { ACT, BTN, NOTE, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
+import type { MatchInfo, MyNoteState, MyPokeState, MyProfile, ParticipantState, Phase, PokeRound, PublicPlayer } from "../../shared/types.ts";
 import type { Tab } from "./Participant.tsx";
-import { canPoke } from "../../shared/phase.ts";
+import { canNote, canPoke, roundOf } from "../../shared/phase.ts";
 import { afterPoke } from "../../shared/poke.ts";
-import { useCovered } from "../lib/covered.ts";
 import { tap } from "../lib/pulse.ts";
+import { LIMITS } from "../../shared/constants.ts";
 import { rosterOpen, toPublic } from "../../shared/types.ts";
 import { orderRoster } from "../../shared/roster.ts";
-import { ApiError } from "../lib/api.ts";
-import { now } from "../lib/serverTime.ts";
+import { messageOf } from "../lib/api.ts";
 import type { ParticipantSource } from "../lib/participant.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
 import Avatar from "../ui/Avatar.tsx";
@@ -33,25 +32,46 @@ interface Props {
   reload: () => void;
   /** 내 콕 한 칸만 갈아끼운다. 서버를 기다리지 않고 화면을 먼저 바꾸는 통로다 */
   setPoke: (poke: MyPokeState) => void;
+  /** 익명 쪽지 한 칸만 갈아끼운다. 콕과 달리 **화면을 먼저 바꾸지 않는다** — 서버 답이 묶음을 채운다 */
+  setNote: (note: MyNoteState) => void;
   profileId?: string;
   onProfile: (playerId: string | null) => void;
+  /** 익명 쪽지 작성 시트 (슬라이스 36). 프로필 시트 **대신** 선다 — 시트는 겹치지 않는다 */
+  noteOpen?: boolean;
+  onNote: (on: boolean, opts?: { replace?: boolean }) => void;
   onTab: (tab: Tab) => void;
+  /**
+   * 어깨너머 가리기 (슬라이스 16). **상태는 위에서 온다** — 익명 쪽지가 생기면서
+   * 익명 쪽지함에도 같은 토글이 서고, 읽음 판정도 이 값을 본다 (`Participant`).
+   * 각자 `useCovered()` 를 부르면 한 화면에서 켠 것이 다른 화면에 안 보인다.
+   */
+  covered: boolean;
+  setCovered: (on: boolean) => void;
 }
 
-export default function People({ state, source, reload, setPoke, profileId, onProfile, onTab }: Props) {
+export default function People({
+  state,
+  source,
+  reload,
+  setPoke,
+  setNote,
+  profileId,
+  onProfile,
+  noteOpen,
+  onNote,
+  onTab,
+  covered,
+  setCovered,
+}: Props) {
   // 동성에게도 찌를 수 있는 회차라면 처음부터 전체를 보여준다 — 반쪽만 보이면 설정이 무색해진다
   const sameGenderOk = state.event.config.allowSameGender !== false;
   const [onlyOpposite, setOnlyOpposite] = useState(!sameGenderOk);
   const { confirm, toast } = useOverlay();
 
-  const round = state.event.phase === "prevote" ? "pre" : "party";
+  const round = roundOf(state.event.phase);
   const budget = state.poke.budget[round];
-  /*
-   * 매력 투표는 **시각으로** 닫힌다 (ADR-39). 서버 시각으로 재고, 폰 시계는 쓰지 않는다.
-   * 닫히는 순간 화면이 저절로 바뀌지는 않는다 — 그때 누르면 서버가 같은 이유로 거절하고
-   * `POKE.blocked` 가 뜬다. 1초마다 다시 그리는 것보다 그 편이 조용하다.
-   */
-  const open = canPoke(state.event.phase, now(), state.event.schedule, state.event.fired);
+  // 단계가 곧 기간이다 — 매력 투표는 파티 시작에 닫힌다 (ADR-100)
+  const open = canPoke(state.event.phase);
   /** 나이·MBTI 가 아직 안 열린 단계인가. `toPublic()` 이 여는 시점과 같아야 한다 (ADR-21) */
   const agesHidden = state.event.phase !== "party" && state.event.phase !== "done";
   /**
@@ -95,13 +115,62 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
    * 즉시 바뀌게 만들면 그 우연이 사라진다.
    */
   const sending = useRef(false);
-  const [covered, setCovered] = useCovered();
 
-  /** 되돌릴 수 있나 (ADR-34). **라운드마다 따로** 정한다. 없으면 무를 수 있다 */
-  const canUndo =
-    round === "pre"
-      ? state.event.config.allowUndoPre !== false
-      : state.event.config.allowUndo !== false;
+  // ── 익명 쪽지 (슬라이스 36, ADR-98)
+  const noteBudget = state.note.budget;
+  /** 이 회차에 익명 쪽지가 있고, 지금이 그 창인가. **파티 중에만이다** */
+  const noteOn = noteBudget.max > 0 && canNote(state.event.phase);
+  const noteLeft = Math.max(0, noteBudget.max - noteBudget.used);
+  const [draft, setDraft] = useState("");
+  /**
+   * 이 사람에게 보낸 장 수 — ✉️ 안의 숫자이자 확인창 제목(`한 장 더`)의 근거다.
+   * **본문과 읽음은 여기 없다** — 익명 쪽지함으로 갔다 (ADR-98 후기 3). 읽음을 시트를 연 순간의 값으로
+   * 굳히는 일(S-B4)도 거기서 한다. 장 수는 내가 한 일이라 굳힐 이유가 없다.
+   */
+  const sentHere = profile ? (state.note.sent[profile.id]?.length ?? 0) : 0;
+
+  /** ✉️ 를 눌렀다. 다 썼으면 작성 시트 대신 **누른 자리에서** 이유를 말한다 — 아이콘은 글자로 말하지 못한다 */
+  function openNote() {
+    if (noteLeft === 0) return toast(NOTE.writeSpent);
+    setNoteErr("");
+    onNote(true);
+  }
+
+  /**
+   * 지금 작성 시트를 열어도 되나. 넷을 다 본다 — 이 회차에 있나, 지금이 그 창인가,
+   * 가리기가 켜져 있나(S-B5), 남은 장이 있나.
+   */
+  const composing = !!noteOpen && !!profile && noteOn && !covered && noteLeft > 0;
+  /**
+   * **조건이 안 맞는 주소를 직접 열면 프로필 시트로 갈아끼운다** — `/seat` 와 같은 규칙이다.
+   * 뒤로 가기가 아니라 갈아끼움인 이유는, 주소를 직접 연 사람에게는 **뒤로 갈 자리가 없어서**다.
+   */
+  useEffect(() => {
+    if (noteOpen && !composing) onNote(false, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteOpen, composing]);
+
+  /**
+   * 한 장 보낸다. **되돌릴 수 없어서 확인을 거친다** (규칙 4) —
+   * 창이 말하는 것은 둘이다: 누구에게, 그리고 남은 장 수가 어떻게 바뀌나.
+   */
+  async function sendNote(target: PublicPlayer, text: string) {
+    if (sending.current) return;
+    tap("note_send");
+    sending.current = true;
+    try {
+      setNote(await source.sendNote(target.id, text));
+      setDraft("");
+      // 성공하면 작성 시트를 닫아 프로필 시트로 돌아간다 — ✉️ 안의 숫자가 바뀐 것이 곧 알림이다 (ADR-65)
+      onNote(false);
+    } catch (e) {
+      // 실패하면 작성 시트에 남는다. 쓰던 글은 그대로다
+      setNoteErr(messageOf(e, NOTE.blocked.closed));
+    } finally {
+      sending.current = false;
+    }
+  }
+  const [noteErr, setNoteErr] = useState("");
 
   /** 되돌리기. **확인창을 붙이지 않는다** — 되돌리는 것 자체가 되돌리기다 */
   async function undo(target: PublicPlayer) {
@@ -115,18 +184,13 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       toast(POKE.undo.done(target.nickname));
     } catch (e) {
       setPoke(before);
-      toast(e instanceof ApiError && e.userMessage ? e.userMessage : closedWhy);
+      toast(messageOf(e, closedWhy));
     } finally {
       sending.current = false;
     }
   }
 
-  /**
-   * 왜 못 찌르나. **마감돼서 닫힌 것과 아직 안 열린 것은 다르다** (ADR-39) —
-   * "시간이 아니에요" 는 *곧 열린다* 로 읽히는데, 매력 투표 마감 뒤에는 그게 거짓말이다.
-   */
-  const voteEnded = !open && state.event.phase === "prevote" && !!state.event.schedule.voteEndAt;
-  const closedWhy = voteEnded ? POKE.blocked.voteEnded : POKE.blocked.closed(round);
+  const closedWhy = POKE.blocked.closed(round);
 
   async function send(target: PublicPlayer) {
     const already = state.poke.sentTo[target.id] ?? 0;
@@ -142,9 +206,12 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
      *
      * 그때 창에는 되돌리기 하나만 둔다. 보낼 것이 없으니 보내기 버튼을 그릴 수 없다.
      * 되돌릴 것도 없으면 그때는 토스트가 맞다 — 이 사람에게는 할 수 있는 일이 없다.
+     *
+     * 되돌릴 수 있나는 **묻지 않는다** (ADR-95). 두 라운드 다 언제나 된다 —
+     * 보낸 적이 있으면 무를 수 있다는 것이 전부다.
      */
     if (budget.used >= budget.max) {
-      if (!(already > 0 && canUndo)) return toast(POKE.blocked.noBudget(round, budget.max));
+      if (already === 0) return toast(POKE.blocked.noBudget(round, budget.max));
       const spent = budget.max - budget.used;
       return confirm(
         {
@@ -172,11 +239,11 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       {
         btn: POKE.confirm.submit(round),
         title: POKE.confirm.title(round, already),
-        note: POKE.confirm.note(round, canUndo),
+        note: POKE.confirm.note,
         // 한 줄뿐이다. 몇 번째인지는 제목과 그 사람 카드의 숫자가 이미 말한다
         facts: [[POKE.confirm.rowBudget(round), POKE.confirm.change(left, left - 1)]],
-        // 이미 보낸 적이 있고 되돌릴 수 있을 때만. 창이 숫자를 이미 보여주고 있다
-        ...(already > 0 && canUndo ? { second: { label: POKE.undo.btn, run: () => undo(target) } } : {}),
+        // 이미 보낸 적이 있을 때만. 창이 숫자를 이미 보여주고 있다
+        ...(already > 0 ? { second: { label: POKE.undo.btn, run: () => undo(target) } } : {}),
       },
       async () => {
         // 확인창을 통과한 것만 센다 (ADR-56). 창을 열었다 닫은 건 콕이 아니다
@@ -202,7 +269,7 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
         } catch (e) {
           // 되돌리지 않으면 **쓰지도 않은 콕이 쓴 것으로 보인다**
           setPoke(before);
-          toast(e instanceof ApiError && e.userMessage ? e.userMessage : closedWhy);
+          toast(messageOf(e, closedWhy));
         } finally {
           sending.current = false;
         }
@@ -234,11 +301,6 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
           </div>
         )}
       </div>
-      {/*
-        **마감되면 남은 횟수 칸이 사라진다** — 그 자리가 그냥 비면 앱이 고장 난 것으로 읽힌다.
-        버튼도 잠기는데 잠긴 버튼은 눌러도 아무 말이 없어서, 이유를 말할 자리가 여기뿐이다 (ADR-39).
-      */}
-      {voteEnded && <p className="tiny dim center">{POKE.blocked.voteEndedLine}</p>}
 
       {/*
         필터는 **전체 폭**을 쓴다. 옆에 글자를 붙이면 알약 컨테이너와 맨 글자가 한 줄에서
@@ -380,7 +442,12 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
       </div>
 
       <Sheet
-        open={!!profile}
+        /*
+         * ⚠️ **작성 시트가 열리면 프로필 시트는 닫힌다** — 이 저장소의 시트는 겹치지 않는다
+         * (운영자 콘솔의 떨어뜨리기 시트가 `!!picked && !atApart` 로 같은 일을 한다).
+         * 뒤로 가면 작성 시트가 닫히고 프로필 시트가 되살아난다.
+         */
+        open={!!profile && !composing}
         onClose={() => onProfile(null)}
         title={profile?.nickname ?? ""}
         titleHidden
@@ -411,6 +478,13 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
                   </div>
                 )}
               </div>
+              {/*
+                ✉️ 는 👉 **옆에 같은 크기로** 선다 (ADR-98 후기 3) — 이 사람에게 할 수 있는 일이 한 줄에 모인다.
+                파티 중에만 있다. 잠긴 버튼을 미리 세우지 않는다 (ADR-96 의 방향).
+              */}
+              {noteOn && !revealed && (
+                <NoteControls count={sentHere} covered={covered} spent={noteLeft === 0} onOpen={openNote} />
+              )}
               {!revealed && (
                 <PokeControls
                   count={state.poke.sentTo[profile.id] ?? 0}
@@ -434,8 +508,65 @@ export default function People({ state, source, reload, setPoke, profileId, onPr
               ))}
             </div>
 
-            <button className="btn block ghost" onClick={() => onProfile(null)}>
-              {BTN.close}
+            {/*
+              닫기는 시트 바닥에 붙는다. 매력이 길면 시트가 스크롤되는데, 그래도 나갈 곳이 보여야 한다.
+              익명 쪽지 쓰기 버튼이 여기 함께 있던 시절이 있다 — 지금은 머리 줄의 ✉️ 다 (ADR-98 후기 3).
+            */}
+            <div className="sheetFoot stack">
+              <button className="btn block ghost" onClick={() => onProfile(null)}>
+                {BTN.close}
+              </button>
+            </div>
+          </>
+        )}
+      </Sheet>
+
+      {/*
+        익명 쪽지 작성 시트. **제목과 칸과 버튼뿐이다** — 글자수 안내도, 하단 안심 문구도 없다.
+        안심은 **이름이 한다**: `익명 쪽지` 라는 말이 *누가 보냈는지 안 보인다* 를 그 자리에서 말한다.
+
+        **열릴 때 글 칸에 커서를 준다** — ADR-63 예외 2호. 입장 확인창처럼 칠 것밖에 없는 창이고,
+        사람이 `익명 쪽지 쓰기` 를 눌러 들어왔다. 시트는 `--kb` 만큼 올라와 키보드 위에 선다.
+      */}
+      <Sheet
+        open={composing}
+        onClose={() => onNote(false)}
+        title={profile ? NOTE.compose.title(profile.nickname) : ""}
+        autoFocus
+      >
+        {profile && (
+          <>
+            <label className="srOnly" htmlFor="noteText">
+              {NOTE.compose.label}
+            </label>
+            <textarea
+              id="noteText"
+              rows={4}
+              /* 글자수는 화면이 말하지 않는다 — `maxLength` 가 조용히 막는다 */
+              maxLength={LIMITS.noteMax}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+            {noteErr && <p className="err">{noteErr}</p>}
+            <button
+              className="btn block"
+              disabled={!draft.trim()}
+              onClick={() =>
+                confirm(
+                  {
+                    btn: NOTE.confirm.submit,
+                    title: NOTE.confirm.title(sentHere),
+                    note: NOTE.confirm.note,
+                    facts: [
+                      [NOTE.confirm.rowTo, profile.nickname],
+                      [NOTE.confirm.rowBudget, NOTE.confirm.change(noteLeft, noteLeft - 1)],
+                    ],
+                  },
+                  () => sendNote(profile, draft.trim()),
+                )
+              }
+            >
+              {NOTE.compose.submit}
             </button>
           </>
         )}
@@ -519,6 +650,43 @@ function MatchName({ match }: { match: MatchInfo }) {
       </div>
       {/* 왜 이름까지만인지 그 자리에서 말한다 — 안 그러면 그 질문이 운영자에게 간다 */}
       <span className="tiny dim">{REVEAL.nameNote}</span>
+    </div>
+  );
+}
+
+/**
+ * 프로필 시트의 ✉️ (ADR-98 후기 3). **콕 버튼과 같은 모양, 같은 문법이다** — 안의 숫자는
+ * 이 사람에게 보낸 장 수다. 목록 카드에는 두지 않는다 — 카드 오른쪽은 👉 하나라야 한다 (UI.md).
+ *
+ * 다 썼으면 `disabled` 가 아니라 `aria-disabled` 다. 누른 것 자체가 와야 왜 안 되는지 말할 수 있다 —
+ * 꺼진 재미 탭과 같은 수다.
+ *
+ * ⚠️ **가리기 중에는 진짜로 잠그고 숫자도 뺀다** (S-B5). 누르면 시트 제목과 확인창이 상대 이름을 말하고
+ * 그 사이 내내 글을 친다 — 콕 한 번보다 훨씬 오래 드러난다. 숫자는 👉 가 🙈 가 되는 것과 같은 이유로 뺀다.
+ */
+function NoteControls({
+  count,
+  covered,
+  spent,
+  onOpen,
+}: {
+  count: number;
+  covered: boolean;
+  spent: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <div className="pokeCell">
+      <button
+        className="pokeBtn noteBtn"
+        aria-label={NOTE.writeLabel}
+        disabled={covered}
+        aria-disabled={(!covered && spent) || undefined}
+        onClick={onOpen}
+      >
+        <span aria-hidden>✉️</span>
+        {!covered && count > 0 && <span className="n">{count}</span>}
+      </button>
     </div>
   );
 }

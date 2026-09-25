@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
 import { ACT, BTN, ENTRY, ENV_BANNER, FAIL, GENDER, HELP, FORTUNE, HOME, MBTI_AXES, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
-import type { MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
+import type { EventSchedule, MyNoteState, MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
 import Register from "../../src/client/routes/Register.tsx";
@@ -44,7 +44,13 @@ const POKE_STATE: MyPokeState = {
   matches: [],
 };
 
+/** 익명 쪽지가 없는 회차 (슬라이스 36). 버튼도 kicker 도 안 서는 기본값이다 */
+const NOTE_STATE: MyNoteState = { budget: { max: 0, used: 0 }, sent: {}, received: [], unread: 0 };
+
 function participantState(over: Partial<ParticipantState> = {}): ParticipantState {
+  // 단계 안내(ADR-96)는 이미 본 사람으로 둔다 — 여기는 다른 걸 재는 자리다. 안내 자체는 `stage.test.tsx`
+  const phase = over.event?.phase ?? "prevote";
+  const seen = phase === "prevote" || phase === "party" ? { seenStage: phase } : {};
   return {
     event: {
       id: "e1",
@@ -65,10 +71,12 @@ function participantState(over: Partial<ParticipantState> = {}): ParticipantStat
       instagram: "na_gram",
       mbti: "ENFP",
       charms: ["하나", "둘", "셋"],
-        createdAt: 1,
+      createdAt: 1,
+      ...seen,
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE_STATE,
+    note: NOTE_STATE,
     announcements: [],
     ...over,
   };
@@ -81,6 +89,10 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
   return {
     key: "test",
     calls,
+    /* 익명 쪽지는 여기서 재지 않는다 — 규칙은 `test/36-anon-note.test.ts` 가 본다 */
+    sendNote: async () => NOTE_STATE,
+    seeNotes: async () => NOTE_STATE,
+    removeNote: async () => NOTE_STATE,
     load: async () => participantState(),
     poke: async (toId) => {
       calls.poke.push(toId);
@@ -90,9 +102,11 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
       calls.poke.push(`-${toId}`);
       return POKE_STATE;
     },
+    markStage: async () => {},
     ackSeat: async (round) => {
       calls.ack.push(round);
     },
+    vote: async (id, choice) => ({ id, at: 1, text: "", poll: { a: "A", b: "B", mine: choice, closed: false } }),
     saveProfile: async (input) => {
       calls.saved.push(input);
       return { ...participantState().me, ...input };
@@ -123,7 +137,7 @@ function renderParticipant(
 ) {
   return render(
     <MemoryRouter>
-      <ParticipantView source={source} tab={tab} profileId={profileId} onTab={onTab} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={helpOpen} onHelp={onHelp} />
+      <ParticipantView source={source} tab={tab} profileId={profileId} onTab={onTab} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={helpOpen} onHelp={onHelp} />
     </MemoryRouter>,
   );
 }
@@ -139,7 +153,7 @@ describe("오류 화면", () => {
 
   it("★ 망이 끊기면 ApiError 로 감싼다 — 날 TypeError 를 올려보내지 않는다", async () => {
     /*
-     * 감싸지 않으면 `userMessage` 가 없어 화면이 `ENTRY.notFound`("그런 회차가 없어요") 로
+     * 감싸지 않으면 `userMessage` 가 없어 화면이 `ENTRY.notFound`("그런 파티가 없어요") 로
      * 떨어진다 — 잠깐 끊긴 참가자에게 **"네 링크가 잘못됐다"** 고 말하는 셈이다.
      * 그 사람은 링크를 의심하며 운영자에게 엉뚱한 걸 묻는다.
      */
@@ -316,7 +330,7 @@ describe("오류 화면", () => {
   it("★ 서버 탓을 링크 탓으로 돌리지 않는다", async () => {
     /*
      * `apiError()` 는 `message` 를 **선택**으로 둔다. 설명 없이 나가는 실패가 흔한데,
-     * 화면이 그때마다 "그런 회차가 없어요" 로 떨어졌다 — 500 도, 401 도, 429 도.
+     * 화면이 그때마다 "그런 파티가 없어요" 로 떨어졌다 — 500 도, 401 도, 429 도.
      *
      * 참가자는 멀쩡한 링크를 의심하고 운영자에게 엉뚱한 걸 묻는다.
      * `status 0` 에서 이미 한 번 고친 실수인데 이 경로가 남아 있었다.
@@ -343,7 +357,7 @@ describe("오류 화면", () => {
 
   it("★ 회차를 잃은 실패 화면은 다른 회차로 데려가지 않는다", async () => {
     /*
-     * 실제로 나온 신고다. 지워진 회차의 주소를 열면 `그런 회차가 없어요` 가 맞게 떴는데,
+     * 실제로 나온 신고다. 지워진 회차의 주소를 열면 `그런 파티가 없어요` 가 맞게 떴는데,
      * 그 아래 `처음으로` 를 누르면 **참석 중인 다른 회차 안에 들어가 있었다.**
      *
      * 그 버튼은 `/` 로 갔고, `/` 는 세션이 있으면 그 회차로 옮긴다 — 주소만 치고 들어온
@@ -469,52 +483,24 @@ describe("뿌리 화면", () => {
 // ─────────────────────────────────────────── 콕
 
 describe("참가자 화면 · 콕", () => {
-  it("★ 매력 투표가 마감되면 목록이 이유를 말한다 (ADR-39)", async () => {
-    /*
-     * 마감되면 `남은 횟수` 칸이 사라지고 버튼이 잠긴다. 잠긴 버튼은 눌러도 아무 말이 없어서,
-     * 아무 설명 없이 자리만 비면 참가자는 앱이 고장 난 줄 안다.
-     */
+  /**
+   * ★ **매력 투표는 파티가 시작될 때까지 열려 있다** (ADR-100).
+   *
+   * 한때 마감 시각(`voteEndAt`)이 따로 있어서 그 시각이 지나면 목록이 잠겼다. 이제 매력 투표는 파티 시작에 닫힌다 —
+   * **옛 회차에 마감 시각이 적혀 있어도** 그 시각에 잠그지 않는다. 설정 화면에서 칸이 사라져 운영자가 고칠 수 없는 마감이 된다.
+   */
+  it("★ 옛 마감 시각이 지나도 매력 투표는 열려 있다 (ADR-100)", async () => {
+    const base = participantState().event;
     renderParticipant(
       fakeSource({
         load: async () =>
           participantState({
-            event: {
-              ...participantState().event,
-              schedule: { ...participantState().event.schedule, voteEndAt: Date.now() - 60_000 },
-            },
+            event: { ...base, schedule: { ...base.schedule, voteEndAt: Date.now() - 60_000 } as EventSchedule },
           }),
       }),
     );
-    await screen.findByText(POKE.blocked.voteEndedLine);
-    // 남은 횟수는 사라진다 — 쓸 수 없는 숫자를 남겨두면 그게 더 헷갈린다
-    expect(screen.queryByText(PEOPLE.pokeLeftLabel("pre"))).toBeNull();
-  });
-
-  /**
-   * ★ **마감은 아무도 밀어주지 않는다** (ADR-55).
-   *
-   * 예약대로 닫히는 쪽에는 서버가 보낼 신호가 없다 — 그 순간 코드를 돌리는 사람이 없다.
-   * 투표 중에 참가자가 있는 곳은 대개 **참가자 탭**이라, 화면이 스스로 다시 그리지 않으면
-   * 콕 버튼이 열린 채로 남는다. 눌러보고 나서야 거절당하는 화면이 된다.
-   */
-  it("★ 마감 시각이 지나면 화면이 스스로 따라간다", async () => {
-    vi.useFakeTimers();
-    const base = participantState().event;
-    const endAt = Date.now() + 3_000;
-    renderParticipant(
-      fakeSource({
-        load: async () =>
-          participantState({ event: { ...base, schedule: { ...base.schedule, voteEndAt: endAt } } }),
-      }),
-    );
-
-    // 아직 열려 있다. 아무것도 누르지 않고, 다시 읽지도 않는다
-    await pump(100);
-    expect(screen.queryByText(POKE.blocked.voteEndedLine)).toBeNull();
-
-    await pump(1000);
-    expect(screen.getByText(POKE.blocked.voteEndedLine), "마감이 지났는데 화면이 그대로다").toBeTruthy();
-    vi.useRealTimers();
+    // 남은 횟수 칸이 그대로 선다 — 잠겼다면 이 칸이 사라진다
+    await screen.findByText(PEOPLE.pokeLeftLabel("pre"));
   });
 
   /**
@@ -843,11 +829,22 @@ describe("파티 룰 도움말", () => {
      */
     expect(HELP.qa.poke.a).toContain("발표");
     /*
-     * 그리고 **투표를 왜 하는지**를 말해야 한다 — 안 그러면 "그럼 투표는 왜?" 로 끝난다.
-     * 한동안 이걸 *파티에서 다시 고를 기회가 있다* 로 대신 말했는데, 그건 답이 아니라
-     * 미루기였다. 지금은 자리로 답한다 (ADR-52).
+     * 한동안 **투표를 왜 하는지**를 자리로 답했다 (ADR-52) — `같은 테이블에 앉을 확률이 높아져요`.
+     * 매력 투표가 자리에서 빠져서(ADR-100) 그 답은 거짓이 됐고, 1위 보너스로 답하면 매력 투표가 공개된
+     * 인기 경쟁이 된다. 그래서 질문을 *무엇인가* 로 바꿨다 — 답할 수 없는 질문을 세워두지 않는다.
      */
-    expect(HELP.qa.prevote.a).toContain("테이블");
+    expect(HELP.qa.prevote.a).not.toContain("테이블");
+  });
+
+  /**
+   * ★ **도움말은 매력 투표 1위 보너스를 말하지 않는다** (ADR-100).
+   * 적으면 매력 투표가 공개된 인기 경쟁이 된다 — 1위 본인에게만 홈 소식 한 줄로 간다.
+   */
+  it("★ 도움말이 매력 투표 1위를 말하지 않는다", async () => {
+    for (const text of helpTexts()) {
+      expect(text, text).not.toContain("1위");
+      expect(text, text).not.toContain("가장 많은 표");
+    }
   });
 
   /**
@@ -864,8 +861,10 @@ describe("파티 룰 도움말", () => {
      * 규칙이 아니라 문자열 검사가 되고, 새로 자리를 말하기 시작한 줄은 못 잡는다.
      */
     const said = helpTexts().filter((t) => t.includes("테이블"));
-    // 자리 이야기가 어딘가에는 있어야 한다 — 투표를 왜 하는지가 거기서 나온다 (ADR-52)
-    expect(said.length, "자리를 말하는 줄이 하나도 없다").toBeGreaterThan(0);
+    /*
+     * 지금은 자리를 말하는 줄이 **없다** — 매력 투표의 자리 문장은 ADR-100 이 걷었다.
+     * 그래도 이 규칙은 남긴다: 누군가 자리를 다시 말하기 시작하면 그 줄은 `내 쪽만` 이어야 한다.
+     */
     for (const text of said) {
       // 자리를 말하는 줄에는 **내가** 가 있어야 한다. 주어가 없으면 양쪽으로 읽힌다
       expect(text, text).toContain("내가");
@@ -1182,6 +1181,7 @@ describe("참가자 화면 · 자리", () => {
      */
     const source = fakeSource({
       load: async () => participantState({ seat }),
+      markStage: async () => {},
       ackSeat: async () => {
         throw new Error("network");
       },
@@ -1208,7 +1208,7 @@ describe("참가자 화면 · 자리", () => {
           source={source}
           tab="home"
           onTab={() => {}}
-          onProfile={() => {}}
+          onProfile={() => {}} onNote={() => {}}
           onEdit={() => {}}
           onSeat={(on) => opened.push(on)}
         />
@@ -1238,7 +1238,7 @@ describe("참가자 화면 · 자리", () => {
           tab="home"
           seatOpen
           onTab={() => {}}
-          onProfile={() => {}}
+          onProfile={() => {}} onNote={() => {}}
           onEdit={() => {}}
           onSeat={(on, opts) => calls.push([on, opts?.replace])}
         />
@@ -1259,7 +1259,7 @@ describe("참가자 화면 · 자리", () => {
           tab="home"
           seatOpen
           onTab={() => {}}
-          onProfile={() => {}}
+          onProfile={() => {}} onNote={() => {}}
           onEdit={() => {}}
           onSeat={() => {}}
         />
@@ -1297,7 +1297,7 @@ describe("재미 탭 · 운세 카드", () => {
   function renderFortune(source: ParticipantSource) {
     return render(
       <MemoryRouter>
-        <ParticipantView source={source} tab="fun" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
+        <ParticipantView source={source} tab="fun" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
   }
@@ -1650,7 +1650,7 @@ describe("한 폰으로 두 회차", () => {
     });
     render(
       <MemoryRouter initialEntries={["/e/ABCDEF"]}>
-        <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
+        <ParticipantView source={source} tab="home" code="ABCDEF" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
 
@@ -2244,7 +2244,7 @@ describe("상단 바", () => {
     // 내 정보 탭으로 옮겨도 여전히 한 곳뿐이다 (예전에는 그 탭 안에 또 있었다)
     rerender(
       <MemoryRouter>
-        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getAllByText("테스트 파티")).toHaveLength(1));
@@ -2254,7 +2254,7 @@ describe("상단 바", () => {
     // 라운드는 상단 바가, 콕 숫자는 참가자 탭이 맡는다
     render(
       <MemoryRouter>
-        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
+        <ParticipantView source={fakeSource()} tab="me" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
     await screen.findByText(ME.labels.nickname);
@@ -2546,7 +2546,7 @@ describe("내 정보 고치기", () => {
                 : navigate(-1)
           }
           onTab={() => {}}
-          onProfile={() => {}}
+          onProfile={() => {}} onNote={() => {}}
         />
       );
     }
@@ -2736,7 +2736,7 @@ describe("내 정보 고치기", () => {
     const src = fakeSource({
       load: async () => participantState(reg),
       saveProfile: async () => {
-        throw new ApiError(409, "nick_taken", REGISTER.err.nickTaken("겹친닉"));
+        throw new ApiError(409, "nick_taken", REGISTER.err.nickTaken);
       },
     });
     renderMe(reg, src);
@@ -2746,7 +2746,7 @@ describe("내 정보 고치기", () => {
     fireEvent.change(input, { target: { value: "겹친닉" } });
     fireEvent.click(screen.getByText(BTN.save));
 
-    await screen.findByText(REGISTER.err.nickTaken("겹친닉"));
+    await screen.findByText(REGISTER.err.nickTaken);
     // 고치던 화면 그대로다 — 입력값이 살아 있어야 한 글자만 바꿔 다시 저장한다
     expect(input.value).toBe("겹친닉");
   });
@@ -2775,7 +2775,7 @@ describe("탭 역할 분담", () => {
           source={fakeSource({ load: async () => participantState(over) })}
           tab={t}
           onTab={() => {}}
-          onProfile={() => {}}
+          onProfile={() => {}} onNote={() => {}}
           onEdit={() => {}} onSeat={() => {}}
         />
       </MemoryRouter>,
@@ -2858,128 +2858,27 @@ describe("탭 역할 분담", () => {
   });
 
   /**
-   * ★ **매력 투표 마감도 소식이다** (ADR-55).
+   * ★ **매력 투표 1위는 본인 소식에만 한 줄 선다** (ADR-100).
    *
-   * 한동안 참가자에게 아무 말도 안 갔다. 화면에서는 콕 버튼이 조용히 잠기기만 해서,
-   * 그 순간을 보고 있지 않았던 사람에게는 **아무 일도 일어나지 않은 것**이었다.
-   *
-   * 닫는 길이 둘이라 시각도 둘이다 (ADR-39 후기) — 예약대로면 `schedule.voteEndAt`,
-   * 운영자가 앞당겨 닫았으면 `fired.voteEnd`. 둘 다에서 떠야 한다.
+   * 1위 본인의 응답에만 `poke.topVote` 가 있고, 그 줄은 **파티 시작 바로 위**에 선다 —
+   * 모두의 화면이 함께 바뀌는 순간이라 옆 사람이 알아챌 신호가 없다 (ADR-64). **표 수는 어디에도 없다.**
+   * 1위가 아닌 사람의 화면에는 아무 줄도 없다.
    */
-  it("★ 매력 투표가 마감되면 소식에 뜬다 — 예약이든 운영자가 닫든", async () => {
+  it("★ 매력 투표 1위는 본인 소식에만 한 줄 선다 — 파티 시작 바로 위, 표 수 없이", async () => {
     const T = (m: number) => new Date(`2026-08-25T04:${m}:00`).getTime();
-    const base = participantState().event;
-
-    // 예약대로 닫힌 쪽. 마감 시각이 지나면 뜬다 — 그 순간 서버가 밀어주는 신호는 없다
-    renderTab("home", {
-      event: { ...base, fired: { reg: T(20), prevote: T(23) }, schedule: { ...base.schedule, voteEndAt: T(30) } },
-    });
-    await screen.findByText(NOTICE.voteEnd.title);
-    cleanup();
-
-    // 운영자가 앞당겨 닫은 쪽. 예약 시각이 아직 남았어도 마감은 마감이다 (ADR-39 후기)
-    renderTab("home", {
-      event: {
-        ...base,
-        fired: { reg: T(20), prevote: T(23), voteEnd: T(25) },
-        schedule: { ...base.schedule, voteEndAt: Date.now() + 3600_000 },
-      },
-    });
-    await screen.findByText(NOTICE.voteEnd.title);
-  });
-
-  /**
-   * ★ **마감 소식은 닫힌 그 순간에 선다** (ADR-55, ADR-48).
-   *
-   * 소식 칸은 위가 늘 최신이다. 마감의 차례를 `지금` 으로 잡으면 시간이 갈수록 위로 떠올라
-   * **나중에 붙은 `파티가 시작됐어요` 위에** 서게 된다 — 그 화면을 읽는 사람에게는
-   * 파티가 시작된 뒤에 투표가 마감된 것처럼 보인다.
-   *
-   * 닫는 길이 둘이라 그 순간도 둘이다 — 앞당겨 닫았으면 `fired.voteEnd`, 예약대로면
-   * `schedule.voteEndAt`. **예약 시각을 그대로 쓰면 안 된다**: 앞당겨 닫은 회차에서는
-   * 아직 오지 않은 시각이라 소식이 미래에 서 버린다.
-   */
-  it("★ 마감 소식은 닫힌 그 순간에 선다 — 파티 시작 아래다", async () => {
-    const T = (m: number) => new Date(`2026-08-25T04:${m}:00`).getTime();
-    const base = participantState().event;
+    const base = participantState();
     const order = () => [...document.querySelectorAll(".banner .name")].map((n) => n.textContent);
-    const expected = [NOTICE.party(3).title, NOTICE.voteEnd.title, NOTICE.prevote(3).title];
+    const event = { ...base.event, phase: "party" as const, fired: { reg: T(20), prevote: T(23), party: T(40) } };
 
-    // 예약대로 04:30 에 닫히고 04:40 에 파티가 시작됐다
-    renderTab("home", {
-      event: {
-        ...base,
-        phase: "party",
-        fired: { reg: T(20), prevote: T(23), party: T(40) },
-        schedule: { ...base.schedule, voteEndAt: T(30) },
-      },
-    });
+    renderTab("home", { event, poke: { ...base.poke, topVote: true } });
     await screen.findByText(HOME.news);
-    expect(order(), "마감이 제자리를 벗어났다").toEqual(expected);
+    expect(order()).toEqual([NOTICE.topVote.title, NOTICE.party(3).title, NOTICE.prevote(3).title]);
+    expect(document.body.textContent ?? "", "표 수가 새어 나갔다").not.toMatch(/\d+\s*표/);
     cleanup();
 
-    // 운영자가 04:25 에 앞당겨 닫았다. 예약은 아직 오지 않았어도 자리는 04:25 다
-    renderTab("home", {
-      event: {
-        ...base,
-        phase: "party",
-        fired: { reg: T(20), prevote: T(23), voteEnd: T(25), party: T(40) },
-        schedule: { ...base.schedule, voteEndAt: Date.now() + 3600_000 },
-      },
-    });
+    renderTab("home", { event });
     await screen.findByText(HOME.news);
-    expect(order(), "앞당겨 닫았는데 예약 시각에 섰다").toEqual(expected);
-  });
-
-  /**
-   * ★ **없던 일을 적지 마라** (ADR-55).
-   *
-   * 마감 시각은 회차를 만들 때 미리 적힌다. 그것만 보고 판단하면 매력 투표를 **한 번도 열지 않은**
-   * 회차에서도 시각만 지나면 `마감됐어요` 가 뜬다 — 참가자는 열린 적 없는 투표를 놓친 줄 안다.
-   */
-  it("★ 투표가 열린 적 없으면 마감 소식도 없다", async () => {
-    const base = participantState().event;
-    const past = Date.now() - 60_000;
-
-    // 시각은 지났지만 `prevote` 가 선 적이 없다
-    renderTab("home", {
-      event: { ...base, phase: "reg", fired: { reg: 1 }, schedule: { ...base.schedule, voteEndAt: past } },
-    });
-    // 아직 소식이 하나도 없는 단계라 소식 칸 자체가 없다. 카드가 떴으면 화면은 다 그려진 것이다
-    await screen.findByText(HOME.todo.reg.title);
-    expect(screen.queryByText(NOTICE.voteEnd.title), "열린 적 없는 투표가 마감됐다고 한다").toBeNull();
-    cleanup();
-
-    // 열려 있고 아직 마감 전 — 미리 뜨면 안 된다
-    renderTab("home", {
-      event: { ...base, schedule: { ...base.schedule, voteEndAt: Date.now() + 3600_000 } },
-    });
-    await screen.findByText(HOME.news);
-    expect(screen.queryByText(NOTICE.voteEnd.title), "마감 전에 마감 소식이 떴다").toBeNull();
-  });
-
-  /**
-   * ★ **마감 배너는 참가자 탭에 뜨지 않는다** (ADR-55).
-   *
-   * 배너는 *지금 화면에서 볼 수 없는 것*을 알리는 물건이다. 참가자 탭에는 이미
-   * 같은 문장(`POKE.blocked.voteEndedLine`)이 명단 위에 서 있어서, 배너까지 뜨면
-   * **똑같은 줄이 두 번 연달아** 나온다. 목적지를 그 탭으로 두면 저절로 가려진다.
-   */
-  it("★ 마감 배너는 이미 말하고 있는 화면에는 뜨지 않는다", async () => {
-    const base = participantState().event;
-    const closed = { ...base, schedule: { ...base.schedule, voteEndAt: Date.now() - 60_000 } };
-
-    renderTab("people", { event: closed });
-    await screen.findByText(PEOPLE.everyone);
-    const banners = [...document.querySelectorAll(".banner .name")].map((n) => n.textContent);
-    expect(banners, "명단이 이미 말하고 있는데 배너로 한 번 더 말한다").not.toContain(NOTICE.voteEnd.title);
-    // 없앤 게 아니라 가린 것이다 — 그 줄은 명단 위에 그대로 있다
-    expect(screen.getByText(POKE.blocked.voteEndedLine)).toBeTruthy();
-    cleanup();
-
-    // 마감을 볼 수 없는 탭에서는 그대로 뜬다
-    renderTab("me", { event: closed });
-    await screen.findByText(NOTICE.voteEnd.title);
+    expect(screen.queryByText(NOTICE.topVote.title), "1위가 아닌 사람에게 1위 줄이 떴다").toBeNull();
   });
 
   /** 매칭 하나. 배너가 어느 탭을 가리키는지 재는 데만 쓴다 */
@@ -3235,25 +3134,15 @@ describe("홈 · 남은 시간", () => {
     expect(screen.queryByText(STATUS.untilPrevote)).toBeNull();
   });
 
-  it("★ 매력 투표 중에는 마감까지를 센다 (ADR-39)", async () => {
+  it("★ 매력 투표 중에는 파티까지를 센다 — 그때 투표도 닫힌다 (ADR-100)", async () => {
     /*
-     * 예전에는 이 자리에서 파티를 셌다 — 마감이 운영자 손에 있어 셀 시각이 없었다.
-     * 시각이 생기면서 **다음에 일어날 일**이 마감으로 바뀌었다.
+     * 한동안 마감 시각(ADR-39)을 셌다. 이제 매력 투표는 파티가 시작될 때 닫히므로
+     * **다음에 일어날 일**은 파티 시작 하나다. 옛 회차에 마감 시각이 적혀 있어도 세지 않는다.
      */
-    home(withSchedule("prevote", { voteEndAt: Date.now() + 1_800_000, partyAt: Date.now() + 5_400_000 }));
+    home(
+      withSchedule("prevote", { voteEndAt: Date.now() + 1_800_000, partyAt: Date.now() + 5_400_000 }),
+    );
     await screen.findByText(HOME.todo.prevote.title);
-    expect(screen.getByText(STATUS.untilVoteEnd)).toBeTruthy();
-    expect(screen.queryByText(STATUS.untilParty)).toBeNull();
-  });
-
-  it("★ 마감이 지나면 할 일 카드가 바뀌고 파티를 센다", async () => {
-    /*
-     * 단계는 아직 `prevote` 지만 할 일이 다르다 — 투표는 끝났고 자리를 기다린다.
-     * 단계 이름만으로는 이 카드를 고를 수 없다는 게 이 화면의 새로운 사정이다.
-     */
-    home(withSchedule("prevote", { voteEndAt: Date.now() - 60_000, partyAt: Date.now() + 3_600_000 }));
-    await screen.findByText(HOME.todo.voteClosed.title);
     expect(screen.getByText(STATUS.untilParty)).toBeTruthy();
-    expect(screen.queryByText(STATUS.untilVoteEnd)).toBeNull();
   });
 });

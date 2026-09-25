@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, UNIT, VOTE_END, phaseAction, schedDiff } from "../../src/shared/copy.ts";
+import { FAIL, GENDER, HOST_UI, INVITE_TEMPLATE, UNIT, phaseAction, schedDiff } from "../../src/shared/copy.ts";
 import { formatGap, formatWhen, toLocalInput } from "../../src/shared/time.ts";
 import type { HostState, SeatingRound } from "../../src/shared/types.ts";
 import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
@@ -66,9 +66,12 @@ function hostState(over: Partial<HostState["meta"]> = {}, more: Partial<HostStat
     mutual: [],
     pokeCount: { pre: 1, party: 0 },
     pokeUsedMax: { pre: 1, party: 0 },
+    noteSent: {},
+    noteUsedMax: 0,
     seatings: [],
     invites: [],
     announcements: [],
+    apart: [],
     ...more,
   };
 }
@@ -334,63 +337,85 @@ describe("운영자 콘솔", () => {
    * 단계 버튼이 하는 일은 **예약을 앞당기는 것**이다. 그래서 옆에 남은 시간이 함께 선다 —
    * 가만히 두면 언제 저절로 넘어가는지 모르면 "지금 눌러도 되나" 를 판단할 수 없다.
    *
-   * **파티 시작에는 붙지 않는다.** 예약이 없는 전환이라(ADR-14) 셀 시각이 없다.
-   * 없는 시각을 지어내면 현장이 그 숫자를 따라가게 되고, 그게 ADR-14 가 막으려던 일이다.
+   * ★ **넷이 다 같은 뜻이 됐다** (ADR-93). 파티 시작만 "이 숫자는 그냥 파티 일시고
+   * 눌러야 열린다" 였는데, 이제 그것도 가만히 두면 그때 열린다 — 그래서 그 하나에만
+   * 붙던 안내를 걷었다. **숫자 옆에 다른 뜻을 붙이지 마라.**
    */
-  it("★ 버튼 옆 카운트다운은 예약이 있는 전환에만 붙는다", async () => {
+  it("★ 버튼 옆 카운트다운은 네 전환에 모두 붙고, 뜻이 하나다", async () => {
     // 등록 중 — 다음은 매력 투표 시작이고, 예약이 걸려 있다
     stubFetch(hostState());
     renderConsole();
     await screen.findByText("테스트 회차");
     expect(document.querySelector(".phaseBtn > .due")).toBeTruthy();
-    // 예약이 저절로 넘어가는 전환에는 "눌러야 한다" 는 안내가 붙지 않는다
-    expect(screen.queryByText(HOST_UI.dash.partyManual)).toBeNull();
     cleanup();
 
     /*
-     * 매력 투표가 닫힌 뒤 — 다음은 파티 시작이다. 시각(`partyAt`)은 있지만
-     * **저절로 열리지 않는다** (ADR-14). 숫자만 두면 넷 다 자동인 줄로 읽혀서
-     * 파티가 영영 안 열린다 — 그래서 그 하나에만 안내가 붙는다.
+     * 매력 투표 중 — 다음은 파티 시작이다 (매력 투표도 그때 닫힌다, ADR-100). `partyAt` 이 예약이 되면서(ADR-93)
+     * 이 숫자도 나머지와 같은 뜻이 됐다: **가만히 두면 그때 넘어간다.**
      */
     stubFetch(
       hostState({
         phase: "prevote",
-        fired: { reg: Date.now() - 3 * HOUR, prevote: Date.now() - 2 * HOUR, voteEnd: Date.now() - HOUR },
+        fired: { reg: Date.now() - 3 * HOUR, prevote: Date.now() - 2 * HOUR },
       }),
     );
     renderConsole();
     await screen.findByText(phaseAction("party", { maxPre: 3, maxParty: 3 })!.btn);
-    expect(document.querySelector(".phaseBtn > .due")).toBeTruthy();
-    expect(screen.getByText(HOST_UI.dash.partyManual)).toBeTruthy();
+    expect(document.querySelector(".phaseBtn > .due"), "파티 시작 옆에 남은 시간이 없다").toBeTruthy();
   });
 
   /**
-   * 매력 투표 마감은 버튼이지만 **단계를 넘기지 않는다** (ADR-39 + 후기).
-   *
-   * 넘기면 나이·MBTI(ADR-21)와 파티 콕이 함께 열려, 아직 아무도 안 온 자리에서
-   * 파티가 시작된 것이 된다. 그래서 이 버튼은 `/phase` 가 아니라 `/vote-end` 로 간다 —
-   * **어느 길로 가는지가 곧 그 규칙이다.**
+   * ★ **파티 시작도 예약을 앞당기는 것이다** (ADR-93). 그래서 확인창에 얼마나 이른지가
+   * 나머지 둘과 똑같이 붙는다 — 예약이 없던 시절에는 이 줄이 못 서던 자리다.
    */
-  it("★ 매력 투표 마감은 단계를 넘기지 않는다", async () => {
-    const voteEndAt = Date.now() + 30 * 60_000;
+  it("★ 파티를 일찍 시작하면 얼마나 이른지 확인창에 적는다", async () => {
+    const soon = Date.now() + 30 * 60_000;
     stubFetch(
       hostState({
         phase: "prevote",
-        fired: { reg: Date.now() - 2 * HOUR, prevote: Date.now() - HOUR },
-        schedule: { partyAt: Date.now() + 2 * HOUR, regOpenAt: Date.now() - 2 * HOUR, voteEndAt },
+        schedule: { partyAt: soon, regOpenAt: Date.now() - 3 * HOUR, prevoteAt: Date.now() - 2 * HOUR },
+        fired: { reg: Date.now() - 3 * HOUR, prevote: Date.now() - 2 * HOUR },
       }),
     );
     renderConsole();
 
-    // 매력 투표 다음에 서는 버튼은 마감이다 — 파티 시작이 아니다
-    fireEvent.click(await screen.findByText(VOTE_END.btn));
-    await screen.findByText(VOTE_END.title);
-    expect(screen.queryByText(phaseAction("party", { maxPre: 3, maxParty: 3 })!.btn)).toBeNull();
+    const copy = phaseAction("party", { maxPre: 3, maxParty: 3 })!;
+    fireEvent.click(await screen.findByText(copy.btn));
+    await screen.findByText(copy.title);
+    const line = schedDiff("party", {
+      atText: formatWhen(soon),
+      gapText: formatGap(soon - Date.now()),
+      direction: "early",
+    })!;
+    expect(screen.getByText(line[1])).toBeTruthy();
+  });
 
-    fireEvent.click(screen.getAllByText(VOTE_END.btn)[1]);
-    await waitFor(() => expect(calls.some((c) => c.url.includes("/vote-end"))).toBe(true));
-    // **단계는 건드리지 않는다.** 나이·MBTI 와 파티 콕은 파티 시작이 연다
-    expect(calls.some((c) => c.url.includes("/phase"))).toBe(false);
+  /**
+   * ★ **매력 투표 다음 버튼은 파티 시작이다** (ADR-100) — `매력 투표 마감` 버튼은 걷어냈다.
+   * 그리고 1위 보너스를 켠 회차면 확인창이 **누가 받는지 이름으로** 말한다 (규칙 4).
+   * 서버와 같은 함수(`topVoters`)로 세므로 확인창이 말한 사람이 실제로 받는다.
+   */
+  it("★ 매력 투표 다음은 파티 시작이고, 확인창이 1위 보너스를 받을 사람을 말한다", async () => {
+    stubFetch(
+      hostState(
+        {
+          phase: "prevote",
+          fired: { reg: Date.now() - 2 * HOUR, prevote: Date.now() - HOUR },
+          config: { maxPre: 3, maxParty: 3, topVoteBonus: 1 },
+        },
+        // 남자는 가 가 2표, 여자는 나 가 1표 — 1표뿐인 성별에는 1위가 없다
+        { received: { pre: { p1: 2, p2: 1 }, party: {} } },
+      ),
+    );
+    renderConsole();
+
+    const copy = phaseAction("party", { maxPre: 3, maxParty: 3, topVoters: ["가"] })!;
+    fireEvent.click(await screen.findByText(copy.btn));
+    await screen.findByText(copy.title);
+    const line = copy.facts.find(([k]) => k === "매력 투표 1위")!;
+    expect(screen.getByText(line[1])).toBeTruthy();
+    // 파티 전에는 칩이 없다 — 1위는 파티가 시작되는 순간 정해진다
+    expect(screen.queryByText(HOST_UI.dash.topVoteChip)).toBeNull();
   });
 
   it("★ 단계 전환은 확인을 거치고, 확인창이 바뀌는 것을 항목으로 보여준다", async () => {
@@ -555,6 +580,49 @@ describe("운영자 콘솔", () => {
     // 행이 생기는 것이 곧 알림이다
     await screen.findByText("010-5032-7984");
     expect(document.querySelector(".toast"), "명단을 덮는 토스트가 떴다").toBeNull();
+  });
+
+  /**
+   * ★ **방금 넣은 번호는 더하기 폼 바로 아래에 선다.**
+   *
+   * 토스트가 없으니(ADR-65) 행이 생기는 것이 유일한 알림이다 — 그 행이 **화면 안에** 생겨야
+   * 알림이 된다. 오래된 순이면 새 행은 명단 끝에 붙는다. 스무 명 넘게 부른 회차에서 그 끝은
+   * 폰으로 세 화면 아래라, 운영자는 칸만 `010` 으로 비는 것을 보고 **안 들어간 줄 안다.**
+   * (실제로 그렇게 신고가 왔다. 서버에는 들어가 있었다.)
+   */
+  it("★ 방금 넣은 번호가 명단 맨 위에 선다 — 명단이 길어도 폼 바로 아래다", async () => {
+    const st = hostState();
+    st.invites = Array.from({ length: 20 }, (_, i) => ({
+      phone: `0105555${String(1000 + i)}`,
+      addedAt: 1 + i,
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        if (url.includes("/invites") && body && "phones" in body) {
+          for (const phone of (body as { phones: string[] }).phones) {
+            st.invites.push({ phone, addedAt: 100 });
+          }
+          return json(st.invites);
+        }
+        return json(url.includes("/state") ? st : { ok: true });
+      }),
+    );
+    renderConsole("/host/e1/players/invites");
+
+    const input = await screen.findByLabelText(HOST_UI.invites.addLabel);
+    fireEvent.change(input, { target: { value: "010-5032-7984" } });
+    fireEvent.click(screen.getByText(HOST_UI.invites.addOne));
+    await screen.findByText("010-5032-7984");
+
+    const sheet = document.body.querySelector("[role=dialog]")!;
+    const rows = [...sheet.querySelectorAll("span")]
+      .map((el) => el.textContent ?? "")
+      .filter((t) => /^\d{3}-\d{4}-\d{3,4}$/.test(t));
+    expect(rows[0], "방금 넣은 번호가 명단 끝에 붙었다 — 폰에서는 화면 밖이다").toBe("010-5032-7984");
+    // 나머지도 새것부터다
+    expect(rows.slice(1, 3)).toEqual(["010-5555-1019", "010-5555-1018"]);
   });
 
   /**
@@ -841,49 +909,65 @@ describe("운영자 콘솔", () => {
     );
   });
 
-  it("★ 되돌리기·알림을 회차마다, 라운드마다 정한다 (ADR-34)", async () => {
+  it("★ 알림을 회차마다, 라운드마다 정한다 (ADR-43)", async () => {
     /*
-     * 되돌리기와 알림은 **한 몸이다** — 알림을 켠 채 되돌리기를 열면 받은 수가 줄어드는 걸 보고
-     * "방금 누가 되돌렸다" 에서 발신자를 좁힐 수 있다.
-     * 기본은 셋 다 안전한 쪽이다 — 되돌릴 수 있고, 알리지 않는다.
+     * 알림은 **라운드마다 따로다.** 매력 투표는 며칠에 걸쳐 쌓여서, 켜두면 파티 전에
+     * 이미 순위가 생긴다. 기본은 둘 다 안전한 쪽 — 알리지 않는다.
+     *
+     * 되돌리기 토글 둘이 여기 있었다 (ADR-95 가 걷었다). **되살리지 마라** —
+     * 아래 `되돌리기 칸이 없다` 가 그 약속을 지킨다.
      */
     stubFetch(hostState());
     renderConsole("/host/e1/settings");
     // 설정은 묶음으로 접혀 있다 — 규칙은 `콕 설정` 안이다
     fireEvent.click(await screen.findByText(HOST_UI.settings.rules));
 
-    /** 그 설정 줄 안의 버튼만 집는다 — 세 줄이 같은 글자를 쓴다 */
+    /** 그 설정 줄 안의 버튼만 집는다 — 여러 줄이 같은 글자를 쓴다 */
     const rowBtn = (label: string, option: string) => {
       const field = screen.getAllByText(label).find((el) => el.tagName === "LABEL")!.parentElement!;
       return [...field.querySelectorAll("button")].find((b) => b.textContent === option)!;
     };
 
-    // 기본값이 눌려 있다 (매력 투표·콕 되돌리기는 됨, 알림은 안 보냄)
-    expect(rowBtn(HOST_UI.fields.undoPre, HOST_UI.fields.undoOn).getAttribute("aria-pressed")).toBe("true");
-    expect(rowBtn(HOST_UI.fields.undoParty, HOST_UI.fields.undoOn).getAttribute("aria-pressed")).toBe("true");
+    // 기본값이 눌려 있다 (알림은 안 보냄)
+    expect(rowBtn(HOST_UI.fields.preNotify, HOST_UI.fields.pokeNotifyOff).getAttribute("aria-pressed")).toBe("true");
     expect(rowBtn(HOST_UI.fields.pokeNotify, HOST_UI.fields.pokeNotifyOff).getAttribute("aria-pressed")).toBe("true");
 
-    // 셋 다 뒤집는다
-    fireEvent.click(rowBtn(HOST_UI.fields.undoPre, HOST_UI.fields.undoOff));
-    fireEvent.click(rowBtn(HOST_UI.fields.undoParty, HOST_UI.fields.undoOff));
+    // 둘 다 뒤집는다
+    fireEvent.click(rowBtn(HOST_UI.fields.preNotify, HOST_UI.fields.pokeNotifyOn));
     fireEvent.click(rowBtn(HOST_UI.fields.pokeNotify, HOST_UI.fields.pokeNotifyOn));
     fireEvent.click(screen.getByText(HOST_UI.applySettings));
 
     // 확인창이 무엇이 어떻게 바뀌는지 말한다 (CLAUDE.md 규칙 4)
     await screen.findByText(HOST_UI.applyTitle);
     expect(
-      screen.getAllByText(`${HOST_UI.fields.undoOn} → ${HOST_UI.fields.undoOff}`),
+      screen.getAllByText(`${HOST_UI.fields.pokeNotifyOff} → ${HOST_UI.fields.pokeNotifyOn}`),
     ).toHaveLength(2);
-    expect(
-      screen.getByText(`${HOST_UI.fields.pokeNotifyOff} → ${HOST_UI.fields.pokeNotifyOn}`),
-    ).toBeTruthy();
 
     fireEvent.click(screen.getAllByText(HOST_UI.applySettings)[1]);
     await waitFor(() =>
       expect(calls.find((c) => c.url.endsWith("/host/events/e1"))?.body).toMatchObject({
-        config: { allowUndo: false, allowUndoPre: false, pokeNotify: true },
+        config: { preNotify: true, pokeNotify: true },
       }),
     );
+  });
+
+  /**
+   * ★ **되돌리기는 회차 설정이 아니다** (ADR-95).
+   *
+   * 라운드마다 켜고 끄는 토글이 둘 있었다. 걷어낸 이유는 막는 회차를 만들 이유가 없어서다 —
+   * 잘못 누른 것을 못 무르게 하면 다 쓴 사람이 손쓸 데가 없다.
+   * 되살리려면 이 테스트부터 갈아야 한다.
+   */
+  it("★ 콕 설정에도 회차 만들기에도 되돌리기 칸이 없다", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/settings");
+    fireEvent.click(await screen.findByText(HOST_UI.settings.rules));
+
+    // 같은 묶음의 다른 줄은 그대로 있다 — 묶음을 못 연 것이 아니다
+    expect(screen.getByText(HOST_UI.fields.pokeTarget)).toBeTruthy();
+    for (const word of ["되돌리기", "할 수 있음", "못 함"]) {
+      expect(screen.queryAllByText(word), word).toHaveLength(0);
+    }
   });
 
   /**
@@ -973,15 +1057,14 @@ describe("운영자 콘솔", () => {
       .filter((f) => f.querySelector('input[type="datetime-local"]'))
       .map((f) => f.querySelector("label")!.textContent);
     /*
-     * ⚠️ **파티 시작은 여기 없다** (ADR-54). 그것만 예약이 아니라(ADR-14)
-     * `기본 정보` 묶음에 있다 — 위저드 1스텝과 같은 자리다.
+     * ⚠️ **파티 시작은 여기 없다** (ADR-54) — 예약이 되고도(ADR-93) `기본 정보` 묶음에
+     * 남는다. 위저드 1스텝과 같은 자리라, 옮기면 만들 때와 고칠 때가 어긋난다.
+     *
+     * ⚠️ **등록 시작도 없다** (ADR-93). 회차를 만든 시각이라 고칠 수도 없고
+     * 운영자가 볼 일도 없었다 — 못 누르는 칸이 맨 위에 서서 나머지를 한 칸씩 밀었다.
      */
-    expect(labels, "예약 묶음에 예약 아닌 칸이 있다").toEqual([
-      HOST_UI.fields.regOpenAt,
-      HOST_UI.fields.prevoteAt,
-      HOST_UI.fields.voteEndAt,
-      HOST_UI.fields.revealAt,
-    ]);
+    // 매력 투표 마감도 없다 (ADR-100) — 파티가 시작될 때 함께 닫힌다
+    expect(labels, "예약 묶음에 예약 아닌 칸이 있다").toEqual([HOST_UI.fields.prevoteAt, HOST_UI.fields.revealAt]);
   });
 
   /**
@@ -1034,7 +1117,7 @@ describe("운영자 콘솔", () => {
     expect(screen.getAllByText(HOST_UI.frozen).length, "굳음 표시까지 사라졌다").toBeGreaterThan(0);
   });
 
-  it("★ 콕이 오가기 시작하면 규칙 넷과 일정이 잠긴다 (ADR-35)", async () => {
+  it("★ 콕이 오가기 시작하면 규칙 셋과 일정이 잠긴다 (ADR-35)", async () => {
     /*
      * 잠긴 줄을 **지우지 않는다** — 지금 어느 규칙으로 돌아가는 중인지는
      * 파티 도중에 가장 자주 확인하는 값이다. 못 누르게만 하고 이유를 한 줄 남긴다.
@@ -1050,10 +1133,9 @@ describe("운영자 콘솔", () => {
 
     // 규칙은 `콕 설정` 묶음 안이다
     fireEvent.click(screen.getByText(HOST_UI.settings.rules));
+    // 되돌리기 둘이 여기 있었다 — 설정이 없어졌으니 굳을 것도 없다 (ADR-95)
     for (const label of [
       HOST_UI.fields.pokeTarget,
-      HOST_UI.fields.undoPre,
-      HOST_UI.fields.undoParty,
       HOST_UI.fields.preNotify,
       HOST_UI.fields.pokeNotify,
     ]) {
@@ -1066,7 +1148,7 @@ describe("운영자 콘솔", () => {
 
     // 일정도 함께 굳는다 — 다른 묶음이라 옮겨가서 본다
     fireEvent.click(screen.getByText(HOST_UI.settings.schedule));
-    for (const label of [HOST_UI.fields.regOpenAt, HOST_UI.fields.prevoteAt]) {
+    for (const label of [HOST_UI.fields.prevoteAt]) {
       expect((row(label).querySelector("input") as HTMLInputElement).disabled, label).toBe(true);
     }
     // 파티 시작도 굳는다 — 다만 `기본 정보` 묶음에 있다 (ADR-54)
@@ -1565,5 +1647,238 @@ describe("자리 검토 — 서로 찌른 쌍", () => {
     expect(chips()).toHaveLength(4);
     expect(chips().filter((t) => t.includes(HOST_UI.seats.pairChipNote(1)))).toHaveLength(2);
     expect(chips().filter((t) => t.includes(HOST_UI.seats.pairChipNote(0)))).toHaveLength(0);
+  });
+});
+
+describe("참가자 탭 · 나이 띠", () => {
+  /**
+   * ★ **남녀 나이가 얼마나 겹치는지 눈으로 본다.**
+   *
+   * 운영자가 조절하려는 것은 *남녀 나이차* 인데, 숫자 하나로는 그 답을 못 준다 —
+   * 쌍봉이면 평균 차이가 0 으로 나오고, 다 겹치는 판이 한쪽 끝에 혼자 있는 판보다
+   * 평균 차이가 더 크게 나온다. 그래서 **같은 축 위의 띠 두 줄**로 보여주고,
+   * 숫자는 그 옆에 거드는 자리다 (ADR-86 후기 — 중앙값에서 평균으로).
+   *
+   * 인원 수는 여기 없다 — 바로 아래 성별 칩이 이미 말한다.
+   */
+  const mk = (id: string, age: number, gender: "M" | "F") => ({
+    id, nickname: id, realName: `김${id}`, age, gender,
+    phone: `0100000${id.padStart(4, "0")}`, instagram: id, mbti: "ENFP",
+    charms: ["a", "b", "c"] as [string, string, string], createdAt: 1, pin: "set" as const,
+  });
+
+  /**
+   * 성별 줄 하나를 집어온다 — 어느 줄에 무엇이 적혔는지까지 봐야 한다.
+   * **띠 카드 안으로 좁힌다** — `남성`·`여성` 은 바로 아래 필터 칩에도 있다.
+   */
+  const card = () => document.querySelector<HTMLElement>(".ageBand")!;
+  const row = (label: string) => within(card()).getByText(label).closest<HTMLElement>(".ageRow")!;
+  /** 띠의 자리 — `left`·`width` 를 퍼센트 문자열로 */
+  function band(label: string) {
+    const i = row(label).querySelector<HTMLElement>(".bar i")!;
+    return { left: i.style.left, width: i.style.width };
+  }
+
+  it("★ 남녀 각각 나이대와 평균이 보인다", async () => {
+    stubFetch(hostState({}, {
+      players: [mk("a", 26, "M"), mk("b", 29, "M"), mk("c", 34, "M"),
+                mk("d", 23, "F"), mk("e", 27, "F"), mk("f", 31, "F")],
+    }));
+    renderPlayers("/host/e1/players");
+    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29.7));
+
+    // **줄마다** 본다 — 두 줄을 한꺼번에 훑으면 남녀가 뒤바뀌어도 통과한다
+    expect(within(row(GENDER.M)).getByText(HOST_UI.players.ages.summary(26, 34, 29.7))).toBeTruthy();
+    expect(within(row(GENDER.F)).getByText(HOST_UI.players.ages.summary(23, 31, 27))).toBeTruthy();
+  });
+
+  it("★ 평균은 한 자리까지 남긴다 — 정수로 자르면 두 줄이 같아 보인다", async () => {
+    // 남 27.5 · 여 27.0. 반올림해 버리면 둘 다 `28세` 와 `27세` 로 갈리거나 같아진다
+    stubFetch(hostState({}, {
+      players: [mk("a", 27, "M"), mk("b", 28, "M"), mk("d", 26, "F"), mk("e", 28, "F")],
+    }));
+    renderPlayers("/host/e1/players");
+    await waitFor(() => expect(card()).toBeTruthy());
+
+    expect(within(row(GENDER.M)).getByText(HOST_UI.players.ages.summary(27, 28, 27.5))).toBeTruthy();
+    // 27.0 은 `.0` 을 달지 않는다
+    expect(within(row(GENDER.F)).getByText(HOST_UI.players.ages.summary(26, 28, 27))).toBeTruthy();
+  });
+
+  it("★ 두 띠가 같은 축을 쓴다 — 그래야 겹침이 보인다", async () => {
+    stubFetch(hostState({}, {
+      players: [mk("a", 26, "M"), mk("b", 29, "M"), mk("c", 34, "M"),
+                mk("d", 23, "F"), mk("e", 27, "F"), mk("f", 31, "F")],
+    }));
+    renderPlayers("/host/e1/players");
+    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 29.7));
+
+    /*
+     * 축은 23~34 (폭 11). 줄마다 제 범위로 늘이면 두 띠가 똑같이 꽉 차서
+     * **겹침이 사라진다** — 그게 이 화면이 답하려는 질문 자체다.
+     */
+    expect(band(GENDER.M)).toEqual({ left: "27.3%", width: "72.7%" });
+    expect(band(GENDER.F)).toEqual({ left: "0%", width: "72.7%" });
+  });
+
+  it("★ 모두 같은 나이여도 띠가 사라지지 않는다", async () => {
+    stubFetch(hostState({}, { players: [mk("a", 30, "M"), mk("d", 30, "F")] }));
+    renderPlayers("/host/e1/players");
+    await waitFor(() => expect(card()).toBeTruthy());
+
+    // 폭이 0 이면 0% 가 되어 줄이 빈 것처럼 보인다. 나이가 하나뿐인 것과 아무도 없는 것은 다르다
+    for (const g of [GENDER.M, GENDER.F]) expect(band(g).width).not.toBe("0%");
+    // 범위가 없으면 범위처럼 적지 않는다 — `30~30세 · 중앙 30세` 는 같은 말을 세 번 한다
+    expect(within(row(GENDER.M)).getByText(UNIT.age(30))).toBeTruthy();
+  });
+
+  it("★ 띠는 성별 칩 **위**에 있다 — 칩 아래에는 칩이 거르는 것만 온다", async () => {
+    stubFetch(hostState({}, { players: [mk("a", 26, "M"), mk("d", 31, "F")] }));
+    renderPlayers("/host/e1/players");
+    await waitFor(() => expect(card()).toBeTruthy());
+
+    /*
+     * 띠는 **필터를 안 탄다** — `남성` 을 눌러도 두 줄이 그대로다. 그런 것이 칩과 목록
+     * 사이에 끼면 칩이 가리키는 곳이 칩이 거르는 것이 아니게 된다.
+     *
+     * `Node.DOCUMENT_POSITION_FOLLOWING` = 4. 앞뒤만 재고 **누가 누구의 형제인지는
+     * 묻지 않는다** — 사이에 무엇을 더 끼워도 순서만 맞으면 통과한다.
+     */
+    const chips = document.querySelector<HTMLElement>(".choice")!;
+    expect(card().compareDocumentPosition(chips) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("★ 한쪽 성별만 있으면 그 줄만 선다", async () => {
+    stubFetch(hostState({}, { players: [mk("a", 26, "M"), mk("b", 34, "M")] }));
+    renderPlayers("/host/e1/players");
+    await screen.findByText(HOST_UI.players.ages.summary(26, 34, 30));
+
+    // 여성 줄을 빈 띠로 두면 `0명` 이 아니라 `0세` 로 읽힌다
+    expect(card().querySelectorAll(".ageRow")).toHaveLength(1);
+  });
+});
+
+/**
+ * 떨어뜨려 앉히기 (ADR-90, 슬라이스 33). **운영자 화면에만 있다.**
+ *
+ * 알리는 자리는 **자리 칩 하나**다 — 요약 문구·토스트·테이블 머리글이 없다.
+ * 되돌릴 수 있는 일이라 넣기도 빼기도 확인창이 없다 (ADR-6).
+ */
+describe("떨어뜨려 앉히기", () => {
+  const published = (seats: SeatingRound["seats"]): SeatingRound => ({
+    round: 1, tableCount: 2, status: "published", seats, acks: [], createdAt: 1, publishedAt: 1,
+  });
+
+  it("★ 떼어 놓을 상대와 같은 테이블이면 두 사람 자리 칩에만 ⛔ 와 상대 닉네임이 뜬다", async () => {
+    stubFetch(
+      hostState(
+        { phase: "party" },
+        { seatings: [published([{ playerId: "p1", table: 1 }, { playerId: "p2", table: 1 }])], apart: [["p1", "p2"]] },
+      ),
+    );
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(1));
+
+    const chips = [...document.querySelectorAll(".seatChip")];
+    const chipOf = (nick: string) => chips.find((c) => c.textContent?.includes(nick) && c.querySelector(".ellipsis")?.textContent?.endsWith(nick))!;
+    expect(chipOf("가").textContent).toContain(HOST_UI.seats.apartChip);
+    expect(chipOf("가").textContent, "그림만으로 말했다").toContain(HOST_UI.seats.apartNote(["나"]));
+    expect(chipOf("나").textContent).toContain(HOST_UI.seats.apartNote(["가"]));
+    // 칩 밖 어디에도 없다 — 요약 문구·머리글을 두지 않는다
+    const outside = document.body.textContent!.split(HOST_UI.seats.apartChip).length - 1;
+    expect(outside, "칩 밖에 ⛔ 가 있다").toBe(2);
+  });
+
+  /**
+   * 서로 찌른 쌍인데 떼어 놓을 쌍이기도 하면 **짝으로 짚지 않는다.** 💔(`짝 따로`)는 *붙일 수 있다* 는
+   * 신호라, 떼어 놓은 두 사람을 다시 붙이라고 말하게 된다. 떼어 놓기가 이긴다 (ADR-90).
+   */
+  it("★ 떼어 놓을 쌍은 서로 찔렀어도 💘·💔 로 짚지 않는다", async () => {
+    stubFetch(
+      hostState(
+        { phase: "party" },
+        {
+          mutual: [["p1", "p2"]],
+          apart: [["p1", "p2"]],
+          seatings: [published([{ playerId: "p1", table: 1 }, { playerId: "p2", table: 2 }])],
+        },
+      ),
+    );
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(1));
+    expect(document.body.textContent, "떼어 놓은 쌍을 다시 붙이라고 짚었다").not.toContain(HOST_UI.seats.pairChip(0));
+    expect(document.body.textContent).not.toContain(HOST_UI.seats.pairChipNote(0));
+  });
+
+  it("★ 다른 테이블이면 아무 표시도 없다", async () => {
+    stubFetch(
+      hostState(
+        { phase: "party" },
+        { seatings: [published([{ playerId: "p1", table: 1 }, { playerId: "p2", table: 2 }])], apart: [["p1", "p2"]] },
+      ),
+    );
+    renderConsole("/host/e1/seats");
+    await screen.findByText(HOST_UI.seats.roundTitle(1));
+    expect(document.body.textContent).not.toContain(HOST_UI.seats.apartChip);
+  });
+
+  it("★ 상세 시트에서 고르면 그 쌍으로 간다 — 확인창 없이", async () => {
+    stubFetch(hostState());
+    renderConsole("/host/e1/players/p1");
+
+    fireEvent.click(await screen.findByText(HOST_UI.players.apart.add));
+    await screen.findByText(HOST_UI.players.apart.pickTitle("가"));
+    const sheet = screen.getByRole("dialog", { name: HOST_UI.players.apart.pickTitle("가") });
+    // 자기 자신은 고를 수 없다
+    expect(within(sheet).queryByText(`김가 · 가 · ${UNIT.age(28)}`)).toBeNull();
+    fireEvent.click(within(sheet).getByText(`김나 · 나 · ${UNIT.age(27)}`));
+
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/host/events/e1/apart"))).toBe(true));
+    expect(calls.find((c) => c.url.endsWith("/host/events/e1/apart"))!.body).toEqual({ a: "p1", b: "p2" });
+    expect(document.querySelector(".dialog"), "되돌릴 수 있는데 확인창이 떴다").toBeNull();
+    expect(document.querySelector(".toast"), "줄이 생기는 것이 알림인데 토스트가 떴다").toBeNull();
+  });
+
+  it("★ 이미 넣은 쌍은 상세 시트에 줄로 있고, 빼기도 확인창 없이 간다", async () => {
+    stubFetch(hostState({}, { apart: [["p1", "p2"]] }));
+    renderConsole("/host/e1/players/p2");
+
+    await screen.findByText("김가 · 가");
+    fireEvent.click(screen.getByText(HOST_UI.players.apart.remove));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/host/events/e1/apart/p2/p1"))).toBe(true));
+    expect(document.querySelector(".dialog")).toBeNull();
+  });
+
+  it("★ 발표 뒤에는 더하는 버튼이 없다", async () => {
+    stubFetch(hostState({ phase: "done" }));
+    renderConsole("/host/e1/players/p1");
+    await screen.findByText(HOST_UI.players.apart.title);
+    expect(screen.queryByText(HOST_UI.players.apart.add)).toBeNull();
+  });
+
+  /**
+   * ★ **거절은 화면이 말한다.** 고르는 시트를 열어 둔 사이 발표가 나면 서버가 409 로 거절하는데,
+   * 조용히 실패하면 시트가 그대로 열린 채 아무 말이 없어 운영자가 다시 누른다 (ADR-8).
+   */
+  it("★ 거절되면 토스트로 말한다 — 시트를 열어 둔 사이 발표가 났을 때", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/apart") && init?.method === "POST") {
+          return new Response(JSON.stringify({ error: "closed", message: HOST_UI.players.apart.afterReveal }), {
+            status: 409,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return json(url.includes("/state") ? hostState() : { ok: true });
+      }),
+    );
+    renderConsole("/host/e1/players/p1");
+
+    fireEvent.click(await screen.findByText(HOST_UI.players.apart.add));
+    const sheet = await screen.findByRole("dialog", { name: HOST_UI.players.apart.pickTitle("가") });
+    fireEvent.click(within(sheet).getByText(`김나 · 나 · ${UNIT.age(27)}`));
+
+    await screen.findByText(HOST_UI.players.apart.afterReveal);
   });
 });

@@ -30,7 +30,7 @@ import { LIMITS } from "../../../shared/constants.ts";
 import { rulesLocked, schedLocked } from "../../../shared/phase.ts";
 import { SCHEDULE_STEP_MIN, formatWhen, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, del, put } from "../../lib/api.ts";
-import { NOTIFY_OPTIONS, TARGET_OPTIONS, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
+import { NOTIFY_OPTIONS, TARGET_OPTIONS, TOPVOTE_OPTIONS, Toggle, topVoteWord } from "./HostDefaults.tsx";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import { Num } from "./HostDefaults.tsx";
 import { useConsole } from "./HostConsole.tsx";
@@ -46,12 +46,14 @@ export default function Settings() {
   const [nickHint, setNickHint] = useState("");
   const [maxPre, setMaxPre] = useState(meta.config.maxPre);
   const [maxParty, setMaxParty] = useState(meta.config.maxParty);
+  /** 익명 쪽지 (슬라이스 36). 옛 회차는 키가 없고 그게 0 이다 — 값을 채워 넣지 않는다 */
+  const [maxNotes, setMaxNotes] = useState(meta.config.maxNotes ?? 0);
   const [allowSameGender, setAllowSameGender] = useState(meta.config.allowSameGender !== false);
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
-  const [allowUndo, setAllowUndo] = useState(meta.config.allowUndo !== false);
-  const [allowUndoPre, setAllowUndoPre] = useState(meta.config.allowUndoPre !== false);
   const [preNotify, setPreNotify] = useState(meta.config.preNotify === true);
   const [pokeNotify, setPokeNotify] = useState(meta.config.pokeNotify === true);
+  /** 매력 투표 1위 보너스 콕 (ADR-100). 옛 회차는 키가 없고 그게 '안 줌' 이다 */
+  const [topVoteBonus, setTopVoteBonus] = useState(!!meta.config.topVoteBonus);
   const [schedule, setSchedule] = useState<EventSchedule>(meta.schedule);
   const [error, setError] = useState<string | null>(null);
   /** 지금 보고 있는 묶음. 라우트가 아니다 — 여는 게 아니라 거르는 것이라 닫을 것이 없다 */
@@ -59,16 +61,18 @@ export default function Settings() {
 
   /** 굳었나 (ADR-35). 서버도 같은 판단을 하니, 여기서는 **못 고르게** 하는 것까지만 한다 */
   const frozen = rulesLocked(meta.fired);
+  /** 1위 보너스는 **파티가 시작되면** 굳는다 (ADR-100) — 1위가 그때 정해지고, 보너스 콕을 쓴 뒤에 끄면 한도를 넘는다 */
+  const topVoteFrozen = !!(meta.fired.party || meta.fired.done);
 
   useEffect(() => {
     setName(meta.name);
     setMaxPre(meta.config.maxPre);
     setMaxParty(meta.config.maxParty);
+    setMaxNotes(meta.config.maxNotes ?? 0);
     setAllowSameGender(meta.config.allowSameGender !== false);
-    setAllowUndo(meta.config.allowUndo !== false);
-    setAllowUndoPre(meta.config.allowUndoPre !== false);
     setPreNotify(meta.config.preNotify === true);
     setPokeNotify(meta.config.pokeNotify === true);
+    setTopVoteBonus(!!meta.config.topVoteBonus);
     setPlace(meta.place ?? "");
     setNickHint(meta.nickHint ?? "");
     setSchedule(meta.schedule);
@@ -99,18 +103,18 @@ export default function Settings() {
     changed("identity", HOST_UI.fields.nickHint, meta.nickHint ?? "—", nickHint || "—");
     changed("rules", HOST_UI.fields.maxPre, UNIT.times(meta.config.maxPre), UNIT.times(maxPre));
     changed("rules", HOST_UI.fields.maxParty, UNIT.times(meta.config.maxParty), UNIT.times(maxParty));
+    // 단위가 **장**이다 — 콕의 `회` 와 갈라야 확인창에서 두 줄이 다른 것으로 읽힌다
+    changed("rules", HOST_UI.fields.maxNotes, UNIT.sheets(meta.config.maxNotes ?? 0), UNIT.sheets(maxNotes));
     changed(
       "rules",
       HOST_UI.fields.pokeTarget,
       meta.config.allowSameGender === false ? HOST_UI.fields.pokeTargetOpposite : HOST_UI.fields.pokeTargetAll,
       allowSameGender ? HOST_UI.fields.pokeTargetAll : HOST_UI.fields.pokeTargetOpposite,
     );
-    const undoWord = (on: boolean) => (on ? HOST_UI.fields.undoOn : HOST_UI.fields.undoOff);
     const notifyWord = (on: boolean) => (on ? HOST_UI.fields.pokeNotifyOn : HOST_UI.fields.pokeNotifyOff);
-    changed("rules", HOST_UI.fields.undoPre, undoWord(meta.config.allowUndoPre !== false), undoWord(allowUndoPre));
-    changed("rules", HOST_UI.fields.undoParty, undoWord(meta.config.allowUndo !== false), undoWord(allowUndo));
     changed("rules", HOST_UI.fields.preNotify, notifyWord(meta.config.preNotify === true), notifyWord(preNotify));
     changed("rules", HOST_UI.fields.pokeNotify, notifyWord(meta.config.pokeNotify === true), notifyWord(pokeNotify));
+    changed("rules", HOST_UI.fields.topVoteBonus, topVoteWord(!!meta.config.topVoteBonus), topVoteWord(topVoteBonus));
     // 시간 순으로 센다 — 확인창에 뜨는 순서가 화면 순서와 같아야 어디를 고쳤는지 짚인다
     for (const key of SCHED_ORDER) {
       // 파티 시작은 `기본 정보` 묶음에 있다 (ADR-54) — 고쳤다는 점도 거기 붙어야 한다
@@ -128,7 +132,17 @@ export default function Settings() {
 
     // 아무것도 안 바꾸고 누른 경우. 빈 확인창을 띄우느니 그렇다고 말한다
     if (facts.length === 0) return toast(HOST_UI.applyNothing);
-    confirm({ btn: HOST_UI.applySettings, title: HOST_UI.applyTitle, facts }, save);
+    /*
+     * 익명 쪽지를 **0 으로 내리는 것은 숫자가 아니라 스위치다** (슬라이스 36).
+     * `익명 쪽지 · 2장 → 0장` 만으로는 그게 안 보인다 — 규칙 4 가 말하는 *무엇이 어떻게 바뀌나* 가
+     * 여기서는 숫자가 아니라서다. 그리고 **이미 간 것은 안 사라진다**를 함께 적어야
+     * 운영자가 이 버튼을 *없던 일로 만드는 것* 으로 오해하지 않는다.
+     */
+    const off = maxNotes === 0 && (meta.config.maxNotes ?? 0) > 0;
+    confirm(
+      { btn: HOST_UI.applySettings, title: HOST_UI.applyTitle, facts: off ? [...facts, ...HOST_UI.noteOffFacts] : facts },
+      save,
+    );
   }
 
   async function save() {
@@ -138,7 +152,7 @@ export default function Settings() {
         name,
         place,
         nickHint,
-        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify },
+        config: { maxPre, maxParty, maxNotes, allowSameGender, preNotify, pokeNotify, topVoteBonus: topVoteBonus ? 1 : 0 },
       });
       await put<EventMeta>(`/host/events/${meta.id}/schedule`, schedule);
       toast(BTN.saved);
@@ -160,6 +174,8 @@ export default function Settings() {
           votes: state.pokeCount.pre,
           pokes: state.pokeCount.party,
           rounds: state.seatings.filter((s) => s.status === "published").length,
+          // 익명 쪽지 (슬라이스 36). 오간 것이 없으면 줄도 안 선다 — 안 쓴 회차에 없는 기능을 적지 않는다
+          notes: Object.values(state.noteSent).reduce((a, b) => a + b, 0),
         }),
       },
       async () => {
@@ -226,9 +242,9 @@ export default function Settings() {
           </div>
           {/*
             **파티 시작이 여기 있다** (ADR-54) — 위저드 1스텝과 같은 자리다.
-            예약이 아니라 운영자가 현황 탭에서 누르는 것이고(ADR-14),
-            나머지 일정이 여기서 거꾸로 계산되는 기준점이다.
-            ⚠️ `예약` 묶음으로 되돌리지 마라 — 거기 있으면 저절로 넘어가는 줄로 읽힌다.
+            나머지 일정이 여기서 거꾸로 계산되는 기준점이라 **먼저 정해져야 하는 값**이다.
+            ⚠️ 예약이 된 뒤에도(ADR-93) `예약` 묶음으로 옮기지 마라 —
+            거기 있으면 자기 자신을 기준으로 계산하는 칸이 되고, 위저드와도 어긋난다.
           */}
           <When
             label={HOST_UI.fields.partyAt}
@@ -249,39 +265,26 @@ export default function Settings() {
       )}
 
       {/*
-        **예약. 위저드 2스텝과 같은 시간 순이다** — 등록 시작 → 매력 투표 시작 → 마감 → 커플 발표.
+        **예약. 위저드 2스텝과 같은 시간 순이다** — 매력 투표 시작 → 마감 → 커플 발표.
         두 화면이 다른 순서면 고치러 온 사람이 어느 칸인지 다시 찾는다.
-        (위저드에 없는 `등록 시작` 만 맨 앞에 더 있다. 이미 지나간 기록이라 늘 잠겨 있다.)
 
-        **파티 시작은 여기 없다** (ADR-54). 예약이 아니라 운영자가 누르는 것이라
-        `기본 정보` 묶음으로 갔다 — 위저드와 같은 자리다.
+        **파티 시작은 여기 없다** (ADR-54). 예약이 되고도(ADR-93) `기본 정보` 묶음에 남는다 —
+        위저드 1스텝과 같은 자리라, 옮기면 만들 때와 고칠 때가 어긋난다.
 
-        잠긴 줄도 지우지 않는다 — "예약은 21:00 이었는데 20:45 에 진행했다" 를 보여줄 수 있어야 한다.
+        **등록 시작도 없다** (ADR-93). 회차를 만든 시각이라(ADR-38) 고칠 수도 없고
+        운영자가 볼 일도 없었다 — 못 누르는 칸이 맨 위에 서서 나머지를 한 칸씩 밀었다.
+
+        잠긴 줄은 지우지 않는다 — "예약은 21:00 이었는데 20:45 에 진행했다" 를 보여줄 수 있어야 한다.
       */}
       {group === "schedule" && (
         <>
-          {/*
-            등록 시작은 **회차를 만든 시각**이라 늘 잠겨 있다 (ADR-38) —
-            고칠 길이 없으니 고치는 손잡이도 두지 않는다. 줄은 기록으로 남긴다.
-          */}
-          <When label={HOST_UI.fields.regOpenAt} value={schedule.regOpenAt} locked />
           <When
             label={HOST_UI.fields.prevoteAt}
             value={schedule.prevoteAt}
             locked={schedLocked(meta.fired, "prevoteAt")}
             onChange={(v) => setSchedule({ ...schedule, prevoteAt: v })}
           />
-          {/*
-            매력 투표 마감 (ADR-39). **파티가 시작될 때까지 열려 있다** — 파티가 늦어지면
-            마감도 미뤄야 하기 때문이다. 그래서 일정 잠금을 규칙 잠금에서 갈랐다.
-          */}
-          <When
-            label={HOST_UI.fields.voteEndAt}
-            value={schedule.voteEndAt}
-            locked={schedLocked(meta.fired, "voteEndAt")}
-            hint={HOST_UI.fields.voteEndHint}
-            onChange={(v) => setSchedule({ ...schedule, voteEndAt: v })}
-          />
+          {/* 매력 투표 마감 줄은 없다 (ADR-100) — 파티가 시작될 때 함께 닫힌다 */}
           {/*
             커플 발표 (ADR-43). **파티가 시작된 뒤에도 열려 있는 유일한 일정이다** —
             파티가 길어지면 미뤄야 하는데 파티 시작에 잠그면 손쓸 방법이 없다.
@@ -335,21 +338,7 @@ export default function Settings() {
             locked={frozen}
             onChange={setAllowSameGender}
           />
-          <Toggle
-            label={HOST_UI.fields.undoPre}
-            value={allowUndoPre}
-            options={UNDO_OPTIONS}
-            locked={frozen}
-            onChange={setAllowUndoPre}
-          />
-          <Toggle
-            label={HOST_UI.fields.undoParty}
-            value={allowUndo}
-            options={UNDO_OPTIONS}
-            locked={frozen}
-            onChange={setAllowUndo}
-          />
-          {/* 알림도 라운드마다 따로다 (ADR-43). 되돌리기와 같은 순서 — 매력 투표가 먼저 */}
+          {/* 알림은 라운드마다 따로다 (ADR-43) — 매력 투표가 먼저 */}
           <Toggle
             label={HOST_UI.fields.preNotify}
             value={preNotify}
@@ -363,6 +352,31 @@ export default function Settings() {
             options={NOTIFY_OPTIONS}
             locked={frozen}
             onChange={setPokeNotify}
+          />
+          {/* 매력 투표 1위 보너스 콕 (ADR-100). 굳는 때가 위 셋과 다르다 — 매력 투표 시작이 아니라 **파티 시작** */}
+          <Toggle
+            label={HOST_UI.fields.topVoteBonus}
+            value={topVoteBonus}
+            options={TOPVOTE_OPTIONS}
+            locked={topVoteFrozen}
+            onChange={setTopVoteBonus}
+          />
+          {/*
+            익명 쪽지는 **묶음의 맨 끝에 혼자 선다** (슬라이스 36). 콕의 다섯은 콕 하나의
+            규칙이라 붙어 있어야 하고, 굳는 셋이 한 덩어리로 잠기는 모양도 그대로 남는다 —
+            익명 쪽지는 콕이 아니고 **굳지도 않는다** (`locked` 를 주지 않는다).
+
+            ⚠️ **바닥은 1~5 에만 있다. 0 으로는 언제나 내려간다** — 0 이 이 회차의 익명 쪽지를
+            닫는 스위치이고, 운영자가 본문도 발신자도 못 보므로 **남은 유일한 레버**다.
+            이미 보낸 사람이 있다고 막으면 사고가 났을 때 쓸 수 있는 것이 없어진다.
+            그래서 스테퍼는 0 과 `noteUsedMax` 위로만 오갈 수 있게 하고, 그 사이 값은 서버가 거절한다.
+          */}
+          <Num
+            label={HOST_UI.fields.maxNotes}
+            value={maxNotes}
+            min={LIMITS.maxNotes.min}
+            max={LIMITS.maxNotes.max}
+            onChange={(v) => setMaxNotes(stepNotes(v, maxNotes, state.noteUsedMax))}
           />
         </>
       )}
@@ -395,8 +409,24 @@ export default function Settings() {
 const GROUPS = ["identity", "schedule", "rules", "danger"] as const;
 type Group = (typeof GROUPS)[number];
 
-/** 예약 칸의 **시간 순.** 화면도 확인창도 이 순서를 쓴다 */
-const SCHED_ORDER = ["regOpenAt", "prevoteAt", "voteEndAt", "partyAt", "revealAt"] as const;
+/**
+ * 예약 칸의 **시간 순.** 화면도 확인창도 이 순서를 쓴다.
+ * `regOpenAt` 은 없다 (ADR-93) — 화면에 줄이 없으니 확인창에 뜰 일도 없다.
+ */
+const SCHED_ORDER = ["prevoteAt", "partyAt", "revealAt"] as const;
+
+/**
+ * 익명 쪽지 스테퍼의 다음 값. **0 은 바닥 아래의 한 칸**이다 (슬라이스 36 S-D2).
+ *
+ * 이미 N장 보낸 사람이 있으면 1~N−1 은 서버가 거절한다 — 화면에서도 서지 않게 건너뛴다.
+ * 바닥에서 한 번 더 내리면 **0(이 회차의 익명 쪽지 닫기)** 이고, 0 에서 올리면 바닥으로 돌아온다.
+ * 건너뛰지 않으면 운영자가 고를 수 없는 숫자를 고른 뒤 저장에서 거절당한다 —
+ * 콕 스테퍼가 `min` 으로 막는 그 일을, 여기서는 **0 을 살려 두면서** 해야 한다.
+ */
+export function stepNotes(next: number, cur: number, floor: number): number {
+  if (next >= floor || next === 0) return next;
+  return next < cur ? 0 : floor;
+}
 
 function When({
   label,

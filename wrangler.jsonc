@@ -33,7 +33,8 @@
   },
 
   // 회차 1개 = Durable Object 1개.
-  // REGISTRY 는 회차 목록·입장 코드·공통 PIN 을 들고 있는 단 하나의 DO 다.
+  // REGISTRY 는 회차 목록·입장 코드·운영자 PIN 시도 기록을 들고 있는 단 하나의 DO 다.
+  // 운영자 PIN 값 자체는 시크릿 MASTER_PIN 에만 있다 (ADR-12).
   // KV 를 쓰지 않는 이유: 쓰기 직후 읽기가 보장되지 않아 코드 중복·중복 생성이 실제로 날 수 있다.
   "durable_objects": {
     "bindings": [
@@ -45,11 +46,34 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EventDO", "RegistryDO"] }],
 
   /*
-   * 운영 카운터. **회차 DO 밖에 쌓이는 유일한 자료다** — 무엇을 넣는지가 곧
-   * 개인정보 경계라, 규칙은 `src/server/metrics.ts` 주석에 있다.
+   * 들여보낼 나라 (ADR-92). `/api` 와 `/ws` 가 이 목록 밖에서 온 요청에 아무것도 주지 않는다.
+   *
+   * ⚠️ **여기가 끄는 자리다.** 파티 당일 로밍 중인 참가자가 막히면 값을 `""` 로 비우고
+   * 배포하는 것이 유일한 되돌리기다 — 운영자 콘솔에는 스위치가 없다.
+   * 회차 DO 에 두면 요청마다 DO 왕복이 생겨서 그렇게 하지 않았다.
+   *
+   * ⚠️ **`--var` 로 덮지 마라.** git 연동이 푸시마다 다시 배포하고, 그때는 이 파일의 vars 만 실린다.
+   *
+   * 시크릿은 여기 적지 않는다 (MASTER_PIN·SESSION_SECRET). `npm run check` 가 막는다.
+   */
+  "vars": {
+    "ALLOWED_COUNTRIES": "KR"
+  },
+
+  /*
+   * 운영 카운터. 무엇을 넣는지가 곧 개인정보 경계라, 규칙은 `src/server/metrics.ts` 주석에 있다.
    * 운영 카운터는 넣고 결과 통계(매칭·콕·순위)는 넣지 않는다.
    */
   "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "tone_pick_ops" }],
+
+  /*
+   * 콕 로그 파일 (ADR-84). 회차마다 `poke-logs/<회차id>.csv` 하나 — 찌름·되돌림이 한 줄씩 붙는다.
+   *
+   * ⚠️ **실명이 담긴, 회차 DO 밖의 유일한 자료다.** 회차를 지워도 남는다 — 지우는 건 사람이 한다.
+   * 앱에는 꺼내는 길이 없다. 운영자가 `wrangler r2 object get` 이나 대시보드에서 받는다.
+   * 버킷은 배포 전에 있어야 한다 — 없으면 배포가 거절된다 (`wrangler r2 bucket create tone-pick-logs`).
+   */
+  "r2_buckets": [{ "binding": "LOGS", "bucket_name": "tone-pick-logs" }],
 
   "observability": { "enabled": true },
 
@@ -62,7 +86,7 @@
    * ENV_LABEL 이 있으면 화면 위에 띠가 뜬다. 파티 당일 운영자가 연습용 콘솔에서 단계를 넘기고
    * "참가자 화면이 왜 안 바뀌지?" 하는 사고를 막는 게 목적이다.
    *
-   * ⚠️ durable_objects·assets·vars 는 환경에 상속되지 않는다. 위와 똑같이 적어줘야 한다.
+   * ⚠️ durable_objects·assets·vars·r2_buckets 는 환경에 상속되지 않는다. 위와 똑같이 적어줘야 한다.
    */
   "env": {
     "qa": {
@@ -70,7 +94,7 @@
       "workers_dev": true,
       "preview_urls": false,
       /*
-       * 연습용은 **비밀이 없는 환경**이다. 공통 PIN 은 언제나 0000 이고 여기 적혀 있다.
+       * 연습용은 **비밀이 없는 환경**이다. 운영자 PIN 은 언제나 0000 이고 여기 적혀 있다.
        *
        * 시크릿으로 두면 넣을 때마다 값이 흔들리고, 기억나지 않으면 다시 덮어써야 한다.
        * 연습용에 지킬 비밀이 없으니 설정에 박아 "항상 0000"을 구조로 만든다.
@@ -88,11 +112,11 @@
        *    값을 바꾸려면 이 파일을 고치고 `npm run deploy:qa`. 출처는 여기 하나뿐이다.
        *    (그날 원인을 1분 만에 찾은 건 서버가 `missing: ["SESSION_SECRET"]` 이라고
        *     정확히 말해준 덕이다 — ADR-8 이 설계대로 작동했다.)
-       *
-       * 회차 PIN 을 0000 으로는 만들 수 없다. 공통 PIN 과 같아지는 걸 막기 때문이다 (ADR-3).
        */
       "vars": {
         "ENV_LABEL": "QA",
+        // 프로덕션과 같은 값이어야 연습이 된다 (ADR-92). vars 는 환경에 상속되지 않는다
+        "ALLOWED_COUNTRIES": "KR",
         "MASTER_PIN": "0000",
         "SESSION_SECRET": "qa-not-a-secret",
         // 오늘의 연애운. 키(OPENAI_API_KEY)는 시크릿으로만 넣는다 — 여기 적으면 그대로 공개된다
@@ -114,6 +138,7 @@
         "LLM_TEMPERATURE": "1.5"
       },
       "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "tone_pick_ops_qa" }],
+      "r2_buckets": [{ "binding": "LOGS", "bucket_name": "tone-pick-qa-logs" }],
       "assets": {
         "directory": "./dist/client",
         "binding": "ASSETS",

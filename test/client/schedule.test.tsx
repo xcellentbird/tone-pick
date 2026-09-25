@@ -50,7 +50,7 @@ describe("위저드", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        new Response(JSON.stringify({ maxPre: 3, maxParty: 3, place: "", prevoteBeforeH: 24, voteEndBeforeH: 1, revealAfterH: 3, ...over }), {
+        new Response(JSON.stringify({ maxPre: 3, maxParty: 3, place: "", prevoteBeforeH: 24, revealAfterH: 3, ...over }), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
@@ -72,12 +72,12 @@ describe("위저드", () => {
     await screen.findByText(HOST_UI.fields.prevoteAt);
 
     /*
-     * **2스텝에 남은 것은 예약 셋이다** (ADR-54) —
-     * 매력 투표 시작 · 마감 (ADR-39) · 커플 발표 (ADR-43).
-     * 파티 시작은 예약이 아니라 1스텝(기본 정보)으로 갔고, 등록 시작은 묻지 않는다 (ADR-38).
+     * **2스텝에 남은 것은 예약 둘이다** (ADR-54) — 매력 투표 시작 · 커플 발표 (ADR-43).
+     * 파티 시작은 1스텝(기본 정보)으로 갔고, 등록 시작은 묻지 않는다 (ADR-38).
+     * 매력 투표 마감도 묻지 않는다 (ADR-100) — 파티가 시작될 때 함께 닫힌다.
      */
     const inputs = document.querySelectorAll('input[type="datetime-local"]');
-    expect(inputs.length).toBe(3);
+    expect(inputs.length).toBe(2);
     for (const input of inputs) {
       expect(input.getAttribute("step")).toBe(String(SCHEDULE_STEP_MIN * 60));
       // 기본값도 맞아 있어야 한다 — 분 자리가 00 이나 30
@@ -99,27 +99,27 @@ describe("위저드", () => {
      * 반영을 먼저 기다린 뒤에 재야 이 테스트가 무언가를 지킨다.
      */
     /*
-     * `voteEndBeforeH` 를 코드 기본값(1)과 **다르게** 준다 — 그 칸이 움직이는 것이
+     * `prevoteBeforeH` 를 코드 기본값(20)과 **다르게** 준다 — 그 칸이 움직이는 것이
      * 곧 "응답이 반영됐다" 는 신호다. 파티 시작은 이제 1스텝이라 여기서 못 재므로,
-     * **2스텝 안의 두 칸 사이**로 잰다.
+     * **2스텝 안의 두 칸 사이**로 잰다. (매력 투표 마감 칸은 ADR-100 이 걷었다.)
      *
-     * 마감 → 발표 사이는 `voteEndBeforeH + revealAfterH` 다. 반영되면 5+3 시간이어야 하고,
+     * 매력 투표 시작 → 발표 사이는 `prevoteBeforeH + revealAfterH` 다. 반영되면 5+3 시간이어야 하고,
      * `revealAfterH` 가 `NaN` 이 되면 이 값이 `NaN` 이라 여기서 걸린다.
      */
-    stubDefaults({ voteEndBeforeH: 5, revealAfterH: undefined });
+    stubDefaults({ prevoteBeforeH: 5, revealAfterH: undefined });
     render(<RouterProvider router={step2()} />);
     await screen.findByText(HOST_UI.fields.prevoteAt);
 
     // **인덱스가 아니라 id 로 잡는다** — 칸 순서는 바뀔 수 있고, 이 테스트가 재는 건 순서가 아니다
     const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value;
     await waitFor(() =>
-      expect(new Date(val("reveal")).getTime() - new Date(val("voteEnd")).getTime()).toBe(
+      expect(new Date(val("reveal")).getTime() - new Date(val("prevote")).getTime()).toBe(
         (5 + DEFAULTS.revealAfterH) * 60 * 60 * 1000,
       ),
     );
 
     const inputs = document.querySelectorAll('input[type="datetime-local"]');
-    expect(inputs.length).toBe(3);
+    expect(inputs.length).toBe(2);
     for (const [i, input] of [...inputs].entries()) {
       expect((input as HTMLInputElement).value, `${i}번 칸이 비었다`).not.toBe("");
     }
@@ -133,7 +133,7 @@ describe("위저드", () => {
    * 기회라, 화면에서 고른 것이 그대로 나가는지가 곧 규칙이다.
    */
   /**
-   * **2스텝의 네 시각은 시간 순으로 선다** — 매력 투표 시작 → 마감 → 파티 시작 → 커플 발표.
+   * **2스텝의 시각은 시간 순으로 선다** — 매력 투표 시작 → 커플 발표 (파티 시작은 1스텝).
    * 그래야 읽는 사람이 어느 것이 먼저인지 다시 계산하지 않는다.
    *
    * ⚠️ 넷 중 **파티 시작만 예약이 아니다** (ADR-14). 그 한 줄이 **그 칸에** 붙어 있어야 한다 —
@@ -150,7 +150,8 @@ describe("위저드", () => {
      * 그러면 운영자가 아무것도 안 눌러서 파티가 영영 안 열린다.
      */
     const ids = [...document.querySelectorAll('input[type="datetime-local"]')].map((i) => i.id);
-    expect(ids, "2스텝에 예약 아닌 칸이 있다").toEqual(["prevote", "voteEnd", "reveal"]);
+    // 매력 투표 마감도 없다 (ADR-100) — 파티가 시작될 때 함께 닫힌다
+    expect(ids, "2스텝에 예약 아닌 칸이 있다").toEqual(["prevote", "reveal"]);
 
     // 값도 그 순서대로 흘러야 한다 — 라벨만 시간 순이고 기본값이 뒤엉키면 소용없다
     const ms = ids.map((id) => new Date((document.getElementById(id) as HTMLInputElement).value).getTime());
@@ -215,7 +216,7 @@ describe("위저드", () => {
           });
         }
         return new Response(
-          JSON.stringify({ maxPre: 3, maxParty: 3, place: "", prevoteBeforeH: 24, voteEndBeforeH: 1, revealAfterH: 3 }),
+          JSON.stringify({ maxPre: 3, maxParty: 3, place: "", prevoteBeforeH: 24, revealAfterH: 3 }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }),
@@ -240,8 +241,10 @@ describe("위저드", () => {
     expect(config.allowSameGender, "고른 대상이 안 실렸다").toBe(false);
     expect(config.preNotify, "고른 알림이 안 실렸다").toBe(true);
     // 안 건드린 것은 기본값 그대로 나간다
-    expect(config.allowUndo).toBe(true);
     expect(config.pokeNotify).toBe(false);
+    // 되돌리기 칸은 아예 없다 (ADR-95) — 보내지도 않는다
+    expect("allowUndo" in config).toBe(false);
+    expect("allowUndoPre" in config).toBe(false);
   });
 
   it("★ 장소 기본값을 들고 시작한다 (ADR-38)", async () => {

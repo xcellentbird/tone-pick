@@ -38,6 +38,13 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 실패를 화면에 말할 문장. 서버가 실은 문장(`copy.ts` 에서 골라 담은 것)이 있으면 그것, 없으면 부르는 화면의
+ * 기본 문장이다. 닿지 못한 실패(`offline`)는 이미 문장을 실어 온다 — 화면마다 다시 가르지 않는다.
+ */
+export const messageOf = (e: unknown, fallback: string): string =>
+  e instanceof ApiError && e.userMessage ? e.userMessage : fallback;
+
 /** 서버가 어느 세션을 읽을지 고르는 헤더. `src/server/auth.ts` 의 `REF_HEADER` 와 같은 값이다 */
 const REF_HEADER = "x-tp-ref";
 
@@ -72,7 +79,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
      * 서버에 **닿지도 못했다** — 망이 끊겼거나 폰이 절전에서 막 깨어났거나.
      *
      * 감싸지 않으면 날 `TypeError` 가 올라가고, 화면은 `userMessage` 가 없어
-     * `ENTRY.notFound`("그런 회차가 없어요") 로 떨어진다. 잠깐 끊긴 참가자에게
+     * `ENTRY.notFound`("그런 파티가 없어요") 로 떨어진다. 잠깐 끊긴 참가자에게
      * **"네 링크가 잘못됐다"** 고 말하는 셈이다 — 그 사람은 링크를 의심하고
      * 운영자에게 엉뚱한 걸 묻는다.
      *

@@ -136,6 +136,7 @@
    */
   --kb: 0px;
   --gap: 12px;
+  --gap-sm: 8px;
   --gap-lg: 18px;
   --pad: 16px;
   --card-h: 74px; /* 참가자 카드 높이 고정 — 문장형 매력이 들어와도 흔들리면 안 된다 */
@@ -379,6 +380,9 @@ button {
 
 .stack { display: flex; flex-direction: column; gap: var(--gap); }
 .row { display: flex; align-items: center; gap: var(--gap); }
+/* 시트 안에서 묶음을 가르는 윗여백. 인라인 숫자 대신 이걸 쓴다 — 간격은 변수로만 (확장 제약) */
+.mt { margin-top: var(--pad); }
+.mtSm { margin-top: var(--gap-sm); }
 .row.between { justify-content: space-between; }
 .grow { flex: 1; min-width: 0; }
 .dim { color: var(--dim); }
@@ -404,7 +408,7 @@ h1,
 .field > label,
 .sheetTitle,
 .person .age,
-.rank .name, .rank .no, .rank .ct,
+.rank .name, .rank .no, .rank .ct, .rank .topVote,
 .mineCell .n, .mineCell .t {
   line-height: 1.3;
 }
@@ -886,7 +890,39 @@ h1,
   overflow: hidden;
 }
 .rank .bar i { display: block; height: 100%; border-radius: 3px; background: var(--meter); }
+/* 매력 투표 1위 보너스 칩 (ADR-100). 알약 모양은 `.badge` 그대로, 한글이 들어가서 줄 간격만 손잡이 묶음(1.3)이다 */
+.rank .topVote { margin-left: 6px; padding: 1px 7px; }
 .rank .ct { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; width: 22px; text-align: right; flex: none; }
+
+/*
+ * 나이 띠 (참가자 탭) — 남녀가 **같은 축** 위에 서서 겹침이 눈에 들어온다.
+ *
+ * `.rank .bar` 와 생김새를 맞추되 안쪽 `i` 가 **구간**이라 `left` 로도 움직인다
+ * (거긴 0 에서 차오르는 막대다). 그래서 `overflow: hidden` 을 두지 않는다 —
+ * 최소 폭으로 세운 띠가 끝에서 잘리면 그 줄만 짧아 보인다.
+ *
+ * ⚠️ **색으로만 말하지 않는다** (ADR-30). 왼쪽에 `남성`·`여성` 글자가 서고 색은 거들 뿐이다.
+ * 색은 아바타와 같은 뜻이라 운영자가 새로 익힐 것이 없다 — 파랑=남 · 분홍=여.
+ */
+.ageBand { display: flex; flex-direction: column; gap: var(--gap-sm); }
+.ageRow { display: flex; align-items: center; gap: var(--gap-sm); }
+/* 줄바꿈이 없는 자리다 (ADR-62) */
+.ageRow .sex { width: 30px; flex: none; font-size: 13px; font-weight: 700; line-height: 1.3; }
+.ageRow.m .sex { color: var(--male); }
+.ageRow.f .sex { color: var(--female); }
+.ageRow .bar {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--card-2);
+}
+.ageRow .bar i { position: absolute; top: 0; height: 100%; border-radius: var(--radius-pill); }
+.ageRow.m .bar i { background: var(--male); }
+.ageRow.f .bar i { background: var(--female); }
+/* 숫자가 흔들리면 두 줄을 견주기 어렵다 */
+.ageRow .small { flex: none; font-variant-numeric: tabular-nums; line-height: 1.3; }
 
 /* 필터 버튼 안의 인원 수. 라벨보다 한 톤 죽여 라벨을 먼저 읽게 한다 */
 .choice .filterCount {
@@ -1067,6 +1103,32 @@ h1,
   font-size: 14px;
   font-weight: 700;
   line-height: 1;
+}
+
+/*
+ * 익명 쪽지함 ✉️ (ADR-98 후기 3). 도움말과 **같은 옅은 원**이다 — 회차 이름보다 먼저 읽히면 안 된다.
+ * 탭 영역은 도움말처럼 44px 이고, 보이는 원은 28px 이다.
+ */
+.inboxBtn { position: relative; }
+.inboxBtn > span { font-size: 13px; font-weight: 400; }
+/*
+ * 안 읽은 수. **경보 빨강이 아니라 주 색이고, 움직이지 않는다** (ADR-64) —
+ * 남이 일으킨 변화라 테이블 건너편 눈을 끌면 그 순간이 샌다. 숫자라 `line-height: 1` 이다 (ADR-62).
+ */
+.inboxBtn .count {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
 }
 
 /* 세 단계 그림. 글보다 그림이 빠른 유일한 질문이 "언제 뭐가 일어나나" 다 */
@@ -1645,6 +1707,54 @@ h1,
  */
 button.fact { text-align: left; }
 
+/* ─────────────────────────── 익명 쪽지 (슬라이스 36, ADR-98) */
+
+/*
+ * 익명 쪽지함 `보낸 쪽지` 의 한 줄 — 본문과 읽음 배지 (ADR-98 후기 3. 한동안 프로필 시트에 있었다).
+ * `.fact` 는 `align-items` 가 기본(stretch)이라 배지가 세로로 늘어난다.
+ * **글줄에 맞춘다** — 배지가 본문 **첫 줄 옆**에 서야 여러 줄짜리 쪽지에서도 짝이 보인다.
+ */
+.fact.anonSent { align-items: baseline; }
+
+/*
+ * `읽음` / `읽지 않음`. **둘 다 같은 흐린 글씨다** — 색으로 좋고 나쁨을 말하지 않는다.
+ * 읽지 않은 것이 빨갛거나 읽은 것이 초록이면, 그 순간 배지가 **답장의 대용품**이 된다.
+ *
+ * 한 줄짜리 손잡이라 `line-height: 1.3` 이다 (ADR-62) — 1 로 두면 한글 위아래가 딱 붙는다.
+ */
+.anonSent .readBadge {
+  flex: none;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/*
+ * 받은 쪽지 줄의 `지우기` (익명 쪽지함). `.coverToggle` 과 같은 수다 — 보이는 건 12px 이고 손가락은 44px 을 받는다.
+ * **눈에 띄면 안 되는 버튼**이다: 답장도 반응도 없는 줄에서 혼자 누를 수 있는 것이라,
+ * 크게 그리면 그것이 곧 반응 버튼으로 읽힌다.
+ *
+ * ⚠️ **`.banner` 의 직계로 두고 위쪽에 정렬한다.** 제목 줄 안에 넣으면 `button` 의
+ * `min-height: 44px` 가 그 줄을 21px → 44px 로 부풀려 쪽지 줄만 다른 소식보다 커지고,
+ * 음수 여백으로 눌러 담으면 **44px 타겟이 본문 첫 줄 위로 겹쳐서** 본문 오른쪽 끝을 짚은
+ * 손가락이 지우기 확인창을 연다. 직계로 빼면 제 칸을 가져 겹치지 않는다.
+ */
+.anonDel {
+  flex: none;
+  align-self: flex-start;
+  margin: -12px -12px -12px 0;
+  padding: 12px;
+  min-height: 0;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+}
+
 /* ─────────────────────────── 전체 화면 자리 안내 */
 
 /*
@@ -1682,6 +1792,28 @@ button.fact { text-align: left; }
 }
 
 .takeover .table { font-size: 34px; font-weight: 700; }
+
+/*
+ * 단계 안내의 카드 (ADR-96). 카드 하나가 내용이라 가운데에 홀로 선다 — 두 칸으로 나누지 마라.
+ * 이모지 한 줄만 손잡이(1)이고 나머지는 글이라 본문 간격을 받는다 (ADR-62) —
+ * `콕 찔러보세요` 는 좁은 폰에서 두 줄이 된다.
+ */
+.takeover .stageCard {
+  width: 100%;
+  max-width: 260px;
+  margin: 0 auto;
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: calc(var(--pad) * 1.25) var(--pad);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-sm);
+}
+.takeover .stageCard .emoji { font-size: 60px; line-height: 1; margin: 6px 0; }
+.takeover .stageCard .what { font-size: 19px; font-weight: 700; }
+.takeover .stageCard .effect { font-size: 15px; color: var(--dim); }
 
 /* ─────────────────────────── 토스트 */
 

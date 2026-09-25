@@ -18,12 +18,14 @@ import type {
 import { HOST, HOST_UI } from "../../shared/copy.ts";
 import { LIMITS } from "../../shared/constants.ts";
 import { pulse, type SeatingKey } from "../metrics.ts";
-import { PHASE_ORDER } from "../../shared/phase.ts";
+import { PHASE_ORDER, scheduleInOrder } from "../../shared/phase.ts";
 import { HOST_COOKIE, resolvePin, sessionTtl, setCookie, signSession } from "../auth.ts";
 import {
   apiError,
   eventStub,
   hostScope,
+  ipHash,
+  HOST_SCOPE,
   isMaster,
   isSecure,
   registry,
@@ -31,8 +33,7 @@ import {
   unwrap,
   type Ctx,
   type Env, timed,} from "../http.ts";
-import { seatingMessage, settingsMessage } from "../messages.ts";
-import { pokeCsv } from "../export.ts";
+import { apartMessage, hostPinMessage, seatingMessage, settingsMessage } from "../messages.ts";
 
 export const hostRoutes = new Hono<{ Bindings: Env }>();
 
@@ -41,11 +42,29 @@ hostRoutes.use("*", timed("host"));
 
 // ─────────────────────────────────── 인증
 
+/**
+ * 운영자 로그인. **접속지마다 다섯 번까지만 대볼 수 있다** (ADR-94, `HOST_PIN_TRIES`).
+ *
+ * 한도를 넘겼으면 **PIN 을 대보지도 않는다.** 비교까지 가면 틀린 답에만 429 를 주는 셈이라
+ * 맞는 답은 그대로 통과하고, 그러면 제한이 하는 일이 없다 — 다 두드려보면 언젠가 맞는다.
+ *
+ * 세션은 일주일이다. 자주 안 치게 만든 대신 치는 자리를 좁힌 것이라 **둘은 한 몸이다**
+ * (`sessionTtl` 주석).
+ */
 hostRoutes.post("/pin", async (c) => {
+  const at = await ipHash(c, HOST_SCOPE);
+  const gate = await registry(c.env).hostPinTry(at, serverNow());
+  if (!gate.ok) return apiError(c, "too_many", hostPinMessage(0));
+
   const body = await json<{ pin?: string }>(c);
   const scope = resolvePin(String(body.pin ?? ""), c.env.MASTER_PIN);
-  // 응답 어디에도 올바른 PIN 을 싣지 않는다
-  if (!scope) return apiError(c, "unauthorized", HOST.pin.wrong);
+  /*
+   * 응답 어디에도 올바른 PIN 을 싣지 않는다. 남은 횟수는 얼마 안 남았을 때만 말한다 (`hostPinMessage`).
+   * 참가자 쪽도 마지막 한 번은 `pin_wrong` 이 아니라 `pin_locked` 로 답한다.
+   * 상태는 401 그대로다. **막힌 것과 틀린 것을 뭉개지 않는다** — 이번 건 둘 다이고, 틀린 쪽이 원인이다.
+   */
+  if (!scope) return apiError(c, "unauthorized", hostPinMessage(gate.left));
+  await registry(c.env).hostPinPassed(at);
 
   const token = await signSession(scope, c.env.SESSION_SECRET, serverNow());
   c.header("set-cookie", setCookie(HOST_COOKIE, token, isSecure(c), sessionTtl(scope)));
@@ -69,11 +88,12 @@ hostRoutes.put("/defaults", async (c) => {
     await registry(c.env).putDefaults({
       maxPre: body.maxPre,
       maxParty: body.maxParty,
+      maxNotes: body.maxNotes,
+      topVoteBonus: body.topVoteBonus,
       place: String(body.place ?? "").trim().slice(0, LIMITS.placeMax),
       // 앞뒤 공백만 턴다. 안쪽 줄바꿈은 막지 않는다 — 한 줄로 쓰라고 강제할 이유가 없다
       nickHint: String(body.nickHint ?? "").trim().slice(0, LIMITS.nickHintMax),
       prevoteBeforeH: body.prevoteBeforeH,
-      voteEndBeforeH: body.voteEndBeforeH,
       revealAfterH: body.revealAfterH,
       inviteTemplate: String(body.inviteTemplate ?? "").slice(0, LIMITS.inviteTemplateMax),
     }),
@@ -90,7 +110,12 @@ hostRoutes.post("/defaults/reset", async (c) => {
 hostRoutes.get("/events", async (c) => {
   if (!isMaster(await hostScope(c))) return denied(c);
   const now = serverNow();
-  const entries = await registry(c.env).listEvents();
+  /*
+   * **새것부터다.** 레지스트리는 만든 순으로 쌓는데(`reserve` 가 끝에 붙인다), 자동 파기가 없어서
+   * (ADR-36) 회차는 늘기만 한다. 그 순서 그대로 내리면 방금 만든 회차가 목록 끝 — 열세 개면
+   * 폰 화면 밖 — 에 서서, 운영자가 만들고 돌아와 **안 만들어진 줄 알았다.**
+   */
+  const entries = (await registry(c.env).listEvents()).reverse();
   const list: EventSummary[] = [];
   for (const entry of entries) {
     const res = await eventStub(c.env, entry.id).summaryAt(now);
@@ -113,11 +138,11 @@ hostRoutes.post("/events", async (c) => {
    */
   const partyAt = Number(body.partyAt);
   const prevoteAt = Number(body.prevoteAt);
-  const voteEndAt = Number(body.voteEndAt);
   const revealAt = Number(body.revealAt);
-  if (![partyAt, prevoteAt, voteEndAt, revealAt].every(Number.isFinite)) return apiError(c, "bad_request");
-  // 발표가 파티보다 앞이면 파티가 시작되자마자 끝난다 (ADR-43)
-  if (revealAt <= partyAt) return apiError(c, "bad_request");
+  // 매력 투표 마감 시각은 받지 않는다 (ADR-100) — 보내와도 읽지 않는다. 매력 투표는 파티 시작에 닫힌다
+  if (![partyAt, prevoteAt, revealAt].every(Number.isFinite)) return apiError(c, "bad_request");
+  // 예약 전환 셋의 순서 (ADR-93 후기). 고칠 때(`EventDO.setSchedule`)와 **같은 함수**다 — 여기서는 아직 아무것도 안 울렸다
+  if (!scheduleInOrder({ prevoteAt, partyAt, revealAt }, {})) return apiError(c, "order", HOST_UI.scheduleOrder);
 
   const reserved = await registry(c.env).reserve({
     code: body.code,
@@ -141,17 +166,19 @@ hostRoutes.post("/events", async (c) => {
     // 만드는 순간 등록이 열린다. 시각은 **기록으로** 남긴다 — 지나간 예약을 지우지 않는 것과 같다
     phase: "reg",
     fired: { reg: now },
-    schedule: { partyAt, regOpenAt: now, prevoteAt, voteEndAt, revealAt },
+    schedule: { partyAt, regOpenAt: now, prevoteAt, revealAt },
     // 좁혔을 때만 적는다. 기본값을 굳이 써 넣으면 설정의 모양이 회차마다 달라진다
     config: {
       maxPre: body.config.maxPre,
       maxParty: body.config.maxParty,
       ...(body.config.allowSameGender === false ? { allowSameGender: false } : {}),
-      // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
-      ...(body.config.allowUndo === false ? { allowUndo: false } : {}),
-      ...(body.config.allowUndoPre === false ? { allowUndoPre: false } : {}),
+      // 기본은 '알리지 않는다' 다 (ADR-34). 되돌리기는 설정이 아니라 언제나 된다 (ADR-95)
       ...(body.config.preNotify === true ? { preNotify: true } : {}),
       ...(body.config.pokeNotify === true ? { pokeNotify: true } : {}),
+      // 익명 쪽지 (ADR-98). 0 이면 안 적는다 — 옛 회차와 같은 모양으로 남는다
+      ...(body.config.maxNotes ? { maxNotes: body.config.maxNotes } : {}),
+      // 매력 투표 1위 보너스 콕 (ADR-100). 0 이면 안 적는다
+      ...(body.config.topVoteBonus ? { topVoteBonus: body.config.topVoteBonus } : {}),
     },
     createdAt: now,
   });
@@ -172,25 +199,6 @@ hostRoutes.get("/events/:id/state", async (c) => {
   if (gate.response) return gate.response;
   const { value, response } = unwrap(c, await gate.stub.hostState(serverNow()));
   return response ?? c.json(value);
-});
-
-/**
- * 콕 이력 CSV — **운영자 전용** (ADR-82). 콘솔에 로그인한 브라우저에서 이 주소를 열면
- * 파일이 내려오고, `scripts/export-pokes.mjs` 도 같은 길을 쓴다.
- *
- * 콘솔 화면에는 없다. 운영 중에 누가 누구를 찔렀는지 보는 자리를 만들지 않는 것이 ADR-22 다 —
- * 이건 끝나고 돌아보는 파일이다. 전화·인스타는 싣지 않는다 (`HOST_CSV` 에 칸이 없다).
- */
-hostRoutes.get("/events/:id/pokes.csv", async (c) => {
-  const gate = await openEvent(c);
-  if (gate.response) return gate.response;
-  const { value, response } = unwrap(c, await gate.stub.pokeLog(serverNow()));
-  if (response) return response;
-  return c.body(pokeCsv(value), 200, {
-    "content-type": "text/csv; charset=utf-8",
-    "content-disposition": `attachment; filename="pokes-${gate.id}.csv"`,
-    "cache-control": "no-store",
-  });
 });
 
 /**
@@ -233,18 +241,6 @@ hostRoutes.post("/events/:id/phase", async (c) => {
   return response ?? c.json(value);
 });
 
-/**
- * 매력 투표를 지금 마감한다 (ADR-39 후기). **단계는 넘어가지 않는다** —
- * 표만 닫히고 나이·MBTI 도 파티 콕도 `파티 시작` 이 연다.
- * 시각은 **서버가 찍는다.** 운영자 폰이 빠르면 아직 열려 있는 걸 닫힌 것으로 만든다.
- */
-hostRoutes.post("/events/:id/vote-end", async (c) => {
-  const gate = await openEvent(c);
-  if (gate.response) return gate.response;
-  const { value, response } = unwrap(c, await gate.stub.closeVote(serverNow()));
-  return response ?? c.json(value);
-});
-
 hostRoutes.delete("/events/:id", async (c) => {
   if (!isMaster(await hostScope(c))) return denied(c);
   const id = c.req.param("id");
@@ -283,6 +279,26 @@ hostRoutes.delete("/events/:id/players/:pid", async (c) => {
   if (gate.response) return gate.response;
   const { response } = unwrap(c, await gate.stub.deletePlayer(c.req.param("pid")));
   return response ?? c.json({ ok: true });
+});
+
+/**
+ * 떨어뜨려 앉히기 (ADR-90). **운영자만 쓴다** — 참가자 쪽에는 이 길도, 이 말도 없다.
+ * 쌍에는 방향이 없어 두 아이디의 순서는 뜻이 없다. 지표에도 싣지 않는다 (ADR-58).
+ */
+hostRoutes.post("/events/:id/apart", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const body = await json<{ a?: string; b?: string }>(c);
+  if (!body.a || !body.b) return apiError(c, "bad_request");
+  const { value, response } = unwrap(c, await gate.stub.addApart(body.a, body.b), apartMessage);
+  return response ?? c.json({ apart: value });
+});
+
+hostRoutes.delete("/events/:id/apart/:a/:b", async (c) => {
+  const gate = await openEvent(c);
+  if (gate.response) return gate.response;
+  const { value, response } = unwrap(c, await gate.stub.removeApart(c.req.param("a"), c.req.param("b")));
+  return response ?? c.json({ apart: value });
 });
 
 /**
@@ -466,14 +482,29 @@ async function json<T>(c: Ctx): Promise<T> {
 
 function validConfig(config: EventConfig | undefined): boolean {
   if (!config) return false;
-  const { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify } = config;
+  const { maxPre, maxParty, maxNotes, topVoteBonus, allowSameGender, preNotify, pokeNotify } = config;
   /*
    * 없으면 기본값이다. 있으면 불리언이어야 한다 — `"true"` 라는 글자가 들어오면 안 된다.
-   * **굳는 규칙 다섯이 다 여기 있어야 한다** (ADR-35). 하나가 빠지면 그 값만
+   * **굳는 규칙 셋이 다 여기 있어야 한다** (ADR-35·95). 하나가 빠지면 그 값만
    * 이상한 것이 들어와도 조용히 기본값으로 접히고, 운영자는 고른 대로 저장된 줄 안다.
    */
-  for (const flag of [allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify]) {
+  for (const flag of [allowSameGender, preNotify, pokeNotify]) {
     if (flag !== undefined && typeof flag !== "boolean") return false;
+  }
+  /*
+   * 익명 쪽지는 **없어도 된다** (ADR-98) — 옛 회차에는 키가 아예 없고 그게 0 이다.
+   * 있으면 0~5 안이어야 한다. **0 을 거절하지 마라** — 0 이 이 회차의 익명 쪽지를 닫는 스위치다.
+   */
+  if (maxNotes !== undefined) {
+    if (!Number.isInteger(maxNotes) || maxNotes < LIMITS.maxNotes.min || maxNotes > LIMITS.maxNotes.max) {
+      return false;
+    }
+  }
+  // 1위 보너스 콕 (ADR-100) — 없으면 0. 있으면 0 이나 1
+  if (topVoteBonus !== undefined) {
+    if (!Number.isInteger(topVoteBonus) || topVoteBonus < LIMITS.topVoteBonus.min || topVoteBonus > LIMITS.topVoteBonus.max) {
+      return false;
+    }
   }
   return (
     Number.isInteger(maxPre) &&
@@ -496,8 +527,6 @@ function validDefaults(d: Defaults): boolean {
     (d.place === undefined || typeof d.place === "string") &&
     Number.isFinite(d.prevoteBeforeH) &&
     d.prevoteBeforeH >= 0 &&
-    Number.isFinite(d.voteEndBeforeH) &&
-    d.voteEndBeforeH >= 0 &&
     // 발표만 파티 **뒤**를 잰다 (ADR-43). 0 이면 파티 시작과 동시에 발표라 뜻이 없다
     Number.isFinite(d.revealAfterH) &&
     d.revealAfterH > 0

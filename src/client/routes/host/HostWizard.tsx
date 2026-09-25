@@ -6,9 +6,9 @@
  * 파티 일시를 옮기면 아직 손대지 않은 값이 따라 움직인다. 직접 고친 값은 그대로 둔다.
  *
  * **등록 시작은 묻지 않는다** (ADR-38). 회차를 만드는 순간 열린다 —
- * 명단에 없는 사람은 어차피 못 들어오므로(ADR-32) 문을 늦게 열어 지킬 것이 없었다.
- * 그래서 예약이 걸리는 전환은 **매력 투표 시작과 커플 발표 둘**이다 (ADR-43).
- * **파티 시작은 운영자가 누른다** (ADR-14) — 사람이 다 모였는지는 시계가 모른다.
+ * 명단에 없는 사람은 어차피 못 들어오므로(ADR-75) 문을 늦게 열어 지킬 것이 없었다.
+ * 그래서 예약이 걸리는 전환은 **매력 투표 시작 · 파티 시작 · 커플 발표 셋**이다 (ADR-43·93).
+ * 사람이 덜 모였으면 운영자가 파티 시각을 미룬다 — `partyAt` 은 파티가 시작될 때까지 열려 있다.
  * 매력 투표 마감(`voteEndAt`)은 전환이 아니라 판정이라 알람이 울리지 않는다 (ADR-39).
  */
 import { useEffect, useMemo, useState } from "react";
@@ -20,7 +20,7 @@ import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from ".
 import { ApiError, api, post } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
 import { useAuthRedirect } from "../../lib/guard.ts";
-import { NOTIFY_OPTIONS, Num, TARGET_OPTIONS, Toggle, UNDO_OPTIONS } from "./HostDefaults.tsx";
+import { NOTIFY_OPTIONS, Num, TARGET_OPTIONS, TOPVOTE_OPTIONS, Toggle } from "./HostDefaults.tsx";
 
 const HOUR = 3600_000;
 
@@ -52,20 +52,20 @@ export default function HostWizard() {
    */
   const [allowSameGender, setAllowSameGender] = useState(true);
   // 기본은 '되돌릴 수 있다' 와 '알리지 않는다' 다 (ADR-34)
-  const [allowUndo, setAllowUndo] = useState(true);
-  const [allowUndoPre, setAllowUndoPre] = useState(true);
   const [preNotify, setPreNotify] = useState(false);
   const [pokeNotify, setPokeNotify] = useState(false);
   const [partyAt, setPartyAt] = useState<number>(() => defaultPartyAt(Date.now()));
   const [prevoteAt, setPrevoteAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.prevoteBeforeH * HOUR);
-  /** 매력 투표 마감 (ADR-39). 이 뒤로 파티 시작까지가 운영자가 첫 자리를 짜는 시간이다 */
-  const [voteEndAt, setVoteEndAt] = useState<number>(() => defaultPartyAt(Date.now()) - DEFAULTS.voteEndBeforeH * HOUR);
   /** 커플 발표 (ADR-43). **더하기다** — 파티 뒤를 재는 유일한 값이라 부호가 반대다 */
   const [revealAt, setRevealAt] = useState<number>(() => defaultPartyAt(Date.now()) + DEFAULTS.revealAfterH * HOUR);
   // 직접 고친 값은 파티 일시를 옮겨도 따라가지 않는다. 고쳐놓은 걸 되돌리는 건 사고다
-  const [touched, setTouched] = useState<{ prevote?: boolean; voteEnd?: boolean; reveal?: boolean }>({});
+  const [touched, setTouched] = useState<{ prevote?: boolean; reveal?: boolean }>({});
   const [maxPre, setMaxPre] = useState(DEFAULTS.maxPre);
   const [maxParty, setMaxParty] = useState(DEFAULTS.maxParty);
+  /** 익명 쪽지 (슬라이스 36). 기본값 화면에서 가져온다 — 0 이면 그 회차에는 없다 */
+  const [maxNotes, setMaxNotes] = useState(DEFAULTS.maxNotes ?? 0);
+  /** 매력 투표 1위 보너스 콕 (ADR-100). 기본값 화면에서 가져온다 */
+  const [topVoteBonus, setTopVoteBonus] = useState(!!DEFAULTS.topVoteBonus);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -79,10 +79,11 @@ export default function HostWizard() {
     if (!d) return;
     setMaxPre(d.maxPre);
     setMaxParty(d.maxParty);
+    setMaxNotes(d.maxNotes ?? 0);
+    setTopVoteBonus(!!d.topVoteBonus);
     // 장소는 **비어 있을 때만** 채운다. 운영자가 이미 적었으면 기본값이 덮지 않는다
     setPlace((prev) => prev || d.place);
     setPrevoteAt((prev) => (touched.prevote ? prev : partyAt - d.prevoteBeforeH * HOUR));
-    setVoteEndAt((prev) => (touched.voteEnd ? prev : partyAt - d.voteEndBeforeH * HOUR));
     setRevealAt((prev) => (touched.reveal ? prev : partyAt + d.revealAfterH * HOUR));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaults.data]);
@@ -94,18 +95,16 @@ export default function HostWizard() {
     setPartyAt(ts);
     const d = { ...DEFAULTS, ...defaults.data };
     if (!touched.prevote) setPrevoteAt(ts - d.prevoteBeforeH * HOUR);
-    if (!touched.voteEnd) setVoteEndAt(ts - d.voteEndBeforeH * HOUR);
     if (!touched.reveal) setRevealAt(ts + d.revealAfterH * HOUR);
   }
 
-  function changeWhen(key: "prevote" | "voteEnd" | "reveal", value: string) {
+  function changeWhen(key: "prevote" | "reveal", value: string) {
     const raw = fromLocalInput(value);
     if (!raw) return;
     // 직접 타이핑하면 브라우저가 step 을 강제하지 않는다. 받은 값을 여기서 맞춘다
     const ts = snapSchedule(raw);
     setTouched({ ...touched, [key]: true });
     if (key === "prevote") setPrevoteAt(ts);
-    else if (key === "voteEnd") setVoteEndAt(ts);
     else setRevealAt(ts);
   }
 
@@ -118,9 +117,8 @@ export default function HostWizard() {
         place: place.trim(),
         partyAt,
         prevoteAt,
-        voteEndAt,
         revealAt,
-        config: { maxPre, maxParty, allowSameGender, allowUndo, allowUndoPre, preNotify, pokeNotify },
+        config: { maxPre, maxParty, maxNotes, allowSameGender, preNotify, pokeNotify, topVoteBonus: topVoteBonus ? 1 : 0 },
         requestId,
       };
       const made = await post<EventMeta>("/host/events", body);
@@ -157,13 +155,12 @@ export default function HostWizard() {
         {/*
           **1스텝은 기본 정보다** — 이 회차가 **무엇이고, 어디서, 언제** 열리는지.
 
-          **파티 시작이 여기 있다** (ADR-54). 2스텝은 예약만 다루는데 이것 하나는 예약이 아니다 —
-          운영자가 현황 탭에서 직접 누른다 (ADR-14). 예약 넷 사이에 끼어 있던 동안에는
-          `이 시각은 예약되지 않아요` 라는 줄을 그 칸에 붙여 막아야 했는데,
-          **자리를 옮기니 그 줄이 필요 없어졌다** — 구조가 말하는 것을 문장으로 되풀이하지 않는다.
+          **파티 시작이 여기 있다** (ADR-54). 나머지 일정 기본값이 여기서 거꾸로 계산되므로
+          (`changeParty`) **가장 먼저 정하는 것**이라 그렇다.
 
-          기준점이기도 하다 — 나머지 일정 기본값이 여기서 거꾸로 계산된다 (`changeParty`).
-          그러니 **가장 먼저 정하는 것**이 맞다.
+          처음 자리를 가른 이유는 `이것만 예약이 아니다` 였는데, ADR-93 이 예약으로 바꾸면서
+          그 이유는 없어졌다. **자리는 그대로다** — 기준점이 자기 자신을 기준으로 계산하는
+          칸들 사이에 서 있으면 안 된다.
         */}
         {at === 1 && (
           <>
@@ -194,10 +191,9 @@ export default function HostWizard() {
           **2스텝은 예약이다 — 여기 있는 것은 저절로 넘어간다** (ADR-54).
           세 시각을 **시간 순으로** 늘어놓는다: 매력 투표 시작 → 마감 → 커플 발표.
 
-          ⚠️ **파티 시작을 여기 되돌리지 마라.** 그것만 예약이 아니라(ADR-14) 여기 있으면
-          넷 다 저절로 넘어가는 줄로 읽히고, 그러면 운영자가 아무것도 안 눌러서 파티가 영영 안 열린다.
-          한동안 그 칸에 `이 시각은 예약되지 않아요` 를 붙여 막았는데,
-          **1스텝으로 옮기는 것이 그 줄보다 낫다** — 구조가 이미 말한다.
+          ⚠️ **파티 시작을 여기 되돌리지 마라.** 예약이 되고도(ADR-93) 1스텝에 남는다 —
+          여기 셋이 그 시각에서 거꾸로 계산되므로, 같이 세우면 **자기 자신을 기준으로 삼는 칸**이
+          된다. 옮기면 설정 화면과도 어긋난다 (ADR-54).
 
           설명 줄도 걷었다. 남은 셋은 라벨만으로 무엇인지 알 수 있고,
           이 화면은 대부분 **기본값 그대로 다음을 누르는** 자리다.
@@ -215,17 +211,7 @@ export default function HostWizard() {
                 onChange={(e) => changeWhen("prevote", e.target.value)}
               />
             </div>
-            {/* 매력 투표 마감 (ADR-39). 이 시각과 파티 시작 사이가 첫 자리를 짜는 시간이다 */}
-            <div className="field">
-              <label htmlFor="voteEnd">{HOST_UI.fields.voteEndAt}</label>
-              <input
-                id="voteEnd"
-                type="datetime-local"
-                step={SCHEDULE_STEP_MIN * 60}
-                value={toLocalInput(voteEndAt)}
-                onChange={(e) => changeWhen("voteEnd", e.target.value)}
-              />
-            </div>
+            {/* 매력 투표 마감은 묻지 않는다 (ADR-100) — 파티가 시작될 때 함께 닫힌다 */}
             {/* 커플 발표 (ADR-43). 파티를 시작해야 울린다 — 설정 탭이 그 사실을 말한다 */}
             <div className="field">
               <label htmlFor="reveal">{HOST_UI.fields.revealAt}</label>
@@ -276,18 +262,6 @@ export default function HostWizard() {
               onChange={setAllowSameGender}
             />
             <Toggle
-              label={HOST_UI.fields.undoPre}
-              value={allowUndoPre}
-              options={UNDO_OPTIONS}
-              onChange={setAllowUndoPre}
-            />
-            <Toggle
-              label={HOST_UI.fields.undoParty}
-              value={allowUndo}
-              options={UNDO_OPTIONS}
-              onChange={setAllowUndo}
-            />
-            <Toggle
               label={HOST_UI.fields.preNotify}
               value={preNotify}
               options={NOTIFY_OPTIONS}
@@ -298,6 +272,25 @@ export default function HostWizard() {
               value={pokeNotify}
               options={NOTIFY_OPTIONS}
               onChange={setPokeNotify}
+            />
+            {/* 매력 투표 1위 보너스 콕 (ADR-100). 콕의 규칙이라 콕 줄들 뒤, 익명 쪽지 앞에 선다 */}
+            <Toggle
+              label={HOST_UI.fields.topVoteBonus}
+              value={topVoteBonus}
+              options={TOPVOTE_OPTIONS}
+              onChange={setTopVoteBonus}
+            />
+            {/*
+              익명 쪽지는 묶음의 **맨 끝에 혼자** 선다 (슬라이스 36) — 콕이 아니고 굳지도 않는다.
+              **설명 줄은 여기 없다** (ADR-54): `0~5` 가 0 을 말하고, 0 이 무엇을 하는지는
+              설정 탭에 적혀 있다. 여기서 아직 아무도 안 보냈으니 바닥도 없다.
+            */}
+            <Num
+              label={HOST_UI.fields.maxNotes}
+              value={maxNotes}
+              min={LIMITS.maxNotes.min}
+              max={LIMITS.maxNotes.max}
+              onChange={setMaxNotes}
             />
           </>
         )}

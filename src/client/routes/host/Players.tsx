@@ -21,23 +21,25 @@
  *
  * 상세 시트는 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md).
  */
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, DELETE_PLAYER, GENDER, HOST_UI, ME, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Invite, PinState } from "../../../shared/types.ts";
 import type { Defaults } from "../../../shared/types.ts";
 import { LIMITS, PHONE_SEED, formatPhone, typedPhone } from "../../../shared/constants.ts";
 import { INVITE_TEMPLATE } from "../../../shared/copy.ts";
 import { renderInvite } from "../../../shared/invite.ts";
+import { apartFrom } from "../../../shared/seats.ts";
 import { formatWhen } from "../../../shared/time.ts";
 import { api } from "../../lib/api.ts";
-import { useLoad } from "../../lib/useLoad.ts";
+import { useLoad, useTimeouts } from "../../lib/useLoad.ts";
 import { keepPhoneSeed } from "../../lib/phoneField.ts";
-import { ApiError, del, post } from "../../lib/api.ts";
+import { ApiError, del, messageOf, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
 import { useConsole } from "./HostConsole.tsx";
+import PersonCard from "./PersonCard.tsx";
 
 /**
  * 필터는 **성별 축**이다. 카드 목록은 등록한 사람만 담으므로 상태로 나눌 것이 없고,
@@ -46,6 +48,46 @@ import { useConsole } from "./HostConsole.tsx";
  * 성비를 보려고 버튼을 두 번 눌러야 한다.
  */
 type Filter = "all" | Gender;
+
+/**
+ * 나이 띠 한 줄이 서는 자리 — `[min, max]` 와 평균.
+ *
+ * **평균이다** (ADR-86 후기). 중앙값으로 시작했던 건 장난으로 적은 한 살이 평균을 세 살씩
+ * 밀어서였는데, 등록 상한이 48 로 내려가며(ADR-87) 그 값이 애초에 못 들어온다.
+ *
+ * 소수 한 자리를 남긴다 — 정수로 자르면 27.5 와 27.0 이 같아 보여 두 줄을 견줄 수 없다.
+ * `Number()` 가 `27.0` 의 `.0` 을 떼어 준다.
+ */
+function ageOf(ages: number[]) {
+  const mean = Number((ages.reduce((a, b) => a + b, 0) / ages.length).toFixed(1));
+  return { min: Math.min(...ages), max: Math.max(...ages), mean };
+}
+
+/**
+ * 띠 두 줄이 **같은 축**을 쓴다 — 줄마다 제 범위로 늘이면 둘 다 꽉 차서 겹침이 사라진다.
+ * 겹침이 이 화면이 답하려는 질문 자체라, 축을 공유하는 것이 곧 기능이다.
+ *
+ * 폭이 0 인 자리(다 같은 나이·한 명)는 `MIN_BAND` 로 세운다 — 0% 로 두면 줄이 빈 것처럼
+ * 보이는데, **나이가 하나뿐인 것과 아무도 없는 것은 다르다.**
+ */
+const MIN_BAND = 6;
+
+function AgeRow({ gender, ages, lo, span }: { gender: Gender; ages: number[]; lo: number; span: number }) {
+  const { min, max, mean } = ageOf(ages);
+  const width = Math.max(((max - min) / span) * 100, MIN_BAND);
+  // 최소 폭으로 세운 띠가 오른쪽 끝에서 축을 넘지 않게 민다
+  const left = Math.min(((min - lo) / span) * 100, 100 - width);
+  const pct = (n: number) => `${Number(n.toFixed(1))}%`;
+  return (
+    <div className={`ageRow ${gender === "M" ? "m" : "f"}`}>
+      <span className="sex">{GENDER[gender]}</span>
+      <span className="bar">
+        <i style={{ left: pct(left), width: pct(width) }} />
+      </span>
+      <span className="small dim">{HOST_UI.players.ages.summary(min, max, mean)}</span>
+    </div>
+  );
+}
 
 export default function Players() {
   const { state, reload } = useConsole();
@@ -59,6 +101,9 @@ export default function Players() {
    * `/players/invites` 는 참가자 아이디와 겹치지 않는다 (아이디는 서버가 만든 난수다).
    */
   const atInvites = pid === "invites";
+  /** 떨어뜨릴 사람 고르기 (ADR-90). 상세 시트 **위에서** 여는 시트라 주소가 한 칸 더 깊다 */
+  const { pathname } = useLocation();
+  const atApart = !!picked && pathname.endsWith("/apart");
   /*
    * 안내문 문구는 **운영자 기본값**에 하나만 둔다 (ADR-32). 여기서 한 번 읽어
    * 위의 미리보기와 아래 행별 복사가 **같은 값**을 본다 — 둘로 읽으면 언젠가 어긋난다.
@@ -178,6 +223,62 @@ export default function Players() {
     F: state.players.filter((p) => p.gender === "F").length,
   };
 
+  /**
+   * 띠 두 줄이 나눠 쓰는 **하나의 축**. 양쪽 성별 전체에서 잰다.
+   *
+   * 한쪽 성별만 있으면 그 줄만 선다 — 빈 띠를 두면 `0명` 이 아니라 `0세` 로 읽힌다.
+   * 아무도 등록 안 했으면 카드 자체가 없다 (아래 `players.empty` 가 그 자리를 맡는다).
+   */
+  const ageAxis = (() => {
+    const rows = (["M", "F"] as const)
+      .map((g) => [g, state.players.filter((p) => p.gender === g).map((p) => p.age)] as const)
+      .filter(([, ages]) => ages.length > 0);
+    if (!rows.length) return null;
+    const all = state.players.map((p) => p.age);
+    const lo = Math.min(...all);
+    // 다 같은 나이면 폭이 0 이다. 나누는 자리라 1 로 받쳐 둔다 — 띠는 `MIN_BAND` 가 세운다
+    return { rows, lo, span: Math.max(Math.max(...all) - lo, 1) };
+  })();
+
+  /**
+   * 떨어뜨려 앉히기 (ADR-90). **되돌릴 수 있어 확인창이 없다** (ADR-6) — 목록에 줄이 생기고 사라지는 것이 곧 알림이다.
+   * 방향이 없어 누구 시트에서 넣었든 같은 쌍이다.
+   * **거절만 토스트로 말한다** — 시트를 열어 둔 사이 발표가 났거나 망이 끊겼을 때. 조용히 실패하면 운영자가 다시 누른다.
+   */
+  const failed = (e: unknown) => toast(messageOf(e, HOST_UI.saveFailed));
+  const apartOf = (playerId: string) =>
+    [...apartFrom(playerId, state.apart)]
+      .map((id) => state.players.find((p) => p.id === id))
+      .filter((p): p is NonNullable<typeof p> => !!p);
+
+  async function addApart(a: string, b: string) {
+    try {
+      await post(`/host/events/${state.meta.id}/apart`, { a, b });
+      reload();
+      navigate(-1);
+    } catch (e) {
+      failed(e);
+    }
+  }
+
+  async function removeApart(a: string, b: string) {
+    try {
+      await del(`/host/events/${state.meta.id}/apart/${a}/${b}`);
+      reload();
+    } catch (e) {
+      failed(e);
+    }
+  }
+
+  /**
+   * 익명 쪽지 줄은 **있는 회차에만** 선다 (슬라이스 36).
+   *
+   * ⚠️ **설정값만 보고 가르지 마라.** 0 으로 내린 뒤에도 이미 오간 것은 남으므로
+   * (`noteUsedMax`), 그러면 사고가 난 회차 — 하필 운영자가 내보내기를 누르는 그 회차 —
+   * 에서 **사라지는 것 하나가 확인창에서 빠진다.**
+   */
+  const hasNotes = (state.meta.config.maxNotes ?? 0) > 0 || state.noteUsedMax > 0;
+
   function askDelete(playerId: string) {
     const rounds = state.seatings.filter((s) => s.seats.some((x) => x.playerId === playerId)).length;
     confirm(
@@ -185,11 +286,12 @@ export default function Players() {
         btn: DELETE_PLAYER.btn,
         title: DELETE_PLAYER.title,
         danger: true,
-        note: DELETE_PLAYER.note,
+        note: DELETE_PLAYER.note(hasNotes),
         facts: DELETE_PLAYER.facts({
           sentPre: state.sent.pre[playerId] ?? 0,
           sent: state.sent.party[playerId] ?? 0,
           rounds,
+          ...(hasNotes ? { notes: { sent: state.noteSent[playerId] ?? 0 } } : {}),
         }),
       },
       async () => {
@@ -224,6 +326,25 @@ export default function Players() {
         <span className="dim">{"›"}</span>
       </button>
 
+      {/*
+        **나이 띠** (ADR-86) — 운영자가 남녀 나이차를 눈으로 재는 자리다.
+
+        **성별 칩 위**에 둔다 (ADR-86 후기). 띠는 필터를 타지 않아서 — `남성` 을 눌러도 두 줄이
+        그대로다 — 칩과 목록 사이에 끼면 **칩이 가리키는 곳이 칩이 거르는 것이 아니게 된다.**
+        칩 아래는 칩이 거르는 것만의 자리다.
+
+        인원 수는 여기 없다 — 바로 아래 칩이 말한다. 평균 *차이* 도 없다: 운영자가 답하려는
+        질문은 *두 쪽이 겹치는가* 인데 그 숫자는 쌍봉을 0.0 으로 적어 거짓말을 한다.
+        겹침은 **띠가 말한다** — 그래서 두 줄이 같은 축을 쓴다.
+      */}
+      {ageAxis && (
+        <div className="card ageBand">
+          {ageAxis.rows.map(([g, ages]) => (
+            <AgeRow key={g} gender={g} ages={ages} lo={ageAxis.lo} span={ageAxis.span} />
+          ))}
+        </div>
+      )}
+
       {/* 한 버튼을 껐다 켜면 지금 어느 쪽인지 알 수 없다. 셋 중 하나가 항상 켜져 있다 */}
       <div className="choice">
         {(
@@ -251,21 +372,10 @@ export default function Players() {
         카드 전체가 상세를 여는 손잡이다. 오른쪽에 붙던 참석 칩은 걷어냈다 (ADR-45).
       */}
       {shown.map((p) => (
-        <div className="person" key={p.id}>
-          <button type="button" className="open" onClick={() => navigate(`${base}/${p.id}`)}>
-            <Avatar nickname={p.nickname} gender={p.gender} />
-            <span className="meta">
-              <span className="name ellipsis">
-                {p.realName} · {p.nickname} · {UNIT.age(p.age)}
-              </span>
-              {/* 받은 콕은 보여주지 않는다 — 알면 그 사람을 다르게 대하게 된다 (ADR-22) */}
-              <span className="charm ellipsis">{formatPhone(p.phone)}</span>
-            </span>
-          </button>
-        </div>
+        <PersonCard key={p.id} p={p} phone onOpen={() => navigate(`${base}/${p.id}`)} />
       ))}
 
-      <Sheet open={!!picked} onClose={() => navigate(-1)} title={picked?.nickname ?? ""}>
+      <Sheet open={!!picked && !atApart} onClose={() => navigate(-1)} title={picked?.nickname ?? ""}>
         {picked && (
           <>
             <div className="stack">
@@ -287,9 +397,11 @@ export default function Players() {
               {/* 두 라운드를 갈라 적는다 — 합치면 콕을 안 찌른 사람이 찌른 것으로 읽힌다 (ADR-34) */}
               <Row label={HOST_UI.players.sentPre(state.sent.pre[picked.id] ?? 0)} value="" />
               <Row label={HOST_UI.players.sent(state.sent.party[picked.id] ?? 0)} value="" />
+              {/* 익명 쪽지가 있는 회차에만 (슬라이스 36). **받은 장 수 줄은 없다** */}
+              {hasNotes && <Row label={HOST_UI.players.noteSent(state.noteSent[picked.id] ?? 0)} value="" />}
             </div>
 
-            <p className="kicker" style={{ marginTop: 16 }}>
+            <p className="kicker mt">
               {ME.labels.charms}
             </p>
             <div className="stack">
@@ -301,15 +413,41 @@ export default function Players() {
             </div>
 
             {/*
+              **떨어뜨려 앉히기** (ADR-90). 참가자가 현장에서 부탁한 것을 운영자 손에 옮겨 두는 자리다.
+              사유 칸은 없다. 발표가 자리를 끝내므로 그 뒤에는 더하는 버튼이 없고, 빼기만 남는다.
+            */}
+            <p className="kicker mt">
+              {HOST_UI.players.apart.title}
+            </p>
+            <div className="stack">
+              {apartOf(picked.id).map((other) => (
+                <div className="fact" key={other.id} style={{ alignItems: "center" }}>
+                  <Avatar nickname={other.nickname} gender={other.gender} size="sm" />
+                  <span className="grow ellipsis">
+                    {other.realName} · {other.nickname}
+                  </span>
+                  <button className="btn ghost" onClick={() => removeApart(picked.id, other.id)}>
+                    {HOST_UI.players.apart.remove}
+                  </button>
+                </div>
+              ))}
+            </div>
+            {state.meta.phase !== "done" && (
+              <button className="btn ghost block mtSm" onClick={() => navigate(`${base}/${picked.id}/apart`)}>
+                {HOST_UI.players.apart.add}
+              </button>
+            )}
+
+            {/*
               PIN 번호를 잊었거나 잠겼다는 연락이 오는 자리 (ADR-75). 초기화는 **지우기만** 한다 —
               새 값은 그 사람이 다음 입장에서 정한다. 콕·자리·운세는 그대로다 (S-C1·C2).
               되돌릴 수 없는 일이라 확인창이 무엇이 어떻게 바뀌는지 항목으로 보여준다 (S-C4).
             */}
-            <button className="btn ghost block" style={{ marginTop: 16 }} onClick={() => askPinReset(picked.id, picked.pin)}>
+            <button className="btn ghost block mt" onClick={() => askPinReset(picked.id, picked.pin)}>
               {HOST_UI.players.pinReset}
             </button>
 
-            <div className="row" style={{ marginTop: 16 }}>
+            <div className="row mt">
               <button className="btn wide ghost" onClick={() => navigate(-1)}>
                 {BTN.close}
               </button>
@@ -319,6 +457,26 @@ export default function Players() {
             </div>
           </>
         )}
+      </Sheet>
+
+      {/* 떨어뜨릴 사람 고르기 (ADR-90). 고르면 뒤로 가 상세 시트로 돌아간다 — 거기 줄이 생긴 것이 곧 알림이다 */}
+      <Sheet
+        open={atApart}
+        onClose={() => navigate(-1)}
+        title={HOST_UI.players.apart.pickTitle(picked?.nickname ?? "")}
+      >
+        {picked && (() => {
+          const taken = new Set([picked.id, ...apartOf(picked.id).map((p) => p.id)]);
+          const candidates = state.players.filter((p) => !taken.has(p.id));
+          if (!candidates.length) return <p className="dim center">{HOST_UI.players.apart.noOne}</p>;
+          return (
+            <div className="stack">
+              {candidates.map((p) => (
+                <PersonCard key={p.id} p={p} onOpen={() => addApart(picked.id, p.id)} />
+              ))}
+            </div>
+          );
+        })()}
       </Sheet>
 
       {/* 명단 시트. 여는 카드가 위에 있고, 뒤로 가기로 닫힌다 */}
@@ -394,17 +552,32 @@ function Invites({
    * 아래에 띄우면 명단을 덮으므로 **누른 그 버튼**이 잠깐 바뀐다.
    */
   const [copied, setCopied] = useState<string | null>(null);
+  /*
+   * 표시를 끄는 타이머. 콜백 안에서 걸리므로 화면이 내려갈 때 지우는 건 `useTimeouts` 가 맡는다 —
+   * 안 지우면 2초 뒤에 없는 화면에 상태를 쓰려 들고, 테스트에서는 `window is not defined` 로 CI 가 빨개졌다.
+   * 같은 버튼을 다시 누르면 앞 타이머를 지우고 새로 센다 — 두 번째 누름이 첫 타이머에 꺼지지 않게.
+   */
+  const later = useTimeouts();
+  const cancelFlash = useRef<(() => void) | null>(null);
   async function flashCopy(key: string, run: () => Promise<boolean>) {
     if (!(await run())) return;
     setCopied(key);
-    // 같은 버튼을 다시 눌렀을 때 앞 타이머가 새 표시를 꺼버리지 않게 자기 것만 지운다
-    setTimeout(() => setCopied((c) => (c === key ? null : c)), 2000);
+    cancelFlash.current?.();
+    cancelFlash.current = later(() => setCopied((c) => (c === key ? null : c)), 2000);
   }
   const known = new Set(invites.map((i) => i.phone));
 
   const joined = invites.filter((i) => i.nickname).length;
-  /** 아직 등록 안 한 사람. **이 목록은 파티가 다가올수록 줄고, 그만큼 아래 카드가 는다** */
-  const waiting = invites.filter((i) => !i.nickname);
+  /**
+   * 아직 등록 안 한 사람. **이 목록은 파티가 다가올수록 줄고, 그만큼 아래 카드가 는다**
+   *
+   * **새것부터다.** 방금 넣은 번호가 더하기 폼 바로 아래에 선다 — 토스트가 없으니(ADR-65)
+   * 행이 생기는 것이 유일한 알림이고, 그 행은 **화면 안에** 생겨야 한다.
+   * 서버는 넣은 순(`added_at`)으로 주므로 오래된 순 그대로 그리면 새 행이 명단 끝에 붙는다.
+   * 스무 명 넘게 부른 회차에서 그 끝은 폰으로 세 화면 아래라, 운영자는 칸이 `010` 으로
+   * 비는 것만 보고 안 들어간 줄 알았다. 정렬은 안정적이라 한 번에 넣은 줄끼리는 서버 순서 그대로다.
+   */
+  const waiting = invites.filter((i) => !i.nickname).sort((a, b) => b.addedAt - a.addedAt);
 
   async function add(phones: string[], clear: () => void) {
     setBusy(true);

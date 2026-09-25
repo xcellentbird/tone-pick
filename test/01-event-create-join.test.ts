@@ -65,12 +65,20 @@ function baseCookie(res: Response): string | null {
   return one ?? res.headers.get("set-cookie")?.split(";")[0] ?? null;
 }
 
-/** 운영자 PIN 으로 로그인하고 세션 쿠키를 돌려준다. PIN 은 하나뿐이다 (ADR-12) */
+/**
+ * 운영자 PIN 으로 로그인하고 세션 쿠키를 돌려준다. PIN 은 하나뿐이다 (ADR-12)
+ *
+ * **호출마다 다른 접속지에서 들어온다.** 틀린 PIN 은 접속지마다 다섯 번까지만 세어지므로
+ * (ADR-94), 한 자리에서 여러 번 틀리는 테스트는 여기가 아니라 `94-host-pin` 의 일이다.
+ * 여기 테스트들이 보는 것은 *틀리면 401* 이지 *여섯 번째가 막히는 것* 이 아니다.
+ */
+let loginSeq = 0;
 async function login(pin: string, eventId?: string) {
   // eventId 는 옛 회차 PIN 시절의 입력이다. 지금은 서버가 무시해야 한다 — 그걸 확인하려고 남겨둔다
   const res = await api<{ scope: unknown }>("/api/host/pin", {
     method: "POST",
     body: eventId ? { pin, eventId } : { pin },
+    headers: { "cf-connecting-ip": `10.1.0.${++loginSeq}` },
   });
   return res;
 }
@@ -83,7 +91,6 @@ function draft(over: Partial<CreateEventInput> = {}): CreateEventInput {
     name: `${seq}회차 솔로 파티`,
     partyAt: now + 7 * DAY,
     prevoteAt: now + 25 * HOUR,
-    voteEndAt: now + 7 * DAY - HOUR,
     revealAt: now + 7 * DAY + 3 * HOUR,
     config: { maxPre: 3, maxParty: 3 },
     requestId: `req-${seq}-${now}`,
@@ -307,6 +314,22 @@ describe("B. 회차 생성", () => {
     expect(after.body.length).toBe(before.body.length + 1);
   });
 
+  /**
+   * ★ **회차 목록은 새것부터다.** 자동 파기가 없어서(ADR-36) 회차는 쌓이기만 하고,
+   * 만든 순으로 늘어놓으면 방금 만든 회차가 목록 끝 — 열세 개면 폰 화면 밖 — 에 선다.
+   * 운영자는 만들고 돌아와서 **안 만들어진 줄 알았다** (실제로 그렇게 신고가 왔다).
+   */
+  it("S-B10 ★ 방금 만든 회차가 목록 맨 위에 선다", async () => {
+    const older = await createEvent(master);
+    const newer = await createEvent(master);
+    expect(newer.status).toBe(200);
+
+    const list = await api<EventSummary[]>("/api/host/events", { cookie: master });
+    const ids = list.body.map((e) => e.id);
+    expect(ids[0], "방금 만든 회차가 맨 위가 아니다").toBe(newer.body.id);
+    expect(ids.indexOf(newer.body.id)).toBeLessThan(ids.indexOf(older.body.id));
+  });
+
   /** 기본값은 통째로 검사한다 — 일부만 보내면 막힌다. 읽어서 한 칸만 갈아끼운다 */
   async function setNickHint(nickHint: string) {
     const now = await api<Record<string, unknown>>("/api/host/defaults", { cookie: master });
@@ -437,7 +460,7 @@ describe("C. 입장 코드", () => {
   });
 
   it("S-C2b ★ 참가 링크 응답에 입장 코드가 없다", async () => {
-    // Given 등록 중인 회차가 있다. 참가 링크는 회차 아이디 + 그 사람의 토큰이다 (ADR-32)
+    // Given 등록 중인 회차가 있다. 참가 링크는 회차 아이디 하나다 — 링크에는 신원이 없다 (ADR-75)
     const ev = await createEvent(master, { prevoteAt: Date.now() + 24 * HOUR });
 
     // When  링크를 받은 사람이 인증 없이 그 회차를 연다

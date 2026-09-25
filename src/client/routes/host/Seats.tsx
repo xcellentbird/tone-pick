@@ -21,13 +21,16 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { GENDER, HOST, HOST_UI, SEAT, UNIT } from "../../../shared/copy.ts";
 import type { Gender, Player, SeatingRound } from "../../../shared/types.ts";
 import { LIMITS } from "../../../shared/constants.ts";
-import { autoTable } from "../../../shared/seats.ts";
+import { apartClashes, apartFrom, autoTable, isApart } from "../../../shared/seats.ts";
 import { ApiError, del, post } from "../../lib/api.ts";
 import { useOverlay } from "../../ui/Overlays.tsx";
 import Avatar from "../../ui/Avatar.tsx";
 import Sheet from "../../ui/Sheet.tsx";
 import { Num } from "./HostDefaults.tsx";
 import { useConsole } from "./HostConsole.tsx";
+
+/** 아이디 → 닉네임. 이 화면 곳곳이 같은 찾기를 한다 — 없는 사람은 빈 글자다 */
+const nickOf = (players: Player[], id: string) => players.find((p) => p.id === id)?.nickname ?? "";
 
 export default function Seats() {
   const { state, reload } = useConsole();
@@ -92,8 +95,15 @@ export default function Seats() {
    * 그래서 짝은 하나가 아니라 **집합**이다 — 하나만 들고 있으면 나중 것이 앞의 것을 덮어
    * A-B 가 화면에서 조용히 사라진다 (ADR-24).
    */
+  /*
+   * **떼어 놓을 쌍은 짝으로 짚지 않는다** (ADR-90). 서로 찔렀어도 운영자가 떼어 놓은 두 사람에게
+   * 💔(`짝 따로`)를 띄우면 다시 붙이라고 말하는 셈이고, 떼어 놓는 맞교환에 `이어진 쌍을 떼어놓습니다` 가 뜬다.
+   * 이 화면에서 짝을 세는 곳(칩·맞교환 경고·쌍 보고·섞기 알림)은 전부 이 목록을 쓴다.
+   */
+  const keptApart = isApart(state.apart);
+  const couples = state.mutual.filter(([a, b]) => !keptApart(a, b));
   const partners = new Map<string, Set<string>>();
-  for (const [a, b] of state.mutual) {
+  for (const [a, b] of couples) {
     for (const [one, other] of [[a, b], [b, a]] as const) {
       const set = partners.get(one) ?? new Set<string>();
       set.add(other);
@@ -117,7 +127,7 @@ export default function Seats() {
     }
   }
 
-  const nameOf = (id: string) => state.players.find((p) => p.id === id)?.nickname ?? "";
+  const nameOf = (id: string) => nickOf(state.players, id);
 
   async function shuffle() {
     await post(`${base}/shuffle`);
@@ -125,7 +135,7 @@ export default function Seats() {
      * **붙어 앉은 쌍은 섞어도 제자리다** (ADR-23). 그 사실은 붙은 쌍이 있을 때만 말한다 —
      * 없을 때 말하면 있지도 않은 일을 알리는 것이 된다.
      */
-    const held = draft ? pairStats(draft, state.mutual).together : 0;
+    const held = draft ? pairStats(draft, couples).together : 0;
     toast(held > 0 ? HOST_UI.seats.shuffleKeepsPairs : HOST.seating.shuffled);
     setPicked(null);
     reload();
@@ -143,7 +153,7 @@ export default function Seats() {
    * 붙여둔 손이 말없이 풀리면 그게 가장 나쁜 종류의 놀람이다.
    */
   async function reseat() {
-    const held = draft ? pairStats(draft, state.mutual).together : 0;
+    const held = draft ? pairStats(draft, couples).together : 0;
     await post(`${base}/reseat`);
     toast(held > 0 ? HOST.seating.reseatedPairs : HOST.seating.reseated);
     setPicked(null);
@@ -242,7 +252,7 @@ export default function Seats() {
 
   function askPublish(round: SeatingRound) {
     const perTable = round.seats.length / round.tableCount;
-    const pairs = pairStats(round, state.mutual);
+    const pairs = pairStats(round, couples);
     confirm(
       {
         btn: HOST.seating.publish,
@@ -341,6 +351,7 @@ export default function Seats() {
             person={seatTarget.person}
             round={seatTarget.round}
             players={state.players}
+            apart={state.apart}
             onSeat={(table) => seat(seatTarget.round!, seatTarget.person!.id, table)}
           />
         )}
@@ -353,7 +364,7 @@ export default function Seats() {
             쌍 성적표. **모든 라운드에서 보인다** (ADR-51) — 떨어진 쌍의 이름이
             운영자가 맞교환으로 손볼 목록 그 자체다.
           */}
-          <PairReport round={draft} mutual={state.mutual} state={state} />
+          <PairReport round={draft} mutual={couples} state={state} />
           {editBar(draft)}
           <Tables
             round={draft}
@@ -462,7 +473,7 @@ export default function Seats() {
               **작업 목록**이다 — 떨어진 쌍의 이름이 곧 맞교환할 대상이다.
               읽으러 연 사람에게는 테이블이 먼저라는 이 카드의 규칙을 그대로 따른다.
             */}
-            {editing && <PairReport round={round} mutual={state.mutual} state={state} />}
+            {editing && <PairReport round={round} mutual={couples} state={state} />}
             <Tables
               round={round}
               picked={picked?.round === round.round ? picked.playerId : null}
@@ -718,7 +729,7 @@ function PairReport({
   state: ReturnType<typeof useConsole>["state"];
 }) {
   const { total, together, split } = pairStats(round, mutual);
-  const name = (id: string) => state.players.find((p) => p.id === id)?.nickname ?? "";
+  const name = (id: string) => nickOf(state.players, id);
   if (total === 0) return <p className="small dim">{HOST_UI.seats.pairNone}</p>;
   return (
     <div className="stack">
@@ -757,6 +768,8 @@ function Tables({
   const tables = Array.from({ length: round.tableCount }, (_, i) => i + 1);
   /** 이 라운드에서 누가 몇 번 테이블인가. 짝이 어디 앉았는지 보려면 자리 전체가 필요하다 */
   const seatedAt = new Map(round.seats.map((s) => [s.playerId, s.table]));
+  /** 떼어 놓을 상대와 같은 테이블에 앉은 사람 → 그 상대들 (ADR-90). 섞기와 **같은 함수**다 */
+  const clashes = apartClashes(round.seats, state.apart);
   return (
     <div className="tableGrid">
       {tables.map((t) => {
@@ -779,6 +792,7 @@ function Tables({
                */
               const mates = [...(partners.get(person.id) ?? [])].filter((id) => seatedAt.has(id));
               const together = mates.filter((id) => seatedAt.get(id) === t).length;
+              const avoid = (clashes.get(person.id) ?? []).map((id) => nickOf(state.players, id));
               return (
               <button
                 className={`seatChip ${person.gender === "M" ? "m" : "f"} ${picked === person.id ? "picked" : ""}`}
@@ -790,6 +804,7 @@ function Tables({
                 <span className="grow" style={{ minWidth: 0 }}>
                   <span className="row between">
                     <span className="ellipsis">
+                      {avoid.length > 0 && `${HOST_UI.seats.apartChip} `}
                       {mates.length > 0 && `${HOST_UI.seats.pairChip(together)} `}
                       {person.nickname}
                     </span>
@@ -801,6 +816,7 @@ function Tables({
                   <span className="tiny dim ellipsis" style={{ display: "block" }}>
                     {person.realName} · {UNIT.age(person.age)} · {person.mbti}
                     {mates.length > 0 && ` · ${HOST_UI.seats.pairChipNote(together)}`}
+                    {avoid.length > 0 && ` · ${HOST_UI.seats.apartNote(avoid)}`}
                   </span>
                 </span>
               </button>
@@ -840,7 +856,7 @@ function NotAcked({
   const done = new Set(round.acks);
   const left = round.seats
     .filter((s) => !done.has(s.playerId))
-    .map((s) => ({ table: s.table, nickname: state.players.find((p) => p.id === s.playerId)?.nickname ?? "" }))
+    .map((s) => ({ table: s.table, nickname: nickOf(state.players, s.playerId) }))
     .sort((a, b) => a.table - b.table || a.nickname.localeCompare(b.nickname));
   if (left.length === 0) return null;
   return (
@@ -918,16 +934,19 @@ function SeatPicker({
   person,
   round,
   players,
+  apart,
   onSeat,
 }: {
   person: Player;
   round: SeatingRound;
   players: Player[];
+  /** 떼어 놓을 쌍 (ADR-90). 서버와 **같은 함수**에 넘겨야 미리 말한 번호가 실제로 앉는 번호다 */
+  apart: Array<[string, string]>;
   onSeat: (table?: number) => void;
 }) {
   const genderOf = (id: string) => players.find((p) => p.id === id)?.gender;
   /** 화면과 서버가 **같은 함수**를 쓴다 — 그래서 여기 적힌 번호가 실제로 앉는 번호다 */
-  const auto = autoTable(round.seats, round.tableCount, genderOf, person.gender);
+  const auto = autoTable(round.seats, round.tableCount, genderOf, person.gender, apartFrom(person.id, apart));
   const tables = Array.from({ length: round.tableCount }, (_, i) => {
     const no = i + 1;
     const here = round.seats.filter((s) => s.table === no);

@@ -5,15 +5,15 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { BTN, ENTRY, FAIL, FORTUNE, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
-import type { MyPokeState, ParticipantState } from "../../shared/types.ts";
+import { BTN, ENTRY, FAIL, FORTUNE, HELP, NOTE, TABS_PARTICIPANT } from "../../shared/copy.ts";
+import type { MyNoteState, MyPokeState, PublicAnnouncement, ParticipantState, StageKey } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
-import { voteClosed } from "../../shared/phase.ts";
-import { TICK_WINDOW } from "../../shared/time.ts";
+import { canNote, canPoke } from "../../shared/phase.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
 import { sessionSource, type ParticipantSource } from "../lib/participant.ts";
-import { useLoad, useTicker } from "../lib/useLoad.ts";
+import { useCovered } from "../lib/covered.ts";
+import { useLoad } from "../lib/useLoad.ts";
 import { ApiError } from "../lib/api.ts";
 import { nav, startPulse } from "../lib/pulse.ts";
 import type { NavKey } from "../../shared/pulse.ts";
@@ -22,8 +22,10 @@ import People from "./People.tsx";
 import Me from "./Me.tsx";
 import Home from "./Home.tsx";
 import SeatTakeover from "../ui/SeatTakeover.tsx";
+import StageTakeover from "../ui/StageTakeover.tsx";
 import Sheet from "../ui/Sheet.tsx";
 import Help from "../ui/Help.tsx";
+import NoteBox from "../ui/NoteBox.tsx";
 import { canOpenFortune } from "../../shared/phase.ts";
 import FortuneTab from "./Fortune.tsx";
 import StatusBar from "../ui/StatusBar.tsx";
@@ -41,6 +43,12 @@ interface ViewProps {
   /** 프로필 시트도 라우트다 — 뒤로 가기로 닫힌다 */
   profileId?: string;
   onProfile: (playerId: string | null) => void;
+  /**
+   * 익명 쪽지 작성 시트 (슬라이스 36). **프로필 시트 위에 쌓이지 않고 대신 선다** —
+   * 이 저장소의 시트는 겹치지 않는다 (운영자 콘솔의 떨어뜨리기 시트와 같다).
+   */
+  noteOpen?: boolean;
+  onNote: (on: boolean, opts?: { replace?: boolean }) => void;
   /**
    * 내 정보 편집도 라우트다 — 뒤로 가기가 곧 취소다 (ADR-31).
    *
@@ -65,6 +73,12 @@ interface ViewProps {
    */
   helpOpen?: boolean;
   onHelp: (on: boolean) => void;
+  /**
+   * 익명 쪽지함 (ADR-98 후기 3). 도움말처럼 **상단 바에서 어느 탭에서든 열리는 시트**다.
+   * 뒤로 가기로 닫힌다. 이 회차에 쪽지가 없는데 주소를 직접 열면 갈아끼운다 (`/seat` 와 같다).
+   */
+  notesOpen?: boolean;
+  onNotes?: (on: boolean, opts?: { replace?: boolean }) => void;
 }
 
 /**
@@ -119,13 +133,20 @@ export default function Participant() {
       : location.pathname.endsWith("/people") || location.pathname.includes("/p/")
         ? "people"
         : "home";
-  const profileId = location.pathname.includes("/p/")
-    ? decodeURIComponent(location.pathname.split("/p/")[1])
-    : undefined;
+  /*
+   * ⚠️ **뒤 조각을 갈라야 한다.** `/p/:pid` 뒤에 `/note` 가 붙을 수 있어서(슬라이스 36),
+   * `split("/p/")[1]` 을 통째로 아이디로 쓰면 `abc/note` 가 되어 **프로필을 못 찾는다.**
+   */
+  const afterP = location.pathname.includes("/p/") ? location.pathname.split("/p/")[1] : undefined;
+  const profileId = afterP ? decodeURIComponent(afterP.replace(/\/note$/, "")) : undefined;
+  /** 익명 쪽지 작성 시트. 조건이 안 맞으면 `People` 이 프로필 시트로 갈아끼운다 */
+  const noteOpen = !!afterP && afterP.endsWith("/note");
   // 자리 화면을 **다시 여는** 길. 자동으로 뜨는 쪽은 라우트가 아니다 — 참가자가 연 게 아니다
   const seatOpen = location.pathname.endsWith("/seat");
   // 도움말도 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md)
   const helpOpen = location.pathname.endsWith("/help");
+  // 익명 쪽지함도 같다 (ADR-98 후기 3)
+  const notesOpen = location.pathname.endsWith("/notes");
 
   /*
    * 어느 화면까지 왔나를 **집계로만** 남긴다 (ADR-56).
@@ -134,7 +155,7 @@ export default function Participant() {
    * 탭마다 흩어 놓으면 새 탭이 생길 때 빠뜨리고, 빠뜨린 걸 아무도 모른다.
    * ⚠️ **주소를 그대로 보내지 마라.** `/e/:code` 의 코드가 실린다 — 화면 **이름**만 보낸다.
    */
-  const screen: NavKey = helpOpen ? "help" : seatOpen ? "seat" : profileId ? "profile" : tab;
+  const screen: NavKey = helpOpen ? "help" : notesOpen ? "notes" : seatOpen ? "seat" : profileId ? "profile" : tab;
   useEffect(() => nav(screen), [screen]);
   useEffect(() => startPulse(), []);
 
@@ -157,9 +178,27 @@ export default function Participant() {
       profileId={profileId}
       // 시트 열기는 push, 닫기는 뒤로 가기 — 안드로이드 백 버튼으로 닫혀야 한다
       onProfile={(id) => (id ? navigate(`${base}/p/${id}`) : navigate(-1))}
+      noteOpen={noteOpen}
+      /*
+       * 작성 시트도 push 다 — 뒤로 가기가 곧 취소이고 쓰던 글은 버려진다 (내 정보 고치기와 같다).
+       * 닫을 때 `replace` 는 **갈아끼움**이다: 조건이 안 맞는 주소를 직접 연 사람에게는
+       * 뒤로 갈 자리가 없다 (`/seat` 와 같은 규칙).
+       */
+      onNote={(on, opts) =>
+        on
+          ? navigate(`${base}/p/${profileId}/note`)
+          : opts?.replace
+            ? navigate(`${base}/p/${profileId}`, { replace: true })
+            : navigate(-1)
+      }
       seatOpen={seatOpen}
       helpOpen={helpOpen}
       onHelp={(on) => (on ? navigate(`${base}/help`) : navigate(-1))}
+      notesOpen={notesOpen}
+      // 도움말과 같다 — 열기는 push, 닫기는 뒤로 가기. 직접 연 주소가 헛것이면 홈으로 갈아끼운다
+      onNotes={(on, opts) =>
+        on ? navigate(`${base}/notes`) : opts?.replace ? navigate(base, { replace: true }) : navigate(-1)
+      }
       /*
        * 편집과 같다 — **닫기는 뒤로 가기**이되, 주소를 직접 연 사람에게는 뒤로 갈 자리가 없다.
        * 그때 `navigate(-1)` 은 앱을 벗어난다. iOS 는 가장자리 스와이프가 뒤로 가기라 더 쉽게 걸린다.
@@ -210,6 +249,19 @@ export function ParticipantView(props: ViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.set],
   );
+  /** 익명 쪽지 한 칸만 갈아끼운다 (슬라이스 36). `setPoke` 와 같은 이유로 통로가 좁다 */
+  const setNote = useCallback(
+    (note: MyNoteState) => state.set((cur) => (cur ? { ...cur, note } : cur)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.set],
+  );
+  /** 설문 답 한 칸만 갈아끼운다 (슬라이스 27). `setPoke` 와 같은 이유로 통로가 좁다 */
+  const setAnnouncement = useCallback(
+    (a: PublicAnnouncement) =>
+      state.set((cur) => (cur ? { ...cur, announcements: cur.announcements.map((x) => (x.id === a.id ? a : x)) } : cur)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.set],
+  );
   useEffect(() => {
     if (!source.liveCode || failed) return;
     const socket = connect(source.liveCode, () => state.reload());
@@ -219,7 +271,16 @@ export function ParticipantView(props: ViewProps) {
 
   if (state.error) return <Failed error={state.error} code={code} onRetry={state.reload} busy={state.loading} />;
   if (!state.data) return <div className="screen" />;
-  return <Loaded {...props} state={state.data} reload={state.reload} setPoke={setPoke} />;
+  return (
+    <Loaded
+      {...props}
+      state={state.data}
+      reload={state.reload}
+      setPoke={setPoke}
+      setNote={setNote}
+      setAnnouncement={setAnnouncement}
+    />
+  );
 }
 
 function Loaded({
@@ -228,6 +289,8 @@ function Loaded({
   onTab,
   profileId,
   onProfile,
+  noteOpen,
+  onNote,
   editing,
   onEdit,
   seatOpen,
@@ -236,27 +299,21 @@ function Loaded({
   state,
   reload,
   setPoke,
+  setNote,
+  setAnnouncement,
   helpOpen,
   onHelp,
-}: ViewProps & { state: ParticipantState; reload: () => void; setPoke: (poke: MyPokeState) => void }) {
+  notesOpen,
+  onNotes,
+}: ViewProps & {
+  state: ParticipantState;
+  reload: () => void;
+  setPoke: (poke: MyPokeState) => void;
+  setNote: (note: MyNoteState) => void;
+  setAnnouncement: (a: PublicAnnouncement) => void;
+}) {
   const [acked, setAcked] = useState<number[]>([]);
-  /**
-   * **마감은 아무도 밀어주지 않는다** (ADR-55). 예약대로 닫히는 쪽에는 서버가 보낼 신호가 없다 —
-   * 그 순간 코드를 돌리는 사람이 없기 때문이다. 그래서 마감이 가까우면 여기서 1초마다 다시 그린다.
-   *
-   * 홈에만 두면 모자란다. 투표 중에 참가자가 있는 곳은 대개 **참가자 탭**이고,
-   * 거기서 마감이 지나면 배너도 안 뜨고 콕 버튼도 열린 채로 남는다.
-   *
-   * **마감이 지나면 꺼진다** — 그 뒤로는 1초마다 다시 그릴 이유가 없다.
-   * (운영자가 앞당겨 닫는 쪽은 소켓이 밀어준다.)
-   */
-  const untilVoteEnd = (state.event.schedule.voteEndAt ?? 0) - now();
-  useTicker(
-    !voteClosed(state.event.schedule, state.event.fired, now()) &&
-      untilVoteEnd > 0 &&
-      untilVoteEnd <= TICK_WINDOW,
-  );
-  const banner = bannerOf(noticesOf(state, now()), now());
+  const banner = bannerOf(noticesOf(state), now());
 
   const ack = useCallback(async () => {
     if (!state.seat) return;
@@ -306,6 +363,89 @@ function Loaded({
   const needsSeatAck =
     !!state.seat && !state.seat.acked && !acked.includes(state.seat.round) && state.event.phase !== "done";
 
+  /**
+   * 단계가 열릴 때의 안내 (ADR-96, 슬라이스 34). 새 행동이 열리는 순간이 둘뿐이라 매력 투표와 파티만이다 —
+   * 등록 직후는 도움말이, 마감은 자리 화면이, 발표는 결과 카드가 이미 그 자리다.
+   *
+   * **자리 확인이 먼저다** — 몸을 옮기는 지시가 설명보다 앞이다. 둘 다 뜰 자리면 자리를 확인한 뒤에 온다.
+   * 봤다는 건 서버가 안다(`me.seenStage`, 사건이 아니라 상태다 — 예약이 여는 순간 앱을 켜둔 사람이 없다).
+   * 누른 즉시 감추고, 저장이 실패하면 되돌린다 — 자리 확인과 같다.
+   *
+   * 문은 참가자 탭의 버튼과 **같은 판정**(`canPoke`)이다 — 닫는 길이 하나 더 생겨도 여기와 거기가 따로 갈 수 없다.
+   */
+  const stage: StageKey | null = !canPoke(state.event.phase)
+    ? null
+    : state.event.phase === "party"
+      ? "party"
+      : "prevote";
+  const [seenLocal, setSeenLocal] = useState<StageKey | null>(null);
+  const needsStage = !!stage && state.me.seenStage !== stage && seenLocal !== stage && !needsSeatAck;
+
+  /**
+   * 어깨너머 가리기 (슬라이스 16). **여기서 한 번만 읽는다.**
+   *
+   * 예전에는 참가자 탭이 혼자 `useCovered()` 를 불렀다. 익명 쪽지가 생기면서 쪽지함에도 같은 토글이
+   * 서고 읽음 판정까지 이 값을 보므로, 각자 부르면 **한 화면에서 켠 것이 다른 화면에 안 보인다** —
+   * 두 집 살림이 된다. 저장은 여전히 localStorage 하나다 (서버로 보내지 않는다).
+   */
+  const [covered, setCovered] = useCovered();
+
+  /**
+   * 익명 쪽지함이 이 회차에 있나 (ADR-98 후기 3). **파티가 시작돼야 생기고**, 쪽지를 0장으로 둔 회차에는 없다.
+   * 다만 **주고받은 것이 하나라도 있으면 남는다** — 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던
+   * 회차이고, 거기서 이미 온 쪽지는 지울 수 있어야 한다 (도움말 문답과 같은 조건).
+   */
+  const note = state.note;
+  const inboxOn =
+    (started && (state.event.config.maxNotes ?? 0) > 0) ||
+    note.received.length > 0 ||
+    Object.keys(note.sent).length > 0;
+  useEffect(() => {
+    if (notesOpen && !inboxOn) onNotes?.(false, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notesOpen, inboxOn]);
+
+  /**
+   * 받은 익명 쪽지를 **읽음으로 찍는다.** 여기 있는 이유는 셋을 한자리에서 보기 때문이다 —
+   * 쪽지함이 열려 있나, 덮개가 덮고 있나(`needsSeatAck`·`needsStage`), 어깨너머 가리기가 켜져 있나.
+   *
+   * **읽음은 쪽지함을 열 때다** (ADR-98 후기 3). 한동안 홈이 그려지면 찍었는데, 쪽지 줄이 홈 맨 아래라
+   * **스크롤하지 않아도 읽음이 섰다** — 배지가 말하는 것보다 코드가 넓게 재고 있었다.
+   * 쪽지함은 열면 받은 쪽지가 맨 위에 있다.
+   *
+   * ⚠️ **덮개 아래에서는 찍지 않는다.** 자리 확인·단계 안내는 시트 위에 선다 — 본문을 볼 수 없는
+   * 사람이 읽은 것으로 찍히면 `문구가 코드보다 넓게 말하면 거짓말` 에 걸린다.
+   *
+   * ⚠️ **가리기 중에도 찍지 않는다.** 가리면 줄만 보이는데, 본문을 안 본 것은 읽은 것이 아니다.
+   * 이것이 **안 읽고 지우는 길**을 실제로 열어 둔다 (ADR-98) — 그 길이 없으면 괴롭히는 쪽은
+   * 언제나 `읽음` 을 받고, 읽음이 거절 신호가 되지 않게 하는 장치가 글로만 남는다.
+   */
+  const notesShown =
+    !!notesOpen && inboxOn && !needsSeatAck && !needsStage && !covered && note.received.length > 0;
+  useEffect(() => {
+    if (!notesShown) return;
+    let alive = true;
+    void source.seeNotes().then((next) => {
+      if (alive) setNote(next);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notesShown, note.received.length]);
+  const seeStage = useCallback(async () => {
+    if (!stage) return;
+    setSeenLocal(stage);
+    try {
+      await source.markStage(stage);
+      reload();
+      // 버튼이 곧 다음 할 일이다 — 누르면 참가자 탭이다
+      onTab("people");
+    } catch {
+      setSeenLocal(null);
+    }
+  }, [stage, source, reload, onTab]);
+
   return (
     <Overlays>
       {welcome && <Greeting text={welcome} />}
@@ -325,6 +465,7 @@ function Loaded({
              */
             onHome={tab === "home" ? undefined : () => onTab("home")}
             onHelp={() => onHelp(true)}
+            inbox={inboxOn ? { unread: note.unread, onOpen: () => onNotes?.(true) } : undefined}
           />
         </header>
 
@@ -344,7 +485,14 @@ function Loaded({
             </button>
           )}
           {tab === "home" && (
-            <Home state={state} onTab={onTab} onSeat={() => onSeat(true)} onHelp={() => onHelp(true)} />
+            <Home
+              state={state}
+              onTab={onTab}
+              onSeat={() => onSeat(true)}
+              onHelp={() => onHelp(true)}
+              // 서버가 방금 준 답을 버리고 다시 묻지 않는다 (슬라이스 17 과 같은 이유)
+              onVote={async (id, choice) => setAnnouncement(await source.vote(id, choice))}
+            />
           )}
           {tab === "people" && (
             <People
@@ -352,9 +500,14 @@ function Loaded({
               source={source}
               reload={reload}
               setPoke={setPoke}
+              setNote={setNote}
               profileId={profileId}
               onProfile={onProfile}
+              noteOpen={noteOpen}
+              onNote={onNote}
               onTab={onTab}
+              covered={covered}
+              setCovered={setCovered}
             />
           )}
           {/* 재미 탭. 지금은 운세 카드 하나뿐이다 — 이상형 찾기가 여기 두 번째로 붙는다 */}
@@ -375,6 +528,34 @@ function Loaded({
         {!needsSeatAck && seatOpen && state.seat && (
           <SeatTakeover seat={state.seat} started={started} onClose={() => onSeat(false)} />
         )}
+
+        {/* 단계가 열릴 때의 안내 — 자리 확인 뒤에 선다 (ADR-96). 도움말 시트보다 위다 (`z-index`) */}
+        {needsStage && stage && (
+          <StageTakeover
+            stage={stage}
+            count={state.poke.budget.party.max}
+            notify={!!state.event.config.pokeNotify}
+            onDone={seeStage}
+          />
+        )}
+
+        {/*
+          익명 쪽지함 (ADR-98 후기 3). 어느 탭에서 열든 같은 것이 뜬다.
+          **열릴 때마다 새로 붙는다** — 보낸 쪽지의 읽음 배지가 그 순간의 값으로 굳는 것이 여기서 나온다.
+        */}
+        <Sheet open={!!notesOpen && inboxOn} onClose={() => onNotes?.(false)} title={NOTE.inbox.title}>
+          {notesOpen && inboxOn && (
+            <NoteBox
+              note={note}
+              roster={state.roster}
+              open={canNote(state.event.phase) && (state.event.config.maxNotes ?? 0) > 0}
+              covered={covered}
+              setCovered={setCovered}
+              onRemove={async (id) => setNote(await source.removeNote(id))}
+              onClose={() => onNotes?.(false)}
+            />
+          )}
+        </Sheet>
 
         {/* 파티 룰 도움말. 어느 탭에서 열든 같은 것이 뜬다 */}
         <Sheet open={!!helpOpen} onClose={() => onHelp(false)} title={HELP.title}>
@@ -414,7 +595,7 @@ function Greeting({ text }: { text: string }) {
  *   404  회차는 있는데 **내가 없다** — 운영자가 지웠다. 그렇다고 말한다
  *   그 밖  서버가 준 문장을 그대로
  *
- * 404 를 "그런 회차가 없어요" 로 뭉뚱그리면 참가자는 링크를 의심하고 운영자에게
+ * 404 를 "그런 파티가 없어요" 로 뭉뚱그리면 참가자는 링크를 의심하고 운영자에게
  * 엉뚱한 걸 묻는다. 지워진 사람은 명단에 남아 있으면 다시 들어올 수 있으니 그 길을 준다.
  */
 function Failed({
@@ -447,7 +628,7 @@ function Failed({
   /*
    * 서버가 답은 했는데 우리 것이 아니다 — 500 이거나, 설명 없이 온 무엇이든.
    *
-   * **이 전부가 "그런 회차가 없어요" 로 떨어지고 있었다.** `apiError()` 는 `message` 를
+   * **이 전부가 "그런 파티가 없어요" 로 떨어지고 있었다.** `apiError()` 는 `message` 를
    * 선택으로 두므로 설명 없이 나가는 실패가 흔한데, 화면은 그때 링크를 탓했다.
    * 참가자는 멀쩡한 링크를 의심하고 운영자에게 엉뚱한 걸 묻는다 —
    * `status 0` 에서 이미 한 번 고친 실수인데 **이 경로가 남아 있었다.**
@@ -469,7 +650,13 @@ function Failed({
    * `/` 의 그 이동은 **주소만 치고 들어온 사람**을 위한 것이라 그 자리에서는 맞다.
    * 여기 오는 사람은 회차 하나를 물은 사람이라, 묻지 않은 회차로 데려가면 안 된다.
    */
-  const stuck = removed || sessionGone;
+  /*
+   * **막힌 나라는 예외다** (ADR-92). 위의 "다시 물어도 같은 답" 이 여기서만 틀리다 —
+   * VPN 을 끄거나 한국 망으로 옮기면 **같은 요청이 다르게 답한다.** 그래서 버튼을 남긴다.
+   * 문구가 `끄고 다시 열어주세요` 라고 말하는데 누를 것이 없으면 그 문장이 헛말이 된다.
+   */
+  const blockedHere = error.code === "region_blocked";
+  const stuck = removed || (sessionGone && !blockedHere);
   /*
    * **망 문제에 `location.reload()` 를 걸면 안 된다.** 앱을 통째로 버리고 `index.html`
    * 부터 다시 받는 일인데, 망이 흔들리는 바로 그 순간에 가장 하면 안 되는 것이다.

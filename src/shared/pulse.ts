@@ -20,6 +20,8 @@ export const NAV_KEYS = [
   "me",
   "fun",
   "help",
+  /** 익명 쪽지함 (ADR-98 후기 3). 화면 이름뿐이다 — 몇 장인지도 누구 것인지도 안 담긴다 */
+  "notes",
   "seat",
   "profile",
   "result",
@@ -43,6 +45,13 @@ export const TAP_KEYS = [
   "cover",
   "profile_open",
   "vote",
+  /*
+   * 익명 쪽지 (슬라이스 36). **몇 번 눌렸는지만이다** — 누가 누구에게 보냈는지는
+   * `tap()` 이 인자를 안 받아 담을 수도 없다. 회차도 안 담긴다 (ADR-56·58).
+   * `note_remove` 는 받는 쪽이 지운 횟수다 — 얼마나 지워지는지가 곧 이 기능을 계속 둘지의 근거다.
+   */
+  "note_send",
+  "note_remove",
 ] as const;
 
 /** 소켓 사건. 파티장 와이파이가 실제로 어떤지 여기서만 보인다 */

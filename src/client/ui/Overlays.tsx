@@ -10,6 +10,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { BTN, type ActionCopy } from "../../shared/copy.ts";
+import { useTimeouts } from "../lib/useLoad.ts";
 import Sheet from "./Sheet.tsx";
 
 interface Pending {
@@ -65,11 +66,17 @@ export function Overlays({ children }: { children: ReactNode }) {
     }
   }, [dialogInHistory]);
 
-  const toast = useCallback((text: string) => {
-    const id = Date.now() + Math.random();
-    setToasts((list) => [...list, { id, text }]);
-    setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), 2600);
-  }, []);
+  // 사라짐 타이머는 콜백 안에서 걸린다 — 화면이 내려갈 때 지우는 건 `useTimeouts` 가 맡는다
+  const later = useTimeouts();
+
+  const toast = useCallback(
+    (text: string) => {
+      const id = Date.now() + Math.random();
+      setToasts((list) => [...list, { id, text }]);
+      later(() => setToasts((list) => list.filter((t) => t.id !== id)), 2600);
+    },
+    [later],
+  );
 
   const confirm = useCallback<Overlay["confirm"]>(
     (copy, run) => {
