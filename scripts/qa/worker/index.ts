@@ -30,7 +30,7 @@ export { LobbyDO, StageDO } from "./stage-do.ts";
 const PHASE_NAME: Record<Want["phase"], string> = {
   reg: "등록",
   prevote: "매력 투표",
-  party: "파티 (첫 자리 발행까지)",
+  party: "파티",
   done: "커플 발표 후",
 };
 
@@ -86,66 +86,110 @@ async function lobbyPage(env: Env, error = ""): Promise<Response> {
       .catch(() => null),
   ]);
   // 연습용 표시(ENV_LABEL)가 없는 서버에는 스테이지를 만들지 않는다 (`beginStage` 의 practiceOnly)
-  const qa = !health?.ok
-    ? "QA 서버에 연결하지 못했어요"
+  const conn = !health?.ok
+    ? { cls: "bad", text: "QA 연결 안 됨" }
     : health.label
-      ? "QA 서버에 연결됐어요"
-      : "연결된 서버에 연습용 표시가 없어요. 이 서버에는 스테이지를 만들 수 없어요";
-  /** 만든 시각 — 한국 시간으로. 하루 몫이 다시 차는 때(오전 9시)도 한국 시간으로 말한다 */
+      ? { cls: "ok", text: "QA 연결됨" }
+      : { cls: "warn", text: "연습용 서버가 아니에요" };
+  /** 만든 시각 — 한국 시간으로. 하루 몫이 다시 차는 때(오전 9시)도 한국 시간이다 */
   const kst = (at: number) => {
     const d = new Date(at + 9 * 3600_000);
     return `${d.getUTCMonth() + 1}월 ${d.getUTCDate()}일 ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
   };
-  const list = rows.length
-    ? rows
-        .map(
-          (r) =>
-            `<li><a href="s/${esc(r.id)}/">스테이지 ${esc(r.code)}</a> <small>${r.people}명 · ${kst(r.at)}</small></li>`,
-        )
-        .join("")
-    : "<li><small>진행 중인 스테이지가 없어요</small></li>";
-  const opts = (xs: readonly string[], names?: Record<string, string>, pick?: string) =>
-    xs.map((x) => `<option value="${x}"${x === pick ? " selected" : ""}>${names?.[x] ?? x}</option>`).join("");
-  const nums = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => String(a + i));
+  const stages = rows
+    .map(
+      (r) =>
+        `<li><a class="stage" href="s/${esc(r.id)}/"><b>${esc(r.code)}</b><span>${r.people}명 · ${kst(r.at)}</span></a></li>`,
+    )
+    .join("");
+  const nums = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
   const age = (name: string, value: number, label: string) =>
     `<input type="number" inputmode="numeric" name="${name}" value="${value}" min="${AGE_LIMIT.min}" max="${AGE_LIMIT.max}" step="1" aria-label="${label}">`;
   /** 한 성별의 칸 — 인원 · 평균 나이 · 나이 범위 */
   const side = (key: "m" | "f", g: "M" | "F", title: string, count: string) => {
     const a = STAGE_AGES[g];
-    return `<fieldset><legend>${title}</legend>
-<label>인원</label><select name="${count}">${opts(nums(PER_GENDER.min, PER_GENDER.max), undefined, "6")}</select>
-<label>평균 나이</label>${age(`${key}_avg`, a.avg, `${title} 평균 나이`)}
-<label>나이 범위</label><div class="range">${age(`${key}_min`, a.min, `${title} 최소 나이`)}<span>~</span>${age(`${key}_max`, a.max, `${title} 최대 나이`)}</div>
+    const people = nums(PER_GENDER.min, PER_GENDER.max)
+      .map((n) => `<option value="${n}"${n === 6 ? " selected" : ""}>${n}명</option>`)
+      .join("");
+    return `<fieldset class="side ${key}"><legend>${title}</legend>
+<label>인원<select name="${count}">${people}</select></label>
+<label>평균 나이<input type="number" inputmode="numeric" name="${key}_avg" value="${a.avg}" min="${AGE_LIMIT.min}" max="${AGE_LIMIT.max}" step="1"></label>
+<div class="lab">나이 범위</div>
+<div class="range">${age(`${key}_min`, a.min, `${title} 최소 나이`)}<span>~</span>${age(`${key}_max`, a.max, `${title} 최대 나이`)}</div>
 </fieldset>`;
   };
+  const phases = START_PHASES.map(
+    (p, i) => `<label><input type="radio" name="phase" value="${p}"${i === 0 ? " checked" : ""}><span>${PHASE_NAME[p]}</span></label>`,
+  ).join("");
   return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>QA 스테이지</title>
 <link rel="icon" href="data:,">
 <style>
-body{margin:0;padding:12px;font:16px/1.5 system-ui;background:#111;color:#eee;max-width:560px}
-h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:18px 0 6px}small{color:#9a9}a{color:#a29bfe}
-label{display:block;margin:8px 0 2px;font-size:14px;color:#bbb}
-.pair{display:flex;gap:10px}.pair>fieldset{flex:1;min-width:0}
-fieldset{margin:0;padding:4px 10px 10px;border:1px solid #333;border-radius:12px}legend{padding:0 4px;color:#ddd}
-select,input{width:100%;box-sizing:border-box;font-size:17px;padding:10px;border-radius:10px;border:1px solid #444;background:#222;color:#fff}
-.range{display:flex;gap:6px;align-items:center}.range input{min-width:0}
-button{width:100%;margin-top:14px;font-size:17px;padding:13px;border-radius:10px;border:0;background:#6c5ce7;color:#fff}
-ul{padding-left:18px}.err{color:#ff7675}
+:root{color-scheme:dark;--bg:#0f0f14;--panel:#17171f;--panel-2:#1f1f29;--line:#2d2d3a;--text:#ececf2;--dim:#9b9bb0;
+--accent:#7565f2;--accent-soft:#a29bfe;--on-accent:#fff;--men:#74b9ff;--women:#fd79a8;--ok:#4cd28a;--warn:#ffb86b;--bad:#ff7675;
+--r-lg:18px;--r:14px;--r-sm:10px;--gap:12px}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:32px 20px 56px}
+header{display:flex;align-items:center;flex-wrap:wrap;gap:var(--gap);margin-bottom:32px}
+h1{margin:0;font-size:24px;letter-spacing:-.02em}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;background:var(--panel);border:1px solid var(--line);color:var(--dim);font-size:13px;line-height:1.3;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.pill.warn .dot{background:var(--warn)}.pill.bad .dot{background:var(--bad)}
+section{margin-bottom:32px}
+h2{margin:0 0 12px;font-size:13px;font-weight:600;color:var(--dim);letter-spacing:.04em}
+.stages{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.stage{display:flex;flex-direction:column;gap:2px;padding:14px 16px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line);color:inherit;text-decoration:none}
+.stage:hover,.stage:focus-visible{border-color:var(--accent);outline:none}
+.stage b{font-size:18px;letter-spacing:.06em}
+.stage span{color:var(--dim);font-size:13px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px}
+.sides{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap)}
+.side{margin:0;min-width:0;padding:14px 14px 16px;border:0;border-radius:var(--r);background:var(--panel-2);box-shadow:inset 0 3px 0 var(--men)}
+.side.f{box-shadow:inset 0 3px 0 var(--women)}
+.side legend{float:left;width:100%;margin:0 0 4px;padding:0;font-size:16px;font-weight:700}
+.side legend::before{content:"";display:inline-block;width:9px;height:9px;margin-right:8px;border-radius:50%;background:var(--men);vertical-align:1px}
+.side.f legend::before{background:var(--women)}
+label,.lab{display:block;margin-top:12px;font-size:13px;color:var(--dim)}
+label>select,label>input{display:block;margin-top:5px}
+select,input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px}
+input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+select:focus,input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.range{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;margin-top:5px;color:var(--dim)}
+.phase{margin-top:18px}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}
+.seg label{margin:0;position:relative}
+.seg input{position:absolute;opacity:0;width:1px;height:1px}
+.seg span{display:block;padding:10px 4px;border-radius:var(--r-sm);background:var(--bg);border:1px solid var(--line);color:var(--dim);font-size:14px;text-align:center;cursor:pointer;white-space:nowrap}
+.seg input:checked+span{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.seg input:focus-visible+span{outline:2px solid var(--accent-soft);outline-offset:1px}
+.go{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;margin-top:20px;padding:14px;border:0;border-radius:var(--r);background:var(--accent);color:var(--on-accent);font:inherit;font-size:16px;font-weight:700;cursor:pointer}
+.go:disabled{opacity:.7;cursor:progress}
+.go:disabled::before{content:"";width:16px;height:16px;border-radius:50%;border:2px solid var(--on-accent);border-right-color:transparent;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.err{margin:0 0 24px;padding:12px 16px;border-radius:var(--r);background:rgba(255,118,117,.12);border:1px solid var(--bad);color:var(--text)}
+@media (max-width:520px){.wrap{padding:24px 16px 40px}header{margin-bottom:24px}.pills{margin-left:0}.card{padding:14px}.seg{grid-template-columns:repeat(2,1fr)}}
 </style>
-<h1>QA 스테이지</h1><small>${qa}</small>
-${error ? `<p class="err">${esc(error)}</p>` : ""}
-<h2>진행 중인 스테이지</h2><ul>${list}</ul>
+<div class="wrap">
+<header>
+  <h1>QA 스테이지</h1>
+  <div class="pills">
+    <span class="pill ${conn.cls}"><i class="dot"></i>${conn.text}</span>
+    <span class="pill">남은 호출 ${fmt(left)} / ${fmt(DAILY)}</span>
+  </div>
+</header>
+${error ? `<div class="err" role="alert">${esc(error)}</div>` : ""}
+${stages ? `<section><h2>진행 중인 스테이지</h2><ul class="stages">${stages}</ul></section>` : ""}
+<section>
 <h2>새 스테이지</h2>
-<form method="post" action="new" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='만드는 중이에요. 인원이 많으면 수십 초 걸려요'">
-<div class="pair">${side("m", "M", "남자", "men")}${side("f", "F", "여자", "women")}</div>
-<p><small>나이는 ${AGE_LIMIT.min}~${AGE_LIMIT.max}세 사이로 입력해주세요. 평균 나이 근처가 가장 많고, 범위 끝으로 갈수록 적어져요.</small></p>
-<label>시작 단계</label><select name="phase">${opts(START_PHASES, PHASE_NAME, "reg")}</select>
-<p><small>가짜 참가자는 모두 등록을 마친 상태로 시작해요.</small></p>
-<button>스테이지 만들기</button>
+<form class="card" method="post" action="new" onsubmit="const b=this.querySelector('.go');b.disabled=true;b.lastChild.textContent='만드는 중…'">
+<div class="sides">${side("m", "M", "남자", "men")}${side("f", "F", "여자", "women")}</div>
+<div class="phase"><div class="lab">시작 단계</div><div class="seg" role="radiogroup" aria-label="시작 단계">${phases}</div></div>
+<button class="go"><span>스테이지 만들기</span></button>
 </form>
-<p><small>오늘 남은 QA 호출은 ${fmt(left)}번이에요. 매일 오전 9시에 ${fmt(DAILY)}번으로 다시 채워져요. 스테이지를 하나 만들 때 인원의 두 배쯤 쓰고, 자동 콕은 찌른 횟수만큼 써요.</small></p>
-<p><small>로그인 없이 주소만 알면 누구나 쓸 수 있어요. 다른 사람이 만든 스테이지는 닫지 말아주세요.</small></p>
-<p><small>전화번호는 모두 가짜예요. 스테이지를 닫으면 회차도 함께 지워지고, 12시간 동안 쓰지 않은 스테이지는 자동으로 닫혀요.</small></p>`);
+</section>
+</div>`);
 }
 
 /**
