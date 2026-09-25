@@ -212,9 +212,11 @@ ADR-32 의 개인별 링크는 걷어냈다 — **`/j/<회차id>/<토큰>` 을 �
 - **`test/release/` 는 배포되는 물건을 본다.** 새 규칙은 여기가 아니라 `test/` 에 쓴다 —
   여기 있는 건 `npm test` 로 잡히지 않는 것뿐이다(옛 표. 번들 크기는 `check:bundle` — 둘 다 `guard` 가 돌린다). 늦게 알아도 되는 게 아니라
   **매 PR 에 러너를 하나 더 세울 값어치가 없는 것**이 기준이다
-- **워커 테스트는 파일이 커지면 초선형으로 느려진다** — 아이솔레이트에 쌓인다.
-  같은 테스트가 96개짜리 파일 끝에서 110ms → 11초가 됐다. **그때는 파일을 나눈다**
-  (`test/helpers/party.ts` 머리말). 지금 최대가 40개다
+- **워커에 요청을 넣는 길은 `fetchApp`(`test/helpers/app.ts`) 하나다. `SELF.fetch` 를 쓰지 마라** —
+  vitest-pool-workers 의 `SELF` 는 요청마다 진입점 래퍼의 prototype 에 Proxy 를 한 겹씩 쌓아서,
+  파일 안에서 요청이 늘수록 요청 하나가 느려지고 파일 전체는 제곱으로 느려진다(`npm test` 73초 → 35초로 줄인 원인).
+  `워커 테스트는 파일이 커지면 초선형으로 느려진다` 의 정체가 이것이었다 — 파일을 나누는 건 이제 성능 대책이 아니다.
+  `npm run check:tests` 가 막는다
 
 ## 문서 라우팅
 
@@ -303,7 +305,7 @@ LLM 프롬프트는 화면 문구가 아니라 `korean-ok-start` ~ `korean-ok-en
 ```bash
 npm run dev:worker   # Worker + DO (127.0.0.1:8787) — 이걸 먼저 띄운다
 npm run dev          # Vite. /api, /ws 를 8787 로 프록시
-npm run check        # typecheck(클라이언트+Worker+테스트) + 문구·번역투·설정·테마·ADR 검사. 커밋 전에 이걸 돌린다
+npm run check        # typecheck(클라이언트+Worker+테스트) + 문구·번역투·설정·테마·ADR·테스트 하네스 검사. 커밋 전에 이걸 돌린다
 npm test             # workerd 안의 규칙 테스트 + happy-dom 화면 테스트
 npm run guard        # 릴리스 차선. 옛 스키마 + 번들 예산 — main 으로 올리기 전에 돌린다
 npm run deploy       # 프로덕션. 비밀값 두 개(MASTER_PIN·SESSION_SECRET)만 넣으면 나간다
@@ -344,8 +346,10 @@ npx wrangler r2 object get tone-pick-logs/poke-logs/<회차id>.csv --remote --fi
 `npm run check:copy` 는 `copy.ts` 밖에 하드코딩된 한국어를 잡는다.
 주석은 통과한다. SQL·정규식처럼 화면 문구가 아닌 건 윗줄에 `copy-ok` 를 적는다.
 
-**CI 는 두 차선이다** (ADR-66). `check` 는 모든 PR·푸시에서 돌고(50초), `release-guard` 는
+**CI 는 두 차선이다** (ADR-66). `check` 는 모든 PR·푸시에서 돌고, `release-guard` 는
 **main 으로 가는 길에서만** 돈다 — `npm run guard` 와 같은 것이다.
+`check` 는 **문서(`docs/` · `*.md`)만 바뀐 PR 이면 ADR 검사만** 하고 끝난다 — 코드가 하나라도 섞이면 전부 돈다.
+빨라지는 건 한 잡 안에서 한다 — 타입 검사·빌드를 테스트와 겹쳐 돌린다. **잡을 늘려서 빨라지려 하지 마라** (아래 러너 사고).
 느린 걸 미룬 게 아니라 **`npm test` 가 구조적으로 못 잡는 것**을 거기 뒀다.
 qa 에는 붙이지 마라: feature PR 이 전부 qa 로 오므로 매 PR 이 러너를 하나씩 더 잡고,
 러너가 모자라 필수 검사가 큐에 앉는 것이 이 저장소가 실제로 다친 자리다(v2.0.0 이 bypass 로 나갔다).

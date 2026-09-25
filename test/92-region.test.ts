@@ -8,7 +8,8 @@
  * 로컬 워커와 테스트에는 그 값이 없고, 없을 때 막지 않는 것도 규칙이다 —
  * 그래서 나머지 테스트 전부가 이 문을 모른 채 지나간다.
  */
-import { SELF, env } from "cloudflare:test";
+import { env } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import { FAIL } from "../src/shared/copy.ts";
 
@@ -24,7 +25,7 @@ const cfg = env as unknown as { ALLOWED_COUNTRIES?: string };
 function knock(path: string, country: string | null, allow = "KR") {
   cfg.ALLOWED_COUNTRIES = allow;
   const init = country === null ? undefined : ({ cf: { country } } as unknown as RequestInit);
-  return SELF.fetch(new Request(`${ORIGIN}${path}`, init));
+  return fetchApp(new Request(`${ORIGIN}${path}`, init));
 }
 
 // 다른 파일이 이 값을 물려받으면 안 된다. 문이 없는 것이 기본이다

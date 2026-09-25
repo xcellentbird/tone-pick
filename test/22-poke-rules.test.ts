@@ -5,7 +5,7 @@
  *   · 알림을 끈 회차에서는 **발표 전까지 받은 수가 응답에 없다**
  *   · 되돌리면 **받지 않았던 상태로 돌아간다** (알림은 파생값이라 저절로 사라진다)
  */
-import { SELF } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { canPoke } from "../src/shared/phase.ts";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { EventConfig, EventMeta, Invite, MyPokeState, ParticipantState, RegisterInput, RegisterResult } from "../src/shared/types.ts";
@@ -30,7 +30,7 @@ async function api<T = unknown>(
   path: string,
   init: { method?: string; body?: unknown; cookie?: string | null } = {},
 ): Promise<Res<T>> {
-  const res = await SELF.fetch(`https://tone-pick.test${path}`, {
+  const res = await fetchApp(`https://tone-pick.test${path}`, {
     method: init.method ?? "GET",
     headers: { "content-type": "application/json", ...(init.cookie ? { cookie: init.cookie } : {}) },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),

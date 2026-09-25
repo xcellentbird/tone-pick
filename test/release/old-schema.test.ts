@@ -23,7 +23,7 @@ import type { Env as AppEnv } from "../../src/server/http.ts";
 /**
  * `cloudflare:test` 의 `env` 는 `Cloudflare.Env` 로 타입이 매겨진다 — 프로젝트가 다시 선언해
  * 넓히라고 비워둔 자리다. 여기 말고는 `env` 를 직접 쓰는 테스트가 없어서
- * (다들 `SELF.fetch` 로 문 앞에서 논다) 이 파일 안에 둔다 —
+ * (다들 `fetchApp` 으로 문 앞에서 논다) 이 파일 안에 둔다 —
  * 쓰는 데가 늘면 그때 `test/env.d.ts` 로 옮긴다.
  */
 declare global {

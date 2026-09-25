@@ -8,7 +8,7 @@
  *   · 한 사람은 한 표다 — 다시 고르면 옮겨간다
  *   · 설문 여러 개가 함께 열려 있을 수 있다. 닫는 건 운영자가 누른다
  */
-import { SELF } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { hangulSeq } from "../src/shared/copy.ts";
 import type {
@@ -45,7 +45,7 @@ async function api<T = unknown>(
   path: string,
   init: { method?: string; body?: unknown; cookie?: string | null } = {},
 ): Promise<Res<T>> {
-  const res = await SELF.fetch(`https://tone-pick.test${path}`, {
+  const res = await fetchApp(`https://tone-pick.test${path}`, {
     method: init.method ?? "GET",
     headers: { "content-type": "application/json", ...(init.cookie ? { cookie: init.cookie } : {}) },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),

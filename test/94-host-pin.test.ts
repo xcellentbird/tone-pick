@@ -4,7 +4,7 @@
  * 둘은 한 몸이다. 세션을 일주일로 늘려 PIN 을 자주 안 치게 만든 대신,
  * 치는 자리를 좁혔다. 이 파일은 그 둘만 본다 — 공개 표면에만 붙는다.
  */
-import { SELF } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import { HOST } from "../src/shared/copy.ts";
 import { HOST_PIN_TRIES } from "../src/shared/constants.ts";
@@ -16,7 +16,7 @@ const WINDOW_MIN = HOST_PIN_TRIES.windowMs / 60_000;
 
 /** `from` 은 접속지다. 헤더로 넣어야 접속지별로 센다는 것을 밖에서 잴 수 있다 */
 async function login(pin: string, from: string) {
-  const res = await SELF.fetch(`${ORIGIN}/api/host/pin`, {
+  const res = await fetchApp(`${ORIGIN}/api/host/pin`, {
     method: "POST",
     headers: { "content-type": "application/json", "cf-connecting-ip": from },
     body: JSON.stringify({ pin }),
@@ -45,7 +45,7 @@ const somewhere = () => `10.0.0.${++seq}`;
 
 /** 테스트 전용 시간 이동. 끝나면 반드시 제자리로 돌린다 */
 async function travelTo(at: number) {
-  const res = await SELF.fetch(`${ORIGIN}/api/__test__/now`, {
+  const res = await fetchApp(`${ORIGIN}/api/__test__/now`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ at }),
