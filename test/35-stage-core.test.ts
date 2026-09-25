@@ -1,5 +1,6 @@
 /**
- * 슬라이스 35 — 무대 워커. **무대의 핵심(`scripts/qa/core.mjs`)과 하루 상한(`worker/budget.ts`)**을 본다.
+ * 슬라이스 35 — 무대 워커. **무대의 핵심(`scripts/qa/core.mjs`)**을 본다. 한 탭 무대 · 콕 묶음 · 하루 상한은
+ * 슬라이스 37 이다 (`37-stage-wall.test.ts`).
  *
  * core 는 `fetch` 를 넣어 받는다 — CLI 는 전역 `fetch`, 무대 워커는 서비스 바인딩이다. 여기서는
  * **`SELF.fetch` 를 넣어 진짜 앱에 대고** 돌린다. 앱을 흉내 내지 않으므로, 앱의 공개 API 가 바뀌어
@@ -11,7 +12,6 @@
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { StageError, buildStage, createLog, restoreStage } from "../scripts/qa/core.mjs";
-import { DAILY, quotaDay, refusal } from "../scripts/qa/worker/budget.ts";
 import type { HostState, ParticipantState } from "../src/shared/types.ts";
 import { api, master, signInMaster } from "./helpers/party.ts";
 
@@ -142,11 +142,7 @@ describe("무대 — 명령", () => {
     await stage.run("url 2");
     expect(lastLine(e)).toContain(`${PUBLIC}/j/${stage.event.id}`);
     expect(lastLine(e)).not.toContain(BASE);
-
-    const page = stage.remotePage({ links: true, hostPin: "0000" });
-    expect(page.split(`${PUBLIC}/j/${stage.event.id}`).length - 1).toBe(2); // 배역마다 하나
-    expect(page).toContain(`${PUBLIC}/host/${stage.event.id}`);
-    // CLI 의 리모컨은 링크를 안 단다 — 로컬 주소는 폰에서 안 열린다
+    // CLI 의 리모컨은 링크를 안 단다 — 로컬 주소는 폰에서 안 열린다. 온라인 무대의 화면은 37 이 본다
     expect(stage.remotePage()).not.toContain(`/j/${stage.event.id}`);
     await stage.close();
   });
@@ -185,29 +181,5 @@ describe("무대 — 저장과 닫기", () => {
     expect(await stage.close()).toBe(false);
     // 되살려도 지운 것을 기억한다
     expect(restoreStage(env(), JSON.parse(JSON.stringify(stage.toJSON()))).deleted).toBe(true);
-  });
-});
-
-// ─────────────────────────────────────────── 하루 상한 (S-B2)
-
-describe("무대 워커의 하루 상한 — 로그인이 없어서 계정의 하루 한도를 센다", () => {
-  it("★ 상한까지는 되고, 넘으면 거절하면서 언제 다시 되는지 말한다", () => {
-    for (const kind of ["stage", "command"] as const) {
-      expect(refusal(kind, 0)).toBeNull();
-      expect(refusal(kind, DAILY[kind] - 1)).toBeNull();
-      const no = refusal(kind, DAILY[kind]);
-      expect(no).toContain(`${DAILY[kind]}번`);
-      expect(no).toContain("오전 9시");
-      expect(refusal(kind, DAILY[kind] + 3)).toBe(no);
-    }
-  });
-
-  it("★ 하루는 한국 오전 9시(00:00 UTC)에 바뀐다 — Cloudflare 의 하루 한도가 다시 차는 때다", () => {
-    // 한국 시각으로 적는다 — 이 도구를 쓰는 사람의 시계다
-    const kst = (d: number, h: number, m = 0) => Date.UTC(2026, 8, d, h - 9, m);
-    expect(quotaDay(kst(25, 8, 59))).toBe(quotaDay(kst(24, 9, 0)));
-    expect(quotaDay(kst(25, 9, 0))).not.toBe(quotaDay(kst(25, 8, 59)));
-    // 자정은 경계가 아니다 — 밤에 QA 를 하다 날짜가 넘어가도 이어서 센다
-    expect(quotaDay(kst(25, 0, 30))).toBe(quotaDay(kst(24, 23, 30)));
   });
 });

@@ -56,7 +56,8 @@ function isValueOf(a) {
 
 if (flag("help")) {
   console.log(`사용법: npm run qa -- [local|qa|<주소>] [옵션]
-  --people N       가짜 참가자 수 (기본 6)
+  --people N       가짜 참가자 수 (기본 6 — 남녀 반씩)
+  --men M --women W  남녀를 따로 (각각 주면 --people 대신 쓴다)
   --phase P        reg(기본) · prevote · party · done   — party 는 투표 마감 → 자리 발행까지 한다
   --tables T       party 로 갈 때 자리 초안의 테이블 수 (기본 2)
   --config k=v     회차 설정. 예: --config maxPre=2 --config maxParty=3 --config pokeNotify=0
@@ -82,6 +83,8 @@ if (!BASE) {
 }
 const LOCAL = /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(BASE);
 const PEOPLE = Number(opt("people", 6));
+const MEN = opt("men", undefined);
+const WOMEN = opt("women", undefined);
 const PHASE = opt("phase", "reg");
 const TABLES = Number(opt("tables", 2));
 const KEEP = flag("keep");
@@ -175,7 +178,7 @@ function die(e) {
 
 async function build() {
   stage = await buildStage(env, {
-    people: PEOPLE,
+    ...(MEN !== undefined || WOMEN !== undefined ? { men: Number(MEN ?? 0), women: Number(WOMEN ?? 0) } : { people: PEOPLE }),
     phase: PHASE,
     tables: TABLES,
     config,
