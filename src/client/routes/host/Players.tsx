@@ -568,8 +568,16 @@ function Invites({
   const known = new Set(invites.map((i) => i.phone));
 
   const joined = invites.filter((i) => i.nickname).length;
-  /** 아직 등록 안 한 사람. **이 목록은 파티가 다가올수록 줄고, 그만큼 아래 카드가 는다** */
-  const waiting = invites.filter((i) => !i.nickname);
+  /**
+   * 아직 등록 안 한 사람. **이 목록은 파티가 다가올수록 줄고, 그만큼 아래 카드가 는다**
+   *
+   * **새것부터다.** 방금 넣은 번호가 더하기 폼 바로 아래에 선다 — 토스트가 없으니(ADR-65)
+   * 행이 생기는 것이 유일한 알림이고, 그 행은 **화면 안에** 생겨야 한다.
+   * 서버는 넣은 순(`added_at`)으로 주므로 오래된 순 그대로 그리면 새 행이 명단 끝에 붙는다.
+   * 스무 명 넘게 부른 회차에서 그 끝은 폰으로 세 화면 아래라, 운영자는 칸이 `010` 으로
+   * 비는 것만 보고 안 들어간 줄 알았다. 정렬은 안정적이라 한 번에 넣은 줄끼리는 서버 순서 그대로다.
+   */
+  const waiting = invites.filter((i) => !i.nickname).sort((a, b) => b.addedAt - a.addedAt);
 
   async function add(phones: string[], clear: () => void) {
     setBusy(true);

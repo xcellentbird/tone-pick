@@ -583,6 +583,49 @@ describe("운영자 콘솔", () => {
   });
 
   /**
+   * ★ **방금 넣은 번호는 더하기 폼 바로 아래에 선다.**
+   *
+   * 토스트가 없으니(ADR-65) 행이 생기는 것이 유일한 알림이다 — 그 행이 **화면 안에** 생겨야
+   * 알림이 된다. 오래된 순이면 새 행은 명단 끝에 붙는다. 스무 명 넘게 부른 회차에서 그 끝은
+   * 폰으로 세 화면 아래라, 운영자는 칸만 `010` 으로 비는 것을 보고 **안 들어간 줄 안다.**
+   * (실제로 그렇게 신고가 왔다. 서버에는 들어가 있었다.)
+   */
+  it("★ 방금 넣은 번호가 명단 맨 위에 선다 — 명단이 길어도 폼 바로 아래다", async () => {
+    const st = hostState();
+    st.invites = Array.from({ length: 20 }, (_, i) => ({
+      phone: `0105555${String(1000 + i)}`,
+      addedAt: 1 + i,
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        if (url.includes("/invites") && body && "phones" in body) {
+          for (const phone of (body as { phones: string[] }).phones) {
+            st.invites.push({ phone, addedAt: 100 });
+          }
+          return json(st.invites);
+        }
+        return json(url.includes("/state") ? st : { ok: true });
+      }),
+    );
+    renderConsole("/host/e1/players/invites");
+
+    const input = await screen.findByLabelText(HOST_UI.invites.addLabel);
+    fireEvent.change(input, { target: { value: "010-5032-7984" } });
+    fireEvent.click(screen.getByText(HOST_UI.invites.addOne));
+    await screen.findByText("010-5032-7984");
+
+    const sheet = document.body.querySelector("[role=dialog]")!;
+    const rows = [...sheet.querySelectorAll("span")]
+      .map((el) => el.textContent ?? "")
+      .filter((t) => /^\d{3}-\d{4}-\d{3,4}$/.test(t));
+    expect(rows[0], "방금 넣은 번호가 명단 끝에 붙었다 — 폰에서는 화면 밖이다").toBe("010-5032-7984");
+    // 나머지도 새것부터다
+    expect(rows.slice(1, 3)).toEqual(["010-5555-1019", "010-5555-1018"]);
+  });
+
+  /**
    * ★ **클립보드는 눈에 안 보이니 버튼이 스스로 말한다** (ADR-65).
    *
    * 여기서까지 토스트를 없애면 눌렀는지조차 알 수 없다 — 운영자의 일이
