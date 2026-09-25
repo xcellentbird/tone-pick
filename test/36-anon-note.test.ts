@@ -142,15 +142,16 @@ describe("보낸 쪽", () => {
     expect(note.sent[c.id], "보낸 적이 없으면 묶음이 없다").toBeUndefined();
   });
 
-  it("★ 받는 쪽에는 읽음 상태가 안 보인다 — 알아야 할 사람은 보낸 쪽이다", async () => {
+  it("★ 받는 쪽의 줄에는 읽음 상태가 없다 — 쪽지함 배지가 쓰는 숫자 하나뿐이다", async () => {
     const { ev, a, b } = await party();
     await send(a.cookie, b.id);
     await seen(b.cookie);
 
     const mine = (await me(b.cookie, ev.code)).body.note;
-    // `read` 도 `seen` 도 없다 — 안 본 줄을 가리는 값조차 도착 시각의 창을 확정해 준다
+    // 줄마다 `read` 도 `seen` 도 없다 — 어느 줄이 새것인지는 줄에 싣지 않는다 (ADR-98 후기 3)
     expect(JSON.stringify(mine.received)).not.toContain("read");
     expect(JSON.stringify(mine.received)).not.toContain("seen");
+    expect(mine.unread).toBe(0);
     expect(mine.sent, "받기만 한 사람에게는 보낸 묶음이 비어 있다").toEqual({});
   });
 
@@ -236,6 +237,26 @@ describe("받는 쪽", () => {
 
     // 예산도, 본문도, 읽음도 지우기 전과 똑같다 — 지웠다는 것이 어디에도 안 간다
     expect((await me(a.cookie, ev.code)).body.note).toEqual(before);
+  });
+
+  it("★ 안 읽은 수 — 쪽지함을 열면 0 이 되고, 지운 줄은 세지 않는다 (ADR-98 후기 3)", async () => {
+    const { ev, a, b, c } = await party({ maxNotes: 2 });
+    await send(a.cookie, b.id, "하나");
+    await send(c.cookie, b.id, "둘");
+    // 도착하면 바로 센다 — 늦춰 배달하지 않는다
+    expect((await me(b.cookie, ev.code)).body.note.unread).toBe(2);
+
+    const opened = await seen(b.cookie);
+    expect(opened.body.unread, "쪽지함을 열었다").toBe(0);
+
+    await send(a.cookie, b.id, "셋");
+    const got = (await me(b.cookie, ev.code)).body.note;
+    expect(got.unread, "연 뒤에 온 것만 센다").toBe(1);
+    // 안 읽은 채로 지우면 셀 것도 사라진다 — 가리기 중에 제목만 보고 지우는 길이다
+    const fresh = got.received.find((n) => n.text === "셋")!;
+    expect((await remove(b.cookie, fresh.id)).body.unread).toBe(0);
+    // 보낸 사람의 숫자는 받는 사람의 것이 아니다
+    expect((await me(a.cookie, ev.code)).body.note.unread).toBe(0);
   });
 
   it("★ 지운 것은 다시 오지 않는다 — 새로 읽어도, 다시 지워도", async () => {

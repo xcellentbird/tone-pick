@@ -45,7 +45,7 @@ const POKE_STATE: MyPokeState = {
 };
 
 /** 익명 쪽지가 없는 회차 (슬라이스 36). 버튼도 kicker 도 안 서는 기본값이다 */
-const NOTE_STATE: MyNoteState = { budget: { max: 0, used: 0 }, sent: {}, received: [] };
+const NOTE_STATE: MyNoteState = { budget: { max: 0, used: 0 }, sent: {}, received: [], unread: 0 };
 
 function participantState(over: Partial<ParticipantState> = {}): ParticipantState {
   // 단계 안내(ADR-96)는 이미 본 사람으로 둔다 — 여기는 다른 걸 재는 자리다. 안내 자체는 `stage.test.tsx`

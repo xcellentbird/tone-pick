@@ -65,7 +65,7 @@ function stateOf(
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE,
-    note: { budget: { max: 0, used: 0 }, sent: {}, received: [] },
+    note: { budget: { max: 0, used: 0 }, sent: {}, received: [], unread: 0 },
     ...(over.seat ? { seat: over.seat } : {}),
     announcements: [],
   };
