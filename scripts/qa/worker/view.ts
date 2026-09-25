@@ -9,6 +9,9 @@
  * 참가자는 위 단추로 고른다 — `MAX_SCREENS - 1` 명까지, 더 고르면 가장 먼저 고른 사람이 빠진다.
  * 이미 떠 있는 틀은 **옮기지 않는다** — 틀을 DOM 에서 옮기면 다시 읽혀서 보던 자리를 잃는다.
  *
+ * **단계를 넘기는 단추는 두지 않는다** (슬라이스 37 S-A10) — 운영자 틀에 다 있다. 이 화면에는 운영자 화면에 없는
+ * 것만 둔다: 볼 화면 고르기, 참가자 추가, 콕. 이 화면은 단계를 따로 기억해서 틀과 어긋나므로 단계를 보여 주지도 않는다.
+ *
  * **폰에서는 한 화면씩 옆으로 넘긴다** (가로 스크롤 + 스냅). 앱은 가로로 스크롤하지 않아서 틀 속을 옆으로 밀어도
  * 그 밀기가 이 페이지로 넘어온다 — 크롬의 터치 에뮬레이션으로 앱의 머리 · 목록 · 탭바에서 확인했다.
  * 기기마다 다를 수 있어 **밀지 않고 가는 길**도 둔다: 맨 위 탭, 이름 줄의 ‹ ›. 앱을 도구에 맞추지 않는다 (ADR-99).
@@ -104,19 +107,12 @@ body.busy .panel button,body.busy .panel select{opacity:.55;pointer-events:none}
   </div>
   <div class="status" id="status" role="status"></div>
   <div class="panel" id="panel">
-    <div class="row"><b>단계</b>
-      <button type="button" data-cmd="phase prevote">매력 투표 시작</button>
-      <button type="button" data-cmd="voteend">매력 투표 마감</button>
-      <button type="button" id="seatBtn">자리 짜기</button>
-      <button type="button" data-cmd="publish">자리 발행</button>
-      <button type="button" data-cmd="shuffle">자리 섞기</button>
-      <button type="button" data-cmd="phase party">파티 시작</button>
-      <button type="button" data-cmd="phase done">커플 발표</button>
-      <span class="sep"></span>
-      <button type="button" data-cmd="late">늦게 온 사람 추가</button>
-    </div>
     <div class="row"><b>화면</b><span class="dim">남</span><div class="strip" id="men"></div></div>
     <div class="row"><b></b><span class="dim">여</span><div class="strip" id="women"></div></div>
+    <div class="row"><b>참가자</b>
+      <button type="button" data-cmd="late m">남자 추가</button>
+      <button type="button" data-cmd="late f">여자 추가</button>
+    </div>
     <div class="row"><b>자동 콕</b>
       <button type="button" class="main" data-cmd="auto">자동 콕</button>
       <button type="button" class="main" data-cmd="auto last">마지막 자리 자동 콕</button>
@@ -149,7 +145,6 @@ const M = JSON.parse(document.getElementById('model').textContent);
 const $ = (s) => document.querySelector(s);
 const MAX_PEOPLE = ${MAX_SCREENS - 1};
 const narrow = matchMedia('(max-width:${NARROW}px)');
-const PHASE = { reg: '등록 중', prevote: '매력 투표', party: '파티', done: '커플 발표 후' };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const who = (n) => M.view.cast.find((p) => p.n === n);
 const label = (p) => p.n + ' ' + p.nickname + ' · ' + (p.gender === 'M' ? '남' : '여') + ' ' + p.age;
@@ -288,9 +283,8 @@ function apply(data) {
   const castChanged = data.view.cast.length !== M.view.cast.length;
   M.view = data.view; M.left = data.left;
   const men = M.view.cast.filter((p) => p.gender === 'M').length;
-  $('#meta').textContent = '· ' + (PHASE[M.view.phase] || M.view.phase) + ' · 남 ' + men + ' · 여 ' + (M.view.cast.length - men);
+  $('#meta').textContent = '· 남 ' + men + ' · 여 ' + (M.view.cast.length - men);
   $('#left').textContent = '남은 QA 호출 ' + M.left.toLocaleString('ko-KR') + ' / ' + M.daily.toLocaleString('ko-KR');
-  $('#seatBtn').textContent = '자리 짜기 (' + M.view.tables + '테이블)';
   const said = lastSaid();
   status(said, /^[✗?]/.test(said));
   if (castChanged) { renderChips(); renderSelects(); pickDefaults(); }
@@ -340,7 +334,6 @@ document.addEventListener('click', (e) => {
   if (t.dataset.poke) return run(t.dataset.poke + ' ' + $('#from').value + ' ' + $('#to').value);
 });
 $('#panelBtn').onclick = () => setPanel($('#top').classList.contains('closed'));
-$('#seatBtn').onclick = () => run('seating ' + M.view.tables);
 $('#crowdBtn').onclick = () => run('crowd ' + $('#to').value + ' 5');
 $('#reread').onclick = async () => {
   const r = await fetch('state').catch(() => null);

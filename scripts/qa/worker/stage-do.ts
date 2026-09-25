@@ -35,7 +35,7 @@ export interface Ages {
   max: number;
 }
 
-/** 스테이지를 만들 때 고르는 것 (슬라이스 37) — 남녀를 따로, **늘 등록이 끝난 뒤에서** 시작한다 */
+/** 스테이지를 만들 때 고르는 것 (슬라이스 37) — 남녀를 따로, 가짜 참가자는 **늘 등록을 마친 채로** 시작한다 */
 export interface Want {
   men: number;
   women: number;
@@ -43,8 +43,11 @@ export interface Want {
   phase: (typeof START_PHASES)[number];
 }
 export const PER_GENDER = { min: 2, max: 50 } as const;
-/** 등록 중(`reg`)은 없다 — 등록 전 화면은 QA 에서 손으로 본다. 스테이지는 여러 사람의 화면을 한꺼번에 보는 자리다 */
-export const START_PHASES = ["prevote", "party", "done"] as const;
+/**
+ * 시작 단계 — 맨 앞(`reg`)이 기본이다. 등록 중에서 시작해도 가짜 참가자는 등록을 마친 채다 — 등록 전 화면은 QA 에서
+ * 손으로 본다. 등록 중에서 시작하면 운영자 화면에서 매력 투표를 열 때 참가자 화면이 어떻게 바뀌는지 볼 수 있다
+ */
+export const START_PHASES = ["reg", "prevote", "party", "done"] as const;
 
 /**
  * 요청 하나가 QA 를 부를 수 있는 몫. **요청당 서브요청 상한(무료 50) 아래**다 — 바인딩 호출이 그 50 에
@@ -68,8 +71,6 @@ type Stage = Awaited<ReturnType<typeof beginStage>>;
 /** 스테이지 화면이 그리는 것. **참가자 세션(쿠키)은 싣지 않는다** — 그건 `/view` 가 `Set-Cookie` 로만 준다 */
 export interface StageView {
   event: { id: string; code: string };
-  phase: string;
-  tables: number;
   cast: { n: number; nickname: string; gender: "M" | "F"; age: number; ref: string; phone: string; pin: string }[];
   lines: string[];
   /** 아직 안 보낸 자동 콕. 0 보다 크면 페이지가 `drain` 을 이어 부른다 */
@@ -222,8 +223,6 @@ export class StageDO extends DurableObject<Env> {
     if (!s) return null;
     return {
       event: { id: s.event.id, code: s.event.code },
-      phase: s.phase,
-      tables: s.tables,
       cast: s.cast.map((p: StageView["cast"][number] & { session: { ref: string } }) => ({
         n: p.n,
         nickname: p.nickname,

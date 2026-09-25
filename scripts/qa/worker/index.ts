@@ -28,6 +28,7 @@ import { stagePage } from "./view.ts";
 export { LobbyDO, StageDO } from "./stage-do.ts";
 
 const PHASE_NAME: Record<Want["phase"], string> = {
+  reg: "등록",
   prevote: "매력 투표",
   party: "파티 (첫 자리 발행까지)",
   done: "커플 발표 후",
@@ -138,7 +139,7 @@ ${error ? `<p class="err">${esc(error)}</p>` : ""}
 <form method="post" action="new" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='만드는 중이에요. 인원이 많으면 수십 초 걸려요'">
 <div class="pair">${side("m", "M", "남자", "men")}${side("f", "F", "여자", "women")}</div>
 <p><small>나이는 ${AGE_LIMIT.min}~${AGE_LIMIT.max}세 사이로 입력해주세요. 평균 나이 근처가 가장 많고, 범위 끝으로 갈수록 적어져요.</small></p>
-<label>시작 단계</label><select name="phase">${opts(START_PHASES, PHASE_NAME, "prevote")}</select>
+<label>시작 단계</label><select name="phase">${opts(START_PHASES, PHASE_NAME, "reg")}</select>
 <p><small>가짜 참가자는 모두 등록을 마친 상태로 시작해요.</small></p>
 <button>스테이지 만들기</button>
 </form>
@@ -153,7 +154,7 @@ ${error ? `<p class="err">${esc(error)}</p>` : ""}
  * 가다가 막히면 등록하던 사람들이 몫만 먹고 지워진다.
  */
 async function build(env: Env, form: FormData): Promise<{ id: string; code: string; people: number } | { error: string }> {
-  const phase = String(form.get("phase") ?? "prevote") as Want["phase"];
+  const phase = String(form.get("phase") ?? "reg") as Want["phase"];
   // 나이는 앱이 받는 범위 안으로, 최소 ≤ 평균 ≤ 최대 — 폼을 손으로 고쳐 보내도 등록이 거절되지 않게
   const ages = (g: "M" | "F", key: string) =>
     ageRange({ avg: form.get(`${key}_avg`), min: form.get(`${key}_min`), max: form.get(`${key}_max`) }, STAGE_AGES[g]);
@@ -161,7 +162,7 @@ async function build(env: Env, form: FormData): Promise<{ id: string; code: stri
     men: clamp(form.get("men"), PER_GENDER.min, PER_GENDER.max, 6),
     women: clamp(form.get("women"), PER_GENDER.min, PER_GENDER.max, 6),
     ages: { M: ages("M", "m"), F: ages("F", "f") },
-    phase: START_PHASES.includes(phase) ? phase : "prevote",
+    phase: START_PHASES.includes(phase) ? phase : "reg",
   };
   const people = want.men + want.women;
   const need = buildCost(people, Math.ceil(people / ENROLL_BATCH));

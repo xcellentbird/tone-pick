@@ -17,7 +17,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { BULK_MAX, autoTables, beginStage, buildStage, createLog } from "../scripts/qa/core.mjs";
 import { DAILY, OVERHEAD, buildCost, grant, quotaDay, refusal } from "../scripts/qa/worker/budget.ts";
 import { PLAYER_COOKIE as PLANTED, clearCookie, cookieDomain, frameName, plantCookie } from "../scripts/qa/worker/plant.ts";
-import { ACTION_MAX, ENROLL_BATCH } from "../scripts/qa/worker/stage-do.ts";
+import { ACTION_MAX, ENROLL_BATCH, START_PHASES } from "../scripts/qa/worker/stage-do.ts";
 import { stagePage } from "../scripts/qa/worker/view.ts";
 import { PLAYER_COOKIE } from "../src/server/auth.ts";
 import type { HostState, ParticipantState } from "../src/shared/types.ts";
@@ -48,15 +48,42 @@ const want = (over: Record<string, unknown> = {}) => ({ men: 3, women: 3, phase:
 const hostState = async (id: string) => (await api<HostState>(`/api/host/events/${id}/state`, { cookie: master })).body;
 type Persona = { n: number; id: string; gender: "M" | "F"; session: { ref: string; cookies: Map<string, string>; call: (p: string) => Promise<{ status: number; body: unknown }> } };
 
-describe("가짜 참가자 — 남녀를 따로, 등록이 끝난 뒤에서", () => {
+describe("가짜 참가자 — 남녀를 따로, 모두 등록을 마친 채로", () => {
   it("★ 남녀 수를 따로 받는다 — 번호는 남 · 여 · 남 · 여, 한쪽이 떨어지면 남은 쪽이 잇는다", async () => {
     const stage = await buildStage(env(), want({ men: 2, women: 4, phase: "prevote" }));
     expect(stage.cast.map((p: Persona) => p.gender)).toEqual(["M", "F", "M", "F", "F", "F"]);
     const st = await hostState(stage.event.id);
     expect(st.players.filter((p) => p.gender === "M")).toHaveLength(2);
     expect(st.players.filter((p) => p.gender === "F")).toHaveLength(4);
-    // 모두 등록을 마쳤다 — 스테이지는 등록 뒤에서 시작한다
+    // 모두 등록을 마쳤다 — 가짜 참가자는 등록 화면을 거치지 않는다
     expect(st.meta.phase).toBe("prevote");
+    await stage.close();
+  });
+
+  it("★ 등록 단계에서도 시작한다 — 가짜 참가자는 모두 등록을 마쳤고, 회차는 아직 등록 중이다", async () => {
+    expect(START_PHASES).toContain("reg");
+    const stage = await buildStage(env(), want({ men: 2, women: 2, phase: "reg" }));
+    const st = await hostState(stage.event.id);
+    expect(st.meta.phase).toBe("reg");
+    expect(st.players).toHaveLength(4);
+    await stage.close();
+  });
+
+  it("★ 스테이지 중에 참가자를 더한다 — 남자나 여자를 골라서, 그 성별의 나이 범위 안에서", async () => {
+    const ages = { M: { avg: 40, min: 38, max: 44 }, F: { avg: 22, min: 20, max: 25 } };
+    const stage = await buildStage(env(), want({ men: 2, women: 2, phase: "party", ages }));
+    for (const line of ["late f", "late f", "late m"]) await stage.run(line);
+    const added = (stage.cast as Persona[]).slice(4);
+    expect(added.map((p) => p.gender)).toEqual(["F", "F", "M"]);
+    const st = await hostState(stage.event.id);
+    for (const p of added) {
+      const player = st.players.find((q) => q.id === p.id)!;
+      expect(player.gender).toBe(p.gender);
+      expect(player.age).toBeGreaterThanOrEqual(ages[p.gender].min);
+      expect(player.age).toBeLessThanOrEqual(ages[p.gender].max);
+      // 더한 사람도 제 세션으로 앱을 쓴다 — 화면을 띄우면 그 사람으로 뜬다
+      expect(((await p.session.call("/me")).body as ParticipantState).me.id).toBe(p.id);
+    }
     await stage.close();
   });
 
@@ -207,7 +234,7 @@ describe("스테이지 화면 — 틀은 QA 를 직접 연다", () => {
     }));
     const page = stagePage({
       id: "0".repeat(64),
-      view: { event: stage.event, phase: stage.phase, tables: stage.tables, cast, lines: [], backlog: 0 },
+      view: { event: stage.event, cast, lines: [], backlog: 0 },
       left: DAILY,
       daily: DAILY,
       qa: PUBLIC,
