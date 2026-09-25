@@ -25,6 +25,7 @@ import { useDraftGuard } from "../lib/history.ts";
 import type { ProfileDraft } from "../lib/profileForm.ts";
 import { EMPTY_DRAFT, toInput, validateProfile } from "../lib/profileForm.ts";
 import { takeBoot } from "../lib/boot.ts";
+import { seedParticipant } from "../lib/participant.ts";
 import { prefetchParticipant } from "../router.tsx";
 
 /** 초안·검증은 내 정보 수정 폼과 함께 쓴다 (`lib/profileForm.ts`) */
@@ -138,6 +139,8 @@ export default function Register() {
     try {
       // 번호는 입장할 때 확인한 값이다. 서버가 초대 쿠키에서 꺼내 쓴다 (ADR-31) — PIN 번호는 여기서 함께 간다
       const done = await post<RegisterResult>("/register", toInput(draft));
+      // 서버가 방금 만든 상태를 홈이 그대로 그린다 — `/me` 를 한 번 더 묻지 않는다
+      seedParticipant(done.state);
       const home = `/e/${done.state.event.code}`;
       // 뒤로 가기로 등록 폼에 다시 들어가면 안 된다
       navigate(home, { replace: true });

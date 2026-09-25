@@ -328,6 +328,21 @@ describe("등록 직후 첫 안내", () => {
     expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
   });
 
+  it("★ 등록 응답이 곧 첫 화면이다 — 홈을 그리려고 다시 묻지 않는다", async () => {
+    /*
+     * 서버는 등록과 첫 화면을 **한 왕복**에 준다 (`registerAndLoad` — 입구가 몰리는 순간을 위해 그렇게 짰다).
+     * 한동안 화면이 그 답을 버리고 `/me` 를 한 번 더 물어서, 등록을 누른 사람이 왕복 하나를 더 기다렸다.
+     */
+    const router = registerRouter();
+    render(<RouterProvider router={router} />);
+    await fillAndSubmit();
+    await screen.findByText(HELP.title);
+    await router.navigate(-1);
+    await screen.findByText(HOME.todo.prevote.title);
+    const asked = vi.mocked(fetch).mock.calls.map(([url]) => String(url)).filter((u) => u.includes("/me?code="));
+    expect(asked, "등록 뒤에 /me 를 또 물었다").toEqual([]);
+  });
+
   it("★ 다시 열면 안 뜬다 — 본 적 있다는 기록 없이 '등록 완료' 라는 사건에만 붙는다", async () => {
     /*
      * 읽음 상태를 저장하지 않는다 (ADR-4). 붙일 사건이 없으면 안 뜨는 것이 옳다 —

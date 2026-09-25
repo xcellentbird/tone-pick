@@ -37,12 +37,33 @@ export interface ParticipantSource {
   saveProfile(input: RegisterInput): Promise<MyProfile>;
 }
 
+/**
+ * **등록 응답이 곧 첫 화면이다.** 등록은 서버가 방금 만든 참가자 상태를 통째로 돌려주는데(`RegisterResult.state`),
+ * 홈으로 넘어가서 그걸 버리고 `/me` 를 또 물으면 가장 설레는 순간에 불러오는 화면을 한 번 더 본다.
+ *
+ * `lib/boot.ts` 와 같은 약속이다 — **한 번만 받아간다.** 되불러오기는 새 값을 원하는 것이라 이 자리를 쓰면 안 된다.
+ * 넘기고 바로 홈으로 가므로 잠깐만 믿는다 — 화면이 못 떠서 남은 값을 한참 뒤에 옛 상태로 그리지 않게.
+ */
+const SEED_MS = 10_000;
+let seed: { code: string; state: ParticipantState; at: number } | null = null;
+
+export function seedParticipant(state: ParticipantState) {
+  seed = { code: state.event.code, state, at: Date.now() };
+}
+
+function takeSeed(code: string): ParticipantState | null {
+  const held = seed;
+  if (!held || held.code !== code) return null;
+  seed = null;
+  return Date.now() - held.at < SEED_MS ? held.state : null;
+}
+
 /** 본인 세션. 참가자 식별은 URL 이 아니라 HttpOnly 쿠키로 한다 */
 export function sessionSource(code: string): ParticipantSource {
   return {
     key: `me:${code}`,
     liveCode: code,
-    load: () => api<ParticipantState>(`/me?code=${encodeURIComponent(code)}`),
+    load: async () => takeSeed(code) ?? api<ParticipantState>(`/me?code=${encodeURIComponent(code)}`),
     poke: (toId) => post<MyPokeState>("/poke", { toId }),
     unpoke: (toId) => post<MyPokeState>("/unpoke", { toId }),
     sendNote: (toId, text) => post<MyNoteState>("/note", { toId, text }),

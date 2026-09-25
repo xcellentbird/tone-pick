@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { BTN, ENTRY, FAIL, FORTUNE, HELP, NOTE, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { MyNoteState, MyPokeState, PublicAnnouncement, ParticipantState, StageKey } from "../../shared/types.ts";
+import type { Fortune } from "../../shared/fortune.ts";
 import { connect } from "../lib/realtime.ts";
 import { canNote, canPoke } from "../../shared/phase.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
@@ -259,6 +260,12 @@ export function ParticipantView(props: ViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.set],
   );
+  /** 연 운세 한 칸만 갈아끼운다. 서버가 돌려준 그 카드다 — `setPoke` 와 같은 이유로 통로가 좁다 */
+  const setFortune = useCallback(
+    (fortune: Fortune) => state.set((cur) => (cur ? { ...cur, fortune } : cur)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.set],
+  );
   useEffect(() => {
     if (!source.liveCode || failed) return;
     const socket = connect(source.liveCode, () => state.reload());
@@ -276,6 +283,7 @@ export function ParticipantView(props: ViewProps) {
       setPoke={setPoke}
       setNote={setNote}
       setAnnouncement={setAnnouncement}
+      setFortune={setFortune}
     />
   );
 }
@@ -297,6 +305,7 @@ function Loaded({
   setPoke,
   setNote,
   setAnnouncement,
+  setFortune,
   helpOpen,
   onHelp,
   notesOpen,
@@ -307,6 +316,7 @@ function Loaded({
   setPoke: (poke: MyPokeState) => void;
   setNote: (note: MyNoteState) => void;
   setAnnouncement: (a: PublicAnnouncement) => void;
+  setFortune: (f: Fortune) => void;
 }) {
   const [acked, setAcked] = useState<number[]>([]);
   const banner = bannerOf(noticesOf(state), now());
@@ -541,7 +551,7 @@ function Loaded({
             />
           )}
           {/* 재미 탭. 지금은 운세 카드 하나뿐이다 — 이상형 찾기가 여기 두 번째로 붙는다 */}
-          {tab === "fun" && <FortuneTab state={state} reload={reload} />}
+          {tab === "fun" && <FortuneTab state={state} onFortune={setFortune} />}
           {tab === "me" && (
             <Me state={state} source={source} reload={reload} editing={!!editing} onEdit={onEdit} />
           )}

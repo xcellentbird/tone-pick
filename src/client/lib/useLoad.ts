@@ -37,22 +37,56 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[] = []): Load<T
   const alive = useRef(true);
   /** 몇 번째 실행인가. 되불러오기가 겹쳤을 때 늦게 온 옛 응답이 새 것을 덮지 않게 한다 */
   const run = useRef(0);
+  /** 화면에 그린 답이 몇 번째 실행의 것인가. 이보다 새 답이면 **뒤에 떠난 것이 있어도** 그린다 */
+  const shownRun = useRef(0);
+  /** 무엇을 읽는가(`deps`)가 바뀐 실행. 그 앞의 답은 다른 것을 읽은 답이라 그리지 않는다 */
+  const since = useRef(1);
+  /** 화면 쪽에서 갈아끼운 것들. `after` 번째 실행까지는 이것을 모른 채 떠났다 */
+  const patches = useRef<Array<{ after: number; v: SetStateAction<T | null> }>>([]);
   /** 연달아 몇 번 못 붙었나. 닿지 못한 실패만 센다 */
   const [misses, setMisses] = useState(0);
+  /** 화면이 떠났나. `alive` 와 달리 되불러오기 사이에는 꺼지지 않는다 */
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const fn = useRef(load);
   fn.current = load;
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
+    since.current = run.current + 1;
+    patches.current = [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  useEffect(() => {
     alive.current = true;
     const mine = ++run.current;
     const latest = () => alive.current && run.current === mine;
+    /*
+     * **먼저 온 새 답은 뒤에 떠난 것을 기다리지 않는다.** 파티 중에는 "다시 읽어라" 가 잇따라 온다 —
+     * 콕, 자리 발행, 앱으로 돌아온 순간과 소켓이 다시 붙은 순간. 새로 떠날 때마다 앞의 답을 버리면
+     * 신호가 답보다 빨리 오는 동안 화면이 한 번도 안 바뀐다. 옛 답이 새 답을 덮지만 않으면 된다
+     */
+    const fresh = () => mounted.current && mine >= since.current && mine > shownRun.current;
     setLoading(true);
     fn.current()
       .then((value) => {
-        if (!latest()) return;
-        setData(value);
+        if (!fresh()) return;
+        shownRun.current = mine;
+        // 이 답이 떠난 뒤에 화면이 갈아끼운 것을 다시 얹는다. 그보다 앞의 것은 앞으로도 얹을 일이 없다
+        patches.current = patches.current.filter((p) => p.after >= mine);
+        setData(
+          patches.current.reduce<T | null>(
+            (cur, p) => (typeof p.v === "function" ? (p.v as (prev: T | null) => T | null)(cur) : p.v),
+            value,
+          ),
+        );
         setError(null);
         setMisses(0);
       })
@@ -128,7 +162,18 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[] = []): Load<T
    */
   const shown = error?.status !== 0 ? error : data === null && misses >= QUIET_TRIES ? error : null;
 
-  return { data, error: shown, loading, reload, set: setData };
+  /*
+   * **화면 쪽에서 갈아끼운 값은 그 전에 떠난 답보다 새것이다** — 콕·쪽지·설문이 돌려준, 서버가 방금 쓴 값이다.
+   * 그 답이 뒤늦게 와서 덮으면 누른 콕이 잠깐 풀려 보인다. 그렇다고 그 답을 버리면 거기 실린 다른 소식
+   * (단계 전환 같은)을 놓친다. 그래서 **그 답 위에 화면이 갈아끼운 것을 다시 얹는다.**
+   * 얹는 것은 그 답이 떠난 **뒤에** 갈아끼운 것뿐이다 — 그 뒤에 떠난 답은 서버가 그 값을 알고 나서 읽은 것이다.
+   */
+  const set = useCallback<Dispatch<SetStateAction<T | null>>>((v) => {
+    patches.current.push({ after: run.current, v });
+    setData(v);
+  }, []);
+
+  return { data, error: shown, loading, reload, set };
 }
 
 /** 1초마다 다시 그린다. 카운트다운처럼 시간이 흘러야 하는 화면에서만 쓴다 */
