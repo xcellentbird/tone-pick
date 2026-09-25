@@ -7,12 +7,12 @@
  *   쿠키   틀에 심는 것은 참가자 쿠키 하나 — 그 쿠키로 QA 가 그 참가자를 알아본다
  *   화면   틀은 QA 의 공개 주소로, 페이지에 세션 토큰이 없다
  *
- * 나이와 자동 콕은 `37-stage-auto.test.ts` 다 — 파일이 길어지면 뒤 테스트가 초선형으로 느려진다 (`helpers/party.ts`).
+ * 나이와 자동 콕은 `37-stage-auto.test.ts` 다.
  *
- * core 는 **`SELF.fetch` 를 넣어 진짜 앱에 대고** 돌린다 (35 와 같다). 워커의 라우터 · DO 와 틀 여럿을 붙여
+ * core 는 **`fetchApp` 을 넣어 진짜 앱에 대고** 돌린다 (35 와 같다). 워커의 라우터 · DO 와 틀 여럿을 붙여
  * 브라우저에서 돌려 본 기록은 ADR-99 에 있다.
  */
-import { SELF } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { BULK_MAX, autoTables, beginStage, buildStage, createLog } from "../scripts/qa/core.mjs";
 import { DAILY, OVERHEAD, buildCost, grant, quotaDay, refusal } from "../scripts/qa/worker/budget.ts";
@@ -35,7 +35,7 @@ function env() {
     counter,
     fetch: (url: string, init?: RequestInit) => {
       counter.calls++;
-      return SELF.fetch(url, init);
+      return fetchApp(url, init);
     },
     base: BASE,
     publicBase: PUBLIC,
@@ -218,7 +218,7 @@ describe("틀에 심는 쿠키 — 참가자 쿠키 하나", () => {
       const token = p.session.cookies.get(`${PLAYER_COOKIE}_${p.session.ref}`)!;
       const pair = plantCookie(p.session.ref, token, where)!.split(";")[0];
       // 틀 안의 앱이 하는 그대로 — 쿠키 하나에 이름표 머리
-      const res = await SELF.fetch(`${BASE}/api/me`, { headers: { cookie: pair, "x-tp-ref": p.session.ref } });
+      const res = await fetchApp(`${BASE}/api/me`, { headers: { cookie: pair, "x-tp-ref": p.session.ref } });
       expect(res.status).toBe(200);
       expect(((await res.json()) as ParticipantState).me.id).toBe(p.id);
     }

@@ -8,7 +8,7 @@
  * 구현을 어떻게 나누든 이 테스트가 통과하면 된다. 반대로,
  * 테스트를 고쳐서 통과시키는 건 안 된다 — 규칙이 바뀌면 시나리오 문서부터 고친다.
  */
-import { SELF } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ENTRY, HOST } from "../src/shared/copy.ts";
 import type { CreateEventInput, EventMeta, EventSummary, PublicEvent } from "../src/shared/types.ts";
@@ -30,7 +30,7 @@ async function api<T = unknown>(
   path: string,
   init: { method?: string; body?: unknown; cookie?: string | null; headers?: Record<string, string> } = {},
 ): Promise<Res<T>> {
-  const res = await SELF.fetch(`https://tone-pick.test${path}`, {
+  const res = await fetchApp(`https://tone-pick.test${path}`, {
     method: init.method ?? "GET",
     headers: {
       "content-type": "application/json",

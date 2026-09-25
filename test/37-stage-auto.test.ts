@@ -8,10 +8,10 @@
  *          누를 때마다 새 콕이 나온다 — 다섯 번이면 쓰려던 것을 다 쓴다 (ADR-99 후기 6)
  *
  * 확률로 정한 모양은 **씨앗 하나로 재지 않는다** (ADR-57 과 같은 까닭) — 씨앗 여러 개의 평균으로 본다.
- * 계획(`planPokes`)은 앱을 부르지 않는 순수 함수라 그렇게 돌리고, 앱과 붙인 것은 `SELF.fetch` 로 따로 본다.
+ * 계획(`planPokes`)은 앱을 부르지 않는 순수 함수라 그렇게 돌리고, 앱과 붙인 것은 `fetchApp` 으로 따로 본다.
  * 한 탭 스테이지의 나머지(틀 · 쿠키 · 하루 상한)는 `37-stage-wall.test.ts` 다.
  */
-import { SELF } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { AGE_LIMIT, AUTO_STEPS, BULK_MAX, STAGE_AGES, ageRange, beginStage, buildStage, createLog, planPokes, seeded, spreadAges } from "../scripts/qa/core.mjs";
 import { AGE_RANGE } from "../src/shared/constants.ts";
@@ -29,7 +29,7 @@ function env() {
     counter,
     fetch: (url: string, init?: RequestInit) => {
       counter.calls++;
-      return SELF.fetch(url, init);
+      return fetchApp(url, init);
     },
     base: BASE,
     publicBase: "https://tone-pick-qa.example.workers.dev",

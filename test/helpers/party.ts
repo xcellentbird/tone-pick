@@ -1,18 +1,15 @@
 /**
  * 파티 한 판을 만드는 재료. **여러 테스트 파일이 나눠 쓴다.**
  *
- * 한 파일에 다 있던 것을 뽑았다. 이유는 속도다 — 워커 테스트는 **파일마다 아이솔레이트가
- * 새로 뜨는데**, 한 파일 안에서는 앞 테스트가 쌓아놓은 것이 뒤 테스트에 그대로 붙는다.
- * 같은 테스트가 96개짜리 파일 끝에서 110ms → 11초가 됐다 (초선형).
- * DO 를 지워도 안 줄었다 — 쌓이는 곳이 스토리지가 아니라 아이솔레이트다.
- *
- * 그래서 **파일을 나누는 것이 곧 성능 대책이다.** 새 describe 를 더할 때 파일이
- * 다시 100개 가까이로 불어나면 같은 일이 반복된다 — 그때는 또 나눈다.
+ * 한 파일에 다 있던 것을 뽑았다. 처음 이유는 속도였다 — 같은 테스트가 96개짜리 파일 끝에서
+ * 110ms → 11초가 됐고(초선형), DO 를 지워도 안 줄어서 파일을 나눠 버텼다.
+ * **정체는 `SELF.fetch` 였다** — 요청마다 진입점 래퍼의 prototype 에 Proxy 가 한 겹씩 쌓인다.
+ * 요청은 이제 `fetchApp`(`helpers/app.ts`)으로만 넣는다. 파일을 나누는 것은 더 이상 성능 대책이 아니다.
  *
  * `master` 는 ESM 라이브 바인딩이다. 각 파일이 `beforeAll(signInMaster)` 로 채우고,
  * 쓰는 쪽은 `cookie: master` 를 그대로 읽으면 된다.
  */
-import { SELF } from "cloudflare:test";
+import { fetchApp } from "./app.ts";
 import { expect } from "vitest";
 import { hangulSeq } from "../../src/shared/copy.ts";
 import type { EventConfig, EventMeta, Invite, RegisterInput, RegisterResult } from "../../src/shared/types.ts";
@@ -43,7 +40,7 @@ export async function api<T = unknown>(
   path: string,
   init: { method?: string; body?: unknown; cookie?: string | null; ref?: string } = {},
 ): Promise<Res<T>> {
-  const res = await SELF.fetch(`https://tone-pick.test${path}`, {
+  const res = await fetchApp(`https://tone-pick.test${path}`, {
     method: init.method ?? "GET",
     headers: {
       "content-type": "application/json",

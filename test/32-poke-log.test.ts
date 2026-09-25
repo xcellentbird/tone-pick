@@ -9,7 +9,7 @@
  *
  * 재료는 `helpers/party.ts`.
  */
-import { SELF } from "cloudflare:test";
+import { fetchApp } from "./helpers/app.ts";
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { EventMeta, MyPokeState } from "../src/shared/types.ts";
@@ -113,7 +113,7 @@ describe("콕 로그 파일 (ADR-84)", () => {
     const { ev, a, b } = await party();
     await setPhase(ev.id, "party");
     await poke(a.cookie, b.id);
-    const res = await SELF.fetch(`https://tone-pick.test/api/host/events/${ev.id}/pokes.csv`, {
+    const res = await fetchApp(`https://tone-pick.test/api/host/events/${ev.id}/pokes.csv`, {
       headers: { cookie: master ?? "" },
     });
     expect(res.status).toBe(404);
