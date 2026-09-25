@@ -10,13 +10,14 @@
  *   · 보낸 쪽지의 읽음 배지는 **쪽지함을 연 순간의 값으로 굳는다** (S-B4)
  *   · 받은 줄에 누를 수 있는 것은 **지우기 하나**다 (S-C3)
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { NOTE, PEOPLE, POKE as POKE_COPY } from "../../src/shared/copy.ts";
 import type { MyNoteState, MyPokeState, ParticipantState, Phase } from "../../src/shared/types.ts";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
+import { ApiError } from "../../src/client/lib/api.ts";
 
 afterEach(cleanup);
 afterEach(() => vi.unstubAllGlobals());
@@ -172,6 +173,27 @@ describe("쓰는 입구 — 프로필 시트의 ✉️", () => {
     expect(opened).toEqual([]);
   });
 
+  it("★ 보내기가 거절되면 다시 읽는다 — 다른 기기에서 다 썼으면 남은 장 수가 그대로 서 있었다", async () => {
+    const state = stateOf({ budget: { max: 2, used: 1 }, sent: {}, received: [], unread: 0 });
+    const src = sourceOf(state);
+    let loads = 0;
+    src.load = async () => {
+      loads++;
+      return state;
+    };
+    src.sendNote = async () => {
+      throw new ApiError(409, "no_budget", NOTE.blocked.noBudget(2));
+    };
+    mount(src, { profileId: "her", noteOpen: true });
+    const box = await screen.findByLabelText(NOTE.compose.label);
+    fireEvent.change(box, { target: { value: "안녕하세요" } });
+    fireEvent.click(screen.getByRole("button", { name: NOTE.compose.submit }));
+    const dialog = await screen.findByRole("dialog", { name: NOTE.confirm.title(0) });
+    fireEvent.click(within(dialog).getByRole("button", { name: NOTE.confirm.submit }));
+    expect(await screen.findByText(NOTE.blocked.noBudget(2))).toBeTruthy();
+    await waitFor(() => expect(loads).toBeGreaterThan(1));
+  });
+
   it("★ 가리기 중에는 잠기고 숫자도 안 보인다 (S-B5)", async () => {
     const src = sourceOf(stateOf({ budget: { max: 2, used: 1 }, sent: { her: [{ text: "글", read: false }] }, received: [], unread: 0 }));
     mount(src, { profileId: "her" });
@@ -290,6 +312,36 @@ describe("익명 쪽지함 — 받은 쪽지", () => {
     await screen.findByText(NOTE.inbox.covered);
     await act(async () => {});
     expect(covered.calls.seen, "가린 채로 열었는데 읽음이 찍혔다").toBe(0);
+  });
+
+  it("★ 안 읽은 것이 없으면 열어도 읽음 요청을 보내지 않는다 — 쪽지함을 열 때마다 서버에 쓰지 않는다", async () => {
+    const src = sourceOf(stateOf({ ...got, unread: 0 }));
+    mount(src, { tab: "home", notesOpen: true });
+    await screen.findByText("아까 웃는 모습이 좋았어요");
+    await act(async () => {});
+    expect(src.calls.seen).toBe(0);
+  });
+
+  it("★ 연 동안 새로 온 쪽지는 읽음으로 찍힌다 — 지우기와 한 응답에 겹쳐 줄 수가 그대로여도", async () => {
+    /*
+     * 줄 수로 다시 찍을지 정하면, 지운 한 장과 새로 온 한 장이 한 응답에 겹칠 때 줄 수가 그대로라
+     * **화면에 떠 있는 새 쪽지가 읽음으로 안 찍혔다.** 안 읽은 수로 정한다.
+     */
+    const state = stateOf({ ...got, unread: 0 });
+    const src = sourceOf(state);
+    src.removeNote = async (id) => {
+      src.calls.removed.push(id);
+      return { ...state.note, received: [{ id: "n2", text: "새로 온 쪽지" }], unread: 1 };
+    };
+    mount(src, { tab: "home", notesOpen: true });
+    await screen.findByText("아까 웃는 모습이 좋았어요");
+    await act(async () => {});
+    const before = src.calls.seen;
+    fireEvent.click(screen.getByText(NOTE.remove));
+    const dialog = await screen.findByRole("dialog", { name: NOTE.removeConfirm.title });
+    fireEvent.click(within(dialog).getByRole("button", { name: NOTE.remove }));
+    expect(await screen.findByText("새로 온 쪽지")).toBeTruthy();
+    await waitFor(() => expect(src.calls.seen, "화면에 뜬 새 쪽지가 읽음으로 안 찍혔다").toBe(before + 1));
   });
 
   it("★ 덮개가 덮고 있으면 읽음으로 찍지 않는다 (S-B2)", async () => {

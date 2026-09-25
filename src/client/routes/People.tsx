@@ -177,6 +177,11 @@ export default function People({
     } catch (e) {
       // 실패하면 작성 시트에 남는다. 쓰던 글은 그대로다
       setNoteErr(messageOf(e, NOTE.blocked.closed));
+      /*
+       * 그리고 **다시 읽는다.** 거절은 화면이 모르는 무엇이 바뀌었다는 뜻이다 — 다른 기기에서 다 썼거나,
+       * 운영자가 0 으로 내렸거나, 받는 사람이 빠졌다. 안 읽으면 남은 장 수와 ✉️ 가 옛 값으로 서 있다.
+       */
+      reload();
     } finally {
       sending.current = false;
     }

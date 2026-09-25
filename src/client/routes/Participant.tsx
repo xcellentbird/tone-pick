@@ -441,8 +441,13 @@ function Loaded({
   useEffect(() => {
     if (!notesOpen) setInboxSeg("received");
   }, [notesOpen]);
+  /*
+   * **안 읽은 것이 있을 때만 찍는다** (`note.unread`). 한동안 줄 수(`received.length`)로 정했는데 둘이 샜다 —
+   * 다 읽은 쪽지함을 열 때마다 서버에 쓰는 요청이 나갔고, 지운 한 장과 새로 온 한 장이 한 응답에 겹치면
+   * 줄 수가 그대로라 **화면에 뜬 새 쪽지가 읽음으로 안 찍혔다.**
+   */
   const notesShown =
-    !!notesOpen && inboxOn && !seatUp && !stageUp && !covered && inboxSeg === "received" && note.received.length > 0;
+    !!notesOpen && inboxOn && !seatUp && !stageUp && !covered && inboxSeg === "received" && note.unread > 0;
   useEffect(() => {
     if (!notesShown) return;
     let alive = true;
@@ -457,7 +462,7 @@ function Loaded({
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notesShown, note.received.length]);
+  }, [notesShown, note.unread]);
   const seeStage = useCallback(async () => {
     if (!stage) return;
     setSeenLocal(stage);

@@ -1130,6 +1130,11 @@ export class EventDO extends DurableObject {
    */
   private noteState(playerId: string, meta: EventMeta, now: number): MyNoteState {
     const sent: Record<string, SentNote[]> = {};
+    /*
+     * 예산에 세는 장 수는 **아래에서 읽는 보낸 줄의 수 그대로다** — `noteSentCount()` 와 같은 조건(`from_id`,
+     * `hidden_at` 을 안 본다)이라 한 번 더 세지 않는다. 이 함수는 `/me` 마다 도는 가장 잦은 길이다.
+     */
+    let used = 0;
     for (const r of this.rows<{ to_id: string; body: string; read_at: number | null; at: number }>(
       "SELECT to_id, body, read_at, at FROM notes WHERE from_id = ? ORDER BY at",
       playerId,
@@ -1146,6 +1151,7 @@ export class EventDO extends DurableObject {
       const read = r.read_at !== null && now - r.read_at > NOTE_READ_DELAY;
       // 지운 줄도 그대로 선다 — 받는 쪽이 지웠다는 것이 여기서 새면 안 된다 (S-C3)
       (sent[r.to_id] ??= []).push({ text: r.body, read });
+      used++;
     }
 
     // 최신이 앞이다 (ADR-48). **진짜 도착 시각은 응답에 안 싣는다** — 차례를 정하는 데만 쓴다
@@ -1155,7 +1161,7 @@ export class EventDO extends DurableObject {
     );
 
     return {
-      budget: { max: meta.config.maxNotes ?? 0, used: this.noteSentCount(playerId) },
+      budget: { max: meta.config.maxNotes ?? 0, used },
       sent,
       // `read_at` 은 줄에 싣지 않는다 — 쪽지함 배지가 쓰는 숫자 하나로만 나간다 (ADR-98 후기 3)
       received: rows.map((r) => ({ id: r.id, text: r.body })),
