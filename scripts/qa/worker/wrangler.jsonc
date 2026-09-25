@@ -1,7 +1,7 @@
 {
   "$schema": "../../../node_modules/wrangler/config-schema.json",
   /*
-   * 무대 워커 (슬라이스 35, ADR-97) — 컴퓨터 없이 온라인에서 QA 무대를 세운다.
+   * 스테이지 워커 (슬라이스 35, ADR-97) — 컴퓨터 없이 온라인에서 QA 스테이지를 만든다.
    *
    * 배포: Workers Builds 프로젝트 `tone-pick-qa-tool`, 프로덕션 브랜치 `qa`.
    * **Deploy command** 에 `npx wrangler deploy -c scripts/qa/worker/wrangler.jsonc`,
@@ -20,7 +20,7 @@
    *
    * **로그인이 없다** (S-B1, ADR-97 후기 4) — Cloudflare Access 를 걷어냈다. 대시보드의 Access 를 켜 두면
    * 워커와 상관없이 엣지가 로그인을 먼저 묻는다. 대신 선 것은 둘이다 — 한국 밖에서는 안 열리고
-   * (아래 `ALLOWED_COUNTRIES`), 무대 세우기와 명령에 하루 상한이 있다 (`budget.ts`).
+   * (아래 `ALLOWED_COUNTRIES`), QA 를 부르는 횟수에 하루 상한이 있다 (`budget.ts`).
    */
   "name": "tone-pick-qa-tool",
   "main": "index.ts",
@@ -35,7 +35,7 @@
    */
   "services": [{ "binding": "APP", "service": "tone-pick-qa" }],
 
-  // 무대 하나 = DO 하나 (S-C5). 로비는 무대가 어디 있는지만 든다
+  // 스테이지 하나 = DO 하나 (S-C5). 로비는 스테이지가 어디 있는지만 든다
   "durable_objects": {
     "bindings": [
       { "name": "STAGE", "class_name": "StageDO" },

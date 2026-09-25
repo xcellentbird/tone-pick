@@ -1,18 +1,18 @@
 /**
- * 무대(stage) — QA 를 손으로 하는 도구.  배역을 만들고, 그때그때 상황을 재현하고, 여러 화면을 나란히 본다.
+ * 스테이지 — QA 를 손으로 하는 도구.  가짜 참가자를 만들고, 그때그때 상황을 재현하고, 여러 화면을 나란히 본다.
  *
  *   npm run qa                              # 로컬 워커(127.0.0.1:8787)에 회차 + 가짜 6명, 등록 중
  *   npm run qa -- --people 8 --phase party --watch
  *   npm run qa -- --phase prevote --watch --remote     # 폰에서 http://<Mac 주소>:7000 리모컨
  *   MASTER_PIN=**** npm run qa -- https://tone-pick-qa.<계정>.workers.dev --watch
  *
- * **핵심은 `core.mjs` 에 있다** (슬라이스 35, ADR-97) — 배역 만들기 · 명령 · 리모컨 페이지.
- * 무대 워커(`worker/`)가 같은 파일을 쓴다. 여기 남은 것은 **컴퓨터에서만 되는 것**뿐이다:
+ * **핵심은 `core.mjs` 에 있다** (슬라이스 35, ADR-97) — 가짜 참가자 만들기 · 명령 · 리모컨 페이지.
+ * 스테이지 워커(`worker/`)가 같은 파일을 쓴다. 여기 남은 것은 **컴퓨터에서만 되는 것**뿐이다:
  * 인자 읽기, `.stage.json`, 창 벽(Playwright), 같은 Wi-Fi 리모컨, 터미널.
  *
  * 세 부분이 한 프로세스다.
  *
- *   배역(cast)   회차를 만들고 가짜 참가자를 **실제 경로**(`/enter` → `/register`)로 등록한다.
+ *   참가자(cast) 회차를 만들고 가짜 참가자를 **실제 경로**(`/enter` → `/register`)로 등록한다.
  *                사람마다 세션 쿠키를 따로 든다 — 리허설(`rehearsal.mjs`)과 같은 길이다
  *   리모컨       터미널(또는 `--remote` 로 폰)에서 명령을 친다. `poke 3 5` · `phase party` ·
  *                `seating 2` · `publish` · `late` · `lock 4` … 전부 **공개 API** 다.
@@ -31,7 +31,7 @@
  * 거부한다 (리허설과 같은 가드). **번호는 전부 가짜다** — QA 에도 실제 번호를 넣지 마라.
  *
  * 끝나면 회차를 지운다 (`--keep` 이면 남긴다). 만든 것을 `.stage.json` 에 적어 두므로
- * `--attach` 로 다시 붙을 수 있다 — 창 벽만 다시 띄울 때 배역을 새로 만들 필요가 없다.
+ * `--attach` 로 다시 붙을 수 있다 — 창 벽만 다시 띄울 때 가짜 참가자를 새로 만들 필요가 없다.
  */
 import fs from "node:fs";
 import http from "node:http";
@@ -62,10 +62,10 @@ if (flag("help")) {
   --tables T       party 로 갈 때 자리 초안의 테이블 수 (기본 2)
   --config k=v     회차 설정. 예: --config maxPre=2 --config maxParty=3 --config pokeNotify=0
   --watch          창 벽을 연다 (기본: 운영자 + 참가자 1~4)
-  --views a,b,c    창을 열 배역: host, 번호, all  (예: --views host,1,2)
+  --views a,b,c    창을 열 사람: host, 번호, all  (예: --views host,1,2)
   --remote [포트]  폰 리모컨 (기본 7000, 같은 Wi-Fi 에서 http://<이 컴퓨터>:7000)
   --keep           끝낼 때 회차를 지우지 않는다
-  --attach         .stage.json 의 지난 무대에 다시 붙는다 (배역을 새로 안 만든다)
+  --attach         .stage.json 의 지난 스테이지에 다시 붙는다 (가짜 참가자를 새로 만들지 않는다)
   HEADLESS=1       창을 화면에 안 띄운다 (스크린샷·자동 확인용)`);
   process.exit(0);
 }
@@ -94,7 +94,7 @@ const REMOTE = flag("remote") ? Number(opt("remote", 7000)) || 7000 : 0;
 const HEADLESS = process.env.HEADLESS === "1";
 const VIEWS = opt("views", "host,1,2,3,4").split(",").map((s) => s.trim()).filter(Boolean);
 
-/** 회차 설정. 기본값은 core 가 든다 (`STAGE_CONFIG`) — 무대 워커와 같은 모양이어야 한다 */
+/** 회차 설정. 기본값은 core 가 든다 (`STAGE_CONFIG`) — 스테이지 워커와 같은 모양이어야 한다 */
 const config = { ...STAGE_CONFIG };
 for (let i = 0; i < args.length; i++) {
   if (args[i] !== "--config") continue;
@@ -115,7 +115,7 @@ function masterPin() {
   }
 }
 
-// ─────────────────────────────────────────── 무대 상태
+// ─────────────────────────────────────────── 스테이지 상태
 
 const log = createLog(console.log);
 const say = (...parts) => log.say(...parts);
@@ -123,14 +123,14 @@ const say = (...parts) => log.say(...parts);
 /** @type {Awaited<ReturnType<typeof buildStage>>} */
 let stage;
 
-/** `.stage.json` 에 적는다. **받은 무대를 쓴다** — 세우는 중(`buildStage` 안)에는 `stage` 가 아직 비어 있다 */
+/** `.stage.json` 에 적는다. **받은 스테이지를 쓴다** — 만드는 중(`buildStage` 안)에는 `stage` 가 아직 비어 있다 */
 function save(s = stage) {
   fs.writeFileSync(STATE_FILE, JSON.stringify({ base: BASE, ...s.toJSON() }, null, 1));
 }
 
 /**
  * core 가 모르는 것 — 이 컴퓨터에서만 되는 명령. core 의 명령보다 먼저 본다.
- * 무대 워커에는 이것들이 없고, 거기서 치면 core 가 `이 무대에는 없어요` 로 답한다.
+ * 스테이지 워커에는 이것들이 없고, 거기서 치면 core 가 `이 스테이지에서는 쓸 수 없어요` 로 답한다.
  */
 const CLI_HELP = `  now +30m                시간 이동 (로컬 + ALLOW_TEST_ENDPOINTS=1 일 때만)
   open A|host|all · close A · snap [이름]   창 벽
@@ -161,7 +161,7 @@ const env = {
   help: CLI_HELP,
   // 훅이 없는 곳(QA·프로덕션)에서는 core 가 404 를 보고 그렇다고 말한다
   timeTravel: true,
-  // 요청 하나의 몫이 없다 — 자동 콕을 한 번에 다 보낸다 (무대 워커는 `BULK_MAX` 씩 나눈다)
+  // 요청 하나의 몫이 없다 — 자동 콕을 한 번에 다 보낸다 (스테이지 워커는 `BULK_MAX` 씩 나눈다)
   batch: Infinity,
   onChange: (s) => save(s),
 };
@@ -170,8 +170,8 @@ const env = {
 function die(e) {
   if (!(e instanceof StageError)) throw e;
   const hint = {
-    unreachable: `❌ ${BASE} 에 닿지 못했습니다. 로컬이면 먼저 \`npm run dev:worker\` 를 띄우세요.`,
-    not_practice: "❌ 연습용 환경이 아닙니다 (ENV_LABEL 없음). 프로덕션에는 무대를 세우지 않습니다.",
+    unreachable: `❌ ${BASE}에 연결하지 못했습니다. 로컬이면 먼저 \`npm run dev:worker\` 를 띄우세요.`,
+    not_practice: "❌ 연습용 환경이 아닙니다 (ENV_LABEL 없음). 프로덕션에는 스테이지를 만들지 않습니다.",
     no_pin: "❌ 운영자 PIN 이 없습니다. 로컬은 .dev.vars 의 MASTER_PIN, 그 밖은 MASTER_PIN=**** 로 주세요.",
   }[e.code];
   console.error(hint ?? `  ✗ ${e.message}`);
@@ -193,16 +193,16 @@ async function build() {
 async function attach() {
   const s = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
   if (s.base !== BASE) {
-    console.error(`❌ .stage.json 은 ${s.base} 의 무대입니다. 같은 주소로 붙이세요.`);
+    console.error(`❌ .stage.json 은 ${s.base} 의 스테이지입니다. 같은 주소로 붙이세요.`);
     process.exit(1);
   }
   stage = restoreStage(env, { tables: TABLES, ...s });
   const st = await stage.host.call(`/host/events/${stage.event.id}/state`);
   if (st.status !== 200) {
-    say(`  ✗ 지난 무대에 붙기: ${st.status}`);
+    say(`  ✗ 지난 스테이지에 붙기: ${st.status}`);
     process.exit(1);
   }
-  say(`지난 무대에 붙었습니다 — 회차 ${stage.event.code} · ${stage.cast.length}명 · 단계 ${st.body.meta.phase}`);
+  say(`지난 스테이지에 붙었습니다 — 회차 ${stage.event.code} · ${stage.cast.length}명 · 단계 ${st.body.meta.phase}`);
 }
 
 // ─────────────────────────────────────────── 창 벽 (Playwright)
@@ -221,7 +221,7 @@ async function openBrowser() {
   return pw;
 }
 
-/** 배역 하나(또는 운영자)를 자기 창으로 연다. 쿠키와 이름표를 심어 로그인된 채로 뜬다 */
+/** 가짜 참가자 한 명(또는 운영자)을 자기 창으로 연다. 쿠키와 이름표를 심어 로그인된 채로 뜬다 */
 async function openWindow(key) {
   const w = await openBrowser();
   if (w.windows.has(key)) return say(`  창 ${key} 은 이미 열려 있습니다`);
@@ -398,7 +398,7 @@ if (process.env.STAGE_SCRIPT) {
 }
 
 say("명령을 치세요 (help). Ctrl-C 로 끝내면 회차를 지웁니다" + (keepOnExit ? " — 지금은 --keep" : ""));
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: "무대> " });
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: "스테이지> " });
 rl.prompt();
 rl.on("line", async (line) => {
   await stage.run(line).catch((e) => say(`  ✗ ${e.message}`));

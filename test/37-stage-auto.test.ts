@@ -1,5 +1,5 @@
 /**
- * 슬라이스 37 — 한 탭 무대의 배역과 자동 콕 (ADR-99 후기).
+ * 슬라이스 37 — 한 탭 스테이지의 가짜 참가자와 자동 콕 (ADR-99 후기).
  *
  *   나이   남녀를 따로 평균과 범위 — 평균이 맞고, 모두 앱이 받는 범위 안이다
  *   자동   실제 파티처럼. 운영자가 본 것 (2026-09-25):
@@ -8,7 +8,7 @@
  *
  * 확률로 정한 모양은 **씨앗 하나로 재지 않는다** (ADR-57 과 같은 까닭) — 씨앗 여러 개의 평균으로 본다.
  * 계획(`planPokes`)은 앱을 부르지 않는 순수 함수라 그렇게 돌리고, 앱과 붙인 것은 `SELF.fetch` 로 따로 본다.
- * 한 탭 무대의 나머지(틀 · 쿠키 · 하루 상한)는 `37-stage-wall.test.ts` 다.
+ * 한 탭 스테이지의 나머지(틀 · 쿠키 · 하루 상한)는 `37-stage-wall.test.ts` 다.
  */
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -21,7 +21,7 @@ beforeAll(signInMaster);
 
 const BASE = "https://tone-pick.test";
 
-/** 무대 워커와 같은 모양으로 core 를 부른다. `calls` 가 QA 를 부른 횟수를 센다 */
+/** 스테이지 워커와 같은 모양으로 core 를 부른다. `calls` 가 QA 를 부른 횟수를 센다 */
 function env() {
   const counter = { calls: 0 };
   return {
@@ -66,7 +66,7 @@ describe("나이 — 남녀를 따로, 평균과 범위", () => {
     expect(ageRange(undefined, STAGE_AGES.M)).toEqual(STAGE_AGES.M);
   });
 
-  it("★ 배역이 고른 나이로 등록된다 — 등록을 묶음으로 나눠도 성별마다 평균이 맞는다", async () => {
+  it("★ 가짜 참가자가 고른 나이로 등록된다 — 등록을 묶음으로 나눠도 성별마다 평균이 맞는다", async () => {
     const ages = { M: { avg: 35, min: 30, max: 44 }, F: { avg: 26, min: 22, max: 31 } };
     const stage = await beginStage(env(), want({ men: 5, women: 4, ages }));
     while (stage.pending.length) await stage.enrollSome(3);
@@ -85,7 +85,7 @@ describe("나이 — 남녀를 따로, 평균과 범위", () => {
 
 type Sex = "M" | "F";
 /**
- * 파티 한 판을 끝까지 — 자리 몇 라운드 뒤 마지막 자리(기본 1~3라운드 + 마지막). **씨앗마다 다른 무대**다
+ * 파티 한 판을 끝까지 — 자리 몇 라운드 뒤 마지막 자리(기본 1~3라운드 + 마지막). **씨앗마다 다른 스테이지**다
  * (인기 · 성향이 씨앗에서 나온다). 앱을 부르지 않는다 — 계획만 세어 본다. 앱과 붙인 것은 아래 `자동 콕 — 진짜 앱에서` 가 본다.
  */
 function party(seed: number, size = 20, max = 2, seatings = 4) {
@@ -147,7 +147,7 @@ describe("자동 콕 — 실제 파티처럼 (씨앗 여러 개의 평균으로)
       expect(r2, key).toBeLessThan(r3);
       expect(last, key).toBeGreaterThan(r3 * 2);
     }
-    // 자리가 몇 라운드일지 무대는 모른다 — 20분마다 돌리는 열 라운드 파티에서도 마지막이 가장 많다
+    // 자리가 몇 라운드일지 스테이지는 모른다 — 20분마다 돌리는 열 라운드 파티에서도 마지막이 가장 많다
     const long = Array.from({ length: 100 }, (_, i) => party(i + 1, 20, 2, 10));
     const per = [...Array(10)].map((_, k) => mean(long.map((r) => r.pokes[k])));
     expect(per[9]).toBeGreaterThan(Math.max(...per.slice(0, 9)));
@@ -190,7 +190,7 @@ describe("자동 콕 — 진짜 앱에서", () => {
       await stage.drain(BULK_MAX);
       expect(e.counter.calls).toBeLessThanOrEqual(BULK_MAX);
     }
-    expect(e.log.lines.at(-1)).toContain("✓ 자동 콕 · 마지막 자리");
+    expect(e.log.lines.at(-1)).toContain("✓ 자동 콕 (마지막 자리");
 
     const gender = new Map((stage.cast as Persona[]).map((p) => [p.id, p.gender]));
     let total = 0;
@@ -209,7 +209,7 @@ describe("자동 콕 — 진짜 앱에서", () => {
     const stage = await buildStage(e, want({ men: 4, women: 4, phase: "prevote" }));
     await stage.run("auto");
     expect(stage.backlog).toHaveLength(0);
-    expect(e.log.lines.at(-1)).toMatch(/자동 콕 · 매력 투표|찌를 사람이 없어요/);
+    expect(e.log.lines.at(-1)).toContain("자동 콕 (매력 투표)");
     for (const p of stage.cast as Persona[]) expect((await me(p)).budget.pre.used).toBeLessThanOrEqual(1);
     // 다시 눌러도 더 내지 않는다 — 쓰려던 만큼은 이미 냈다
     const before = (await hostState(stage.event.id)).pokeCount.pre;

@@ -1,10 +1,10 @@
 /**
- * 슬라이스 35 — 무대 워커. **무대의 핵심(`scripts/qa/core.mjs`)**을 본다. 한 탭 무대 · 콕 묶음 · 하루 상한은
+ * 슬라이스 35 — 스테이지 워커. **스테이지의 핵심(`scripts/qa/core.mjs`)**을 본다. 한 탭 스테이지 · 콕 묶음 · 하루 상한은
  * 슬라이스 37 이다 (`37-stage-wall.test.ts`).
  *
- * core 는 `fetch` 를 넣어 받는다 — CLI 는 전역 `fetch`, 무대 워커는 서비스 바인딩이다. 여기서는
+ * core 는 `fetch` 를 넣어 받는다 — CLI 는 전역 `fetch`, 스테이지 워커는 서비스 바인딩이다. 여기서는
  * **`SELF.fetch` 를 넣어 진짜 앱에 대고** 돌린다. 앱을 흉내 내지 않으므로, 앱의 공개 API 가 바뀌어
- * 무대가 깨지면 여기서 먼저 빨개진다.
+ * 스테이지가 깨지면 여기서 먼저 빨개진다.
  *
  * 워커의 라우터·DO 는 core 를 감싼 얇은 껍데기라 여기서 따로 돌리지 않는다 — 두 워커를 붙여
  * 로컬에서 돌려 본 기록은 ADR-97 후기 3 에 있다.
@@ -20,7 +20,7 @@ beforeAll(signInMaster);
 const BASE = "https://tone-pick.test";
 const PUBLIC = "https://tone-pick-qa.example.workers.dev";
 
-/** 무대 워커와 같은 모양으로 core 를 부른다 — 창 벽도 시간 이동도 없다 */
+/** 스테이지 워커와 같은 모양으로 core 를 부른다 — 창 벽도 시간 이동도 없다 */
 function env() {
   const log = createLog();
   return {
@@ -39,8 +39,8 @@ const want = (over: Record<string, unknown> = {}) => ({ people: 3, phase: "reg",
 const hostState = (id: string) => api<HostState>(`/api/host/events/${id}/state`, { cookie: master });
 const lastLine = (e: ReturnType<typeof env>) => e.log.lines.at(-1) ?? "";
 
-describe("무대 — 배역", () => {
-  it("★ 배역은 실제 경로로 등록한다 — 사람마다 세션이 따로다 (S-C1)", async () => {
+describe("스테이지 — 가짜 참가자", () => {
+  it("★ 가짜 참가자는 실제 경로로 등록한다 — 사람마다 세션이 따로다 (S-C1)", async () => {
     const e = env();
     const stage = await buildStage(e, want());
     expect(stage.cast).toHaveLength(3);
@@ -59,19 +59,19 @@ describe("무대 — 배역", () => {
     await stage.close();
   });
 
-  it("★ 번호는 가짜뿐이다 — 무대가 만들고, 받는 입력이 없다 (S-C2)", async () => {
+  it("★ 번호는 가짜뿐이다 — 스테이지가 만들고, 받는 입력이 없다 (S-C2)", async () => {
     const stage = await buildStage(env(), want({ people: 4 }));
     const phones = stage.cast.map((p: { phone: string }) => p.phone);
     for (const ph of phones) expect(ph).toMatch(/^010\d{8}$/);
     expect(new Set(phones).size).toBe(4);
-    // 무대가 받는 것에 번호 자리가 없다 — 넣어도 쓰지 않는다
+    // 스테이지가 받는 것에 번호 자리가 없다 — 넣어도 쓰지 않는다
     const withPhone = await buildStage(env(), want({ people: 1, phones: ["01099998888"], phone: "01099998888" }));
     expect(withPhone.cast[0].phone).not.toBe("01099998888");
     await stage.close();
     await withPhone.close();
   });
 
-  it("★ 연습용 환경이 아니면 세우지 않는다 — 회차도 만들지 않는다", async () => {
+  it("★ 연습용 환경이 아니면 만들지 않는다 — 회차도 만들지 않는다", async () => {
     const before = (await api<unknown[]>("/api/host/events", { cookie: master })).body.length;
     const err = await buildStage(env(), want({ practiceOnly: true })).catch((x) => x);
     expect(err).toBeInstanceOf(StageError);
@@ -79,7 +79,7 @@ describe("무대 — 배역", () => {
     expect((await api<unknown[]>("/api/host/events", { cookie: master })).body.length).toBe(before);
   });
 
-  it("★ 세우다 실패하면 만든 회차를 지운다 — 아무도 못 닫는 회차를 남기지 않는다", async () => {
+  it("★ 만들다 실패하면 만든 회차를 지운다 — 아무도 못 닫는 회차를 남기지 않는다", async () => {
     const before = (await api<unknown[]>("/api/host/events", { cookie: master })).body.length;
     // 초대 명단 부르기만 막는다 — 회차는 이미 만들어진 뒤다
     const e = env();
@@ -103,7 +103,7 @@ describe("무대 — 배역", () => {
   });
 });
 
-describe("무대 — 명령", () => {
+describe("스테이지 — 명령", () => {
   it("★ 명령은 공개 API 로 간다 — 콕은 그 참가자의 세션으로 (S-C4)", async () => {
     const e = env();
     const stage = await buildStage(e, want({ people: 4, phase: "party" }));
@@ -115,19 +115,19 @@ describe("무대 — 명령", () => {
     await stage.close();
   });
 
-  it("★ 이 무대에 없는 명령은 없다고 답한다 — 조용히 무시하지 않는다 (S-C4)", async () => {
+  it("★ 이 스테이지에 없는 명령은 없다고 답한다 — 조용히 무시하지 않는다 (S-C4)", async () => {
     const e = env();
     const stage = await buildStage(e, want({ people: 2 }));
     for (const cmd of ["now +30m", "open 1", "close 1", "snap", "keep", "quit"]) {
       await stage.run(cmd);
-      expect(lastLine(e), cmd).toContain("이 무대에는 없어요");
+      expect(lastLine(e), cmd).toContain("이 스테이지에서는 쓸 수 없어요");
     }
     await stage.run("nosuch");
     expect(lastLine(e)).toContain("help");
     await stage.close();
   });
 
-  it("★ 무대가 맡은 명령이 먼저다 — CLI 는 창 벽을 여기로 건다", async () => {
+  it("★ 스테이지가 맡은 명령이 먼저다 — CLI 는 창 벽을 여기로 건다", async () => {
     const e = env();
     const seen: string[][] = [];
     const stage = await buildStage({ ...e, platform: { open: (rest: string[]) => void seen.push(rest) } }, want({ people: 2 }));
@@ -142,13 +142,13 @@ describe("무대 — 명령", () => {
     await stage.run("url 2");
     expect(lastLine(e)).toContain(`${PUBLIC}/j/${stage.event.id}`);
     expect(lastLine(e)).not.toContain(BASE);
-    // CLI 의 리모컨은 링크를 안 단다 — 로컬 주소는 폰에서 안 열린다. 온라인 무대의 화면은 37 이 본다
+    // CLI 의 리모컨은 링크를 안 단다 — 로컬 주소는 폰에서 안 열린다. 온라인 스테이지의 화면은 37 이 본다
     expect(stage.remotePage()).not.toContain(`/j/${stage.event.id}`);
     await stage.close();
   });
 });
 
-describe("무대 — 저장과 닫기", () => {
+describe("스테이지 — 저장과 닫기", () => {
   it("★ 저장했다 되살려도 같은 사람들이다 — 세션째 돌아온다", async () => {
     const e = env();
     const stage = await buildStage(e, want({ people: 3, phase: "party" }));
@@ -173,7 +173,7 @@ describe("무대 — 저장과 닫기", () => {
     expect(await kept.close()).toBe(false);
   });
 
-  it("★ `delete` 로 지운 무대는 닫을 때 다시 지우지 않는다", async () => {
+  it("★ `delete` 로 지운 스테이지는 닫을 때 다시 지우지 않는다", async () => {
     const e = env();
     const stage = await buildStage(e, want({ people: 2 }));
     await stage.run("delete");

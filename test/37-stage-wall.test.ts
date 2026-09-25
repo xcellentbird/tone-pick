@@ -1,9 +1,9 @@
 /**
- * 슬라이스 37 — 한 탭 무대. 운영자와 참가자 화면을 한꺼번에 보고, 콕을 쉽게 친다 (ADR-99).
+ * 슬라이스 37 — 한 탭 스테이지. 운영자와 참가자 화면을 한꺼번에 보고, 콕을 쉽게 친다 (ADR-99).
  *
- *   배역   남녀를 따로 2~50명, 등록은 묶음으로 나눠도 같다
+ *   참가자 남녀를 따로 2~50명, 등록은 묶음으로 나눠도 같다
  *   콕     뿌리기 · 모으기 · 서로 콕 N쌍 — 앱의 규칙(상한 · 이성)을 넘지 않는다
- *   상한   QA 를 부른 횟수로 센다 — 세우기 전 어림이 실제보다 작지 않고, 묶음 명령은 한 요청의 몫 안이다
+ *   상한   QA 를 부른 횟수로 센다 — 만들기 전 어림이 실제보다 작지 않고, 묶음 명령은 한 요청의 몫 안이다
  *   쿠키   틀에 심는 것은 참가자 쿠키 하나 — 그 쿠키로 QA 가 그 참가자를 알아본다
  *   화면   틀은 QA 의 공개 주소로, 페이지에 세션 토큰이 없다
  *
@@ -28,7 +28,7 @@ beforeAll(signInMaster);
 const BASE = "https://tone-pick.test";
 const PUBLIC = "https://tone-pick-qa.example.workers.dev";
 
-/** 무대 워커와 같은 모양으로 core 를 부른다. `calls` 가 QA 를 부른 횟수를 센다 */
+/** 스테이지 워커와 같은 모양으로 core 를 부른다. `calls` 가 QA 를 부른 횟수를 센다 */
 function env() {
   const counter = { calls: 0 };
   return {
@@ -48,14 +48,14 @@ const want = (over: Record<string, unknown> = {}) => ({ men: 3, women: 3, phase:
 const hostState = async (id: string) => (await api<HostState>(`/api/host/events/${id}/state`, { cookie: master })).body;
 type Persona = { n: number; id: string; gender: "M" | "F"; session: { ref: string; cookies: Map<string, string>; call: (p: string) => Promise<{ status: number; body: unknown }> } };
 
-describe("배역 — 남녀를 따로, 등록이 끝난 뒤에서", () => {
+describe("가짜 참가자 — 남녀를 따로, 등록이 끝난 뒤에서", () => {
   it("★ 남녀 수를 따로 받는다 — 번호는 남 · 여 · 남 · 여, 한쪽이 떨어지면 남은 쪽이 잇는다", async () => {
     const stage = await buildStage(env(), want({ men: 2, women: 4, phase: "prevote" }));
     expect(stage.cast.map((p: Persona) => p.gender)).toEqual(["M", "F", "M", "F", "F", "F"]);
     const st = await hostState(stage.event.id);
     expect(st.players.filter((p) => p.gender === "M")).toHaveLength(2);
     expect(st.players.filter((p) => p.gender === "F")).toHaveLength(4);
-    // 모두 등록을 마쳤다 — 무대는 등록 뒤에서 시작한다
+    // 모두 등록을 마쳤다 — 스테이지는 등록 뒤에서 시작한다
     expect(st.meta.phase).toBe("prevote");
     await stage.close();
   });
@@ -138,7 +138,7 @@ describe("하루 상한 — QA 를 부른 횟수로 센다", () => {
     expect(quotaDay(kst(25, 0, 30))).toBe(quotaDay(kst(24, 23, 30)));
   });
 
-  it("★ 세우기 전 어림이 실제보다 작지 않다 — 작으면 가다가 막혀 등록한 사람들이 몫만 먹고 지워진다", async () => {
+  it("★ 만들기 전 어림이 실제보다 작지 않다 — 작으면 가다가 막혀 등록한 사람들이 몫만 먹고 지워진다", async () => {
     const e = env();
     const stage = await buildStage(e, want({ men: 3, women: 2, phase: "done" }));
     const batches = Math.ceil(5 / ENROLL_BATCH);
@@ -199,7 +199,7 @@ describe("틀에 심는 쿠키 — 참가자 쿠키 하나", () => {
   });
 });
 
-describe("무대 화면 — 틀은 QA 를 직접 연다", () => {
+describe("스테이지 화면 — 틀은 QA 를 직접 연다", () => {
   it("★ 틀은 QA 의 공개 주소로 열고, 페이지에는 세션 토큰이 없다", async () => {
     const stage = await buildStage(env(), want({ men: 2, women: 2, phase: "prevote" }));
     const cast = (stage.cast as (Persona & { nickname: string; age: number; phone: string; pin: string })[]).map((p) => ({
