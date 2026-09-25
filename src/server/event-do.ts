@@ -1098,15 +1098,17 @@ export class EventDO extends DurableObject {
     }
 
     // 최신이 앞이다 (ADR-48). **진짜 도착 시각은 응답에 안 싣는다** — 차례를 정하는 데만 쓴다
-    const received = this.rows<{ id: string; body: string }>(
-      "SELECT id, body FROM notes WHERE to_id = ? AND hidden_at IS NULL ORDER BY at DESC",
+    const rows = this.rows<{ id: string; body: string; read_at: number | null }>(
+      "SELECT id, body, read_at FROM notes WHERE to_id = ? AND hidden_at IS NULL ORDER BY at DESC",
       playerId,
-    ).map((r) => ({ id: r.id, text: r.body }));
+    );
 
     return {
       budget: { max: meta.config.maxNotes ?? 0, used: this.noteSentCount(playerId) },
       sent,
-      received,
+      // `read_at` 은 줄에 싣지 않는다 — 쪽지함 배지가 쓰는 숫자 하나로만 나간다 (ADR-98 후기 3)
+      received: rows.map((r) => ({ id: r.id, text: r.body })),
+      unread: rows.filter((r) => r.read_at === null).length,
     };
   }
 

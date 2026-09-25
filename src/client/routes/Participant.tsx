@@ -5,10 +5,10 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { BTN, ENTRY, FAIL, FORTUNE, HELP, TABS_PARTICIPANT } from "../../shared/copy.ts";
+import { BTN, ENTRY, FAIL, FORTUNE, HELP, NOTE, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { MyNoteState, MyPokeState, PublicAnnouncement, ParticipantState, StageKey } from "../../shared/types.ts";
 import { connect } from "../lib/realtime.ts";
-import { canPoke } from "../../shared/phase.ts";
+import { canNote, canPoke } from "../../shared/phase.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
 import { sessionSource, type ParticipantSource } from "../lib/participant.ts";
@@ -25,6 +25,7 @@ import SeatTakeover from "../ui/SeatTakeover.tsx";
 import StageTakeover from "../ui/StageTakeover.tsx";
 import Sheet from "../ui/Sheet.tsx";
 import Help from "../ui/Help.tsx";
+import NoteBox from "../ui/NoteBox.tsx";
 import { canOpenFortune } from "../../shared/phase.ts";
 import FortuneTab from "./Fortune.tsx";
 import StatusBar from "../ui/StatusBar.tsx";
@@ -72,6 +73,12 @@ interface ViewProps {
    */
   helpOpen?: boolean;
   onHelp: (on: boolean) => void;
+  /**
+   * 익명 쪽지함 (ADR-98 후기 3). 도움말처럼 **상단 바에서 어느 탭에서든 열리는 시트**다.
+   * 뒤로 가기로 닫힌다. 이 회차에 쪽지가 없는데 주소를 직접 열면 갈아끼운다 (`/seat` 와 같다).
+   */
+  notesOpen?: boolean;
+  onNotes?: (on: boolean, opts?: { replace?: boolean }) => void;
 }
 
 /**
@@ -138,6 +145,8 @@ export default function Participant() {
   const seatOpen = location.pathname.endsWith("/seat");
   // 도움말도 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md)
   const helpOpen = location.pathname.endsWith("/help");
+  // 익명 쪽지함도 같다 (ADR-98 후기 3)
+  const notesOpen = location.pathname.endsWith("/notes");
 
   /*
    * 어느 화면까지 왔나를 **집계로만** 남긴다 (ADR-56).
@@ -146,7 +155,7 @@ export default function Participant() {
    * 탭마다 흩어 놓으면 새 탭이 생길 때 빠뜨리고, 빠뜨린 걸 아무도 모른다.
    * ⚠️ **주소를 그대로 보내지 마라.** `/e/:code` 의 코드가 실린다 — 화면 **이름**만 보낸다.
    */
-  const screen: NavKey = helpOpen ? "help" : seatOpen ? "seat" : profileId ? "profile" : tab;
+  const screen: NavKey = helpOpen ? "help" : notesOpen ? "notes" : seatOpen ? "seat" : profileId ? "profile" : tab;
   useEffect(() => nav(screen), [screen]);
   useEffect(() => startPulse(), []);
 
@@ -185,6 +194,11 @@ export default function Participant() {
       seatOpen={seatOpen}
       helpOpen={helpOpen}
       onHelp={(on) => (on ? navigate(`${base}/help`) : navigate(-1))}
+      notesOpen={notesOpen}
+      // 도움말과 같다 — 열기는 push, 닫기는 뒤로 가기. 직접 연 주소가 헛것이면 홈으로 갈아끼운다
+      onNotes={(on, opts) =>
+        on ? navigate(`${base}/notes`) : opts?.replace ? navigate(base, { replace: true }) : navigate(-1)
+      }
       /*
        * 편집과 같다 — **닫기는 뒤로 가기**이되, 주소를 직접 연 사람에게는 뒤로 갈 자리가 없다.
        * 그때 `navigate(-1)` 은 앱을 벗어난다. iOS 는 가장자리 스와이프가 뒤로 가기라 더 쉽게 걸린다.
@@ -289,6 +303,8 @@ function Loaded({
   setAnnouncement,
   helpOpen,
   onHelp,
+  notesOpen,
+  onNotes,
 }: ViewProps & {
   state: ParticipantState;
   reload: () => void;
@@ -368,39 +384,55 @@ function Loaded({
   /**
    * 어깨너머 가리기 (슬라이스 16). **여기서 한 번만 읽는다.**
    *
-   * 예전에는 참가자 탭이 혼자 `useCovered()` 를 불렀다. 익명 쪽지가 생기면서 홈에도 같은 토글이
+   * 예전에는 참가자 탭이 혼자 `useCovered()` 를 불렀다. 익명 쪽지가 생기면서 쪽지함에도 같은 토글이
    * 서고 읽음 판정까지 이 값을 보므로, 각자 부르면 **한 화면에서 켠 것이 다른 화면에 안 보인다** —
    * 두 집 살림이 된다. 저장은 여전히 localStorage 하나다 (서버로 보내지 않는다).
    */
   const [covered, setCovered] = useCovered();
 
   /**
-   * 받은 익명 쪽지를 **읽음으로 찍는다** (슬라이스 36). 여기 있는 이유는 셋을 한자리에서 보기 때문이다 —
-   * 홈 탭인가, 덮개가 덮고 있나(`needsSeatAck`·`needsStage`), 어깨너머 가리기가 켜져 있나.
+   * 익명 쪽지함이 이 회차에 있나 (ADR-98 후기 3). **파티가 시작돼야 생기고**, 쪽지를 0장으로 둔 회차에는 없다.
+   * 다만 **주고받은 것이 하나라도 있으면 남는다** — 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던
+   * 회차이고, 거기서 이미 온 쪽지는 지울 수 있어야 한다 (도움말 문답과 같은 조건).
+   */
+  const note = state.note;
+  const inboxOn =
+    (started && (state.event.config.maxNotes ?? 0) > 0) ||
+    note.received.length > 0 ||
+    Object.keys(note.sent).length > 0;
+  useEffect(() => {
+    if (notesOpen && !inboxOn) onNotes?.(false, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notesOpen, inboxOn]);
+
+  /**
+   * 받은 익명 쪽지를 **읽음으로 찍는다.** 여기 있는 이유는 셋을 한자리에서 보기 때문이다 —
+   * 쪽지함이 열려 있나, 덮개가 덮고 있나(`needsSeatAck`·`needsStage`), 어깨너머 가리기가 켜져 있나.
    *
-   * ⚠️ **덮개는 홈을 가리지만 언마운트하지 않는다** (`{tab === "home" && <Home/>}` 이 덮개와 나란히 산다).
-   * 그대로 두면 **본문을 볼 수 없는 사람이 읽은 것으로 찍히고**, 배지가 말하는 것과 코드가 재는 것이
-   * 갈린다 — `문구가 코드보다 넓게 말하면 거짓말` 에 걸린다.
+   * **읽음은 쪽지함을 열 때다** (ADR-98 후기 3). 한동안 홈이 그려지면 찍었는데, 쪽지 줄이 홈 맨 아래라
+   * **스크롤하지 않아도 읽음이 섰다** — 배지가 말하는 것보다 코드가 넓게 재고 있었다.
+   * 쪽지함은 열면 받은 쪽지가 맨 위에 있다.
    *
-   * ⚠️ **가리기 중에도 찍지 않는다.** 가리면 제목만 보이는데, 제목만 본 것은 읽은 것이 아니다.
+   * ⚠️ **덮개 아래에서는 찍지 않는다.** 자리 확인·단계 안내는 시트 위에 선다 — 본문을 볼 수 없는
+   * 사람이 읽은 것으로 찍히면 `문구가 코드보다 넓게 말하면 거짓말` 에 걸린다.
+   *
+   * ⚠️ **가리기 중에도 찍지 않는다.** 가리면 줄만 보이는데, 본문을 안 본 것은 읽은 것이 아니다.
    * 이것이 **안 읽고 지우는 길**을 실제로 열어 둔다 (ADR-98) — 그 길이 없으면 괴롭히는 쪽은
    * 언제나 `읽음` 을 받고, 읽음이 거절 신호가 되지 않게 하는 장치가 글로만 남는다.
-   *
-   * 안 본 것이 있는지는 **묻지 않는다.** 그 값을 응답에 실으면 도착 시각의 창이 새기 때문이다
-   * (`ReceivedNote`) — 줄이 하나라도 있으면 부르고, 바뀐 것이 없으면 서버가 아무것도 안 쓴다.
    */
-  const notesShown = tab === "home" && !needsSeatAck && !needsStage && !covered && state.note.received.length > 0;
+  const notesShown =
+    !!notesOpen && inboxOn && !needsSeatAck && !needsStage && !covered && note.received.length > 0;
   useEffect(() => {
     if (!notesShown) return;
     let alive = true;
-    void source.seeNotes().then((note) => {
-      if (alive) setNote(note);
+    void source.seeNotes().then((next) => {
+      if (alive) setNote(next);
     });
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notesShown, state.note.received.length]);
+  }, [notesShown, note.received.length]);
   const seeStage = useCallback(async () => {
     if (!stage) return;
     setSeenLocal(stage);
@@ -433,6 +465,7 @@ function Loaded({
              */
             onHome={tab === "home" ? undefined : () => onTab("home")}
             onHelp={() => onHelp(true)}
+            inbox={inboxOn ? { unread: note.unread, onOpen: () => onNotes?.(true) } : undefined}
           />
         </header>
 
@@ -459,9 +492,6 @@ function Loaded({
               onHelp={() => onHelp(true)}
               // 서버가 방금 준 답을 버리고 다시 묻지 않는다 (슬라이스 17 과 같은 이유)
               onVote={async (id, choice) => setAnnouncement(await source.vote(id, choice))}
-              onRemoveNote={async (id: string) => setNote(await source.removeNote(id))}
-              covered={covered}
-              setCovered={setCovered}
             />
           )}
           {tab === "people" && (
@@ -508,6 +538,24 @@ function Loaded({
             onDone={seeStage}
           />
         )}
+
+        {/*
+          익명 쪽지함 (ADR-98 후기 3). 어느 탭에서 열든 같은 것이 뜬다.
+          **열릴 때마다 새로 붙는다** — 보낸 쪽지의 읽음 배지가 그 순간의 값으로 굳는 것이 여기서 나온다.
+        */}
+        <Sheet open={!!notesOpen && inboxOn} onClose={() => onNotes?.(false)} title={NOTE.inbox.title}>
+          {notesOpen && inboxOn && (
+            <NoteBox
+              note={note}
+              roster={state.roster}
+              open={canNote(state.event.phase) && (state.event.config.maxNotes ?? 0) > 0}
+              covered={covered}
+              setCovered={setCovered}
+              onRemove={async (id) => setNote(await source.removeNote(id))}
+              onClose={() => onNotes?.(false)}
+            />
+          )}
+        </Sheet>
 
         {/* 파티 룰 도움말. 어느 탭에서 열든 같은 것이 뜬다 */}
         <Sheet open={!!helpOpen} onClose={() => onHelp(false)} title={HELP.title}>

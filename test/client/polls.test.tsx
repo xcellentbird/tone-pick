@@ -138,7 +138,7 @@ describe("참가자 설문 카드", () => {
     me: { id: "me", nickname: "달빛", realName: "김나", age: 30, gender: "M", instagram: "", mbti: "ENFP", charms: ["하나", "둘", "셋"], createdAt: 1 },
     roster: [],
     poke: { budget: { pre: { max: 3, used: 0 }, party: { max: 3, used: 0 } }, sentTo: {}, received: { pre: 0, party: 0 }, matches: [] },
-    note: { budget: { max: 0, used: 0 }, sent: {}, received: [] },
+    note: { budget: { max: 0, used: 0 }, sent: {}, received: [], unread: 0 },
     announcements: [poll],
   });
   const voted: Array<[string, string]> = [];

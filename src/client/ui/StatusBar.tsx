@@ -1,5 +1,5 @@
 /**
- * 화면 맨 위 **두 줄.** 왼쪽에 회차 이름과 단계, 오른쪽에 도움말.
+ * 화면 맨 위 **두 줄.** 왼쪽에 회차 이름과 단계, 오른쪽에 도움말 — 파티부터는 그 왼쪽에 익명 쪽지함 ✉️.
  *
  * 답하는 질문은 하나다 — **"내가 지금 어느 파티의 어느 단계에 있나."**
  * 그것만 두는 게 이 줄의 일이다. 헤더는 스크롤되지 않으므로(.screen 이 flex 라 .body 만 흐른다)
@@ -24,13 +24,14 @@
  * 인원 수도, 남은 콕도 여기 없다. 남은 콕은 콕을 찌르는 화면(참가자 탭)이 맡고,
  * **인원 수는 참가자 화면 어디에도 없다** (ADR-21).
  */
-import { HELP, PHASE_LABEL, STATUS } from "../../shared/copy.ts";
+import { HELP, NOTE, PHASE_LABEL, STATUS } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 
 export default function StatusBar({
   state,
   onHome,
   onHelp,
+  inbox,
 }: {
   state: ParticipantState;
   /**
@@ -41,6 +42,14 @@ export default function StatusBar({
    */
   onHome?: () => void;
   onHelp: () => void;
+  /**
+   * 익명 쪽지함 ✉️ (ADR-98 후기 3). **이 회차에 쪽지가 있을 때만** 온다 — 없으면 자리째 없다.
+   *
+   * 여기 서는 이유는 하나다: 받은 쪽지는 어느 탭에 있든 오고, 모든 탭에서 보이는 자리는
+   * 이 줄과 탭바뿐이다. 탭바는 더 비싸다 — 탭은 없다가 생기면 안 되는데(ADR-20 후기)
+   * 쪽지를 0장으로 둔 회차에는 쪽지함이 없어야 한다. 이 줄에서는 회차 이름 하나만 줄어든다.
+   */
+  inbox?: { unread: number; onOpen: () => void };
 }) {
   const { name, phase } = state.event;
 
@@ -69,6 +78,26 @@ export default function StatusBar({
         말할 수 있으려면 찾아 들어가지 않아도 되는 곳에 있어야 한다.
         등록을 마치면 한 번 저절로 열리지만(슬라이스 21), 그 뒤에 다시 찾는 길은 이것뿐이다.
       */}
+      {inbox && (
+        <button
+          type="button"
+          className="helpBtn inboxBtn"
+          aria-label={inbox.unread > 0 ? `${NOTE.inbox.open} ${NOTE.inbox.unread(inbox.unread)}` : NOTE.inbox.open}
+          onClick={inbox.onOpen}
+        >
+          <span aria-hidden>✉️</span>
+          {/*
+            배지는 **안 읽은 수**다. 움직이지 않고(ADR-64) 경보 빨강도 아니다 —
+            남이 일으킨 변화라 옆 사람의 눈을 끌면 안 된다. 쪽지함을 열면 사라진다.
+          */}
+          {inbox.unread > 0 && (
+            <b className="count" aria-hidden>
+              {inbox.unread}
+            </b>
+          )}
+        </button>
+      )}
+
       <button type="button" className="helpBtn" aria-label={HELP.open} onClick={onHelp}>
         <span aria-hidden>?</span>
       </button>

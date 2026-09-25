@@ -20,6 +20,8 @@ export const NAV_KEYS = [
   "me",
   "fun",
   "help",
+  /** 익명 쪽지함 (ADR-98 후기 3). 화면 이름뿐이다 — 몇 장인지도 누구 것인지도 안 담긴다 */
+  "notes",
   "seat",
   "profile",
   "result",

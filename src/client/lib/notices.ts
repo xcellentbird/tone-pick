@@ -5,7 +5,7 @@
  * 이미 보낸 알림을 어떻게 할 것인가"가 곧바로 생긴다. 파생시키면 상태가 하나뿐이라
  * 단계가 바뀌면 목록이 그 자리에서 따라간다.
  */
-import { ACT, NOTE, NOTICE, POKE } from "../../shared/copy.ts";
+import { ACT, NOTICE, POKE } from "../../shared/copy.ts";
 import type { ParticipantState, PokeRound } from "../../shared/types.ts";
 
 /**
@@ -50,11 +50,6 @@ export interface Notice {
    * 이 줄이 있는 이유는 배너 하나다. 같은 설문이 카드와 소식 줄에 두 번 서면 안 된다. 아이디는 `key` 에 있다.
    */
   poll?: true;
-  /**
-   * 받은 익명 쪽지면 그 줄의 아이디 (슬라이스 36). **지우기 버튼이 이 값으로 선다** —
-   * 다른 소식에는 없어서, 이 칸이 곧 *지울 수 있는 줄인가* 다.
-   */
-  noteId?: string;
 }
 
 /** 최근 3분 안의 변화만 배너로 띄운다. 그보다 오래된 건 홈의 `지금까지의 소식` 에만 (UI.md) */
@@ -178,33 +173,10 @@ export function noticesOf(state: ParticipantState): Notice[] {
     }
   }
 
-  /**
-   * 받은 익명 쪽지 (슬라이스 36, ADR-98). **한 장에 한 줄이고 본문이 그대로 선다.**
-   *
-   * 받은 콕과 같은 자리다 — 시각 없음(`at: 0`), 배너 없음, 움직임 없음. 다른 것은 둘이다:
-   * **몸글이 곁설명이 아니라 내용**이고(그래서 `dim` 이 아니다), **지울 수 있다.**
-   *
-   * ⚠️ **`누구인지는 비밀이에요` 를 붙이지 마라** — 제목이 `익명` 을 이미 말한다.
-   * 받은 콕 줄에서 그 문장을 가져오면 같은 말을 두 번 한다.
-   *
-   * 차례는 파티가 열린 순간 `+2` 다 — 받은 콕(`+1`) **위**, 파티 시작 알림 위다.
-   * **진짜 도착 시각을 쓰지 마라** (위 경고 그대로).
+  /*
+   * 받은 익명 쪽지는 **여기 없다** (ADR-98 후기 3). 한동안 한 장에 한 줄씩 섰는데,
+   * 익명 쪽지함(상단 바 ✉️)으로 옮겼다 — 쪽지는 소식이 아니라 나에게 온 글이다.
    */
-  for (const [i, note] of state.note.received.entries()) {
-    list.push({
-      key: `note:${note.id}`,
-      icon: "✉️",
-      title: NOTE.received,
-      body: note.text,
-      at: 0,
-      // 최신이 앞이다 — 서버가 준 차례를 그대로 쓴다 (`received` 는 이미 최신 순이다)
-      order: (fired.party ?? 0) + 2 + (state.note.received.length - i),
-      bannerable: false,
-      tab: "home",
-      noteId: note.id,
-    });
-  }
-
   return list.sort((a, b) => b.order - a.order);
 }
 

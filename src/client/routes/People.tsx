@@ -11,7 +11,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { ACT, BTN, NOTE, PEOPLE, POKE, REVEAL, SEAT, UNIT } from "../../shared/copy.ts";
-import type { MatchInfo, MyNoteState, MyPokeState, MyProfile, ParticipantState, Phase, PokeRound, PublicPlayer, SentNote } from "../../shared/types.ts";
+import type { MatchInfo, MyNoteState, MyPokeState, MyProfile, ParticipantState, Phase, PokeRound, PublicPlayer } from "../../shared/types.ts";
 import type { Tab } from "./Participant.tsx";
 import { canNote, canPoke, roundOf } from "../../shared/phase.ts";
 import { afterPoke } from "../../shared/poke.ts";
@@ -42,7 +42,7 @@ interface Props {
   onTab: (tab: Tab) => void;
   /**
    * 어깨너머 가리기 (슬라이스 16). **상태는 위에서 온다** — 익명 쪽지가 생기면서
-   * 홈에도 같은 토글이 서고, 읽음 판정도 이 값을 본다 (`Participant`).
+   * 익명 쪽지함에도 같은 토글이 서고, 읽음 판정도 이 값을 본다 (`Participant`).
    * 각자 `useCovered()` 를 부르면 한 화면에서 켠 것이 다른 화면에 안 보인다.
    */
   covered: boolean;
@@ -123,23 +123,18 @@ export default function People({
   const noteLeft = Math.max(0, noteBudget.max - noteBudget.used);
   const [draft, setDraft] = useState("");
   /**
-   * 읽음 배지는 **시트를 연 순간의 값으로 굳는다** (S-B4, ADR-64).
-   *
-   * `broadcast` 를 안 하는 것만으로는 모자라다 — `realtime.ts` 가 화면이 다시 보일 때마다
-   * 소켓을 다시 붙이고 `Participant` 가 그 신호로 다시 읽는다. 공지·설문·자리 발행·단계 전환도
-   * 같은 재조회를 태운다. 그래서 발신자 화면은 가만히 있어도 최신값을 받는다 —
-   * 막는 자리는 소켓이 아니라 **여기**다. 열 때 한 번 읽고 그 값으로 그린다.
-   *
-   * ⚠️ **작성 시트가 닫히는 것도 '다시 여는 것'이다.** 굳히는 열쇠를 참가자 아이디 하나에만
-   * 묶으면 방금 보낸 줄이 안 떠서, 보낸 사람이 안 갔다고 읽는다.
+   * 이 사람에게 보낸 장 수 — ✉️ 안의 숫자이자 확인창 제목(`한 장 더`)의 근거다.
+   * **본문과 읽음은 여기 없다** — 익명 쪽지함으로 갔다 (ADR-98 후기 3). 읽음을 시트를 연 순간의 값으로
+   * 굳히는 일(S-B4)도 거기서 한다. 장 수는 내가 한 일이라 굳힐 이유가 없다.
    */
-  const [frozenSent, setFrozenSent] = useState<SentNote[]>([]);
-  const openKey = profileId && !noteOpen ? profileId : null;
-  useEffect(() => {
-    if (!openKey) return;
-    setFrozenSent(state.note.sent[openKey] ?? []);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openKey]);
+  const sentHere = profile ? (state.note.sent[profile.id]?.length ?? 0) : 0;
+
+  /** ✉️ 를 눌렀다. 다 썼으면 작성 시트 대신 **누른 자리에서** 이유를 말한다 — 아이콘은 글자로 말하지 못한다 */
+  function openNote() {
+    if (noteLeft === 0) return toast(NOTE.writeSpent);
+    setNoteErr("");
+    onNote(true);
+  }
 
   /**
    * 지금 작성 시트를 열어도 되나. 넷을 다 본다 — 이 회차에 있나, 지금이 그 창인가,
@@ -166,7 +161,7 @@ export default function People({
     try {
       setNote(await source.sendNote(target.id, text));
       setDraft("");
-      // 성공하면 작성 시트를 닫아 프로필 시트로 돌아간다 — 거기 생긴 줄이 곧 알림이다 (ADR-65)
+      // 성공하면 작성 시트를 닫아 프로필 시트로 돌아간다 — ✉️ 안의 숫자가 바뀐 것이 곧 알림이다 (ADR-65)
       onNote(false);
     } catch (e) {
       // 실패하면 작성 시트에 남는다. 쓰던 글은 그대로다
@@ -483,6 +478,13 @@ export default function People({
                   </div>
                 )}
               </div>
+              {/*
+                ✉️ 는 👉 **옆에 같은 크기로** 선다 (ADR-98 후기 3) — 이 사람에게 할 수 있는 일이 한 줄에 모인다.
+                파티 중에만 있다. 잠긴 버튼을 미리 세우지 않는다 (ADR-96 의 방향).
+              */}
+              {noteOn && !revealed && (
+                <NoteControls count={sentHere} covered={covered} spent={noteLeft === 0} onOpen={openNote} />
+              )}
               {!revealed && (
                 <PokeControls
                   count={state.poke.sentTo[profile.id] ?? 0}
@@ -507,53 +509,10 @@ export default function People({
             </div>
 
             {/*
-              내가 보낸 익명 쪽지 (슬라이스 36). **보낸 적이 있을 때만 선다.**
-              ⚠️ **가리기 중에는 묶음이 없다** — 본문에는 내가 누구에게 무슨 말을 했는지가
-              통째로 들어 있다. 옆자리 한 번에 발신자와 내용과 상대가 함께 샌다.
-            */}
-            {!covered && frozenSent.length > 0 && (
-              <>
-                <p className="kicker" style={{ margin: 0 }}>
-                  {NOTE.sentTitle}
-                </p>
-                <div className="stack">
-                  {frozenSent.map((n, i) => (
-                    <div className="fact anonSent" key={i}>
-                      <span className="grow pre">{n.text}</span>
-                      {/* 둘 다 같은 흐린 글씨다 — 색으로 좋고 나쁨을 말하지 않는다 */}
-                      <span className="readBadge">{n.read ? NOTE.read : NOTE.unread}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {/*
-              버튼 둘을 **시트 바닥에 붙인다.** 매력 100자 셋 + 쪽지 120자 다섯이면 시트가
-              1151px 이라 한도(743px)를 넘는데, 그냥 두면 셋이 함께 깨진다 —
-              한 장 더 보내려는 사람이 자기가 쓴 글을 전부 지나쳐야 버튼에 닿고,
-              `닫기` 가 화면 밖으로 내려가고, 한 칸이라도 스크롤하면 끌어서 닫기가 안 먹는다.
+              닫기는 시트 바닥에 붙는다. 매력이 길면 시트가 스크롤되는데, 그래도 나갈 곳이 보여야 한다.
+              익명 쪽지 쓰기 버튼이 여기 함께 있던 시절이 있다 — 지금은 머리 줄의 ✉️ 다 (ADR-98 후기 3).
             */}
             <div className="sheetFoot stack">
-              {noteOn && (
-                <button
-                  className="btn block"
-                  /*
-                   * ⚠️ **가리기 중에는 잠근다** (S-B5). 묶음만 감추면 모자라다 — 누르면 시트 제목이
-                   * `달빛님에게 익명 쪽지` 이고 확인창이 `받는 사람 · 달빛` 이며 그 사이 내내 글을 친다.
-                   * **콕 한 번보다 훨씬 오래, 훨씬 또렷하게 상대가 드러난다.**
-                   * 글자는 그대로 두고 잠그기만 한다 — 🙈 는 옆의 콕 버튼이 이미 말한다.
-                   */
-                  disabled={covered || noteLeft === 0}
-                  onClick={() => {
-                    setNoteErr("");
-                    onNote(true);
-                  }}
-                >
-                  {/* 다 썼으면 글자가 바뀐다 — 왜 못 누르는지를 스스로 말하므로 죽은 버튼이 아니다 */}
-                  {noteLeft > 0 ? NOTE.write(noteLeft) : NOTE.writeSpent}
-                </button>
-              )}
               <button className="btn block ghost" onClick={() => onProfile(null)}>
                 {BTN.close}
               </button>
@@ -596,7 +555,7 @@ export default function People({
                 confirm(
                   {
                     btn: NOTE.confirm.submit,
-                    title: NOTE.confirm.title(frozenSent.length),
+                    title: NOTE.confirm.title(sentHere),
                     note: NOTE.confirm.note,
                     facts: [
                       [NOTE.confirm.rowTo, profile.nickname],
@@ -691,6 +650,43 @@ function MatchName({ match }: { match: MatchInfo }) {
       </div>
       {/* 왜 이름까지만인지 그 자리에서 말한다 — 안 그러면 그 질문이 운영자에게 간다 */}
       <span className="tiny dim">{REVEAL.nameNote}</span>
+    </div>
+  );
+}
+
+/**
+ * 프로필 시트의 ✉️ (ADR-98 후기 3). **콕 버튼과 같은 모양, 같은 문법이다** — 안의 숫자는
+ * 이 사람에게 보낸 장 수다. 목록 카드에는 두지 않는다 — 카드 오른쪽은 👉 하나라야 한다 (UI.md).
+ *
+ * 다 썼으면 `disabled` 가 아니라 `aria-disabled` 다. 누른 것 자체가 와야 왜 안 되는지 말할 수 있다 —
+ * 꺼진 재미 탭과 같은 수다.
+ *
+ * ⚠️ **가리기 중에는 진짜로 잠그고 숫자도 뺀다** (S-B5). 누르면 시트 제목과 확인창이 상대 이름을 말하고
+ * 그 사이 내내 글을 친다 — 콕 한 번보다 훨씬 오래 드러난다. 숫자는 👉 가 🙈 가 되는 것과 같은 이유로 뺀다.
+ */
+function NoteControls({
+  count,
+  covered,
+  spent,
+  onOpen,
+}: {
+  count: number;
+  covered: boolean;
+  spent: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <div className="pokeCell">
+      <button
+        className="pokeBtn noteBtn"
+        aria-label={NOTE.writeLabel}
+        disabled={covered}
+        aria-disabled={(!covered && spent) || undefined}
+        onClick={onOpen}
+      >
+        <span aria-hidden>✉️</span>
+        {!covered && count > 0 && <span className="n">{count}</span>}
+      </button>
     </div>
   );
 }

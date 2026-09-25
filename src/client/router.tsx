@@ -97,6 +97,8 @@ export const PARTICIPANT_ROUTES = [
   { path: "/e/:code/seat", element: chunk(<Participant />) },
   // 파티 룰 도움말. 시트도 라우트라 **여기 없으면 "찾을 수 없어요" 로 떨어진다**
   { path: "/e/:code/help", element: chunk(<Participant />) },
+  // 익명 쪽지함 (ADR-98 후기 3). 도움말과 같다 — 상단 바에서 어느 탭에서든 연다
+  { path: "/e/:code/notes", element: chunk(<Participant />) },
 ];
 
 /**
