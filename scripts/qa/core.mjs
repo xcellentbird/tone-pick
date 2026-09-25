@@ -154,11 +154,18 @@ export function spreadAges(count, range, rng = Math.random) {
  *
  *   남자  거의 모두가 콕을 다 쓰고, **몇몇 여자에게 몰린다**
  *   여자  절반쯤은 안 쓰거나 덜 쓴다. 역시 몇몇에게 모이지만 **남자보다 두 배 넓게** 흩어진다
- *   때    뒤 자리일수록 많이 찌르고, **마지막 자리에서 가장 많다**
+ *   때    뒤로 갈수록 많이 찌르고, **마지막에 가장 많다**
  *
  * 몰림은 **유효 인원**(1/Σp², 받은 콕의 몫 p)으로 잰다 — 콕이 이성 몇 명에게 고르게 간 것과 같은가.
  * `spread` 는 그것이 이성 수의 몇 몫인가다. 받는 쪽의 인기는 1/순위^s 이고, s 는 그 몫이 맞게 고른다.
+ *
+ * **때는 누른 횟수로 센다** (ADR-99 후기 6). 한 번 누르면 파티가 한 칸 흐르고, `AUTO_STEPS` 번이면 쓰려던 콕을 다 쓴다.
+ * 칸마다 쓰는 몫이 1 : 2 : … : `AUTO_STEPS` 라 뒤로 갈수록 많다. 처음에는 자리 라운드로 셌는데, 한 라운드에서 여러 번
+ * 누르면 남은 것의 8% 씩만 나와서 6+6 에서는 누를수록 줄었고 세 번에 한 번꼴로 아무것도 안 나왔다.
  */
+/** 자동 콕을 몇 번 누르면 쓰려던 콕을 다 쓰나 — 한 번이 파티의 한 칸이다 */
+export const AUTO_STEPS = 5;
+
 const AUTO_POKE = {
   /** 마음먹은 만큼 — 다 쓴다(`full`) · 반만 쓴다(`half`) · 나머지는 안 쓴다 */
   habit: { M: { full: 0.92, half: 0.05 }, F: { full: 0.5, half: 0.25 } },
@@ -168,12 +175,6 @@ const AUTO_POKE = {
    * 여자가 남자의 두 배가 된다 (이성 12~50명에서 2.0~2.1, 테스트가 잰다).
    */
   spread: { M: 0.27, F: 0.6 },
-  /**
-   * 마지막이 아닌 자리 k 에서, 남은 콕 하나하나를 지금 쓸 확률. 뒤로 갈수록 오르고, 마지막 자리는 1 이다.
-   * 0.2 에서 멈추는 까닭은 **자리가 몇 라운드일지 모르기 때문이다** — 20분마다 돌리는 파티는 열 라운드도 된다.
-   * 이 값이면 열두 라운드까지 마지막 자리가 가장 많다 (더 빠르게 올리면 긴 파티는 중간에 콕이 바닥난다).
-   */
-  pace: (k) => Math.min(0.2, 0.08 + 0.03 * (Math.max(1, k) - 1)),
 };
 
 /** 이 사람이 이 라운드에 쓰려는 콕 수 — 스테이지마다, 사람마다, 라운드마다 정해져 있다 (씨앗) */
@@ -204,40 +205,55 @@ function appealWeights(count, share) {
 }
 
 /**
- * 자동 콕 한 판의 계획 — `[보내는 사람 번호, 받는 사람 번호]` 의 목록. **QA 를 부르지 않는 순수 함수**다.
+ * 자동 콕 한 번의 계획 — `[보내는 사람 번호, 받는 사람 번호]` 의 목록. **QA 를 부르지 않는 순수 함수**다.
  *
- * 사람마다 이번 라운드에 쓰려는 수(`intentOf`)에서 이미 쓴 수(`used` — 손으로 찌른 것까지)를 빼고,
- * 남은 것을 마지막 자리면 다 쓰고 아니면 `pace(k)` 의 확률로 하나씩 쓴다. 받는 사람은 이성 중에서
- * 인기 가중치로 뽑되, 한 사람이 같은 상대를 두 번 찌르지 않는다(`history` — 앞선 자동 콕).
- * 매력 투표는 한 번뿐이라 늘 `last` 다.
+ * 사람마다 이번 라운드에 쓰려는 수(`intentOf`)가 있다. `step` 번째 칸까지는 모두가 쓰려던 콕의 1 : 2 : … : `AUTO_STEPS`
+ * 몫이 나와 있어야 하고, 이미 나온 수(`used` — 손으로 찌른 것까지)에 모자란 만큼을 남은 콕 가운데 무작위로 고른다.
+ * 그래서 한 판 안에서도 누를수록 많고, 끝까지 누르면 쓰려던 것을 다 쓴다. 쓰려던 것이 남아 있으면 **적어도 하나는
+ * 새로 나온다** — 몫이 이미 찼어도(손으로 많이 찔렀어도). 받는 사람은 이성 중에서 인기 가중치로 뽑되, 한 사람이 같은
+ * 상대를 두 번 찌르지 않는다(`history` — 앞선 자동 콕). 매력 투표도 같다.
  *
  * @param {object} a
  * @param {{ n: number, gender: "M" | "F" }[]} a.cast   지금 회차에 있는 가짜 참가자
  * @param {Record<number, number>} [a.used]  번호 → 이 라운드에 이미 쓴 콕
  * @param {number} a.max       한 사람의 상한 (이 라운드)
  * @param {"pre" | "party"} a.round
- * @param {number} [a.k]       자리 라운드 (1부터)
- * @param {boolean} [a.last]   마지막 자리 — 마음먹은 만큼 다 쓴다
+ * @param {number} [a.step]    몇 번째 누름인가 (1부터, `AUTO_STEPS` 에서 멈춘다)
+ * @param {boolean} [a.last]   남은 것을 한 번에 — 마지막 칸으로 간다
  * @param {unknown} a.seed     스테이지의 씨앗 — 인기와 성향이 여기서 정해진다
  * @param {() => number} [a.rng]  이번 판의 난수
  * @param {Record<number, number[]>} [a.history]  번호 → 앞서 자동으로 찌른 상대
  * @returns {[number, number][]}
  */
-export function planPokes({ cast, used = {}, max, round, k = 1, last = false, seed, rng = Math.random, history = {} }) {
+export function planPokes({ cast, used = {}, max, round, step = 1, last = false, seed, rng = Math.random, history = {} }) {
   const appeal = new Map(cast.map((p) => [p.n, seeded(`${seed}:appeal:${p.n}`)()]));
   const pool = (g) => {
     const targets = cast.filter((q) => q.gender !== g).sort((a, b) => appeal.get(b.n) - appeal.get(a.n));
     return { targets, weights: appealWeights(targets.length, AUTO_POKE.spread[g]) };
   };
   const pools = { M: pool("M"), F: pool("F") };
-  const q = last ? 1 : AUTO_POKE.pace(k);
-  const plan = [];
+  const at = last ? AUTO_STEPS : Math.min(AUTO_STEPS, Math.max(1, step));
+  // 남은 콕 하나하나 — 사람마다 쓰려던 수에서 이미 쓴 수를 뺀 만큼 그 사람이 들어간다
+  const slots = [];
+  let total = 0;
+  let spent = 0;
   for (const p of cast) {
-    const left = Math.max(0, intentOf(seed, round, p, max) - (used[p.n] ?? 0));
+    const intent = intentOf(seed, round, p, max);
+    const done = Math.min(intent, used[p.n] ?? 0);
+    total += intent;
+    spent += done;
+    for (let i = done; i < intent; i++) slots.push(p);
+  }
+  // 이번 칸까지 나와 있어야 할 수 — 마지막 칸이면 전부다
+  const target = Math.round((total * at * (at + 1)) / (AUTO_STEPS * (AUTO_STEPS + 1)));
+  /** 사람 → 이번에 보낼 수 */
+  const due = new Map();
+  for (const p of shuffle(slots, rng).slice(0, Math.max(1, target - spent))) due.set(p, (due.get(p) ?? 0) + 1);
+  const plan = [];
+  for (const [p, count] of due) {
     const { targets, weights } = pools[p.gender];
     const taken = new Set(history[p.n] ?? []);
-    for (let i = 0; i < left; i++) {
-      if (rng() >= q) continue;
+    for (let i = 0; i < count; i++) {
       // 아직 안 찌른 사람 중에서 — 다 찔렀으면 누구든 (앱은 같은 상대를 또 찌를 수 있다)
       let idx = targets.map((t, j) => (taken.has(t.n) ? -1 : j)).filter((j) => j >= 0);
       if (!idx.length) idx = targets.map((_, j) => j);
@@ -338,7 +354,8 @@ export const HELP = `
   seating T [-x A,B]      자리 초안 (T 테이블, -x 뺄 사람) · publish · shuffle · swap A B · seat A · unseat A · discard
   announce 문구 [| 보기A | 보기B]   운영자 알림 (보기 둘을 주면 투표)
   auto [last]             자동 콕 — 실제 파티처럼. 남자는 대부분 다 쓰고 콕이 여자 몇 명에게 몰린다. 여자는 절반 정도가
-                          안 쓰거나 일부만 쓰고 두 배 넓게 나눠 찌른다. 뒤 자리일수록 많이 찌른다. last 는 마지막 자리
+                          안 쓰거나 일부만 쓰고 두 배 넓게 나눠 찌른다. 누를 때마다 새 콕이 나오고 뒤로 갈수록 많다.
+                          ${AUTO_STEPS}번이면 쓰려던 것을 다 쓴다. last 는 남은 것을 한 번에
   spray [N]               콕 뿌리기 — 남은 콕을 아무 이성에게 N번 (기본 20, 많아야 40)
   crowd A [N]             콕 모으기 — A 에게 이성 N명이 한 번씩 (기본 5)
   pairs [N]               서로 콕 N쌍 — 남녀를 무작위로 짝지어 (기본 3, 많아야 10)
@@ -485,6 +502,7 @@ export function restoreStage(env, saved) {
   stage.ages = saved.ages ?? STAGE_AGES;
   stage.backlog = saved.backlog ?? [];
   stage.autoSent = saved.autoSent ?? {};
+  stage.autoStep = saved.autoStep ?? {};
   stage.autoRun = saved.autoRun ?? null;
   return stage;
 }
@@ -517,6 +535,8 @@ function makeStage(env, { tables = 2 } = {}) {
     backlog: [],
     /** 라운드 → 번호 → 자동으로 찌른 상대. 같은 사람을 두 번 찌르지 않게 */
     autoSent: {},
+    /** 라운드 → 자동 콕을 몇 번 눌렀나 (`AUTO_STEPS` 에서 멈춘다). 누를 때마다 파티가 한 칸 흐른다 */
+    autoStep: {},
     /** 지금 보내는 자동 콕 한 판의 셈 — 다 보내면 한 줄로 말한다 */
     autoRun: null,
     skew: 0,
@@ -541,6 +561,7 @@ function makeStage(env, { tables = 2 } = {}) {
         ages: stage.ages,
         backlog: stage.backlog,
         autoSent: stage.autoSent,
+        autoStep: stage.autoStep,
         autoRun: stage.autoRun,
         host: stage.host.toJSON(),
         cast: stage.cast.map((p) => ({
@@ -847,16 +868,17 @@ async function runLine(env, stage, line, { say, fail }) {
       return say(`  ✓ 콕 ${made}번 뿌림${spent.size ? ` · 다 쓴 사람 ${spent.size}명` : ""}`);
     }
     case "auto": {
-      // 자동 콕 — 실제 파티처럼 (`AUTO_POKE`). 계획을 줄에 세우고 요청 하나의 몫만큼 보낸다 — 남은 것은 `drain`
+      // 자동 콕 — 실제 파티처럼 (`AUTO_POKE`). 누를 때마다 한 칸(`AUTO_STEPS`). 계획을 줄에 세우고 요청 하나의 몫만큼 보낸다 — 남은 것은 `drain`
       const last = /^(last|마지막)$/.test(rest[0] ?? "");
       const st = await H("/state");
       if (st.status !== 200) return fail("자동 콕", st);
-      const { meta, players, sent, seatings } = st.body;
+      const { meta, players, sent } = st.body;
       // 운영자 틀에서 단계를 넘겼을 수 있다 — 스테이지가 기억하는 단계를 콘솔에 맞춘다
       stage.phase = meta.phase;
       if (meta.phase !== "prevote" && meta.phase !== "party") return say("  ? 자동 콕은 매력 투표나 파티 중에만 쓸 수 있어요");
       const round = meta.phase === "prevote" ? "pre" : "party";
-      const k = Math.max(1, ...(seatings ?? []).filter((r) => r.status === "published").map((r) => r.round));
+      const step = last ? AUTO_STEPS : Math.min(AUTO_STEPS, (stage.autoStep[round] ?? 0) + 1);
+      stage.autoStep[round] = step;
       const here = new Set(players.map((p) => p.id));
       const cast = stage.cast.filter((p) => here.has(p.id));
       const plan = planPokes({
@@ -864,19 +886,18 @@ async function runLine(env, stage, line, { say, fail }) {
         used: Object.fromEntries(cast.map((p) => [p.n, sent?.[round]?.[p.id] ?? 0])),
         max: round === "pre" ? meta.config.maxPre : meta.config.maxParty,
         round,
-        k,
-        last: last || round === "pre",
+        step,
         seed: stage.stamp,
         history: stage.autoSent[round] ?? {},
       });
-      const what = round === "pre" ? "매력 투표" : last ? `마지막 자리, ${k}라운드` : `자리 ${k}라운드`;
+      const name = round === "pre" ? "매력 투표" : "파티";
+      const what = `${name} ${step}/${AUTO_STEPS}`;
       stage.backlog = plan.map(([from, to]) => ({ from, to, round }));
       if (!plan.length) {
         stage.autoRun = null;
-        // 마지막이 아닌 자리는 확률로 쓰므로 아무도 안 찌를 수 있다 — 그건 콕이 바닥난 것과 다르다
-        if (round === "pre") return say(`  ? 자동 콕 (${what}) — 더 투표할 사람이 없어요. 모두 투표했거나 투표하지 않기로 한 사람이에요`);
-        if (!last) return say(`  ✓ 자동 콕 (${what}) — 이번 자리에서는 아무도 찌르지 않았어요`);
-        return say(`  ? 자동 콕 (${what}) — 더 찌를 사람이 없어요. 모두 콕을 다 썼거나 쓰지 않기로 한 사람이에요`);
+        // 쓰려던 것이 남아 있으면 계획이 비지 않는다 — 비었으면 모두 끝났다
+        if (round === "pre") return say(`  ? 자동 콕 (${name}) — 더 투표할 사람이 없어요. 모두 투표했거나 투표하지 않기로 한 사람이에요`);
+        return say(`  ? 자동 콕 (${name}) — 더 찌를 사람이 없어요. 모두 콕을 다 썼거나 쓰지 않기로 한 사람이에요`);
       }
       const of = (g) => cast.filter((p) => p.gender === g).length;
       stage.autoRun = { what, round, total: plan.length, of: { M: of("M"), F: of("F") }, pokes: { M: 0, F: 0 }, senders: { M: [], F: [] } };
