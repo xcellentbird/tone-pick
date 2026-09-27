@@ -241,10 +241,14 @@ describe("B. 회차 생성", () => {
     // Then  같은 코드가 나오지 않는다
     expect(second.body.code).not.toBe(taken);
 
-    // And   코드를 직접 지정하면 거부된다
-    const dup = await createEvent(master, { code: taken });
-    expect(dup.status).toBe(409);
-    expect((dup.body as unknown as { error: string }).error).toBe("code_taken");
+    /*
+     * And   코드를 보내와도 **서버가 정한다** (ADR-117). 운영자가 코드를 고르는 칸이 없어진 지 오래라
+     *       직접 지정하는 길은 쓰는 곳이 없었다 — `이미 쓰고 있는 입장 코드예요` 는 누구도 볼 수 없는 말이었다.
+     *       받는 칸이 없어진 값이라 타입 밖으로 보낸다.
+     */
+    const sent = await createEvent(master, { code: taken } as unknown as Partial<CreateEventInput>);
+    expect(sent.status).toBe(200);
+    expect(sent.body.code, "보낸 코드를 그대로 썼다").not.toBe(taken);
   });
 
   it("S-B4 ★ 회차를 만들면 그 자리에서 등록이 열린다", async () => {

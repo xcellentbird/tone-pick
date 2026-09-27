@@ -15,7 +15,7 @@ import type {
   Phase,
   SeatingInput,
 } from "../../shared/types.ts";
-import { HOST, HOST_UI } from "../../shared/copy.ts";
+import { HOST_UI } from "../../shared/copy.ts";
 import { LIMITS } from "../../shared/constants.ts";
 import { pulse, type SeatingKey } from "../metrics.ts";
 import { PHASE_ORDER, scheduleInOrder } from "../../shared/phase.ts";
@@ -149,11 +149,8 @@ hostRoutes.post("/events", async (c) => {
   // 예약 전환 셋의 순서 (ADR-93 후기). 고칠 때(`EventDO.setSchedule`)와 **같은 함수**다 — 여기서는 아직 아무것도 안 울렸다
   if (!scheduleInOrder({ prevoteAt, partyAt, revealAt }, {})) return apiError(c, "order", HOST_UI.scheduleOrder);
 
-  const reserved = await registry(c.env).reserve({
-    code: body.code,
-    requestId: String(body.requestId),
-  });
-  if (!reserved.ok) return apiError(c, "code_taken", HOST.pin.codeTaken);
+  // 입장 코드는 늘 서버가 붙인다 (ADR-117) — `body.code` 는 읽지 않는다
+  const reserved = await registry(c.env).reserve({ requestId: String(body.requestId) });
 
   const place = String(body.place ?? "").trim().slice(0, LIMITS.placeMax);
   /*

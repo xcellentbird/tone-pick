@@ -90,9 +90,9 @@ export default function HostConsole() {
           </button>
           <div className="grow">
             <h1 className="ellipsis">{loaded.data.meta.name}</h1>
+            {/* 입장 코드는 싣지 않는다 (ADR-117) — 운영자가 쓸 데가 없다. 소켓의 열쇠로만 위에서 쓴다 */}
             <div className="sub">
-              {loaded.data.meta.code} · {PHASE_LABEL[loaded.data.meta.phase]} ·{" "}
-              <span>{HOST_UI.dash.registered(loaded.data.players.length)}</span>
+              {PHASE_LABEL[loaded.data.meta.phase]} · <span>{HOST_UI.dash.registered(loaded.data.players.length)}</span>
             </div>
           </div>
         </header>
