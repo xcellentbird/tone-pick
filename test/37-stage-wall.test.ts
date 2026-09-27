@@ -320,4 +320,21 @@ describe("스테이지 화면 — 틀은 QA 를 직접 연다", () => {
     expect(page.match(/data-cmd="auto[^"]*"/g)).toEqual(['data-cmd="auto"']);
     expect(page).not.toMatch(/<select|data-poke|data-cmd="(poke|unpoke|mutual|crowd|pairs|spray)/);
   });
+
+  /*
+   * 틀 안의 앱은 키보드를 모른다 — 틀의 `visualViewport` 는 키보드에 줄지 않아 `--kb` 가 0 이고, 틀의 크기는 이 페이지가 정한다.
+   * 이 페이지의 레이아웃이 줄지 않으면 틀도 그대로라, 아래에 붙은 시트(익명 쪽지)가 키보드 뒤로 들어간다.
+   */
+  it("★ 키보드가 뜨면 페이지가 줄어 틀도 줄어든다 — 앱과 같은 뷰포트 메타", () => {
+    const page = stagePage({
+      id: "0".repeat(64),
+      view: { event: { id: "e1", code: "ABC123" }, cast: [], lines: [], backlog: 0 },
+      left: DAILY,
+      daily: DAILY,
+      qa: PUBLIC,
+      hostPin: "0000",
+      plantable: true,
+    });
+    expect(page).toMatch(/<meta name="viewport" content="[^"]*interactive-widget=resizes-content/);
+  });
 });
