@@ -164,15 +164,16 @@ CREATE TABLE IF NOT EXISTS apart (   -- 같은 테이블에 앉히지 않을 쌍
 -- ⚠️ 그래서 hidden_at 을 첫 CREATE TABLE 에 넣는다. 나중에 더하면 이미 표를 가진 회차에
 -- ALTER 를 걸어야 하고, 그 칸을 가리키는 인덱스를 여기 올리는 순간 DO 가 통째로 죽는다.
 CREATE TABLE IF NOT EXISTS notes (
-  id        TEXT PRIMARY KEY,      -- randomHex(8). 지우기에만 쓰고, 차례로 만들지 않는다 —
-                                   -- 추측되면 남의 것을 지워볼 수 있다. 소유 검사는 to_id 로 한다
+  id        TEXT PRIMARY KEY,      -- randomHex(8). 화면이 줄을 가르는 데만 쓴다. 차례로 만들지 않는다 —
+                                   -- 차례면 몇 번째로 온 쪽지인지가 드러난다
   from_id   TEXT NOT NULL,         -- **참가자 응답에 절대 싣지 마라.** 끝까지 익명이다
   to_id     TEXT NOT NULL,
   body      TEXT NOT NULL,         -- 본문. 운영자 응답에도, 콕 로그에도, 지표에도 안 나간다
   at        INTEGER NOT NULL,      -- 응답에 안 싣는다. 순서를 정하는 데만 쓴다 (받은 콕과 같다)
   read_at   INTEGER,               -- 받는 사람이 쪽지함을 연 시각. 발신자에게는 boolean 으로만 보인다 (ADR-118)
-  hidden_at INTEGER                -- 받는 사람이 지웠다. **행은 남는다** — 지우면 발신자의 예산과
-                                   -- 보낸 줄이 흔들려 '상대가 내 쪽지를 지웠다' 가 새어나간다 (S-C3)
+  hidden_at INTEGER                -- 받는 사람이 내보내졌다 (S-E1). 받는 사람의 지우기는 걷었다 (ADR-119) —
+                                   -- 그때 찍힌 옛 줄도 그대로 숨긴다. **행은 남는다** — 지우면 발신자의
+                                   -- 예산과 보낸 줄이 흔들려 받은 쪽에 일어난 일이 새어나간다
 );
 CREATE INDEX IF NOT EXISTS notes_from ON notes(from_id);
 CREATE INDEX IF NOT EXISTS notes_to   ON notes(to_id);
@@ -1076,8 +1077,8 @@ export class EventDO extends DurableObject {
   // ─────────────────────────── 익명 쪽지 (슬라이스 36, ADR-98)
   //
   // 지키는 것 셋 — **발신자는 어느 참가자 응답에도 없다**, **본문은 두 사람만 본다**(운영자도 못 본다),
-  // **받는 사람이 고르는 것은 발신자에게 돌아가지 않는다**(읽음은 앱을 연 결과라 통과하고,
-  // 지우기는 고르는 것이라 안 간다).
+  // **받는 사람이 고르는 것은 발신자에게 돌아가지 않는다**(읽음은 받은 쪽지를 연 결과라 통과한다.
+  // 쪽지함에는 지우기도 가리기도 없다 — ADR-119).
   //
   // **받는 사람에게만 민다** (ADR-118 — 운영자가 ADR-98 의 `안 민다` 를 뒤집었다). 새로고침 없이 바로 보여야 한다.
   // ⚠️ **`broadcast()` 로 넓히지 마라.** 회차 전체가 다시 읽으면 **도착 시각이 방 안 모두에게** 뿌려진다 —
@@ -1106,7 +1107,7 @@ export class EventDO extends DurableObject {
     const text = typeof rawText === "string" ? rawText.trim() : "";
     if (!text || text.length > LIMITS.noteMax) return fail("bad_request");
 
-    // 지운 줄도 센다 — `hidden_at` 을 보지 않는다. 예산이 돌아오면 그 자체가 신호다 (S-C3)
+    // 숨긴 줄(내보내진 사람이 받은 것)도 센다 — `hidden_at` 을 보지 않는다. 예산이 돌아오면 그 자체가 신호다 (S-E1)
     if (this.noteSentCount(fromId) >= max) return fail("no_budget", max);
 
     this.ctx.storage.sql.exec(
@@ -1122,11 +1123,10 @@ export class EventDO extends DurableObject {
   }
 
   /**
-   * 받는 사람이 쪽지함을 열었다. **안 본 것에만 시각을 찍는다** — 읽음은 한 번 서면 그대로다.
+   * 받는 사람이 쪽지함의 **받은 쪽지**를 열었다 (ADR-119). **안 본 것에만 시각을 찍는다** — 읽음은 한 번 서면 그대로다.
    *
-   * 화면이 문지기다: 덮개(`SeatTakeover`·`StageTakeover`)가 덮고 있거나 어깨너머 가리기가
-   * 켜져 있으면 부르지 않는다 — **본문을 볼 수 없는 사람을 읽은 것으로 찍지 않기 위해서다.**
-   * 그 둘은 서버가 알 수 없는 상태라 여기서 다시 막을 수 없다.
+   * 화면이 문지기다: 쪽지함이 열려 있고 받은 쪽지 쪽을 보고 있을 때만 부른다. 자리 확인 덮개가 서면
+   * 쪽지함 시트가 닫히므로 그동안은 부르지 않는다. 서버는 그 상태를 모른다.
    */
   async markNotesSeen(playerId: string, now: number): Promise<Result<MyNoteState>> {
     const meta = await this.touch(now);
@@ -1140,34 +1140,7 @@ export class EventDO extends DurableObject {
     return ok(this.noteState(playerId, meta));
   }
 
-  /**
-   * 받는 사람이 자기 줄을 지운다. **행을 지우지 않는다** (S-C3).
-   *
-   * 이 저장소의 관용구는 행 세기다 — `sentCount()` 가 `COUNT(*)` 이고 참가자 삭제도
-   * `DELETE ... WHERE to_id = ?` 로 예산을 되돌려 준다. 익명 쪽지에 그 꼴을 그대로 쓰면
-   * 받는 사람이 지우는 순간 발신자 화면에 `1장 남음` → `2장 남음` 이 뜨고 보낸 줄이 사라진다.
-   * 발신자가 읽는 뜻은 하나뿐이다 — **상대가 내 쪽지를 지웠다.** `읽지 않음` 보다 훨씬 또렷한
-   * 거절 신호이고, 읽음 표시를 정당화한 규칙이 바로 그 자리에서 깨진다.
-   *
-   * ⚠️ **없는 줄에도 200 이다.** 404 로 가르면 아이디를 넣어보는 것만으로 남의 줄이 있는지 알 수 있고,
-   * 두 번 누른 사람에게 오류를 주게 된다. 소유 검사는 `to_id` 가 한다 — 보낸 사람도 못 지운다.
-   */
-  async removeNote(playerId: string, id: unknown, now: number): Promise<Result<MyNoteState>> {
-    const meta = await this.touch(now);
-    if (!meta) return fail("not_found");
-    if (!this.player(playerId)) return fail("not_found");
-    if (typeof id === "string" && id) {
-      this.ctx.storage.sql.exec(
-        "UPDATE notes SET hidden_at = ? WHERE id = ? AND to_id = ? AND hidden_at IS NULL",
-        now,
-        id,
-        playerId,
-      );
-    }
-    return ok(this.noteState(playerId, meta));
-  }
-
-  /** 예산에 세는 장 수. **`hidden_at` 을 보지 않는다** — 받는 쪽이 지웠다고 다시 쓸 수 있으면 안 된다 */
+  /** 예산에 세는 장 수. **`hidden_at` 을 보지 않는다** — 받는 사람이 내보내졌다고 다시 쓸 수 있으면 안 된다 */
   private noteSentCount(fromId: string): number {
     return this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM notes WHERE from_id = ?", fromId)[0]?.n ?? 0;
   }
@@ -1193,7 +1166,7 @@ export class EventDO extends DurableObject {
        * 읽은 쪽지가 발신자 화면에 `읽지 않음` 으로 남는 것을 운영자가 거짓으로 보고 걷었다.
        */
       const read = r.read_at !== null;
-      // 지운 줄도 그대로 선다 — 받는 쪽이 지웠다는 것이 여기서 새면 안 된다 (S-C3)
+      // 숨긴 줄도 그대로 선다 — 받는 쪽에 일어난 일이 여기서 새면 안 된다 (S-E1)
       (sent[r.to_id] ??= []).push({ text: r.body, read });
       used++;
     }

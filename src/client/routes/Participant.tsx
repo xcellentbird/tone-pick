@@ -406,11 +406,8 @@ function Loaded({
   const needsStage = !!stage && state.me.seenStage !== stage && seenLocal !== stage && !needsSeatAck;
 
   /**
-   * 어깨너머 가리기 (슬라이스 16). **여기서 한 번만 읽는다.**
-   *
-   * 예전에는 참가자 탭이 혼자 `useCovered()` 를 불렀다. 익명 쪽지가 생기면서 쪽지함에도 같은 토글이
-   * 서고 읽음 판정까지 이 값을 보므로, 각자 부르면 **한 화면에서 켠 것이 다른 화면에 안 보인다** —
-   * 두 집 살림이 된다. 저장은 여전히 localStorage 하나다 (서버로 보내지 않는다).
+   * 어깨너머 가리기 (슬라이스 16). **여기서 한 번만 읽는다** — 참가자 탭과 프로필 시트의 ✉️ 가 같은 값을 본다.
+   * 쪽지함에는 가리기가 없다 (ADR-119) — 읽음 판정도 이 값을 보지 않는다. 저장은 localStorage 하나다 (서버로 보내지 않는다).
    */
   const [covered, setCovered] = useCovered();
 
@@ -420,9 +417,9 @@ function Loaded({
    * 파티 중에 0 과 1~5 사이를 오갈 때마다(굳지 않는다) 그 칸이 늘었다 줄었다 한다.
    *
    * **켜져 있나는 따로다** (`inboxLive`). 쓰는 창(`canNote`)과 함께 매력 투표에 켜지고, 발표 뒤에도 켜져 있다 —
-   * 온 쪽지는 끝까지 읽고 지울 수 있어야 한다. 쪽지를 0장으로 둔 회차는 꺼진 채다.
+   * 온 쪽지는 끝까지 읽을 수 있어야 한다. 쪽지를 0장으로 둔 회차는 꺼진 채다.
    * **주고받은 것이 하나라도 있으면 언제든 켜진다** — 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던 회차이고,
-   * 거기서 이미 온 쪽지는 지울 수 있어야 한다 (도움말 문답과 같은 조건). 단계를 뒤로 물린 회차도 같다.
+   * 거기서 이미 온 쪽지도 읽을 수 있어야 한다 (도움말 문답과 같은 조건). 단계를 뒤로 물린 회차도 같다.
    */
   const note = state.note;
   const hasNotes = note.received.length > 0 || Object.keys(note.sent).length > 0;
@@ -460,12 +457,11 @@ function Loaded({
    * **스크롤하지 않아도 읽음이 섰다** — 배지가 말하는 것보다 코드가 넓게 재고 있었다.
    * 쪽지함은 열면 받은 쪽지가 맨 위에 있다.
    *
-   * ⚠️ **덮개 아래에서는 찍지 않는다.** 자리 확인·단계 안내는 시트 위에 선다 — 본문을 볼 수 없는
-   * 사람이 읽은 것으로 찍히면 `문구가 코드보다 넓게 말하면 거짓말` 에 걸린다.
+   * **받은 쪽지 쪽이 열려 있으면 곧 읽은 것이다** (ADR-119). 한동안 가리기 중에는 안 찍었다 — 안 읽고 지우는 길이었는데,
+   * 운영자가 쪽지함에서 가리기와 지우기를 함께 걷었다.
    *
-   * ⚠️ **가리기 중에도 찍지 않는다.** 가리면 줄만 보이는데, 본문을 안 본 것은 읽은 것이 아니다.
-   * 이것이 **안 읽고 지우는 길**을 실제로 열어 둔다 (ADR-98) — 그 길이 없으면 괴롭히는 쪽은
-   * 언제나 `읽음` 을 받고, 읽음이 거절 신호가 되지 않게 하는 장치가 글로만 남는다.
+   * ⚠️ **덮개 아래에서는 찍지 않는다.** 자리 확인이 서면 쪽지함 시트가 닫힌다 — 열려 있지 않은 쪽지함을 읽은 것으로
+   * 찍으면 `문구가 코드보다 넓게 말하면 거짓말` 에 걸린다.
    *
    * ⚠️ **보낸 쪽지를 보는 동안에도 찍지 않는다.** 쪽지함이 열려 있어도 화면은 다른 신호로 계속 다시 읽히고,
    * 그때 새 쪽지가 오면 본문을 본 적 없는 사람에게 읽음이 찍혔다. 받은 쪽지로 돌아오는 순간 찍힌다.
@@ -505,7 +501,7 @@ function Loaded({
    * 줄 수가 그대로라 **화면에 뜬 새 쪽지가 읽음으로 안 찍혔다.**
    */
   const notesShown =
-    !!notesOpen && inboxLive && !seatUp && !stageUp && !covered && inboxSeg === "received" && note.unread > 0;
+    !!notesOpen && inboxLive && !seatUp && !stageUp && inboxSeg === "received" && note.unread > 0;
   useEffect(() => {
     if (!notesShown) return;
     let alive = true;
@@ -641,9 +637,6 @@ function Loaded({
               onSeg={setInboxSeg}
               open={canNote(state.event.phase) && (state.event.config.maxNotes ?? 0) > 0}
               fresh={inboxFresh}
-              covered={covered}
-              setCovered={setCovered}
-              onRemove={async (id) => setNote(await source.removeNote(id))}
               onClose={() => onNotes?.(false)}
             />
           )}
