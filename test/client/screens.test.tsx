@@ -2939,7 +2939,7 @@ describe("탭 역할 분담", () => {
    */
   it("★ 소식 줄 제목은 전부 무슨 일이 있었는지 말한다", () => {
     const titles = [
-      NOTICE.prevote(2).title, NOTICE.party(3).title, NOTICE.topVote.title,
+      NOTICE.prevote().title, NOTICE.party().title, NOTICE.topVote.title,
       NOTICE.poll.title, NOTICE.announce.title, NOTICE.done.title,
     ];
     for (const t of titles) expect(t, `이름표다: ${t}`).toMatch(/요$/);
@@ -2949,7 +2949,7 @@ describe("탭 역할 분담", () => {
     // 파티 한 번에 많아야 몇 개다. 탭 하나를 상시 내줄 양이 아니다
     renderTab("home", { poke: { ...POKE_STATE, received: { pre: 2, party: 0 } } });
     await screen.findByText(HOME.news);
-    expect(screen.getByText(NOTICE.prevote(3).title)).toBeTruthy();
+    expect(screen.getByText(NOTICE.prevote().title)).toBeTruthy();
   });
 
   /**
@@ -2978,9 +2978,9 @@ describe("탭 역할 분담", () => {
     expect(titles).toEqual([
       POKE.received("party"),           // 파티 콕 둘 — 가장 최신
       POKE.received("party"),
-      NOTICE.party(3).title,            // 04:26
+      NOTICE.party().title,            // 04:26
       POKE.received("pre"),             // 매력 투표 표 하나
-      NOTICE.prevote(3).title,          // 04:23
+      NOTICE.prevote().title,          // 04:23
     ]);
   });
 
@@ -2999,10 +2999,78 @@ describe("탭 역할 분담", () => {
     const rows = [...document.querySelectorAll(".banner")];
     const timeOf = (row: Element) => [...row.querySelectorAll(".tiny.dim")].map((e) => e.textContent).join("");
     const poked = rows.find((r) => r.querySelector(".name")?.textContent === POKE.received("party"))!;
-    const stage = rows.find((r) => r.querySelector(".name")?.textContent === NOTICE.party(3).title)!;
+    const stage = rows.find((r) => r.querySelector(".name")?.textContent === NOTICE.party().title)!;
 
     expect(timeOf(poked), "콕에 시각이 붙었다").toBe("");
     expect(timeOf(stage), "단계 알림에서 시각이 사라졌다").not.toBe("");
+  });
+
+  /**
+   * ★ **받은 줄에는 몸글이 없다** (ADR-113).
+   *
+   * `누구인지는 비밀이에요` 가 줄마다 붙어 있었다. 제목의 `누군가` 가 이미 같은 말을 하고,
+   * 받은 줄은 한 번에 하나씩 쌓이므로 **많이 받은 사람일수록** 같은 문장이 목록을 길게 만들었다.
+   * 익명 쪽지를 소식에 두던 때 같은 이유로 그 줄을 뺐다 (시나리오 36 S-C3).
+   */
+  it("★ 받은 줄에는 몸글이 없다 — 제목의 `누군가` 가 이미 익명을 말한다 (ADR-113)", async () => {
+    const T = (m: number) => new Date(`2026-08-25T04:${m}:00`).getTime();
+    renderTab("home", {
+      event: { ...participantState().event, phase: "party" as const, fired: { reg: T(20), prevote: T(23), party: T(26) } },
+      poke: { ...POKE_STATE, received: { pre: 1, party: 2 } },
+    });
+    await screen.findByText(HOME.news);
+
+    const titles = new Set([POKE.received("pre"), POKE.received("party")]);
+    const rows = [...document.querySelectorAll(".banner")].filter((r) => titles.has(r.querySelector(".name")?.textContent ?? ""));
+    expect(rows).toHaveLength(3);
+    for (const r of rows) expect(r.querySelector(".small"), "받은 줄에 몸글이 붙었다").toBeNull();
+  });
+
+  /**
+   * ★ **단계 소식은 횟수를 되풀이하지 않는다** (ADR-113).
+   *
+   * `1인당 3회씩 투표할 수 있어요` · `파티 라운드 콕 3회를 새로 받았어요` 가 소식과 배너에 섰는데,
+   * 같은 수를 할 일 카드(`N회 남음`)와 단계 안내 화면이 이미 센다. 배너는 단계 안내를 닫고 참가자 탭에
+   * 오는 바로 그 순간에 떠서, 방금 읽은 말을 목록 위에서 한 번 더 했다.
+   * **익명 쪽지 줄은 남는다** (ADR-111) — 쪽지를 쓸 수 있게 됐다고 말하는 곳이 여기뿐이다.
+   */
+  it("★ 단계 소식에는 횟수 줄이 없다 — 익명 쪽지 줄은 남는다 (ADR-113)", async () => {
+    const T = (m: number) => new Date(`2026-08-25T04:${m}:00`).getTime();
+    const base = participantState();
+    renderTab("home", {
+      event: {
+        ...base.event,
+        phase: "party" as const,
+        fired: { reg: T(20), prevote: T(23), party: T(26) },
+        config: { ...base.event.config, maxNotes: 2 },
+      },
+    });
+    await screen.findByText(HOME.news);
+
+    const bodyOf = (title: string) =>
+      [...document.querySelectorAll(".banner")]
+        .find((r) => r.querySelector(".name")?.textContent === title)
+        ?.querySelector(".small")?.textContent ?? "";
+    const pre = bodyOf(NOTICE.prevote().title);
+    const party = bodyOf(NOTICE.party().title);
+    expect(pre + party, "단계 소식이 횟수를 다시 셌다").not.toMatch(/\d+회/);
+    expect(pre, "익명 쪽지를 쓸 수 있게 됐다는 줄이 사라졌다").toContain(UNIT.sheets(2));
+    // 매력 투표를 거친 회차는 쪽지 줄이 매력 투표 줄에만 선다 — 파티 줄은 제목뿐이다
+    expect(party).toBe("");
+  });
+
+  /**
+   * ★ **배너는 줄지 않는다** (ADR-113).
+   *
+   * 참가자 화면의 본문(`.body`)은 높이가 정해진 세로 flex 스크롤 칸이고, 버튼에는 `min-height: 44px` 가 걸려 있다.
+   * 그래서 목록이 화면보다 길면 배너(`button.banner`)가 44px 까지 **줄어들어** 두 줄짜리 몸글이 상자 밖으로
+   * 넘쳤다 — 프로필 투표가 시작되면 모두가 가는 참가자 탭에서, 내 카드 위로 글자가 겹쳤다.
+   * happy-dom 은 배치를 계산하지 않아 화면으로는 못 잰다. 규칙이 스타일시트에 있는지 본다.
+   */
+  it("★ 배너는 스크롤 칸이 넘쳐도 제 높이를 지킨다 (ADR-113)", () => {
+    // vitest 는 저장소 뿌리에서 돈다 — `index.html` 을 읽는 테스트와 같다
+    const css = readFileSync("src/client/styles/theme.css", "utf8");
+    expect(css).toMatch(/\.banner\s*\{[^}]*flex:\s*none/);
   });
 
   /**
@@ -3020,7 +3088,7 @@ describe("탭 역할 분담", () => {
 
     renderTab("home", { event, poke: { ...base.poke, topVote: true } });
     await screen.findByText(HOME.news);
-    expect(order()).toEqual([NOTICE.topVote.title, NOTICE.party(3).title, NOTICE.prevote(3).title]);
+    expect(order()).toEqual([NOTICE.topVote.title, NOTICE.party().title, NOTICE.prevote().title]);
     expect(document.body.textContent ?? "", "표 수가 새어 나갔다").not.toMatch(/\d+\s*표/);
     cleanup();
 
@@ -3269,6 +3337,20 @@ describe("홈 · 남은 시간", () => {
     await screen.findByText(HOME.todo.reg.title);
     expect(screen.getByText(STATUS.untilPrevote)).toBeTruthy();
     expect(screen.queryByText(STATUS.untilParty)).toBeNull();
+  });
+
+  /**
+   * ★ **등록 중 할 일 카드는 몸글 없이 선다** (ADR-113).
+   *
+   * `때가 되면 프로필 투표가 시작돼요` 가 있었는데, 바로 위 카운트다운이 `프로필 투표까지` 로 같은 말을 한다.
+   * 한 화면에서 같은 말을 두 번 하지 않는다 — 순서를 더 알고 싶은 사람에게는 `진행 방식 보기` 가 있다.
+   */
+  it("★ 등록 중 할 일 카드에는 몸글이 없다 — 카운트다운이 다음 단계를 말한다 (ADR-113)", async () => {
+    home(withSchedule("reg", { prevoteAt: Date.now() + 1_800_000, partyAt: Date.now() + 90_000_000 }));
+    const card = (await screen.findByText(HOME.todo.reg.title)).closest(".card") as HTMLElement;
+    expect(card.querySelector("p"), "등록 중 할 일 카드에 몸글이 붙었다").toBeNull();
+    expect(card.querySelector("button")?.textContent).toBe(HOME.guide);
+    expect(screen.getByText(STATUS.untilPrevote)).toBeTruthy();
   });
 
   it("★ 사전 투표 시각이 지났는데 아직 등록 중이면 파티를 센다", async () => {

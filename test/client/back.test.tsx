@@ -232,6 +232,84 @@ describe("익명 쪽지함", () => {
 });
 
 /**
+ * **도움말·쪽지함은 연 화면 위에 선다.**
+ *
+ * 두 시트의 주소(`/help` · `/notes`)에는 탭이 없다. 화면은 탭을 주소에서 읽으므로 한동안 **뒤가 홈으로 바뀌었다** —
+ * 참가자 탭에서 ✉️ 나 ? 를 누르면 시트 뒤로 홈 카드가 비쳤다. 운영자가 폰에서 짚었다.
+ * 내 정보를 고치다 열면 고치던 폼이 뒤에서 사라져, 닫고 돌아오면 친 글이 없었다.
+ */
+describe("도움말·쪽지함 뒤의 화면", () => {
+  /** 켜진 탭. 시트가 떠 있어도 아래 탭바의 `aria-current` 가 그대로 말한다 */
+  const activeTab = () =>
+    [...document.querySelectorAll("nav.tabbar button")].find((b) => b.getAttribute("aria-current") === "true")?.textContent ?? "";
+  const label = (key: "home" | "people" | "me") => TABS_PARTICIPANT.find((t) => t.key === key)!.label;
+  const serve = (state: ParticipantState) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(state), { status: 200, headers: { "content-type": "application/json" } })),
+    );
+
+  it("★ 참가자 탭에서 도움말을 열면 뒤는 참가자 탭 그대로다 — 홈으로 바뀌지 않는다", async () => {
+    const router = participantRouter("/e/ABCDEF/people");
+    render(<RouterProvider router={router} />);
+    await screen.findByText("그녀");
+
+    fireEvent.click(screen.getByLabelText(HELP.open));
+    await screen.findByText(HELP.title);
+    expect(router.state.location.pathname).toBe("/e/ABCDEF/help");
+    expect(activeTab(), "도움말 뒤가 다른 탭으로 바뀌었다").toContain(label("people"));
+    expect(screen.queryByText(HOME.todo.prevote.title), "도움말 뒤에 홈이 그려졌다").toBeNull();
+    expect(screen.getByText("그녀"), "도움말 뒤에서 명단이 사라졌다").toBeTruthy();
+
+    router.navigate(-1);
+    await waitFor(() => expect(screen.queryByText(HELP.title)).toBeNull());
+    expect(router.state.location.pathname).toBe("/e/ABCDEF/people");
+  });
+
+  it("★ 내 정보 탭에서 쪽지함을 열면 뒤는 내 정보 탭 그대로다", async () => {
+    serve({
+      ...STATE,
+      event: { ...STATE.event, config: { maxPre: 3, maxParty: 3, maxNotes: 2 } },
+      me: { ...STATE.me, seenStage: "prevote" },
+      note: { budget: { max: 2, used: 0 }, sent: {}, received: [], unread: 0 },
+    });
+    const router = participantRouter("/e/ABCDEF/me");
+    render(<RouterProvider router={router} />);
+    await screen.findByText(ME.labels.nickname);
+
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(NOTE.inbox.open) }));
+    await screen.findByText(NOTE.inbox.title);
+    expect(activeTab(), "쪽지함 뒤가 다른 탭으로 바뀌었다").toContain(label("me"));
+    expect(screen.queryByText(HOME.todo.prevote.title), "쪽지함 뒤에 홈이 그려졌다").toBeNull();
+  });
+
+  it("★ 내 정보를 고치다 도움말을 열고 닫아도 친 글이 남는다", async () => {
+    // 고치는 폼은 등록 중에만 열린다 (ADR-31)
+    serve({ ...STATE, event: { ...STATE.event, phase: "reg", fired: { reg: 1 } } });
+    const router = participantRouter("/e/ABCDEF/me/edit");
+    render(<RouterProvider router={router} />);
+    const nick = (await screen.findByLabelText(ME.labels.nickname)) as HTMLInputElement;
+    fireEvent.change(nick, { target: { value: "새 이름" } });
+
+    fireEvent.click(screen.getByLabelText(HELP.open));
+    await screen.findByText(HELP.title);
+    router.navigate(-1);
+    await waitFor(() => expect(screen.queryByText(HELP.title)).toBeNull());
+
+    expect(router.state.location.pathname).toBe("/e/ABCDEF/me/edit");
+    expect((screen.getByLabelText(ME.labels.nickname) as HTMLInputElement).value, "고치던 글이 사라졌다").toBe("새 이름");
+  });
+
+  it("★ 주소로 바로 열면 뒤는 홈이다 — 연 자리가 없다", async () => {
+    // 등록을 마치고 저절로 열리는 도움말도 이 길이다 (슬라이스 21) — 그 사람은 홈에 도착한다
+    render(<RouterProvider router={participantRouter("/e/ABCDEF/help")} />);
+    await screen.findByText(HELP.title);
+    expect(activeTab()).toContain(label("home"));
+    expect(screen.getByText(HOME.todo.prevote.title)).toBeTruthy();
+  });
+});
+
+/**
  * 슬라이스 21 — 등록을 마치면 진행 방식이 **한 번 저절로 열린다.**
  *
  * 도움말은 물음표로 늘 열리지만 그건 *이미 질문이 생긴 사람*의 장치라 늦다.

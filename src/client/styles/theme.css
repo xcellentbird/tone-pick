@@ -1536,8 +1536,15 @@ h1,
   letter-spacing: 0.02em;
 }
 
+/*
+ * **줄지 않는다** (`flex: none`, ADR-113). 상단 배너(`button.banner`)는 본문(`.body`)의 직계인데, `.body` 는 높이가
+ * 정해진 세로 flex 스크롤 칸이다. 목록이 화면보다 길면 flex 항목이 줄어들고, 버튼은 `min-height: 44px` 가 바닥이라
+ * **44px 까지** 줄었다 — 두 줄짜리 몸글이 상자 밖으로 넘쳐 아래 카드 위에 겹쳤다. 소식·쪽지함 줄(`div`)은 줄지 않지만
+ * 같은 규칙을 둔다 — 줄 하나가 제 높이를 지키는 것은 어디서나 같다.
+ */
 .banner {
   display: flex;
+  flex: none;
   gap: 10px;
   align-items: center;
   width: 100%;
