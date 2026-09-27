@@ -89,18 +89,6 @@ export function withDefaults(saved: Partial<Defaults> | null | undefined): Defau
   };
 }
 
-/**
- * 읽음이 **발신자에게 보이기까지 늦추는 시간** (ADR-98, S-B6).
- *
- * 배지가 답할 질문은 *갔고 봤나* 이지 *지금 보고 있나* 가 아니다 — 늦춰도 그 답은 그대로고,
- * **방금 폰을 든 사람을 눈으로 찾는 길**만 사라진다. 화면만으로는 못 막는다:
- * `realtime.ts` 가 앱으로 돌아올 때마다 다시 읽어서, 30초마다 시트를 여닫으면
- * 읽은 시각이 30초까지 좁혀진다 — `21:05에 읽음` 을 버린 이유가 절반쯤 되살아난다.
- *
- * ⚠️ **0 으로 내리지 마라.** 이 값이 곧 `읽음` 이 거절 신호가 되지 않게 하는 폭이다.
- */
-export const NOTE_READ_DELAY = 5 * 60_000;
-
 export const LIMITS = {
   maxPre: { min: 1, max: 5 },
   maxParty: { min: 1, max: 10 },
