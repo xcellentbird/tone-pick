@@ -6,7 +6,9 @@
  *
  *   1. **발신자는 어느 응답에도 없다.** 발표 뒤에도, 서로 콕 찌른 쌍에게도
  *   2. **본문은 두 사람만 본다.** 운영자 응답에는 보낸 장 수 하나뿐이다
- *   3. **받는 사람이 고르는 것은 발신자에게 돌아가지 않는다** — 지워도 발신자 화면이 한 칸도 안 바뀐다
+ *   3. **받는 사람이 고르는 것은 발신자에게 돌아가지 않는다** — 받는 사람의 지우기는 걷었다 (ADR-119)
+ *
+ * 새 쪽지는 **받는 사람 소켓에만**, 읽음은 **보낸 사람 소켓에만** 다시 읽으라는 신호가 간다 (ADR-118 · 120).
  *
  * 재료는 `helpers/party.ts`. 파일이 마흔 개에 가까워지면 나눈다 (CLAUDE.md).
  */
@@ -14,24 +16,15 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { LIMITS } from "../src/shared/constants.ts";
 import { HOST_UI } from "../src/shared/copy.ts";
 import type { Defaults, EventConfig, EventMeta, HostState, MyNoteState, ParticipantState } from "../src/shared/types.ts";
-import { api, freshEvent, join, master, setPhase, signInMaster } from "./helpers/party.ts";
+import { api, freshEvent, join, listen, master, setPhase, settle, signInMaster } from "./helpers/party.ts";
 
 beforeAll(signInMaster);
-
-const MIN = 60_000;
 
 const send = (cookie: string | null, toId: string, text = "아까 웃는 모습이 좋았어요") =>
   api<MyNoteState>("/api/note", { method: "POST", cookie, body: { toId, text } });
 const seen = (cookie: string | null) => api<MyNoteState>("/api/note/seen", { method: "POST", cookie });
-const remove = (cookie: string | null, id: string) =>
-  api<MyNoteState>("/api/note/remove", { method: "POST", cookie, body: { id } });
 const me = (cookie: string | null, code: string) => api<ParticipantState>(`/api/me?code=${code}`, { cookie });
 const hostState = (ev: EventMeta) => api<HostState>(`/api/host/events/${ev.id}/state`, { cookie: master });
-
-/** 테스트 전용 시간 이동. 읽음이 5분 뒤에야 보인다는 규칙(S-B6)을 재는 자리다 */
-const travelTo = async (at: number) => {
-  expect((await api("/api/__test__/now", { method: "POST", body: { at } })).status).toBe(200);
-};
 
 /** 익명 쪽지를 쓸 수 있는 파티. 셋이 앉아 있다 — 이성 하나, 동성 하나 */
 async function party(config: Partial<EventConfig> = { maxNotes: 2 }) {
@@ -152,7 +145,6 @@ describe("보내기", () => {
     const { b } = await party();
     expect((await send(null, b.id)).status).toBe(401);
     expect((await seen(null)).status).toBe(401);
-    expect((await remove(null, "x")).status).toBe(401);
   });
 });
 
@@ -181,35 +173,73 @@ describe("보낸 쪽", () => {
     expect(mine.sent, "받기만 한 사람에게는 보낸 묶음이 비어 있다").toEqual({});
   });
 
-  it("★ 읽음은 5분이 지나야 발신자에게 보인다 (S-B6)", async () => {
+  it("★ 읽음은 받는 사람이 쪽지함을 연 즉시 발신자에게 보인다 (ADR-118)", async () => {
     const { ev, a, b } = await party();
     await send(a.cookie, b.id);
     expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read, "아직 안 열었다").toBe(false);
 
     await seen(b.cookie);
-    expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read, "방금 읽었다 — 아직 안 보인다").toBe(false);
+    // 한동안 5분 늦췄다 (ADR-98 후기 2) — 읽은 쪽지가 `읽지 않음` 으로 남는 것을 운영자가 걷었다
+    expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read, "방금 읽었다").toBe(true);
+  });
 
-    try {
-      await travelTo(Date.now() + 6 * MIN);
-      expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read, "5분이 지났다").toBe(true);
-    } finally {
-      await travelTo(Date.now());
+  it("★ 새 쪽지는 받는 사람 소켓만 다시 읽게 한다 — 보낸 사람 · 다른 참가자 · 운영자에게는 가지 않는다 (ADR-118)", async () => {
+    const { ev, a, b, c } = await party();
+    const socks = {
+      to: await listen(ev, { cookie: b.cookie }),
+      from: await listen(ev, { cookie: a.cookie }),
+      other: await listen(ev, { cookie: c.cookie }),
+      host: await listen(ev, { cookie: master, host: true }),
+      nobody: await listen(ev),
+    };
+    await settle();
+    const before = Object.fromEntries(Object.entries(socks).map(([k, v]) => [k, v.length]));
+
+    expect((await send(a.cookie, b.id)).status).toBe(200);
+    await settle();
+
+    const got = (k: keyof typeof socks) => socks[k].slice(before[k]);
+    // 신호에는 아무것도 없다 — 누가 보냈는지도, 몇 장인지도
+    expect(got("to"), "받는 사람이 새로고침 없이 새 쪽지를 봐야 한다").toEqual([JSON.stringify({ type: "note" })]);
+    for (const k of ["from", "other", "host", "nobody"] as const) {
+      expect(got(k), `${k} 에게 도착 시각이 샜다`).toEqual([]);
     }
   });
 
-  it("★ 읽음은 한 번만 선다 — 다시 열어도 시계가 되감기지 않는다", async () => {
-    const { ev, a, b } = await party();
-    await send(a.cookie, b.id);
-    await seen(b.cookie);
-    await seen(b.cookie);
+  it("★ 받는 사람이 읽으면 보낸 사람 소켓만 다시 읽게 한다 — 보낸 사람이 여럿이면 모두에게, 그 밖에는 아무에게도 (ADR-120)", async () => {
+    const { ev, a, b, c } = await party();
+    const d = await join(ev, { gender: "F", nickname: "수지" });
+    await send(a.cookie, b.id, "하나");
+    await send(c.cookie, b.id, "둘");
+    const socks = {
+      from: await listen(ev, { cookie: a.cookie }),
+      from2: await listen(ev, { cookie: c.cookie }),
+      reader: await listen(ev, { cookie: b.cookie }),
+      other: await listen(ev, { cookie: d.cookie }),
+      host: await listen(ev, { cookie: master, host: true }),
+      nobody: await listen(ev),
+    };
+    await settle();
+    const before = Object.fromEntries(Object.entries(socks).map(([k, v]) => [k, v.length]));
+    const got = (k: keyof typeof socks) => socks[k].slice(before[k]);
 
-    try {
-      await travelTo(Date.now() + 6 * MIN);
-      // 두 번째 `seen` 이 `read_at` 을 새로 찍었다면 여기서 아직 `false` 다
-      expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read).toBe(true);
-    } finally {
-      await travelTo(Date.now());
+    expect((await seen(b.cookie)).status).toBe(200);
+    await settle();
+
+    // 보낸 사람은 새로고침 없이 `읽음` 을 본다. 신호에는 아무것도 없다 — 누가 읽었는지도, 몇 장인지도
+    for (const k of ["from", "from2"] as const) {
+      expect(got(k), `${k} 가 읽음을 바로 못 본다`).toEqual([JSON.stringify({ type: "note" })]);
     }
+    for (const k of ["reader", "other", "host", "nobody"] as const) {
+      expect(got(k), `${k} 에게 읽은 시각이 샜다`).toEqual([]);
+    }
+    expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read).toBe(true);
+
+    // 이미 읽은 것을 다시 열면 아무에게도 안 간다 — 쪽지함을 여닫을 때마다 보낸 사람 화면이 흔들리지 않는다
+    const again = socks.from.length;
+    await seen(b.cookie);
+    await settle();
+    expect(socks.from.length, "읽은 것을 또 읽었다고 알렸다").toBe(again);
   });
 });
 
@@ -250,22 +280,16 @@ describe("받는 쪽", () => {
     expect(got.map((n) => n.text)).toEqual(["나중에 온 것", "먼저 온 것"]);
   });
 
-  it("★ 지워도 발신자 화면은 한 칸도 안 바뀐다 (S-C3)", async () => {
-    const { ev, a, b } = await party({ maxNotes: 2 });
-    await send(a.cookie, b.id, "지워질 글");
-    await seen(b.cookie);
-    const before = (await me(a.cookie, ev.code)).body.note;
-
-    const got = (await me(b.cookie, ev.code)).body.note.received;
-    const res = await remove(b.cookie, got[0].id);
-    expect(res.status).toBe(200);
-    expect(res.body.received, "받는 쪽에서는 사라진다").toHaveLength(0);
-
-    // 예산도, 본문도, 읽음도 지우기 전과 똑같다 — 지웠다는 것이 어디에도 안 간다
-    expect((await me(a.cookie, ev.code)).body.note).toEqual(before);
+  it("★ 받는 사람이 지우는 길이 없다 — 쪽지함에서 지우기를 걷었다 (ADR-119)", async () => {
+    const { ev, a, b } = await party();
+    await send(a.cookie, b.id);
+    const id = (await me(b.cookie, ev.code)).body.note.received[0].id;
+    const res = await api("/api/note/remove", { method: "POST", cookie: b.cookie, body: { id } });
+    expect(res.status).toBe(404);
+    expect((await me(b.cookie, ev.code)).body.note.received, "그대로 있다").toHaveLength(1);
   });
 
-  it("★ 안 읽은 수 — 쪽지함을 열면 0 이 되고, 지운 줄은 세지 않는다 (ADR-98 후기 3)", async () => {
+  it("★ 안 읽은 수 — 쪽지함을 열면 0 이 된다 (ADR-98 후기 3)", async () => {
     const { ev, a, b, c } = await party({ maxNotes: 2 });
     await send(a.cookie, b.id, "하나");
     await send(c.cookie, b.id, "둘");
@@ -278,32 +302,8 @@ describe("받는 쪽", () => {
     await send(a.cookie, b.id, "셋");
     const got = (await me(b.cookie, ev.code)).body.note;
     expect(got.unread, "연 뒤에 온 것만 센다").toBe(1);
-    // 안 읽은 채로 지우면 셀 것도 사라진다 — 가리기 중에 제목만 보고 지우는 길이다
-    const fresh = got.received.find((n) => n.text === "셋")!;
-    expect((await remove(b.cookie, fresh.id)).body.unread).toBe(0);
     // 보낸 사람의 숫자는 받는 사람의 것이 아니다
     expect((await me(a.cookie, ev.code)).body.note.unread).toBe(0);
-  });
-
-  it("★ 지운 것은 다시 오지 않는다 — 새로 읽어도, 다시 지워도", async () => {
-    const { ev, a, b } = await party();
-    await send(a.cookie, b.id);
-    const id = (await me(b.cookie, ev.code)).body.note.received[0].id;
-    await remove(b.cookie, id);
-
-    expect((await me(b.cookie, ev.code)).body.note.received).toHaveLength(0);
-    // 이미 없는 것을 또 지워도 조용히 통과한다 — 두 번 누른 사람에게 오류를 주지 않는다
-    expect((await remove(b.cookie, id)).status).toBe(200);
-  });
-
-  it("★ 남의 쪽지는 못 지운다 — 받는 사람만이다", async () => {
-    const { ev, a, b, c } = await party({ maxNotes: 2 });
-    await send(a.cookie, b.id);
-    const id = (await me(b.cookie, ev.code)).body.note.received[0].id;
-
-    expect((await remove(c.cookie, id)).status, "남이 지우려 했다").toBe(200);
-    expect((await remove(a.cookie, id)).status, "보낸 사람도 못 지운다").toBe(200);
-    expect((await me(b.cookie, ev.code)).body.note.received, "그대로 있다").toHaveLength(1);
   });
 });
 

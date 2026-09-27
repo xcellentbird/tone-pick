@@ -124,6 +124,8 @@ export default function Sheet({
     let v = 0;
     let candidate = false;
     let dragging = false;
+    /* 내려보내는 중 — 아직 닫혔는지 모르니 새로 잡지 않는다 */
+    let leaving = false;
     let timer = 0;
 
     const put = (y: number) =>
@@ -136,7 +138,7 @@ export default function Sheet({
     };
 
     const onStart = (e: TouchEvent) => {
-      if (dragging || e.touches.length !== 1 || el.scrollTop > 0) return;
+      if (dragging || leaving || e.touches.length !== 1 || el.scrollTop > 0) return;
       /* 치는 중인 사람의 손을 뺏지 않는다 — 글자를 고르려고 끄는 것일 수 있다 */
       if ((e.target as Element | null)?.closest("input, textarea, select, [contenteditable]")) return;
       const t = e.touches[0];
@@ -200,6 +202,21 @@ export default function Sheet({
         void el.offsetHeight; // 새 `transition` 을 먼저 굳힌다
         put(el.offsetHeight);
         close.current();
+        /*
+         * ⚠️ **닫으라고 했는데 안 닫히는 시트가 있다.** 한 시트가 주소에 따라 내용을 바꾸는 자리(자리 배정, ADR-112)에서
+         *    `onClose` 는 `navigate(-1)` 이라 **앞 화면으로 돌아갈 뿐 시트는 열린 채**다. Radix 가 노드를 새로 만들지 않으니
+         *    내려보낸 변형이 그대로 남아 **시트가 화면 밖에 걸린다** — 제목 한 줄만 보이고 손잡이도 못 잡는다.
+         *    다 내려간 뒤에도 열려 있으면 제자리로 올린다. 뒤로 가기가 앞 화면을 내미는 모양이 된다.
+         */
+        leaving = true;
+        timer = window.setTimeout(() => {
+          leaving = false;
+          if (!live.current) return; // 정말 닫혔다 — Radix 가 곧 뗀다
+          ease(SETTLE_MS);
+          void el.offsetHeight;
+          put(0);
+          timer = window.setTimeout(release, SETTLE_MS);
+        }, DISMISS_MS);
         return;
       }
 
@@ -227,6 +244,7 @@ export default function Sheet({
        * ⚠️ **여기서 인라인 변형을 걷지 마라.** 이 정리는 노드가 떨어져 나갈 때 돈다 —
        *    끌어서 닫는 동안에는 시트가 아직 내려가는 중이라, 걷으면 제자리로 튕겨 올라간다.
        *    다음에 열릴 때는 Radix 가 새 노드를 만들므로 남는 것도 없다.
+       *    **닫히지 않고 내용만 바뀐 시트**는 노드가 그대로라 여기가 안 돈다 — `onEnd` 가 올려 놓는다.
        */
     };
   }, [box, variant]);
