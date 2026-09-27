@@ -69,12 +69,12 @@ export function noticesOf(state: ParticipantState): Notice[] {
   const notes = config.maxNotes ?? 0;
 
   if (fired.prevote) {
-    list.push({ key: "prevote", ...NOTICE.prevote(config.maxPre, notes), at: fired.prevote, order: fired.prevote, bannerable: true, tab: "home" });
+    list.push({ key: "prevote", ...NOTICE.prevote(notes), at: fired.prevote, order: fired.prevote, bannerable: true, tab: "home" });
   }
   if (fired.party) {
     list.push({
       key: "party",
-      ...NOTICE.party(config.maxParty, fired.prevote ? 0 : notes),
+      ...NOTICE.party(fired.prevote ? 0 : notes),
       at: fired.party,
       order: fired.party,
       bannerable: true,
@@ -168,7 +168,8 @@ export function noticesOf(state: ParticipantState): Notice[] {
          */
         icon: ACT.emoji(round),
         title: POKE.received(round),
-        body: POKE.receivedNote,
+        // 제목만 선다 (ADR-113) — `누군가` 가 이미 익명을 말하고, 이 줄은 받은 수만큼 쌓인다
+        body: "",
         at: 0,
         order: base + 1,
         bannerable: false,
