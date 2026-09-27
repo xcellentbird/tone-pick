@@ -19,3 +19,7 @@ tmp/
 # 무대(scripts/qa/stage.mjs)가 남기는 것 — 지난 무대의 쿠키와 스크린샷. 저장소에 안 들어간다
 scripts/qa/.stage.json
 scripts/qa/.snaps/
+
+# 얼굴 자산 파이프라인의 작업 자료(scripts/faces/) — 받은 사진 · 크롭 · LLM 답 · venv · 모델.
+# 남길 것(registry · exclude · v{n}-sources)은 scripts/faces/ 에 따로 커밋한다
+.faces-work/
