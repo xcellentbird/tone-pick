@@ -25,14 +25,19 @@ interface Snapshot {
   clockOffset: number;
 }
 
+/**
+ * 입장 코드는 받지 않는다 — **늘 여기서 붙인다** (ADR-117). 운영자가 코드를 고르는 칸은 오래전에 없어졌고,
+ * 직접 정하는 길만 남아 `이미 쓰고 있는 코드` 라는 아무도 못 볼 거절을 들고 있었다.
+ */
 export interface ReserveInput {
-  code?: string;
   requestId: string;
 }
 
-export type ReserveResult =
-  | { ok: true; id: string; code: string; reused: boolean }
-  | { ok: false; error: "code_taken" };
+export interface ReserveResult {
+  id: string;
+  code: string;
+  reused: boolean;
+}
 
 const EMPTY: Snapshot = {
   defaults: DEFAULTS,
@@ -210,22 +215,15 @@ export class RegistryDO extends DurableObject {
     const known = snap.requests[input.requestId];
     if (known) {
       const entry = snap.events.find((e) => e.id === known);
-      if (entry) return { ok: true, id: entry.id, code: entry.code, reused: true };
+      if (entry) return { id: entry.id, code: entry.code, reused: true };
     }
 
-    let code: string;
-    if (input.code) {
-      code = input.code.toUpperCase();
-      if (snap.events.some((e) => e.code === code)) return { ok: false, error: "code_taken" };
-    } else {
-      code = freeCode(snap);
-    }
-
+    const code = freeCode(snap);
     const id = randomHex(8);
     snap.events.push({ id, code });
     snap.requests[input.requestId] = id;
     await this.save(snap);
-    return { ok: true, id, code, reused: false };
+    return { id, code, reused: false };
   }
 
   async removeEvent(eventId: string): Promise<void> {

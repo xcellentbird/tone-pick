@@ -8,12 +8,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { BTN, FAIL, GENDER, HOST, HOST_UI, INVITE_TEMPLATE, UNIT, phaseAction, schedDiff } from "../../src/shared/copy.ts";
-import { formatGap, formatWhen, toLocalInput } from "../../src/shared/time.ts";
+import { formatGap, formatWhen, snapSchedule, toLocalInput } from "../../src/shared/time.ts";
 import type { HostState, SeatingRound } from "../../src/shared/types.ts";
 import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
 import HostConsole, { HOST_RELOAD_GAP_MS } from "../../src/client/routes/host/HostConsole.tsx";
 import { topRanks } from "../../src/client/routes/host/Dash.tsx";
 import Players from "../../src/client/routes/host/Players.tsx";
+import HostEvents from "../../src/client/routes/host/HostEvents.tsx";
 
 afterEach(cleanup);
 
@@ -1303,6 +1304,93 @@ describe("운영자 콘솔", () => {
     expect(pill.textContent, "고쳤는데 기본 정보에 점이 없다").toContain(HOST_UI.settings.dirty);
   });
 
+  /** 설정 탭의 시각 칸 하나 — 라벨로 집는다. 묶음을 옮겨 가며 같은 칸을 다시 집는다 */
+  const whenInput = (label: string) =>
+    [...document.querySelectorAll(".field")]
+      .find((f) => f.querySelector("label")?.textContent === label)!
+      .querySelector("input") as HTMLInputElement;
+
+  /**
+   * ★ **파티 시작을 옮기면 나머지 일정이 같은 만큼 따라 움직인다** (ADR-116).
+   *
+   * 나머지는 파티 시작에서 재어지는 값이다 — 위저드(`changeParty`)는 처음부터 그렇게 했는데 설정 탭은 파티 시작만
+   * 바꿔서, 파티를 미루면 매칭 확인이 제자리에 남아 저장이 `순서` 로 막혔다. **간격을 지킨 채** 옮긴다.
+   * 따라 움직인 칸은 접힌 `예약` 묶음에 있어서 눈에 안 보인다 — 그 알약의 점과 확인창이 말한다.
+   */
+  it("★ 파티 시작을 옮기면 나머지 일정이 같은 만큼 따라 움직이고, 셋이 함께 저장된다", async () => {
+    const P = snapSchedule(Date.now() + 48 * HOUR);
+    stubFetch(
+      hostState({
+        schedule: { regOpenAt: Date.now() - HOUR, prevoteAt: P - 20 * HOUR, partyAt: P, revealAt: P + 3 * HOUR },
+      }),
+    );
+    renderConsole("/host/e1/settings");
+    await screen.findByLabelText(HOST_UI.fields.name);
+
+    // 파티를 두 시간 미룬다
+    fireEvent.change(whenInput(HOST_UI.fields.partyAt), { target: { value: toLocalInput(P + 2 * HOUR) } });
+    const tab = screen.getByRole("tab", { name: new RegExp(HOST_UI.settings.schedule) });
+    expect(tab.textContent, "따라 움직였는데 접힌 예약 묶음에 점이 없다").toContain(HOST_UI.settings.dirty);
+
+    fireEvent.click(tab);
+    expect(whenInput(HOST_UI.fields.prevoteAt).value, "프로필 투표 시작이 안 따라왔다").toBe(toLocalInput(P - 18 * HOUR));
+    expect(whenInput(HOST_UI.fields.revealAt).value, "매칭 확인이 안 따라왔다").toBe(toLocalInput(P + 5 * HOUR));
+
+    // 확인창을 거쳐 셋이 함께 간다
+    fireEvent.click(screen.getByText(HOST_UI.applySettings));
+    await screen.findByText(HOST_UI.applyTitle);
+    fireEvent.click(screen.getAllByText(HOST_UI.applySettings)[1]);
+    await waitFor(() =>
+      expect(calls.find((c) => c.url.endsWith("/host/events/e1/schedule"))?.body).toMatchObject({
+        partyAt: P + 2 * HOUR,
+        prevoteAt: P - 18 * HOUR,
+        revealAt: P + 5 * HOUR,
+      }),
+    );
+  });
+
+  /**
+   * ★ **지나간 일정과 방금 손으로 고친 칸은 제자리다** (ADR-116).
+   *
+   * 지난 것은 기록이다 — 서버도 잠긴 칸이 바뀌면 거절한다. 손으로 고친 칸은 위저드와 같은 규칙이다:
+   * 고쳐놓은 걸 되돌리는 건 사고다.
+   */
+  it("★ 지나간 일정과 방금 손으로 고친 칸은 따라가지 않는다", async () => {
+    const P = snapSchedule(Date.now() + 48 * HOUR);
+    const t = Date.now();
+
+    // 프로필 투표 중 — 그 시작은 지났다. 매칭 확인만 따라간다
+    stubFetch(
+      hostState({
+        phase: "prevote",
+        fired: { reg: t - 3 * HOUR, prevote: t - HOUR },
+        schedule: { regOpenAt: t - 3 * HOUR, prevoteAt: t - HOUR, partyAt: P, revealAt: P + 3 * HOUR },
+      }),
+    );
+    renderConsole("/host/e1/settings");
+    await screen.findByLabelText(HOST_UI.fields.name);
+    fireEvent.change(whenInput(HOST_UI.fields.partyAt), { target: { value: toLocalInput(P + 2 * HOUR) } });
+    fireEvent.click(screen.getByText(HOST_UI.settings.schedule));
+    expect(whenInput(HOST_UI.fields.prevoteAt).value, "지나간 일정이 움직였다").toBe(toLocalInput(t - HOUR));
+    expect(whenInput(HOST_UI.fields.revealAt).value).toBe(toLocalInput(P + 5 * HOUR));
+    cleanup();
+
+    // 매칭 확인을 먼저 손으로 고쳤다 — 파티를 옮겨도 그 칸은 그대로다
+    stubFetch(
+      hostState({
+        schedule: { regOpenAt: t - HOUR, prevoteAt: P - 20 * HOUR, partyAt: P, revealAt: P + 3 * HOUR },
+      }),
+    );
+    renderConsole("/host/e1/settings");
+    fireEvent.click(await screen.findByText(HOST_UI.settings.schedule));
+    fireEvent.change(whenInput(HOST_UI.fields.revealAt), { target: { value: toLocalInput(P + 4 * HOUR) } });
+    fireEvent.click(screen.getByText(HOST_UI.settings.identity));
+    fireEvent.change(whenInput(HOST_UI.fields.partyAt), { target: { value: toLocalInput(P + 2 * HOUR) } });
+    fireEvent.click(screen.getByText(HOST_UI.settings.schedule));
+    expect(whenInput(HOST_UI.fields.prevoteAt).value).toBe(toLocalInput(P - 18 * HOUR));
+    expect(whenInput(HOST_UI.fields.revealAt).value, "손으로 고친 칸이 따라 움직였다").toBe(toLocalInput(P + 4 * HOUR));
+  });
+
   /**
    * ★ **콕 설정 묶음에도 설명 줄이 없다** (ADR-54 후기 2).
    *
@@ -1348,9 +1436,9 @@ describe("운영자 콘솔", () => {
    * ★ **남는 설명 줄은 정해져 있다** (ADR-54 후기 2 · ADR-115).
    *
    * 기준은 하나다 — 왜 이 칸을 지금 못 쓰는지, 그리고 모르면 사고가 나는 것.
-   * 기본 정보에는 장소(참가자 화면에 안 보인다)와 입장 코드(바꾸지 않는다)만, 예약에는 발표 시각의
-   * `파티 중일 때만` 한 줄만 선다. `파티 시작` 곁설명은 **틀린 말**이었다 — 이 탭은 파티 시작만 바꾸고
-   * 나머지를 옮기지 않는다. 닉네임 문구 곁설명은 눌러 보면 아는 말이었다.
+   * 기본 정보에는 장소(참가자 화면에 안 보인다) 하나만, 예약에는 발표 시각의 `파티 중일 때만` 한 줄만 선다.
+   * 닉네임 문구 곁설명은 눌러 보면 아는 말이었다. 파티 시작에는 곁설명이 없다 — 따라 움직인 칸은
+   * `예약` 알약의 점과 확인창이 말한다 (ADR-116). 입장 코드 줄은 칸째로 걷었다 (ADR-117).
    */
   it("★ 기본 정보와 예약 묶음의 설명 줄은 정해진 것뿐이다", async () => {
     stubFetch(hostState());
@@ -1358,7 +1446,7 @@ describe("운영자 콘솔", () => {
     await screen.findByLabelText(HOST_UI.fields.name);
     const hints = () => [...document.querySelectorAll(".tiny.dim")].map((e) => e.textContent);
 
-    expect(hints(), "기본 정보의 설명 줄이 달라졌다").toEqual([HOST_UI.fields.placeHint, HOST_UI.codeFixed]);
+    expect(hints(), "기본 정보의 설명 줄이 달라졌다").toEqual([HOST_UI.fields.placeHint]);
     fireEvent.click(screen.getByText(HOST_UI.settings.schedule));
     expect(hints(), "예약의 설명 줄이 달라졌다").toEqual([HOST_UI.fields.revealHint]);
   });
@@ -1405,13 +1493,30 @@ describe("운영자 콘솔", () => {
     ).toBe(true);
   });
 
-  it("★ 입장 코드는 바꿀 수 없다", async () => {
+  /**
+   * ★ **운영자 화면에 입장 코드가 없다** (ADR-117).
+   *
+   * 참가자는 링크와 번호 + PIN 번호로 들어오고(ADR-75), 운영자는 회차를 이름으로 부른다 — 코드를 칠 곳도 불러 줄 곳도 없다.
+   * 코드는 참가자 화면 주소(`/e/<코드>`)와 소켓의 열쇠로만 남는다. 머리줄 · 설정 · 회차 목록 어디에도 서지 않는다.
+   * 바꾸는 길도 여전히 없다 — 주소가 바뀌면 열려 있던 참가자 화면이 끊긴다 (서버 쪽은 `04-match-budget` 이 본다).
+   */
+  it("★ 운영자 화면에 입장 코드가 없다 — 콘솔 머리 · 설정 · 회차 목록", async () => {
     stubFetch(hostState());
     renderConsole("/host/e1/settings");
-    await screen.findByText(HOST_UI.codeFixed);
-    // 코드는 글자로만 있다. 입력 칸이 아니다
-    expect(screen.queryByLabelText(HOST_UI.fields.code)).toBeNull();
-    expect(screen.getByText("ABCDEF")).toBeTruthy();
+    await screen.findByLabelText(HOST_UI.fields.name);
+    expect(document.body.textContent, "콘솔에 입장 코드가 떴다").not.toContain("ABCDEF");
+    cleanup();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json([{ id: "e1", name: "테스트 회차", code: "ABCDEF", phase: "reg", playerCount: 2 }])),
+    );
+    const router = createMemoryRouter([{ path: "/host/events", element: <HostEvents /> }], {
+      initialEntries: ["/host/events"],
+    });
+    render(<RouterProvider router={router} />);
+    await screen.findByText("테스트 회차");
+    expect(document.body.textContent, "회차 목록에 입장 코드가 떴다").not.toContain("ABCDEF");
   });
 
   it("★ 받은 콕 순위는 TOP 5 — 5위가 동점이면 그만큼 늘어난다", () => {

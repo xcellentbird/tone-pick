@@ -355,7 +355,11 @@ export interface EventMeta {
    * **장소와 달리 참가자에게 나간다** — 등록 폼에 뜨는 것이 이 값의 존재 이유다.
    */
   nickHint?: string;
-  code: string;      // 6자리 입장 코드 (회차 간 유일)
+  /**
+   * 6자리 입장 코드 (회차 간 유일, 서버가 붙인다). **이제 화면에는 없다** (ADR-117) — 참가자 화면 주소(`/e/<코드>`)와
+   * 소켓(`/ws/<코드>`)의 열쇠로만 쓴다. 바꾸는 길을 만들지 마라 (ADR-22) — 열려 있던 참가자 화면이 끊긴다.
+   */
+  code: string;
   phase: Phase;
   fired: FiredMap;
   schedule: EventSchedule;
@@ -469,8 +473,7 @@ export interface CreateEventInput {
   name: string;
   /** 파티 장소. 안내문에만 쓰인다 (ADR-32) */
   place?: string;
-  /** 생략하면 서버가 만든다. 직접 넘겼는데 이미 쓰는 코드면 거부한다 */
-  code?: string;
+  // 입장 코드는 받지 않는다 (ADR-117) — 늘 서버가 붙인다. 보내와도 읽지 않는다
   /** 파티 일시. 매력 투표 시작이 여기서 거꾸로 계산된다 */
   partyAt: number;
   /**
@@ -526,7 +529,6 @@ export type ErrorCode =
   | "unauthorized"
   | "forbidden"
   | "not_found"
-  | "code_taken"
   | "bad_request"
   // 슬라이스 02~05 에서 늘어난 것
   | "not_invited"    // 403 · 명단에 없는 번호다 (ADR-75)
