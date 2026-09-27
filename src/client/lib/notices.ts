@@ -62,15 +62,19 @@ export const BANNER_WINDOW = 3 * 60_000;
 export function noticesOf(state: ParticipantState): Notice[] {
   const { fired, config, phase } = state.event;
   const list: Notice[] = [];
+  /*
+   * 익명 쪽지가 있는 회차면 **쓸 수 있게 된 단계의 줄**에 둘째 줄이 붙는다 (ADR-111) — 매력 투표다.
+   * 매력 투표를 건너뛰고 파티로 간 회차만 파티 줄에 붙는다. 두 줄에 다 붙이면 한 번 받은 것을 두 번 받은 것으로 읽는다.
+   */
+  const notes = config.maxNotes ?? 0;
 
   if (fired.prevote) {
-    list.push({ key: "prevote", ...NOTICE.prevote(config.maxPre), at: fired.prevote, order: fired.prevote, bannerable: true, tab: "home" });
+    list.push({ key: "prevote", ...NOTICE.prevote(config.maxPre, notes), at: fired.prevote, order: fired.prevote, bannerable: true, tab: "home" });
   }
   if (fired.party) {
-    // 익명 쪽지가 있는 회차면 몸글에 둘째 줄이 붙는다 (슬라이스 36). **과거형이다** — 이 줄은 발표 뒤에도 남는다
     list.push({
       key: "party",
-      ...NOTICE.party(config.maxParty, config.maxNotes ?? 0),
+      ...NOTICE.party(config.maxParty, fired.prevote ? 0 : notes),
       at: fired.party,
       order: fired.party,
       bannerable: true,

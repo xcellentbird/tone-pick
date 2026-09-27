@@ -210,6 +210,25 @@ describe("익명 쪽지함", () => {
     await waitFor(() => expect(screen.queryByText(NOTE.inbox.title)).toBeNull());
     expect(router.state.location.pathname).toBe("/e/ABCDEF/people");
   });
+
+  it("★ 등록 중에 주소로 열면 홈으로 갈아끼운다 — 꺼진 쪽지함은 열리지 않는다 (ADR-111)", async () => {
+    // 버튼은 자리를 지키지만 꺼져 있다. 주소로 들어와도 같은 문이다
+    const reg: ParticipantState = {
+      ...STATE,
+      event: { ...STATE.event, phase: "reg", fired: { reg: 1 }, config: { maxPre: 3, maxParty: 3, maxNotes: 2 } },
+      note: { budget: { max: 2, used: 0 }, sent: {}, received: [], unread: 0 },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(reg), { status: 200, headers: { "content-type": "application/json" } })),
+    );
+    const router = participantRouter("/e/ABCDEF/notes");
+    render(<RouterProvider router={router} />);
+    await screen.findByText(HOME.todo.reg.title);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/e/ABCDEF"));
+    expect(router.state.historyAction, "뒤로 가기에 꺼진 쪽지함 주소가 남는다").toBe("REPLACE");
+    expect(screen.queryByText(NOTE.inbox.title)).toBeNull();
+  });
 });
 
 /**

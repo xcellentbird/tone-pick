@@ -397,19 +397,26 @@ function Loaded({
   const [covered, setCovered] = useCovered();
 
   /**
-   * 익명 쪽지함이 이 회차에 있나 (ADR-98 후기 3). **파티가 시작돼야 생기고**, 쪽지를 0장으로 둔 회차에는 없다.
+   * 익명 쪽지함이 이 회차에 있나 (ADR-98 후기 3). 쪽지를 0장으로 둔 회차에는 없다.
    * 다만 **주고받은 것이 하나라도 있으면 남는다** — 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던
    * 회차이고, 거기서 이미 온 쪽지는 지울 수 있어야 한다 (도움말 문답과 같은 조건).
+   *
+   * **단계는 안 본다 — 처음부터 자리를 지킨다** (ADR-111). 한동안 파티가 시작될 때 생겼는데, 없다가 생기면
+   * 상단 바의 회차 이름 칸이 그 순간 줄어든다. 재미 탭이 처음부터 자리를 지키는 것과 같은 이유다 (ADR-20 후기).
    */
   const note = state.note;
-  const inboxOn =
-    (started && (state.event.config.maxNotes ?? 0) > 0) ||
-    note.received.length > 0 ||
-    Object.keys(note.sent).length > 0;
+  const hasNotes = note.received.length > 0 || Object.keys(note.sent).length > 0;
+  const inboxOn = (state.event.config.maxNotes ?? 0) > 0 || hasNotes;
+  /**
+   * 쪽지함이 **켜져 있나** (ADR-111). 쓰는 창(`canNote`)과 함께 매력 투표에 켜지고, 발표 뒤에도 켜져 있다 —
+   * 온 쪽지는 끝까지 읽고 지울 수 있어야 한다. 그 전에는 꺼진 채 자리만 지키고, 누르면 언제부터인지 말한다.
+   * 주고받은 것이 있으면 언제든 켜진다 — 단계를 뒤로 물린 회차에서도 온 쪽지는 지울 수 있어야 한다.
+   */
+  const inboxLive = inboxOn && (hasNotes || canNote(state.event.phase) || state.event.phase === "done");
   useEffect(() => {
-    if (notesOpen && !inboxOn) onNotes?.(false, { replace: true });
+    if (notesOpen && !inboxLive) onNotes?.(false, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notesOpen, inboxOn]);
+  }, [notesOpen, inboxLive]);
 
   /**
    * **덮개(자리 확인 · 단계 안내)와 시트는 겹치지 않는다.**
@@ -425,7 +432,7 @@ function Loaded({
    * · 확인창은 자리·단계가 **바뀌는 순간** 취소된다 — 돌려놓지 않는다 (`Overlays` 의 `suspend`)
    */
   const seatUp = needsSeatAck && !!state.seat;
-  const sheetOpen = !!helpOpen || (!!notesOpen && inboxOn) || (tab === "people" && (!!profileId || !!noteOpen));
+  const sheetOpen = !!helpOpen || (!!notesOpen && inboxLive) || (tab === "people" && (!!profileId || !!noteOpen));
   const stageUp = needsStage && !!stage && !sheetOpen;
 
   /**
@@ -457,7 +464,7 @@ function Loaded({
    * 줄 수가 그대로라 **화면에 뜬 새 쪽지가 읽음으로 안 찍혔다.**
    */
   const notesShown =
-    !!notesOpen && inboxOn && !seatUp && !stageUp && !covered && inboxSeg === "received" && note.unread > 0;
+    !!notesOpen && inboxLive && !seatUp && !stageUp && !covered && inboxSeg === "received" && note.unread > 0;
   useEffect(() => {
     if (!notesShown) return;
     let alive = true;
@@ -504,7 +511,7 @@ function Loaded({
              */
             onHome={tab === "home" ? undefined : () => onTab("home")}
             onHelp={() => onHelp(true)}
-            inbox={inboxOn ? { unread: note.unread, onOpen: () => onNotes?.(true) } : undefined}
+            inbox={inboxOn ? { unread: note.unread, off: !inboxLive, onOpen: () => onNotes?.(true) } : undefined}
           />
         </header>
 
@@ -519,7 +526,8 @@ function Loaded({
               <span className="icon">{banner.icon}</span>
               <span className="grow">
                 <span className="name">{banner.title}</span>
-                {banner.body && <div className="small dim">{banner.body}</div>}
+                {/* 몸글의 줄바꿈을 지킨다 — 홈 소식 줄과 같은 글이다. 없으면 두 문장이 한 줄로 붙는다 */}
+                {banner.body && <div className="small dim pre">{banner.body}</div>}
               </span>
             </button>
           )}
@@ -583,8 +591,8 @@ function Loaded({
           익명 쪽지함 (ADR-98 후기 3). 어느 탭에서 열든 같은 것이 뜬다.
           **열릴 때마다 새로 붙는다** — 보낸 쪽지의 읽음 배지가 그 순간의 값으로 굳는 것이 여기서 나온다.
         */}
-        <Sheet open={!!notesOpen && inboxOn && !seatUp} onClose={() => onNotes?.(false)} title={NOTE.inbox.title}>
-          {notesOpen && inboxOn && (
+        <Sheet open={!!notesOpen && inboxLive && !seatUp} onClose={() => onNotes?.(false)} title={NOTE.inbox.title}>
+          {notesOpen && inboxLive && (
             <NoteBox
               note={note}
               roster={state.roster}

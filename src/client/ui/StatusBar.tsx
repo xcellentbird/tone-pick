@@ -1,5 +1,5 @@
 /**
- * 화면 맨 위 **두 줄.** 왼쪽에 회차 이름과 단계, 오른쪽에 도움말 — 파티부터는 그 왼쪽에 익명 쪽지함 ✉️.
+ * 화면 맨 위 **두 줄.** 왼쪽에 회차 이름과 단계, 오른쪽에 도움말 — 쪽지가 있는 회차면 그 왼쪽에 익명 쪽지함 ✉️.
  *
  * 답하는 질문은 하나다 — **"내가 지금 어느 파티의 어느 단계에 있나."**
  * 그것만 두는 게 이 줄의 일이다. 헤더는 스크롤되지 않으므로(.screen 이 flex 라 .body 만 흐른다)
@@ -26,6 +26,7 @@
  */
 import { HELP, NOTE, PHASE_LABEL, STATUS } from "../../shared/copy.ts";
 import type { ParticipantState } from "../../shared/types.ts";
+import { useOverlay } from "./Overlays.tsx";
 
 export default function StatusBar({
   state,
@@ -48,10 +49,14 @@ export default function StatusBar({
    * 여기 서는 이유는 하나다: 받은 쪽지는 어느 탭에 있든 오고, 모든 탭에서 보이는 자리는
    * 이 줄과 탭바뿐이다. 탭바는 더 비싸다 — 탭은 없다가 생기면 안 되는데(ADR-20 후기)
    * 쪽지를 0장으로 둔 회차에는 쪽지함이 없어야 한다. 이 줄에서는 회차 이름 하나만 줄어든다.
+   *
+   * `off` 는 **자리는 지키고 꺼져 있다**는 뜻이다 (ADR-111) — 매력 투표 전이다. 이 줄에서도 없다가 생기면
+   * 회차 이름 칸이 그 순간 줄어들어서, 쪽지가 있는 회차면 처음부터 선다.
    */
-  inbox?: { unread: number; onOpen: () => void };
+  inbox?: { unread: number; off?: boolean; onOpen: () => void };
 }) {
   const { name, phase } = state.event;
+  const { toast } = useOverlay();
 
   const where = (
     <>
@@ -86,7 +91,12 @@ export default function StatusBar({
             type="button"
             className="helpBtn inboxBtn"
             aria-label={inbox.unread > 0 ? `${NOTE.inbox.open} ${NOTE.inbox.unread(inbox.unread)}` : NOTE.inbox.open}
-            onClick={inbox.onOpen}
+            /*
+              꺼진 쪽지함은 **죽은 버튼이 아니다** — 꺼진 재미 탭과 같은 수다(`Participant` 의 `Tabs`).
+              `disabled` 로 두면 누른 것 자체가 안 와서 언제부터인지 말할 수 없다.
+            */
+            aria-disabled={inbox.off || undefined}
+            onClick={() => (inbox.off ? toast(NOTE.inbox.notYet) : inbox.onOpen())}
           >
             {/*
               **그림이 아니라 선이다.** 컬러 이모지(✉️)는 `?` 옆에서 혼자 튀었다 —
