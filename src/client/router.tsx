@@ -114,15 +114,16 @@ export const HOST_CONSOLE_ROUTES = [
     { path: "players/:pid", element: chunk(<Players />) },   // 상세 시트
     { path: "seats", element: chunk(<Seats />) },
     // 배정 시트도 라우트다 — 뒤로 가기로 닫힌다.
-    // **걸음이 곧 주소다** — 뺄 사람 고르기 → 테이블 수 (ADR-45). push 라 뒤로 가면 앞 걸음이다.
+    // `new` 가 **이번 배정** 한 장이다 (ADR-112) — 뺄 사람 · 떨어뜨려 앉히기 두 줄과 테이블 수 고르기.
+    // 줄을 누르면 고르는 화면이 push 로 서고 뒤로 가면 이번 배정이다. 테이블 수도 push 다 (ADR-45).
     // 예전에는 `:mode` 로 `new`·`final` 둘을 받았다. 커플 자리를 걷어내며 길이 하나가 됐다 (ADR-51)
     { path: "seats/new", element: chunk(<Seats />) },
+    { path: "seats/new/out", element: chunk(<Seats />) },
+    { path: "seats/new/apart", element: chunk(<Seats />) },
+    { path: "seats/new/apart/add", element: chunk(<Seats />) },
     { path: "seats/new/tables", element: chunk(<Seats />) },
     // 자리 없는 사람을 앉힐 자리 고르기 (ADR-79). 라운드가 주소에 있어야 새로고침해도 같은 카드다
     { path: "seats/seat/:round/:pid", element: chunk(<Seats />) },
-    // 떨어뜨려 앉히기 — 쌍 목록과, 그 위에서 여는 두 사람 고르기 (ADR-109). 참가자 상세 시트에서 옮겨 왔다
-    { path: "seats/apart", element: chunk(<Seats />) },
-    { path: "seats/apart/add", element: chunk(<Seats />) },
     { path: "polls", element: chunk(<Polls />) },
     { path: "polls/:aid", element: chunk(<Polls />) },       // `new` 는 보내기 시트, 그 밖은 상세
     { path: "settings", element: chunk(<Settings />) },

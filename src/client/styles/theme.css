@@ -1761,6 +1761,20 @@ button.fact.out .mark,
 button.fact.picked .mark { color: var(--accent); font-weight: 700; }
 button.fact.picked { border-color: var(--accent); }
 
+/*
+ * 이번 배정의 줄 (ADR-112) — 이름 · 수 · `›` 가 윗줄, 실명이 아랫줄이다.
+ * `.fact` 는 가로로 눕는 줄이라 **세로로 세운다.** 실명 줄은 한 줄에서 자르므로(`.ellipsis`)
+ * 사람이 늘어도 줄 높이가 흔들리지 않는다. 몇 명인지는 윗줄의 수가 말한다.
+ */
+button.fact.cond {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  min-height: var(--tap);
+  padding: var(--gap);
+}
+button.fact.cond .name { font-size: 15px; }
+
 /* ─────────────────────────── 익명 쪽지 (슬라이스 36, ADR-98) */
 
 /*

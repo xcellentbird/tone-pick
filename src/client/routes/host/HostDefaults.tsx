@@ -266,12 +266,15 @@ export function Toggle({
  */
 export function Num({
   label,
+  labelHidden,
   value,
   min,
   max,
   onChange,
 }: {
   label: string;
+  /** 라벨이 바로 위 제목과 같은 말일 때 화면에서만 감춘다 — 읽어 주는 이에게는 남긴다 */
+  labelHidden?: boolean;
   value: number;
   min: number;
   max: number;
@@ -279,7 +282,7 @@ export function Num({
 }) {
   return (
     <div className="field">
-      <label>{label}</label>
+      <label className={labelHidden ? "srOnly" : undefined}>{label}</label>
       <div className="row">
         <button className="btn" onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min}>
           −
