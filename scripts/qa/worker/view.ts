@@ -47,7 +47,13 @@ const embed = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
 
 export function stagePage(m: PageModel): string {
   const code = m.view.event.code.replace(/[^0-9A-Za-z]/g, "");
-  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  /*
+   * ⚠️ **뷰포트 메타의 `interactive-widget=resizes-content` 를 빼지 마라** (앱 `index.html` 과 같은 값).
+   *    틀 속 앱은 키보드를 모른다 — 키보드에 줄어드는 것은 맨 위 창의 시각 뷰포트뿐이라 틀 안의 `--kb`(lib/keyboard.ts)는
+   *    늘 0 이다. 틀의 높이는 이 페이지가 정하므로, 이 페이지의 레이아웃이 줄지 않으면 틀도 그대로이고
+   *    아래에 붙은 시트(익명 쪽지)가 **키보드 뒤로 들어간다.** 안드로이드 크롬은 이 값으로 `dvh` 가 줄어 틀이 따라온다.
+   */
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content">
 <title>스테이지 ${code}</title>
 <link rel="icon" href="data:,">
 <style>
