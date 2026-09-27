@@ -1,15 +1,15 @@
 /**
  * 슬라이스 36 — 익명 쪽지의 **화면 규칙** (ADR-98, 후기 3 의 익명 쪽지함).
  *
- * 서버 규칙(예산·발신자 익명·바로 서는 읽음·지워도 발신자 화면 그대로·안 읽은 수·받는 사람에게만 가는 신호)은
+ * 서버 규칙(예산·발신자 익명·바로 서는 읽음·안 읽은 수·그 쪽지의 두 사람에게만 가는 신호)은
  * `test/36-anon-note.test.ts` 가 본다. 여기서 보는 것은 화면만이 지킬 수 있는 것들이다 —
  *
  *   · 쓰는 입구는 프로필 시트의 ✉️ 하나다. 가리기 중에는 잠긴다 (S-B5)
  *   · 상단 바의 쪽지함은 **늘 선다.** 프로필 투표와 함께 켜지고, 쪽지를 끈 회차에서는 꺼진 채다 (ADR-111 · 후기 1)
  *   · 받은 쪽지는 **익명 쪽지함에만** 있다 — 홈 소식에는 없다
  *   · 읽음은 **쪽지함의 받은 쪽지를 열 때** 찍힌다. 가리기가 켜져 있어도 찍힌다 — 쪽지함에는 가리기가 없다 (ADR-119)
- *   · 쪽지함을 열면 **서버에서 다시 읽는다** — 새로 온 쪽지와 상대의 읽음이 새로고침 없이 선다 (ADR-118)
- *   · 보낸 쪽지의 읽음 배지는 **쪽지함을 열며 다시 읽은 값으로 굳는다** (S-B4)
+ *   · **쪽지는 실시간이다** — 열어 둔 쪽지함에 새 쪽지가 뜨고(ADR-118), 상대가 읽으면 `읽음` 이 바로 선다(ADR-120).
+ *     쪽지함을 열 때도 서버에서 한 번 더 읽는다
  *   · 받은 줄에는 **누를 것이 없다** — 지우기도 가리기도 없다 (ADR-119)
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -127,6 +127,28 @@ function view(src: ParticipantSource, over: Mount = {}) {
 }
 
 const mount = (src: ParticipantSource, over: Mount = {}) => render(view(src, over));
+
+/**
+ * 소켓을 흉내낸다. 돌려주는 함수가 **서버가 미는 "다시 읽어라"** 를 대신 보낸다 (ADR-26).
+ * 화면이 소켓을 열려면 `source.liveCode` 가 있어야 한다.
+ */
+function stubSockets() {
+  const sockets: Array<{ onmessage: ((e: { data: string }) => void) | null }> = [];
+  vi.stubGlobal(
+    "WebSocket",
+    class {
+      onmessage: ((e: { data: string }) => void) | null = null;
+      constructor() {
+        sockets.push(this);
+      }
+      close() {}
+    },
+  );
+  return (type: string) =>
+    act(async () => {
+      for (const s of sockets) s.onmessage?.({ data: JSON.stringify({ type }) });
+    });
+}
 
 /** 화면이 다 그려졌다는 신호 — 상단 바의 회차 이름 */
 const ready = () => screen.findByText("테스트 파티");
@@ -393,22 +415,37 @@ describe("익명 쪽지함 — 받은 쪽지", () => {
     expect(src.calls.seen, "덮개 아래에서 읽음이 찍혔다").toBe(0);
   });
 
+  it("★ 열어 둔 쪽지함에 새 쪽지가 새로고침 없이 뜨고, 그 자리에서 읽음으로 찍힌다 (ADR-118 · 120)", async () => {
+    const push = stubSockets();
+    let current = got;
+    const base = sourceOf(stateOf(got));
+    const src: typeof base = {
+      ...base,
+      liveCode: "ABCDEF",
+      load: async () => stateOf(current),
+      seeNotes: async () => {
+        base.calls.seen++;
+        return { ...current, unread: 0 };
+      },
+    };
+    mount(src, { tab: "home", notesOpen: true });
+    await screen.findByText("아까 웃는 모습이 좋았어요");
+    await waitFor(() => expect(src.calls.seen).toBe(1));
+
+    // 누가 쪽지를 보냈다 — 서버가 받는 사람 소켓에만 다시 읽으라고 민다
+    current = { ...got, received: [{ id: "n2", text: "새로 온 쪽지" }, ...got.received], unread: 1 };
+    await push("note");
+    expect(await screen.findByText("새로 온 쪽지")).toBeTruthy();
+    // 받은 쪽지를 보고 있으니 곧 읽은 것이다 — 이 요청이 보낸 사람 화면의 `읽음` 을 부른다 (ADR-120)
+    await waitFor(() => expect(src.calls.seen).toBe(2));
+  });
+
   it("★ 보낸 쪽지를 보는 동안 온 쪽지는 읽음으로 찍지 않는다 (S-B2)", async () => {
     /*
      * 쪽지함이 열려 있어도 화면은 다른 신호(콕 · 명단 · 자리)로 계속 다시 읽힌다. 그때 새 쪽지가 오면
      * **보낸 쪽지를 보고 있던 사람**에게도 읽음이 찍혔다 — 본문을 본 적이 없는데 보낸 사람에게는 `읽음` 이 선다.
      */
-    const sockets: Array<{ onmessage: ((e: { data: string }) => void) | null }> = [];
-    vi.stubGlobal(
-      "WebSocket",
-      class {
-        onmessage: ((e: { data: string }) => void) | null = null;
-        constructor() {
-          sockets.push(this);
-        }
-        close() {}
-      },
-    );
+    const push = stubSockets();
     let current = got;
     const base = sourceOf(stateOf(got));
     const src: typeof base = {
@@ -427,7 +464,7 @@ describe("익명 쪽지함 — 받은 쪽지", () => {
     fireEvent.click(screen.getByRole("button", { name: NOTE.inbox.sent }));
     // 보낸 쪽지를 보는 사이 새 쪽지가 왔다 — 누가 콕을 찔러 화면이 다시 읽혔다
     current = { ...got, received: [{ id: "n2", text: "새로 온 쪽지" }, ...got.received], unread: 1 };
-    await act(async () => sockets[0].onmessage!({ data: JSON.stringify({ type: "poke" }) }));
+    await push("poke");
     await act(async () => {});
     expect(src.calls.seen, "보지 않은 쪽지가 읽음으로 찍혔다").toBe(1);
 
@@ -484,20 +521,19 @@ describe("익명 쪽지함 — 보낸 쪽지", () => {
     expect(screen.queryByText(NOTE.unread)).toBeNull();
   });
 
-  it("★ 읽음 배지는 쪽지함을 열며 다시 읽은 값으로 굳는다 (S-B4)", async () => {
-    const state = stateOf({ ...mine, sent: { her: [{ text: "굳는 글", read: false }] } });
-    const src = sourceOf(state);
-    const v = mount(src, { tab: "home", notesOpen: true });
+  it("★ 쪽지함이 열려 있는 동안에도 상대가 읽으면 바로 `읽음` 이 된다 (ADR-120)", async () => {
+    const push = stubSockets();
+    let current: MyNoteState = { ...mine, sent: { her: [{ text: "바로 바뀌는 글", read: false }] } };
+    const base = sourceOf(stateOf(current));
+    const src: typeof base = { ...base, liveCode: "ABCDEF", load: async () => stateOf(current) };
+    mount(src, { tab: "home", notesOpen: true });
     fireEvent.click(await screen.findByText(NOTE.inbox.sent));
     expect(await screen.findByText(NOTE.unread)).toBeTruthy();
-    // 열며 다시 읽은 것이 돌아온다 — 배지는 이 값으로 굳는다
-    await act(async () => {});
 
-    // 남이 일으킨 변화로 화면이 다시 읽혔다 (공지·자리 발행·소켓 재접속이 전부 이 길이다)
-    state.note = { ...state.note, sent: { her: [{ text: "굳는 글", read: true }] } };
-    v.rerender(view(src, { tab: "home", notesOpen: true, key: "t2" }));
-    await act(async () => {});
-    // 쪽지함을 닫았다 다시 열 때까지 안 바뀐다 — 실시간으로 바뀌면 그 순간을 옆에서 안다 (ADR-64)
-    expect(screen.getByText(NOTE.unread)).toBeTruthy();
+    // 받는 사람이 읽었다 — 서버가 보낸 사람 소켓에만 다시 읽으라고 민다. 한동안 여기서 굳었다 (S-B4)
+    current = { ...current, sent: { her: [{ text: "바로 바뀌는 글", read: true }] } };
+    await push("note");
+    expect(await screen.findByText(NOTE.read)).toBeTruthy();
+    expect(screen.queryByText(NOTE.unread)).toBeNull();
   });
 });

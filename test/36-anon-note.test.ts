@@ -8,7 +8,7 @@
  *   2. **본문은 두 사람만 본다.** 운영자 응답에는 보낸 장 수 하나뿐이다
  *   3. **받는 사람이 고르는 것은 발신자에게 돌아가지 않는다** — 받는 사람의 지우기는 걷었다 (ADR-119)
  *
- * 새 쪽지는 **받는 사람 소켓에만** 다시 읽으라는 신호가 가고, 읽음은 바로 보인다 (ADR-118).
+ * 새 쪽지는 **받는 사람 소켓에만**, 읽음은 **보낸 사람 소켓에만** 다시 읽으라는 신호가 간다 (ADR-118 · 120).
  *
  * 재료는 `helpers/party.ts`. 파일이 마흔 개에 가까워지면 나눈다 (CLAUDE.md).
  */
@@ -204,6 +204,42 @@ describe("보낸 쪽", () => {
     for (const k of ["from", "other", "host", "nobody"] as const) {
       expect(got(k), `${k} 에게 도착 시각이 샜다`).toEqual([]);
     }
+  });
+
+  it("★ 받는 사람이 읽으면 보낸 사람 소켓만 다시 읽게 한다 — 보낸 사람이 여럿이면 모두에게, 그 밖에는 아무에게도 (ADR-120)", async () => {
+    const { ev, a, b, c } = await party();
+    const d = await join(ev, { gender: "F", nickname: "수지" });
+    await send(a.cookie, b.id, "하나");
+    await send(c.cookie, b.id, "둘");
+    const socks = {
+      from: await listen(ev, { cookie: a.cookie }),
+      from2: await listen(ev, { cookie: c.cookie }),
+      reader: await listen(ev, { cookie: b.cookie }),
+      other: await listen(ev, { cookie: d.cookie }),
+      host: await listen(ev, { cookie: master, host: true }),
+      nobody: await listen(ev),
+    };
+    await settle();
+    const before = Object.fromEntries(Object.entries(socks).map(([k, v]) => [k, v.length]));
+    const got = (k: keyof typeof socks) => socks[k].slice(before[k]);
+
+    expect((await seen(b.cookie)).status).toBe(200);
+    await settle();
+
+    // 보낸 사람은 새로고침 없이 `읽음` 을 본다. 신호에는 아무것도 없다 — 누가 읽었는지도, 몇 장인지도
+    for (const k of ["from", "from2"] as const) {
+      expect(got(k), `${k} 가 읽음을 바로 못 본다`).toEqual([JSON.stringify({ type: "note" })]);
+    }
+    for (const k of ["reader", "other", "host", "nobody"] as const) {
+      expect(got(k), `${k} 에게 읽은 시각이 샜다`).toEqual([]);
+    }
+    expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read).toBe(true);
+
+    // 이미 읽은 것을 다시 열면 아무에게도 안 간다 — 쪽지함을 여닫을 때마다 보낸 사람 화면이 흔들리지 않는다
+    const again = socks.from.length;
+    await seen(b.cookie);
+    await settle();
+    expect(socks.from.length, "읽은 것을 또 읽었다고 알렸다").toBe(again);
   });
 });
 
