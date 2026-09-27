@@ -397,22 +397,21 @@ function Loaded({
   const [covered, setCovered] = useCovered();
 
   /**
-   * 익명 쪽지함이 이 회차에 있나 (ADR-98 후기 3). 쪽지를 0장으로 둔 회차에는 없다.
-   * 다만 **주고받은 것이 하나라도 있으면 남는다** — 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던
-   * 회차이고, 거기서 이미 온 쪽지는 지울 수 있어야 한다 (도움말 문답과 같은 조건).
+   * 익명 쪽지함 ✉️ 는 **늘 선다** — 단계도 장 수도 안 본다 (ADR-111 · 후기 1). 없다가 생기면 상단 바의 회차 이름 칸이
+   * 그 순간 줄어든다 — 재미 탭이 처음부터 자리를 지키는 것과 같은 이유다 (ADR-20 후기). 장 수를 보면 운영자가
+   * 파티 중에 0 과 1~5 사이를 오갈 때마다(굳지 않는다) 그 칸이 늘었다 줄었다 한다.
    *
-   * **단계는 안 본다 — 처음부터 자리를 지킨다** (ADR-111). 한동안 파티가 시작될 때 생겼는데, 없다가 생기면
-   * 상단 바의 회차 이름 칸이 그 순간 줄어든다. 재미 탭이 처음부터 자리를 지키는 것과 같은 이유다 (ADR-20 후기).
+   * **켜져 있나는 따로다** (`inboxLive`). 쓰는 창(`canNote`)과 함께 매력 투표에 켜지고, 발표 뒤에도 켜져 있다 —
+   * 온 쪽지는 끝까지 읽고 지울 수 있어야 한다. 쪽지를 0장으로 둔 회차는 꺼진 채다.
+   * **주고받은 것이 하나라도 있으면 언제든 켜진다** — 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던 회차이고,
+   * 거기서 이미 온 쪽지는 지울 수 있어야 한다 (도움말 문답과 같은 조건). 단계를 뒤로 물린 회차도 같다.
    */
   const note = state.note;
   const hasNotes = note.received.length > 0 || Object.keys(note.sent).length > 0;
-  const inboxOn = (state.event.config.maxNotes ?? 0) > 0 || hasNotes;
-  /**
-   * 쪽지함이 **켜져 있나** (ADR-111). 쓰는 창(`canNote`)과 함께 매력 투표에 켜지고, 발표 뒤에도 켜져 있다 —
-   * 온 쪽지는 끝까지 읽고 지울 수 있어야 한다. 그 전에는 꺼진 채 자리만 지키고, 누르면 언제부터인지 말한다.
-   * 주고받은 것이 있으면 언제든 켜진다 — 단계를 뒤로 물린 회차에서도 온 쪽지는 지울 수 있어야 한다.
-   */
-  const inboxLive = inboxOn && (hasNotes || canNote(state.event.phase) || state.event.phase === "done");
+  const notesOn = (state.event.config.maxNotes ?? 0) > 0;
+  const inboxLive = hasNotes || (notesOn && (canNote(state.event.phase) || state.event.phase === "done"));
+  /** 꺼져 있을 때 누르면 말할 한 줄. 끈 회차는 단계가 와도 안 켜지므로 `언제부터` 를 말하면 거짓이다 */
+  const inboxOff = inboxLive ? undefined : notesOn ? NOTE.inbox.notYet : NOTE.inbox.off;
   useEffect(() => {
     if (notesOpen && !inboxLive) onNotes?.(false, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -511,7 +510,7 @@ function Loaded({
              */
             onHome={tab === "home" ? undefined : () => onTab("home")}
             onHelp={() => onHelp(true)}
-            inbox={inboxOn ? { unread: note.unread, off: !inboxLive, onOpen: () => onNotes?.(true) } : undefined}
+            inbox={{ unread: note.unread, off: inboxOff, onOpen: () => onNotes?.(true) }}
           />
         </header>
 

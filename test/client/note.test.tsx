@@ -5,7 +5,7 @@
  * `test/36-anon-note.test.ts` 가 본다. 여기서 보는 것은 화면만이 지킬 수 있는 것들이다 —
  *
  *   · 쓰는 입구는 프로필 시트의 ✉️ 하나다. 가리기 중에는 잠긴다 (S-B5)
- *   · 상단 바의 쪽지함은 **처음부터 자리를 지키고 프로필 투표와 함께 켜진다** (ADR-111)
+ *   · 상단 바의 쪽지함은 **늘 선다.** 프로필 투표와 함께 켜지고, 쪽지를 끈 회차에서는 꺼진 채다 (ADR-111 · 후기 1)
  *   · 받은 쪽지는 **익명 쪽지함에만** 있다 — 홈 소식에는 없다
  *   · 읽음은 **쪽지함을 열 때** 찍힌다. 덮개·가리기 아래에서는 안 찍는다 (S-B2)
  *   · 보낸 쪽지의 읽음 배지는 **쪽지함을 연 순간의 값으로 굳는다** (S-B4)
@@ -285,22 +285,37 @@ describe("상단 바의 익명 쪽지함", () => {
     expect(opened).toEqual([true]);
   });
 
-  it("★ 쪽지를 끈 회차에는 없다 — 이미 주고받은 것이 있으면 남는다", async () => {
-    mount(sourceOf(stateOf(EMPTY, { maxNotes: 0 })), { tab: "home" });
-    await ready();
-    expect(inboxBtn()).toBeNull();
-    cleanup();
+  it("★ 쪽지를 끈 회차에도 꺼진 채 선다 — 누르면 이 파티에서는 쓸 수 없다고 말한다 (ADR-111 후기 1)", async () => {
+    /*
+     * 운영자는 장 수를 파티 중에도 0 과 1~5 사이로 오간다 (굳지 않는다). 쪽지함이 그때마다 생겼다 사라지면
+     * 상단 바의 회차 이름 칸이 그 순간 늘었다 줄었다 한다 — 등록 중에 자리를 지키는 것과 같은 이유다.
+     */
+    for (const phase of ["reg", "party"] as const) {
+      const opened: boolean[] = [];
+      mount(sourceOf(stateOf(EMPTY, { phase, maxNotes: 0 })), { tab: "home", onNotes: (on) => opened.push(on) });
+      await ready();
+      const btn = inboxBtn();
+      expect(btn, `${phase} — 끈 회차에 쪽지함이 없다`).toBeTruthy();
+      expect(btn!.getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(btn!);
+      expect(await screen.findByText(NOTE.inbox.off)).toBeTruthy();
+      // 등록 중이어도 `프로필 투표가 시작되면 쓸 수 있어요` 가 아니다 — 끈 회차는 시작돼도 못 쓴다
+      expect(screen.queryByText(NOTE.inbox.notYet), phase).toBeNull();
+      expect(opened, `${phase} — 꺼진 쪽지함이 열렸다`).toEqual([]);
+      cleanup();
+    }
+  });
 
-    // 자리를 지키는 것은 쪽지가 있는 회차의 이야기다 — 끈 회차에 꺼진 버튼을 세우면 영영 안 켜지는 버튼이 된다
-    mount(sourceOf(stateOf(EMPTY, { phase: "reg", maxNotes: 0 })), { tab: "home" });
+  it("★ 끈 회차여도 주고받은 것이 있으면 켜진다 — 온 쪽지는 지울 수 있어야 한다", async () => {
+    // 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던 회차다
+    const opened: boolean[] = [];
+    const got: MyNoteState = { ...EMPTY, received: [{ id: "n1", text: "a" }], unread: 1 };
+    mount(sourceOf(stateOf(got, { maxNotes: 0 })), { tab: "home", onNotes: (on) => opened.push(on) });
     await ready();
-    expect(inboxBtn()).toBeNull();
-    cleanup();
-
-    // 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던 회차다 — 온 쪽지는 지울 수 있어야 한다
-    mount(sourceOf(stateOf({ ...EMPTY, received: [{ id: "n1", text: "a" }], unread: 1 }, { maxNotes: 0 })), { tab: "home" });
-    await ready();
-    expect(inboxBtn()).toBeTruthy();
+    const btn = inboxBtn()!;
+    expect(btn.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(btn);
+    expect(opened).toEqual([true]);
   });
 });
 

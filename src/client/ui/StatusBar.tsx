@@ -1,5 +1,5 @@
 /**
- * 화면 맨 위 **두 줄.** 왼쪽에 회차 이름과 단계, 오른쪽에 도움말 — 쪽지가 있는 회차면 그 왼쪽에 익명 쪽지함 ✉️.
+ * 화면 맨 위 **두 줄.** 왼쪽에 회차 이름과 단계, 오른쪽에 익명 쪽지함 ✉️ 과 도움말.
  *
  * 답하는 질문은 하나다 — **"내가 지금 어느 파티의 어느 단계에 있나."**
  * 그것만 두는 게 이 줄의 일이다. 헤더는 스크롤되지 않으므로(.screen 이 flex 라 .body 만 흐른다)
@@ -44,16 +44,16 @@ export default function StatusBar({
   onHome?: () => void;
   onHelp: () => void;
   /**
-   * 익명 쪽지함 ✉️ (ADR-98 후기 3). **이 회차에 쪽지가 있을 때만** 온다 — 없으면 자리째 없다.
+   * 익명 쪽지함 ✉️ (ADR-98 후기 3). **늘 선다** — 단계도 장 수도 안 본다 (ADR-111 · 후기 1).
    *
    * 여기 서는 이유는 하나다: 받은 쪽지는 어느 탭에 있든 오고, 모든 탭에서 보이는 자리는
-   * 이 줄과 탭바뿐이다. 탭바는 더 비싸다 — 탭은 없다가 생기면 안 되는데(ADR-20 후기)
-   * 쪽지를 0장으로 둔 회차에는 쪽지함이 없어야 한다. 이 줄에서는 회차 이름 하나만 줄어든다.
+   * 이 줄과 탭바뿐이다. 탭바는 더 비싸다 — 다섯 칸이면 칸마다 78px 이다.
+   * 이 줄에서는 회차 이름 하나만 줄어든다. 없다가 생기면 그 칸이 그 순간 줄어들어서 처음부터 선다.
    *
-   * `off` 는 **자리는 지키고 꺼져 있다**는 뜻이다 (ADR-111) — 매력 투표 전이다. 이 줄에서도 없다가 생기면
-   * 회차 이름 칸이 그 순간 줄어들어서, 쪽지가 있는 회차면 처음부터 선다.
+   * `off` 는 **자리는 지키고 꺼져 있다**는 뜻이고, 그 값이 누를 때 말할 한 줄이다 — 매력 투표 전이거나,
+   * 쪽지를 0장으로 둔 회차다. 어느 쪽인지는 `Participant` 가 안다.
    */
-  inbox?: { unread: number; off?: boolean; onOpen: () => void };
+  inbox: { unread: number; off?: string; onOpen: () => void };
 }) {
   const { name, phase } = state.event;
   const { toast } = useOverlay();
@@ -81,44 +81,42 @@ export default function StatusBar({
       {/*
         오른쪽 버튼들은 **한 묶음**이다 (`.barActions`). 쪽지함이 처음 들어왔을 때 두 버튼이 각자
         `.statusbar` 의 간격(10px)을 받아 원과 원 사이가 26px 로 벌어졌고, ✉️ 만 컬러 그림이라
-        옆의 `?` 와 다른 물건으로 읽혔다 (운영자가 짚었다). 이제 쪽지함이 있으면 둘이 **알약 하나**
-        안에 가는 칸막이를 두고 선다(`.pair`) — 둘 다 같은 색 글리프다. 탭 영역은 저마다 44px 그대로다.
-        쪽지함이 없으면 `?` 혼자 제 원으로 선다.
+        옆의 `?` 와 다른 물건으로 읽혔다 (운영자가 짚었다). 이제 둘이 **알약 하나** 안에 가는 칸막이를 두고
+        선다(`.pair`) — 둘 다 같은 색 글리프다. 탭 영역은 저마다 44px 그대로다.
+        쪽지함은 늘 서므로(ADR-111 후기 1) `?` 가 혼자 서는 일은 없다.
       */}
-      <div className={`barActions ${inbox ? "pair" : ""}`}>
-        {inbox && (
-          <button
-            type="button"
-            className="helpBtn inboxBtn"
-            aria-label={inbox.unread > 0 ? `${NOTE.inbox.open} ${NOTE.inbox.unread(inbox.unread)}` : NOTE.inbox.open}
-            /*
-              꺼진 쪽지함은 **죽은 버튼이 아니다** — 꺼진 재미 탭과 같은 수다(`Participant` 의 `Tabs`).
-              `disabled` 로 두면 누른 것 자체가 안 와서 언제부터인지 말할 수 없다.
-            */
-            aria-disabled={inbox.off || undefined}
-            onClick={() => (inbox.off ? toast(NOTE.inbox.notYet) : inbox.onOpen())}
-          >
-            {/*
-              **그림이 아니라 선이다.** 컬러 이모지(✉️)는 `?` 옆에서 혼자 튀었다 —
-              회차 이름보다 먼저 읽히면 안 되는 자리다. 색은 `?` 와 같은 `currentColor`.
-            */}
-            <span aria-hidden>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="5" width="18" height="14" rx="2.5" />
-                <path d="m4 7 8 6 8-6" />
-              </svg>
-            </span>
-            {/*
-              배지는 **안 읽은 수**다. 움직이지 않고(ADR-64) 경보 빨강도 아니다 —
-              남이 일으킨 변화라 옆 사람의 눈을 끌면 안 된다. 쪽지함을 열면 사라진다.
-            */}
-            {inbox.unread > 0 && (
-              <b className="count" aria-hidden>
-                {inbox.unread}
-              </b>
-            )}
-          </button>
-        )}
+      <div className="barActions pair">
+        <button
+          type="button"
+          className="helpBtn inboxBtn"
+          aria-label={inbox.unread > 0 ? `${NOTE.inbox.open} ${NOTE.inbox.unread(inbox.unread)}` : NOTE.inbox.open}
+          /*
+            꺼진 쪽지함은 **죽은 버튼이 아니다** — 꺼진 재미 탭과 같은 수다(`Participant` 의 `Tabs`).
+            `disabled` 로 두면 누른 것 자체가 안 와서 왜 꺼져 있는지 말할 수 없다.
+          */
+          aria-disabled={!!inbox.off || undefined}
+          onClick={() => (inbox.off ? toast(inbox.off) : inbox.onOpen())}
+        >
+          {/*
+            **그림이 아니라 선이다.** 컬러 이모지(✉️)는 `?` 옆에서 혼자 튀었다 —
+            회차 이름보다 먼저 읽히면 안 되는 자리다. 색은 `?` 와 같은 `currentColor`.
+          */}
+          <span aria-hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="5" width="18" height="14" rx="2.5" />
+              <path d="m4 7 8 6 8-6" />
+            </svg>
+          </span>
+          {/*
+            배지는 **안 읽은 수**다. 움직이지 않고(ADR-64) 경보 빨강도 아니다 —
+            남이 일으킨 변화라 옆 사람의 눈을 끌면 안 된다. 쪽지함을 열면 사라진다.
+          */}
+          {inbox.unread > 0 && (
+            <b className="count" aria-hidden>
+              {inbox.unread}
+            </b>
+          )}
+        </button>
 
         {/*
           **모든 탭에서 항상 보이는 자리는 여기뿐이다.** 운영자가 "여기 눌러보세요" 라고
