@@ -1080,9 +1080,10 @@ export class EventDO extends DurableObject {
   // **받는 사람이 고르는 것은 발신자에게 돌아가지 않는다**(읽음은 받은 쪽지를 연 결과라 통과한다.
   // 쪽지함에는 지우기도 가리기도 없다 — ADR-119).
   //
-  // **받는 사람에게만 민다** (ADR-118 — 운영자가 ADR-98 의 `안 민다` 를 뒤집었다). 새로고침 없이 바로 보여야 한다.
-  // ⚠️ **`broadcast()` 로 넓히지 마라.** 회차 전체가 다시 읽으면 **도착 시각이 방 안 모두에게** 뿌려진다 —
-  //    받는 사람 한 명에게 가는 것까지가 운영자가 고른 값이다. 신호에는 아무것도 싣지 않는다.
+  // **쪽지는 실시간이다** (운영자). 새 쪽지는 **받는 사람에게만**(ADR-118), 읽음은 **보낸 사람에게만**(ADR-120) 민다 —
+  // 둘 다 새로고침 없이 바로 보여야 한다. ADR-98 은 둘 다 안 밀었다.
+  // ⚠️ **`broadcast()` 로 넓히지 마라.** 회차 전체가 다시 읽으면 **도착·읽은 시각이 방 안 모두에게** 뿌려진다 —
+  //    그 쪽지의 두 사람에게 가는 것까지가 운영자가 고른 값이다. 신호에는 아무것도 싣지 않는다.
 
   async sendNote(fromId: string, toId: string, rawText: unknown, now: number): Promise<Result<MyNoteState>> {
     const meta = await this.touch(now);
@@ -1127,16 +1128,18 @@ export class EventDO extends DurableObject {
    *
    * 화면이 문지기다: 쪽지함이 열려 있고 받은 쪽지 쪽을 보고 있을 때만 부른다. 자리 확인 덮개가 서면
    * 쪽지함 시트가 닫히므로 그동안은 부르지 않는다. 서버는 그 상태를 모른다.
+   *
+   * **방금 읽음이 선 쪽지의 보낸 사람에게만** 다시 읽으라고 민다 (ADR-120) — 보낸 사람 화면의 `읽지 않음` 이
+   * 그 자리에서 `읽음` 이 된다. 이미 읽은 것만 있으면 아무에게도 안 간다: 여닫을 때마다 보낸 사람 화면이 흔들리지 않게.
    */
   async markNotesSeen(playerId: string, now: number): Promise<Result<MyNoteState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
     if (!this.player(playerId)) return fail("not_found");
-    this.ctx.storage.sql.exec(
-      "UPDATE notes SET read_at = ? WHERE to_id = ? AND read_at IS NULL AND hidden_at IS NULL",
-      now,
-      playerId,
-    );
+    const unseen = "to_id = ? AND read_at IS NULL AND hidden_at IS NULL";
+    const senders = this.rows<{ from_id: string }>(`SELECT DISTINCT from_id FROM notes WHERE ${unseen}`, playerId);
+    this.ctx.storage.sql.exec(`UPDATE notes SET read_at = ? WHERE ${unseen}`, now, playerId);
+    for (const { from_id } of senders) this.toPlayer(from_id, { type: "note" });
     return ok(this.noteState(playerId, meta));
   }
 

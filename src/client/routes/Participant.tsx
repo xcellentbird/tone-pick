@@ -472,23 +472,16 @@ function Loaded({
     if (!notesOpen) setInboxSeg("received");
   }, [notesOpen]);
   /*
-   * **쪽지함을 열면 서버에서 다시 읽는다** (ADR-118). 받는 사람은 소켓 신호로도 다시 읽지만, 보낸 사람의 읽음 배지는
-   * 신호가 없다 — 상대가 읽은 쪽지가 마지막으로 읽은 화면의 값(`읽지 않음`)으로 굳어 있었다.
-   * 쪽지 한 칸만 갈아끼운다(`setNote`). 망이 흔들려 못 읽었으면 가진 값으로 굳는다.
+   * **쪽지함을 열면 서버에서 한 번 더 읽는다** (ADR-118). 쪽지는 소켓으로 바로 온다 — 새 쪽지는 받는 사람에게,
+   * 읽음은 보낸 사람에게 (ADR-120). 이것은 그물이다: 소켓이 막 끊겼다 붙는 사이에 지나간 것도 여는 순간 맞는다.
+   * 쪽지 한 칸만 갈아끼운다(`setNote`). 못 읽었으면(망) 가진 값 그대로다.
    */
-  const [inboxFresh, setInboxFresh] = useState(false);
   useEffect(() => {
-    setInboxFresh(false);
     if (!notesOpen) return;
     let alive = true;
-    const done = () => alive && setInboxFresh(true);
     source.load().then(
-      (next) => {
-        if (!alive) return;
-        setNote(next.note);
-        done();
-      },
-      done,
+      (next) => alive && setNote(next.note),
+      () => {},
     );
     return () => {
       alive = false;
@@ -626,7 +619,7 @@ function Loaded({
 
         {/*
           익명 쪽지함 (ADR-98 후기 3). 어느 탭에서 열든 같은 것이 뜬다.
-          **열릴 때마다 새로 붙는다** — 보낸 쪽지의 읽음 배지가 열며 다시 읽은 값으로 굳는 것이 여기서 나온다.
+          읽음 배지는 굳히지 않는다 — 열려 있는 동안에도 상대가 읽으면 바로 바뀐다 (ADR-120).
         */}
         <Sheet open={!!notesOpen && inboxLive && !seatUp} onClose={() => onNotes?.(false)} title={NOTE.inbox.title}>
           {notesOpen && inboxLive && (
@@ -636,7 +629,6 @@ function Loaded({
               seg={inboxSeg}
               onSeg={setInboxSeg}
               open={canNote(state.event.phase) && (state.event.config.maxNotes ?? 0) > 0}
-              fresh={inboxFresh}
               onClose={() => onNotes?.(false)}
             />
           )}
