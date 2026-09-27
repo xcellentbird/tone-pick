@@ -70,7 +70,7 @@ export default function Home({
   const revealed = phase === "done";
   const budget = state.poke.budget[roundOf(phase)];
   const left = budget.max - budget.used;
-  /** 남은 익명 쪽지 (슬라이스 36). 이 회차에 없거나(0) 파티 중이 아니면 줄이 안 선다 */
+  /** 남은 익명 쪽지 (슬라이스 36). 이 회차에 없거나(0) 쓸 수 있는 단계(매력 투표 · 파티, ADR-111)가 아니면 줄이 안 선다 */
   const noteLeft = canNote(phase) ? Math.max(0, state.note.budget.max - state.note.budget.used) : 0;
   /**
    * 콕을 다 썼으면 **다른 문장**이다. 남은 게 없는데 "찔러보세요" 라고 하면

@@ -1,11 +1,13 @@
 /**
- * 자리 탭.  뺄 사람 고르기 → 테이블 수 → 초안 → 검토·고치기 → 📣 알림 발송
+ * 자리 탭.  자리 재배정 → 이번 배정(뺄 사람 · 떨어뜨려 앉히기) → 테이블 수 → 초안 → 검토·고치기 → 📣 알림 발송
  *
- * · 배정은 **두 걸음**이다 (ADR-45). 뺄 사람을 먼저 고르고 그 다음 테이블 수다 —
- *   `테이블당 N명` 이 남은 인원으로 계산되므로, 순서가 뒤집히면 방금 읽은 숫자가 틀린 것이 된다
+ * · 자리 재배정을 누르면 **이번 배정** 한 장이 뜬다 (ADR-112). 뺄 사람과 떨어뜨려 앉힐 쌍이 두 줄로 서고,
+ *   줄을 누르면 고르는 화면이 push 로 선다. 둘 다 이어지는 조건이라 대개 확인하고 넘어가는 자리다
+ * · 뺄 사람이 테이블 수보다 먼저다 (ADR-45) — `테이블당 N명` 이 남은 인원으로 계산되므로,
+ *   순서가 뒤집히면 방금 읽은 숫자가 틀린 것이 된다
  * · 뺄 사람은 **지난 배정에서 이어받는다** (ADR-108). 운영진·먼저 간 사람을 라운드마다 다시 빼지 않는다.
  *   사람에게 붙는 상태는 없다 — 지난 자리와 등록 시각에서 계산한다 (`carriedOut`)
- * · 떨어뜨려 앉힐 쌍도 **여기서** 넣고 뺀다 (ADR-109). 결과(⛔)를 보는 곳과 고치는 곳이 이 탭이다
+ * · 떨어뜨려 앉힐 쌍도 **이번 배정에서** 넣고 뺀다 (ADR-112). 자리 탭 위에는 줄이 없다
  * · 테이블 수는 **배정할 때마다** 고른다. 설정값이 아니다 (ADR-5)
  * · 초안 생성에는 확인을 붙이지 않는다 — 참가자에게 안 보이고 몇 번이든 다시 만들 수 있다
  * · 발송에는 확인을 붙인다 — 참가자 화면을 덮는 확인 화면이 뜬다
@@ -38,18 +40,20 @@ export default function Seats() {
   const { state, reload } = useConsole();
   const { confirm, toast } = useOverlay();
   const navigate = useNavigate();
-  // 배정 시트도 라우트다. 뒤로 가기로 앞 걸음, 한 번 더 누르면 닫힌다 (ROUTES.md)
+  // 배정 시트도 라우트다. 뒤로 가기로 앞 화면, 이번 배정에서 한 번 더 누르면 닫힌다 (ROUTES.md)
   const path = useLocation().pathname;
   const here = `/host/${state.meta.id}/seats`;
-  /** 두 걸음 중 어디인가. 주소가 진실이라 새로고침해도 같은 걸음이 뜬다 */
-  const sheetOpen = path.startsWith(`${here}/new`);
-  const atTables = path.endsWith("/tables");
   /**
-   * 떨어뜨려 앉히기 (ADR-109) — 쌍 목록과, 그 위에서 여는 고르는 시트.
-   * 고르면 `navigate(-1)` 로 목록에 돌아온다 — 거기 줄이 생긴 것이 곧 알림이다 (ADR-65)
+   * 배정 시트의 어디인가 (ADR-112). **이번 배정**(`/new`)이 한 장이고, 줄을 누르면 고르는 화면이 push 로 선다 —
+   * 뺄 사람(`/new/out`) · 쌍 목록(`/new/apart`) · 두 사람 고르기(`/new/apart/add`). 테이블 수(`/new/tables`)도 push 다.
+   * 한 시트가 내용만 바꾼다 — 시트는 겹치지 않는다. 주소가 진실이라 새로고침해도 같은 화면이 뜬다.
+   * 쌍을 고르면 `navigate(-1)` 로 쌍 목록에 돌아온다 — 거기 줄이 생긴 것이 곧 알림이다 (ADR-65)
    */
-  const atApart = path === `${here}/apart`;
-  const atApartAdd = path === `${here}/apart/add`;
+  const sheetOpen = path.startsWith(`${here}/new`);
+  const atTables = path === `${here}/new/tables`;
+  const atOut = path === `${here}/new/out`;
+  const atApart = path === `${here}/new/apart`;
+  const atApartAdd = path === `${here}/new/apart/add`;
   /**
    * 앉힐 자리 고르기 시트 (ADR-79). 주소가 **누구를 · 어느 라운드에** 를 다 들고 있다 —
    * 카드가 여럿이라 라운드가 빠지면 새로고침 뒤에 엉뚱한 카드에 앉힌다.
@@ -298,20 +302,38 @@ export default function Seats() {
     reload();
   }
   /*
-   * 발표 뒤에는 넣지 못한다 (ADR-90) — 버튼이 없어도 고르는 시트의 주소는 칠 수 있다.
+   * 발표 뒤에는 넣지 못한다 (ADR-90) — 버튼이 없어도 고르는 화면의 주소는 칠 수 있다.
    * 빈 시트에 두지 않고 쌍 목록으로 **갈아끼운다** (빼기는 거기서 된다).
    */
   useEffect(() => {
-    if (atApartAdd && revealed) navigate(`${here}/apart`, { replace: true });
+    if (atApartAdd && revealed) navigate(`${here}/new/apart`, { replace: true });
   }, [atApartAdd, revealed, navigate, here]);
+
+  /** 시트 제목 — 지금 선 화면의 이름이다. 이번 배정은 누른 버튼의 이름을 그대로 쓴다 */
+  const sheetTitle = atTables
+    ? HOST_UI.seats.tableCount
+    : atOut
+      ? HOST_UI.seats.excludeTitle
+      : atApart
+        ? HOST_UI.seats.apart.title
+        : atApartAdd
+          ? HOST_UI.seats.apart.pickTitle
+          : HOST_UI.seats.make;
 
   /**
    * 카드 머리의 한 줄. 고른 사람이 없으면 무엇을 할 수 있는지, 있으면 누구를 골랐는지 —
    * **자리 비우기는 고른 뒤에만** 보인다. 상시로 두면 사람마다 버튼이 하나씩 붙는다.
+   *
+   * **초안에는 알림 경고가 없다** (ADR-115). `바뀐 자리는 본인에게 말해주세요` 는 발행된 라운드를 고칠 때의
+   * 말이다 (ADR-49) — 초안은 아직 아무에게도 안 나갔고, 확정하면 전원에게 알림이 간다.
    */
   function editBar(round: SeatingRound) {
     const one = picked?.round === round.round ? picked.playerId : null;
-    if (!one) return <p className="small dim">{HOST_UI.seats.swapHint}</p>;
+    if (!one) {
+      return (
+        <p className="small dim">{round.status === "draft" ? HOST_UI.seats.swapHintDraft : HOST_UI.seats.swapHint}</p>
+      );
+    }
     return (
       <div className="row between">
         <span className="small grow ellipsis">{HOST_UI.seats.pickedOne(nameOf(one))}</span>
@@ -390,41 +412,12 @@ export default function Seats() {
       </button>
 
       {/*
-        **떨어뜨려 앉히기** (ADR-109). 결과(⛔ 칩)를 보는 곳과 고치는 곳(맞교환)이 이 탭이라 넣는 곳도 여기다.
-        **한 줄만 선다** — 이 탭은 테이블 번호를 보여 주려고 폰을 내미는 화면이라, 누가 누구를 떼어 놨는지는
-        시트를 열어야 보인다. 쌍이 있을 때만 수가 붙는다. 발표 뒤에도 선다 — 빼기는 된다 (ADR-90).
+        **배정 시트는 한 시트가 내용을 바꾼다** (ADR-112). 이번 배정이 바닥이고, 뺄 사람 · 쌍 목록 · 두 사람 고르기 ·
+        테이블 수가 그 위에 push 로 선다 — 주소가 정하므로 뒤로 가기가 곧 `이전` 이고, 이번 배정에서 한 번 더 누르면 닫힌다.
+        **떨어뜨려 앉히기 줄을 자리 탭 위에 되살리지 마라** — 넣고 빼는 자리는 이번 배정 한 곳이다.
+        자리 탭은 테이블 번호를 보여 주려고 폰을 내미는 화면이라, 누가 누구를 떼어 놨는지는 시트 안에만 선다.
       */}
-      {state.players.length >= 2 && (
-        <button type="button" className="fact" onClick={() => navigate(`${here}/apart`)}>
-          <span className="grow">{HOST_UI.seats.apart.title}</span>
-          {state.apart.length > 0 && <span className="dim">{HOST_UI.seats.apart.count(state.apart.length)}</span>}
-        </button>
-      )}
-      <Sheet open={atApart} onClose={() => navigate(-1)} title={HOST_UI.seats.apart.title}>
-        {atApart && (
-          <ApartList
-            players={state.players}
-            apart={state.apart}
-            revealed={revealed}
-            onRemove={removeApart}
-            onAdd={() => navigate(`${here}/apart/add`)}
-          />
-        )}
-      </Sheet>
-      {/* 쌍 목록 **위에서** 여는 시트다. 이 저장소의 시트는 겹치지 않는다 — 여는 동안 목록은 닫혀 있다 */}
-      <Sheet open={atApartAdd && !revealed} onClose={() => navigate(-1)} title={HOST_UI.seats.apart.pickTitle}>
-        {atApartAdd && !revealed && <ApartPicker players={state.players} apart={state.apart} onPick={addApart} />}
-      </Sheet>
-
-      {/*
-        **두 걸음이 한 시트를 나눠 쓴다** (ADR-45). 걸음은 주소가 정하므로
-        뒤로 가기가 곧 `이전` 이고, 한 번 더 누르면 시트가 닫힌다.
-      */}
-      <Sheet
-        open={sheetOpen}
-        onClose={() => navigate(-1)}
-        title={atTables ? HOST_UI.seats.tableCount : HOST_UI.seats.excludeTitle}
-      >
+      <Sheet open={sheetOpen} onClose={() => navigate(-1)} title={sheetTitle}>
         {atTables ? (
           <TablePicker
             players={state.players.filter((p) => !out.has(p.id))}
@@ -433,7 +426,7 @@ export default function Seats() {
             busy={busy}
             onGo={make}
           />
-        ) : (
+        ) : atOut ? (
           <ExcludePicker
             players={state.players}
             out={out}
@@ -444,6 +437,26 @@ export default function Seats() {
                 return next;
               })
             }
+            onDone={() => navigate(-1)}
+          />
+        ) : atApart ? (
+          <ApartList
+            players={state.players}
+            apart={state.apart}
+            revealed={revealed}
+            onRemove={removeApart}
+            onAdd={() => navigate(`${here}/new/apart/add`)}
+            onDone={() => navigate(-1)}
+          />
+        ) : atApartAdd ? (
+          !revealed && <ApartPicker players={state.players} apart={state.apart} onPick={addApart} />
+        ) : (
+          <ThisRound
+            players={state.players}
+            out={out}
+            apart={state.apart}
+            onOut={() => navigate(`${here}/new/out`)}
+            onApart={() => navigate(`${here}/new/apart`)}
             onNext={() => navigate(`${here}/new/tables`)}
           />
         )}
@@ -608,110 +621,58 @@ export default function Seats() {
 }
 
 /**
- * **첫 걸음 — 뺄 사람을 고른다** (ADR-45).
+ * **이번 배정** 한 장 (ADR-112). `자리 재배정` 을 누르면 여기가 뜬다 — 뺄 사람 · 떨어뜨려 앉히기 두 줄과 `테이블 수 고르기`.
  *
- * 테이블 수보다 먼저 오는 이유가 하나다. 다음 걸음의 `테이블당 N명` 이 여기서 남은
- * 인원으로 계산되므로, 순서가 뒤집히면 방금 읽은 숫자가 곧바로 틀린 것이 된다.
+ * 두 조건이 다 **이어진다** — 뺄 사람은 지난 배정에서 이어받고(ADR-108) 쌍은 저장돼 있다. 그래서 대부분의 라운드에
+ * 여기서 하는 일은 **확인하고 넘어가는 것**이다. 걸음으로 세우면 습관처럼 넘기게 되어 바꿔야 할 한 번을 놓친다.
  *
- * **지난 배정에서 빠진 사람은 빠진 채로 열린다** (ADR-108). 참가자에게 붙는 상태는 여전히 없다 —
- * 지난 자리에서 계산한 목록을 받아서(`out`) 여기서 고칠 뿐이다. 첫 배정만 전원으로 시작한다.
- * 이어받은 사람이 섞여 있으므로 **빠진 줄이 튀어야 한다** — 이름은 흐리게, `제외` 는 칩과 같은 색으로.
+ * **줄이 수와 실명을 말한다** — 명단을 펼치지 않고도 누가 빠졌는지 보인다. 조용히 빠지는 사람이 없어야 한다 (ADR-108).
+ * 명단은 줄을 눌러야 선다 (ADR-77). 없으면 수도 이름도 붙지 않는다 — 없는 일을 알리지 않는다.
+ * **설명 줄을 두지 마라** — 운영자가 걸러냈다. 한 번 읽으면 다시 안 읽히는 줄이 이 시트의 자리를 먹는다.
  */
-function ExcludePicker({
+function ThisRound({
   players,
   out,
-  onToggle,
+  apart,
+  onOut,
+  onApart,
   onNext,
 }: {
   players: Player[];
   out: Set<string>;
-  onToggle: (id: string) => void;
+  apart: Array<[string, string]>;
+  onOut: () => void;
+  onApart: () => void;
   onNext: () => void;
 }) {
+  // 실명이다 — 운영자는 실명으로 사람을 안다 (ADR-77 후기). 뺄 사람 화면과 같은 실명 순이다
+  const outNames = [...players]
+    .sort(byRealName)
+    .filter((p) => out.has(p.id))
+    .map((p) => p.realName);
+  const byId = new Map(players.map((p) => [p.id, p]));
+  const pairs = apart.flatMap(([a, b]) => {
+    const x = byId.get(a);
+    const y = byId.get(b);
+    return x && y ? [HOST_UI.dash.mutualPair(x.realName, y.realName)] : [];
+  });
   const seated = players.length - out.size;
-  /**
-   * **접힌 채로 연다.** 대부분의 라운드는 아무도 안 빼므로(ADR-45 의 기본이 전원 배정이다)
-   * 그 운영자가 서른 줄을 지나 버튼에 닿게 하지 않는다 — 열자마자 인원 줄과 다음 버튼이 보이고,
-   * 뺄 사람이 있을 때만 손잡이를 눌러 목록을 편다. 펼치면 손잡이는 사라진다.
-   */
-  const [open, setOpen] = useState(false);
-  /**
-   * 성별로 걸러 본다. **참가자 탭과 같은 칩·같은 순서다** —
-   * 사람이 서른을 넘으면 한 목록에서 한 사람을 찾는 게 일이 된다.
-   * 두 화면이 다른 모양으로 거르면 운영자가 매번 어느 쪽인지 다시 익혀야 한다.
-   */
-  const [filter, setFilter] = useState<"all" | Gender>("all");
-  const sorted = [...players].sort(byRealName);
-  const shown = sorted.filter((p) => filter === "all" || p.gender === filter);
-  const excluded = sorted.filter((p) => out.has(p.id)).map((p) => p.realName);
-
   return (
     <div className="stack">
-      <p className="small dim">{HOST_UI.seats.excludeNote}</p>
-
-      {!open && (
-        <button type="button" className="btn ghost block" onClick={() => setOpen(true)}>
-          {HOST_UI.seats.excludePick}
-        </button>
-      )}
-
-      {open && (
-        <>
-          <GenderFilter players={players} value={filter} onChange={setFilter} />
-
-          {shown.length === 0 && <p className="dim center">{HOST_UI.players.emptyFiltered}</p>}
-
-          <div className="stack">
-            {shown.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className={`fact ${out.has(p.id) ? "out" : ""}`}
-                aria-pressed={!out.has(p.id)}
-                onClick={() => onToggle(p.id)}
-              >
-                <Avatar nickname={p.nickname} gender={p.gender} size="sm" />
-                {/*
-                  **실명이 앞에, 굵게.** 운영자는 닉네임만으로 그 사람이 누구인지 알기 어렵다 —
-                  참가자 탭과 같은 차례(실명 · 닉네임 · 나이)다. 운영자만 전체를 본다
-                */}
-                <span className="grow ellipsis">
-                  <span className="name">{p.realName}</span>
-                  <span className="dim">
-                    {" · "}
-                    {p.nickname}
-                    {" · "}
-                    {UNIT.age(p.age)}
-                  </span>
-                </span>
-                {/* 톤만으로 말하지 않는다. 지금 어느 쪽인지 글자가 같은 정보를 다시 준다 */}
-                <span className="mark">{out.has(p.id) ? HOST_UI.seats.excludeOut : HOST_UI.seats.excludeIn}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/*
-        **발 — 시트 바닥에 붙는다** (`.sheetFoot`). 시트가 스크롤 상자라 sticky 가 바닥에 서고,
-        목록은 그 아래로 지나간다. 인원 줄이 누를 때마다 눈앞에서 바뀌고, 다음 버튼은 늘 손에 닿는다.
-        `fixed` 로 띄우지 않는다 — 규칙 4 가 토스트에서 겪은 대로 목록을 덮고 키보드(`--kb`)와 어긋난다.
-
-        다음 걸음이 이 숫자로 계산한다. **거른 것과 상관없이 언제나 전원 기준이다** —
-        남성만 보고 있다고 여성이 빠진 게 아니다.
-      */}
-      <div className="sheetFoot stack">
-        <div className="fact">
-          <span className="grow">
-            {out.size > 0 ? HOST_UI.seats.leftOut(seated, out.size) : HOST_UI.seats.seatedAll(seated)}
-          </span>
-        </div>
-        {excluded.length > 0 && (
-          <p className="small dim ellipsis">
-            {HOST_UI.seats.excludedNames(excluded.slice(0, 3), Math.max(0, excluded.length - 3))}
-          </p>
-        )}
-        {/* 테이블 하나에 둘은 앉아야 한다. 그 아래로는 다음 걸음에서 할 수 있는 게 없다 */}
+      <CondRow
+        label={HOST_UI.seats.excludeTitle}
+        count={outNames.length > 0 ? UNIT.people(outNames.length) : null}
+        names={outNames.join(", ")}
+        onOpen={onOut}
+      />
+      <CondRow
+        label={HOST_UI.seats.apart.title}
+        count={pairs.length > 0 ? HOST_UI.seats.apart.count(pairs.length) : null}
+        names={pairs.join(", ")}
+        onOpen={onApart}
+      />
+      {/* 테이블 하나에 둘은 앉아야 한다. 그 아래로는 다음 걸음에서 할 수 있는 게 없다 */}
+      <div className="sheetFoot">
         <button className="btn primary block" disabled={seated < 2} onClick={onNext}>
           {HOST_UI.seats.excludeNext}
         </button>
@@ -721,7 +682,120 @@ function ExcludePicker({
 }
 
 /**
- * **둘째 걸음 — 테이블 수를 고른다.**
+ * 이번 배정의 한 줄 — 이름 · 수 · `›`, 그 아래 실명 한 줄. **줄 전체가 손잡이다.**
+ * 실명 줄은 한 줄에서 자른다 — 몇 명인지는 위의 수가 말하고, 줄 높이가 사람 수에 따라 흔들리지 않는다.
+ */
+function CondRow({
+  label,
+  count,
+  names,
+  onOpen,
+}: {
+  label: string;
+  /** 없으면 비운다 — `0명` 을 쓰지 않는다 */
+  count: string | null;
+  names: string;
+  onOpen: () => void;
+}) {
+  return (
+    <button type="button" className="fact cond" onClick={onOpen}>
+      <span className="row">
+        <span className="name grow">{label}</span>
+        {count && <span className="name">{count}</span>}
+        <span className="dim" aria-hidden>
+          {"›"}
+        </span>
+      </span>
+      {names && <span className="small dim ellipsis">{names}</span>}
+    </button>
+  );
+}
+
+/**
+ * **뺄 사람을 고른다** (ADR-45). 이번 배정의 `뺄 사람` 줄을 누르면 선다 (ADR-112).
+ *
+ * **지난 배정에서 빠진 사람은 빠진 채로 열린다** (ADR-108). 참가자에게 붙는 상태는 여전히 없다 —
+ * 지난 자리에서 계산한 목록을 받아서(`out`) 여기서 고칠 뿐이다. 첫 배정만 전원으로 시작한다.
+ * 이어받은 사람이 섞여 있으므로 **빠진 줄이 튀어야 한다** — 이름은 흐리게, `제외` 는 칩과 같은 색으로.
+ *
+ * `완료` 는 뒤로 가기다 — 고른 것은 누르는 대로 들어 있고, 이번 배정이 그것을 줄로 말한다.
+ */
+function ExcludePicker({
+  players,
+  out,
+  onToggle,
+  onDone,
+}: {
+  players: Player[];
+  out: Set<string>;
+  onToggle: (id: string) => void;
+  onDone: () => void;
+}) {
+  const seated = players.length - out.size;
+  /**
+   * 성별로 걸러 본다. **참가자 탭과 같은 칩·같은 순서다** —
+   * 사람이 서른을 넘으면 한 목록에서 한 사람을 찾는 게 일이 된다.
+   * 두 화면이 다른 모양으로 거르면 운영자가 매번 어느 쪽인지 다시 익혀야 한다.
+   */
+  const [filter, setFilter] = useState<"all" | Gender>("all");
+  const shown = [...players].sort(byRealName).filter((p) => filter === "all" || p.gender === filter);
+
+  return (
+    <div className="stack">
+      <GenderFilter players={players} value={filter} onChange={setFilter} />
+
+      {shown.length === 0 && <p className="dim center">{HOST_UI.players.emptyFiltered}</p>}
+
+      <div className="stack">
+        {shown.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            className={`fact ${out.has(p.id) ? "out" : ""}`}
+            aria-pressed={!out.has(p.id)}
+            onClick={() => onToggle(p.id)}
+          >
+            <Avatar nickname={p.nickname} gender={p.gender} size="sm" />
+            {/*
+              **실명이 앞에, 굵게.** 운영자는 닉네임만으로 그 사람이 누구인지 알기 어렵다 —
+              참가자 탭과 같은 차례(실명 · 닉네임 · 나이)다. 운영자만 전체를 본다
+            */}
+            <span className="grow ellipsis">
+              <span className="name">{p.realName}</span>
+              <span className="dim">
+                {" · "}
+                {p.nickname}
+                {" · "}
+                {UNIT.age(p.age)}
+              </span>
+            </span>
+            {/* 톤만으로 말하지 않는다. 지금 어느 쪽인지 글자가 같은 정보를 다시 준다 */}
+            <span className="mark">{out.has(p.id) ? HOST_UI.seats.excludeOut : HOST_UI.seats.excludeIn}</span>
+          </button>
+        ))}
+      </div>
+
+      {/*
+        **발 — 시트 바닥에 붙는다** (`.sheetFoot`, ADR-77). 인원 줄이 누를 때마다 눈앞에서 바뀌고,
+        `완료` 는 목록이 길어도 늘 손에 닿는다. **거른 것과 상관없이 언제나 전원 기준이다** —
+        남성만 보고 있다고 여성이 빠진 게 아니다. 누구를 뺐는지는 목록의 `제외` 와 이번 배정의 줄이 말한다.
+      */}
+      <div className="sheetFoot stack">
+        <div className="fact">
+          <span className="grow">
+            {out.size > 0 ? HOST_UI.seats.leftOut(seated, out.size) : HOST_UI.seats.seatedAll(seated)}
+          </span>
+        </div>
+        <button className="btn primary block" onClick={onDone}>
+          {HOST_UI.seats.editDone}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * **테이블 수를 고른다.** 이번 배정의 `테이블 수 고르기` 가 연다 (ADR-45 · 112).
  *
  * 숫자만 받지 않는다 — 그 숫자가 **어떤 자리를 만드는지** 함께 보여준다.
  * 테이블당 몇 명이고 남녀가 몇인지 보이지 않으면, 8을 넣어보고 결과를 보고 다시 6으로
@@ -762,10 +836,10 @@ function TablePicker({
           {excluded > 0 ? HOST_UI.seats.leftOut(people, excluded) : HOST_UI.seats.seatedAll(people)}
         </span>
       </div>
-      {excluded > 0 && <p className="small dim">{HOST_UI.seats.leftOutNote}</p>}
-
+      {/* 라벨은 시트 제목과 같은 말이라 화면에서는 감춘다 (ADR-112) — 읽어 주는 이에게는 남긴다 */}
       <Num
         label={HOST_UI.seats.tableCount}
+        labelHidden
         value={count}
         min={1}
         max={Math.min(LIMITS.tableMax, Math.max(1, Math.floor(people / 2)))}
@@ -804,7 +878,12 @@ function pairStats(round: SeatingRound, mutual: Array<[string, string]>) {
   return { total, together: total - split.length, split };
 }
 
-/** 이 배정이 제 일을 했는지 한눈에. 못 붙인 쌍은 운영자가 손볼 수 있는 유일한 신호다 */
+/**
+ * 이 배정이 제 일을 했는지 한눈에. 못 붙인 쌍은 운영자가 손볼 수 있는 유일한 신호다.
+ *
+ * **쌍이 없으면 아무것도 그리지 않는다** (ADR-115). 파티 전 초안에는 쌍이 있을 수가 없어서(ADR-34)
+ * `아직 없어요` 가 늘 떠 있었다. **다 붙었으면 요약 한 줄이다** — `N쌍 중 N쌍` 이 이미 그 말이다.
+ */
 function PairReport({
   round,
   mutual,
@@ -816,13 +895,11 @@ function PairReport({
 }) {
   const { total, together, split } = pairStats(round, mutual);
   const name = (id: string) => nickOf(state.players, id);
-  if (total === 0) return <p className="small dim">{HOST_UI.seats.pairNone}</p>;
+  if (total === 0) return null;
   return (
     <div className="stack">
       <span className="small">{HOST_UI.seats.pairSummary(together, total)}</span>
-      {split.length === 0 ? (
-        <span className="small okText">{HOST_UI.seats.pairAllTogether}</span>
-      ) : (
+      {split.length > 0 && (
         <span className="small warnText">
           {HOST_UI.seats.pairSplit(split.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", "))}
         </span>
@@ -953,6 +1030,7 @@ function Unassigned({
       <span className="small accentText">
         {HOST_UI.seats.unassigned} <span className="filterCount">{sorted.length}</span>
       </span>
+      {/* 칩 아래 안내는 없다 (ADR-115) — 누르면 `어디에 앉힐까요?` 가 뜬다. 눌러 보면 아는 것이다 */}
       <div className="chips">
         {sorted.map((p) => (
           <button className="btn ghost chipBtn" key={p.id} onClick={() => onSeat(p.id)}>
@@ -960,7 +1038,6 @@ function Unassigned({
           </button>
         ))}
       </div>
-      <span className="tiny dim">{HOST_UI.seats.unassignedHint}</span>
     </div>
   );
 }
@@ -1025,8 +1102,7 @@ function SeatPicker({
         {HOST_UI.seats.seatAuto(auto)}
       </button>
 
-      <p className="small dim">{HOST_UI.seats.seatPickNote}</p>
-
+      {/* 머리말은 없다 (ADR-115) — 성비가 어긋나는지는 줄마다의 남녀 수가 말한다 (ADR-79) */}
       <div className="stack">
         {tables.map((t) => (
           <button key={t.no} type="button" className="fact" onClick={() => onSeat(t.no)}>
@@ -1104,10 +1180,12 @@ function GenderFilter({
 }
 
 /**
- * **떨어뜨려 앉힐 쌍 목록** (ADR-109). 실명이 앞이다 — 운영자는 실명으로 사람을 안다 (ADR-77 후기).
+ * **떨어뜨려 앉힐 쌍 목록** — 이번 배정의 `떨어뜨려 앉히기` 줄을 누르면 선다 (ADR-112).
+ * 실명이 앞이다 — 운영자는 실명으로 사람을 안다 (ADR-77 후기).
  * 닉네임은 그 아래 흐리게 선다. 자리 칩이 닉네임으로 부르므로 둘을 이어 준다.
  *
  * 되돌릴 수 있어 빼기에 확인창이 없다 (ADR-6). 발표 뒤에는 더하는 버튼이 없고 빼기만 남는다 (ADR-90).
+ * 쌍은 누르는 즉시 저장된다 — `완료` 는 뒤로 가기일 뿐이고, 배정하지 않고 닫아도 남는다.
  */
 function ApartList({
   players,
@@ -1115,12 +1193,14 @@ function ApartList({
   revealed,
   onRemove,
   onAdd,
+  onDone,
 }: {
   players: Player[];
   apart: Array<[string, string]>;
   revealed: boolean;
   onRemove: (a: string, b: string) => void;
   onAdd: () => void;
+  onDone: () => void;
 }) {
   const byId = new Map(players.map((p) => [p.id, p]));
   const rows = apart.flatMap(([a, b]) => {
@@ -1130,7 +1210,6 @@ function ApartList({
   });
   return (
     <div className="stack">
-      <p className="small dim">{HOST_UI.seats.apart.note}</p>
       {rows.length === 0 ? (
         <p className="dim center">{HOST_UI.seats.apart.none}</p>
       ) : (
@@ -1152,11 +1231,17 @@ function ApartList({
           ))}
         </div>
       )}
-      {!revealed && (
-        <button type="button" className="btn primary block" onClick={onAdd}>
-          {HOST_UI.seats.apart.add}
+      {/* 발 — 둘을 한 줄에 둔다. 따로 세우면 버튼 하나만큼 목록이 좁아진다 */}
+      <div className="sheetFoot row">
+        <button type="button" className="btn ghost wide" onClick={onDone}>
+          {HOST_UI.seats.editDone}
         </button>
-      )}
+        {!revealed && (
+          <button type="button" className="btn primary wide" onClick={onAdd}>
+            {HOST_UI.seats.apart.add}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

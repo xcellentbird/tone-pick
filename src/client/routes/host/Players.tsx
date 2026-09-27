@@ -604,7 +604,7 @@ function Invites({
             {HOST_UI.invites.addOne}
           </button>
         </div>
-        <span className="tiny dim">{HOST_UI.invites.addHint}</span>
+        {/* 하이픈 안내는 없다 (ADR-115) — 칸이 스스로 3-4-4 로 끊어 보인다 */}
       </form>
 
       {error && <p className="err danger">{error}</p>}
@@ -614,6 +614,7 @@ function Invites({
         한 덩어리로 모여 있어야 어깨너머로 덜 읽힌다.
         여기서 하는 일은 **명단에서 빼는 것** 하나다 — 안내문은 위에서 한 번 복사한다.
         행마다 `미등록` 을 또 달지 않는다 — 구역 머리가 이미 한 번 말했다.
+        목록 아래 `이미 등록한 사람은 빼도 남아 있어요` 도 걷었다 (ADR-115) — 이 목록에는 등록한 사람이 없다.
       */}
       {waiting.length > 0 && (
         <>
@@ -632,7 +633,6 @@ function Invites({
               </div>
             ))}
           </div>
-          <p className="tiny dim">{HOST_UI.invites.removeNote}</p>
         </>
       )}
     </div>

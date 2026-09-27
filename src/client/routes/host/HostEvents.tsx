@@ -54,8 +54,9 @@ export default function HostEvents() {
           <button className="card row between" key={ev.id} onClick={() => navigate(`/host/${ev.id}`)}>
             <span className="grow" style={{ textAlign: "left" }}>
               <span className="name">{ev.name}</span>
+              {/* 입장 코드는 싣지 않는다 (ADR-117) — 회차는 이름으로 부른다 */}
               <div className="small dim">
-                {ev.code} · {PHASE_LABEL[ev.phase]} · {UNIT.people(ev.playerCount)}
+                {PHASE_LABEL[ev.phase]} · {UNIT.people(ev.playerCount)}
               </div>
             </span>
             <span className="dim">{"›"}</span>

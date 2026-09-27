@@ -17,7 +17,10 @@
  *
  * 성비는 참가자 탭 명단에 있고, '콕을 못 받은 사람'은 일부러 두지 않는다 —
  * 알면 그 사람을 다르게 대하게 되고, 그건 이 앱이 없애려던 경험이다.
+ *
+ * 순위 줄을 누르면 그 사람의 **참가자 상세 시트**가 열린다 — 설문 상세의 카드와 같은 길이다.
  */
+import { useNavigate } from "react-router";
 import { HOST_UI, phaseAction, schedDiff, type ActionCopy } from "../../../shared/copy.ts";
 import type { Phase } from "../../../shared/types.ts";
 import { PHASE_ORDER, dueAt } from "../../../shared/phase.ts";
@@ -34,10 +37,18 @@ import { useConsole, type ConsoleState } from "./HostConsole.tsx";
 export default function Dash() {
   const { state, reload } = useConsole();
   const { confirm, toast } = useOverlay();
+  const navigate = useNavigate();
   const { meta, players, mutual, received } = state;
 
   const nextPhase = PHASE_ORDER[PHASE_ORDER.indexOf(meta.phase) + 1] as Phase | undefined;
   const who = (id: string) => players.find((p) => p.id === id);
+
+  /**
+   * 순위의 사람을 누르면 **참가자 탭의 상세 시트**다 — 설문 상세의 카드와 같은 길이다 (push, 뒤로 가면 현황).
+   * 한 사람의 상세는 하나다. 여기 따로 만들면 두 시트가 언젠가 다른 것을 보여준다.
+   * 받은 콕은 시트에 따라가지 않는다 (ADR-30) — 순위 줄에만 있다.
+   */
+  const open = (id: string) => navigate(`/host/${meta.id}/players/${id}`);
 
   /**
    * 파티가 시작됐나. **매칭과 파티 콕이 존재할 수 있는 시점**이 여기서부터다 (ADR-34).
@@ -186,6 +197,7 @@ export default function Dash() {
             received={received.party}
             title={HOST_UI.dash.rankTitle}
             empty={HOST_UI.dash.rankEmpty}
+            onOpen={open}
           />
         </>
       )}
@@ -198,6 +210,7 @@ export default function Dash() {
         empty={HOST_UI.dash.preRankEmpty}
         // 파티가 열린 뒤에만 칩을 단다 — 그 전의 1위는 아직 정해지지 않은 것이다 (ADR-100)
         marked={started ? top : []}
+        onOpen={open}
       />
       {/* 파티 전에는 보너스가 있다는 것만 말한다. 누가 받을지는 파티 시작 확인창이 이름으로 말한다 */}
       {bonus && !started && <p className="tiny dim">{HOST_UI.dash.topVoteHint}</p>}
@@ -235,6 +248,7 @@ function Ranking({
   title,
   empty,
   marked = [],
+  onOpen,
 }: {
   players: ConsoleState["players"];
   received: Record<string, number>;
@@ -244,6 +258,8 @@ function Ranking({
   empty: string;
   /** 매력 투표 1위 보너스를 받은 사람 (ADR-100). 이름 옆에 칩이 선다 */
   marked?: string[];
+  /** 줄을 눌렀다 — 그 사람의 상세 시트를 연다 */
+  onOpen: (id: string) => void;
 }) {
   const rows = topRanks(players, received);
   const top = Math.max(1, rows[0]?.n ?? 0);
@@ -264,7 +280,8 @@ function Ranking({
       {rows.length > 0 && (
       <div className="stack">
         {rows.map((r) => (
-          <div className="rank" key={r.p.id}>
+          // 줄 전체가 손잡이다 — 참가자 탭의 카드와 같다
+          <button type="button" className="rank" key={r.p.id} onClick={() => onOpen(r.p.id)}>
             {/* 상위 셋만 금색 — 전부 칠하면 아무도 돋보이지 않는다 */}
             <span className={`no ${r.rank <= 3 ? "top" : ""}`}>{r.rank}</span>
             <Avatar nickname={r.p.nickname} gender={r.p.gender} size="sm" />
@@ -277,7 +294,7 @@ function Ranking({
               </span>
             </span>
             <span className="ct">{r.n}</span>
-          </div>
+          </button>
         ))}
       </div>
       )}

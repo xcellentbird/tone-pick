@@ -39,7 +39,7 @@ export default function NoteBox({
   /** 지금 보고 있는 쪽. **열면 늘 받은 쪽지부터다** — 여는 쪽(`Participant`)이 되돌려 둔다 */
   seg: InboxSeg;
   onSeg: (seg: InboxSeg) => void;
-  /** 지금 쪽지를 보낼 수 있나 (파티 중 · 이 회차에 쪽지가 있다). 남은 장 수와 빈 칸 문구가 갈린다 */
+  /** 지금 쪽지를 보낼 수 있나 (매력 투표 · 파티, 그리고 이 회차에 쪽지가 있다). 남은 장 수와 빈 칸 문구가 갈린다 */
   open: boolean;
   covered: boolean;
   setCovered: (on: boolean) => void;

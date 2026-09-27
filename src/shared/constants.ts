@@ -431,19 +431,6 @@ export function realNameProblem(s: unknown): "empty" | "digit" | "long" | null {
 }
 
 /**
- * 1인당 콕 k회일 때 기대 상호 매칭 쌍 수는 파티 규모와 무관하게 k² 에 수렴한다.
- * '드묾' 문턱은 1% — 기본값(사전 1회, 8×8 기준 1.6%)이 자기 자신에게 경고하지 않게.
- * 문구 쪽 문턱은 copy.ts `pokeEstimateLabel` 에 있다. 바꾸면 둘을 같이 바꾼다.
- */
-export function pokeEstimate(m: number, w: number, k: number) {
-  const pairs = m * w;
-  const exp = Math.min(pairs, k * k);
-  const pct = pairs ? (exp / pairs) * 100 : 0;
-  const tone = pct < 1 ? "rare" : pct > 15 ? "common" : "good";
-  return { pairs, exp, pct, tone } as const;
-}
-
-/**
  * 아바타에 쓰는 동물 24마리 — **작은 원(30~62px)에서 읽히는 것만.**
  *
  * 40마리에서 줄였다. 🦙🦒🐢🦢🐿️ 같은 전신 동물은 21px 에서 형체가 안 읽혔다 —

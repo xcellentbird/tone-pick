@@ -122,14 +122,28 @@ export default function Participant() {
   const base = `/e/${code}`;
 
   const source = useMemo(() => sessionSource(code), [code]);
+  // 도움말도 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md)
+  const helpOpen = location.pathname.endsWith("/help");
+  // 익명 쪽지함도 같다 (ADR-98 후기 3)
+  const notesOpen = location.pathname.endsWith("/notes");
+  /*
+   * **도움말·쪽지함은 연 화면 위에 선다** (ADR-114). 두 주소에는 탭이 없어서 한동안 뒤가 **홈으로 바뀌었다** —
+   * 참가자 탭에서 ✉️ 나 ? 를 누르면 시트 뒤로 홈 카드가 비쳤고, 내 정보를 고치다 열면 고치던 폼이 사라졌다.
+   * 그래서 연 자리의 주소를 기록(`state.under`)에 실어 열고, 아래 화면(탭·편집)은 그 주소로 읽는다.
+   * 기록은 새로고침에도 남는다. 주소를 바로 열었거나 등록을 마치고 저절로 열린 도움말이면 기록이 없다 — 홈이다.
+   * **이 회차 안의 주소만 받는다** — 기록은 누구든 넣을 수 있는 값이다.
+   */
+  const saved = (location.state as { under?: unknown } | null)?.under;
+  const ours = typeof saved === "string" && (saved === base || saved.startsWith(`${base}/`));
+  const under = helpOpen || notesOpen ? (ours ? saved : base) : location.pathname;
   // 프로필 시트(/p/:id)는 참가자 탭 위에, 편집(/me/edit)은 내 정보 탭 위에 뜬 것이다 —
   // 탭 표시는 그 아래 탭 그대로 둔다
-  const editing = location.pathname.endsWith("/me/edit");
-  const tab: Tab = location.pathname.endsWith("/me") || editing
+  const editing = under.endsWith("/me/edit");
+  const tab: Tab = under.endsWith("/me") || editing
     ? "me"
-    : location.pathname.endsWith("/fun")
+    : under.endsWith("/fun")
       ? "fun"
-      : location.pathname.endsWith("/people") || location.pathname.includes("/p/")
+      : under.endsWith("/people") || under.includes("/p/")
         ? "people"
         : "home";
   /*
@@ -142,10 +156,6 @@ export default function Participant() {
   const noteOpen = !!afterP && afterP.endsWith("/note");
   // 자리 화면을 **다시 여는** 길. 자동으로 뜨는 쪽은 라우트가 아니다 — 참가자가 연 게 아니다
   const seatOpen = location.pathname.endsWith("/seat");
-  // 도움말도 라우트다. 뒤로 가기로 닫힌다 (ROUTES.md)
-  const helpOpen = location.pathname.endsWith("/help");
-  // 익명 쪽지함도 같다 (ADR-98 후기 3)
-  const notesOpen = location.pathname.endsWith("/notes");
 
   /*
    * 어느 화면까지 왔나를 **집계로만** 남긴다 (ADR-56).
@@ -191,11 +201,19 @@ export default function Participant() {
       }
       seatOpen={seatOpen}
       helpOpen={helpOpen}
-      onHelp={(on) => (on ? navigate(`${base}/help`) : navigate(-1))}
+      // 연 자리를 기록에 싣는다 — 시트 뒤에 그 화면이 그대로 선다 (위 `under`)
+      onHelp={(on) => (on ? navigate(`${base}/help`, { state: { under: location.pathname } }) : navigate(-1))}
       notesOpen={notesOpen}
-      // 도움말과 같다 — 열기는 push, 닫기는 뒤로 가기. 직접 연 주소가 헛것이면 홈으로 갈아끼운다
+      /*
+       * 도움말과 같다 — 열기는 push, 닫기는 뒤로 가기. 쪽지함이 꺼진 주소면 **아래 화면으로** 갈아끼운다 —
+       * 바로 연 주소는 아래가 홈이라 홈이다
+       */
       onNotes={(on, opts) =>
-        on ? navigate(`${base}/notes`) : opts?.replace ? navigate(base, { replace: true }) : navigate(-1)
+        on
+          ? navigate(`${base}/notes`, { state: { under: location.pathname } })
+          : opts?.replace
+            ? navigate(under, { replace: true })
+            : navigate(-1)
       }
       /*
        * 편집과 같다 — **닫기는 뒤로 가기**이되, 주소를 직접 연 사람에게는 뒤로 갈 자리가 없다.
@@ -397,19 +415,25 @@ function Loaded({
   const [covered, setCovered] = useCovered();
 
   /**
-   * 익명 쪽지함이 이 회차에 있나 (ADR-98 후기 3). **파티가 시작돼야 생기고**, 쪽지를 0장으로 둔 회차에는 없다.
-   * 다만 **주고받은 것이 하나라도 있으면 남는다** — 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던
-   * 회차이고, 거기서 이미 온 쪽지는 지울 수 있어야 한다 (도움말 문답과 같은 조건).
+   * 익명 쪽지함 ✉️ 는 **늘 선다** — 단계도 장 수도 안 본다 (ADR-111 · 후기 1). 없다가 생기면 상단 바의 회차 이름 칸이
+   * 그 순간 줄어든다 — 재미 탭이 처음부터 자리를 지키는 것과 같은 이유다 (ADR-20 후기). 장 수를 보면 운영자가
+   * 파티 중에 0 과 1~5 사이를 오갈 때마다(굳지 않는다) 그 칸이 늘었다 줄었다 한다.
+   *
+   * **켜져 있나는 따로다** (`inboxLive`). 쓰는 창(`canNote`)과 함께 매력 투표에 켜지고, 발표 뒤에도 켜져 있다 —
+   * 온 쪽지는 끝까지 읽고 지울 수 있어야 한다. 쪽지를 0장으로 둔 회차는 꺼진 채다.
+   * **주고받은 것이 하나라도 있으면 언제든 켜진다** — 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던 회차이고,
+   * 거기서 이미 온 쪽지는 지울 수 있어야 한다 (도움말 문답과 같은 조건). 단계를 뒤로 물린 회차도 같다.
    */
   const note = state.note;
-  const inboxOn =
-    (started && (state.event.config.maxNotes ?? 0) > 0) ||
-    note.received.length > 0 ||
-    Object.keys(note.sent).length > 0;
+  const hasNotes = note.received.length > 0 || Object.keys(note.sent).length > 0;
+  const notesOn = (state.event.config.maxNotes ?? 0) > 0;
+  const inboxLive = hasNotes || (notesOn && (canNote(state.event.phase) || state.event.phase === "done"));
+  /** 꺼져 있을 때 누르면 말할 한 줄. 끈 회차는 단계가 와도 안 켜지므로 `언제부터` 를 말하면 거짓이다 */
+  const inboxOff = inboxLive ? undefined : notesOn ? NOTE.inbox.notYet : NOTE.inbox.off;
   useEffect(() => {
-    if (notesOpen && !inboxOn) onNotes?.(false, { replace: true });
+    if (notesOpen && !inboxLive) onNotes?.(false, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notesOpen, inboxOn]);
+  }, [notesOpen, inboxLive]);
 
   /**
    * **덮개(자리 확인 · 단계 안내)와 시트는 겹치지 않는다.**
@@ -425,7 +449,7 @@ function Loaded({
    * · 확인창은 자리·단계가 **바뀌는 순간** 취소된다 — 돌려놓지 않는다 (`Overlays` 의 `suspend`)
    */
   const seatUp = needsSeatAck && !!state.seat;
-  const sheetOpen = !!helpOpen || (!!notesOpen && inboxOn) || (tab === "people" && (!!profileId || !!noteOpen));
+  const sheetOpen = !!helpOpen || (!!notesOpen && inboxLive) || (tab === "people" && (!!profileId || !!noteOpen));
   const stageUp = needsStage && !!stage && !sheetOpen;
 
   /**
@@ -457,7 +481,7 @@ function Loaded({
    * 줄 수가 그대로라 **화면에 뜬 새 쪽지가 읽음으로 안 찍혔다.**
    */
   const notesShown =
-    !!notesOpen && inboxOn && !seatUp && !stageUp && !covered && inboxSeg === "received" && note.unread > 0;
+    !!notesOpen && inboxLive && !seatUp && !stageUp && !covered && inboxSeg === "received" && note.unread > 0;
   useEffect(() => {
     if (!notesShown) return;
     let alive = true;
@@ -504,7 +528,7 @@ function Loaded({
              */
             onHome={tab === "home" ? undefined : () => onTab("home")}
             onHelp={() => onHelp(true)}
-            inbox={inboxOn ? { unread: note.unread, onOpen: () => onNotes?.(true) } : undefined}
+            inbox={{ unread: note.unread, off: inboxOff, onOpen: () => onNotes?.(true) }}
           />
         </header>
 
@@ -519,7 +543,8 @@ function Loaded({
               <span className="icon">{banner.icon}</span>
               <span className="grow">
                 <span className="name">{banner.title}</span>
-                {banner.body && <div className="small dim">{banner.body}</div>}
+                {/* 몸글의 줄바꿈을 지킨다 — 홈 소식 줄과 같은 글이다. 없으면 두 문장이 한 줄로 붙는다 */}
+                {banner.body && <div className="small dim pre">{banner.body}</div>}
               </span>
             </button>
           )}
@@ -583,8 +608,8 @@ function Loaded({
           익명 쪽지함 (ADR-98 후기 3). 어느 탭에서 열든 같은 것이 뜬다.
           **열릴 때마다 새로 붙는다** — 보낸 쪽지의 읽음 배지가 그 순간의 값으로 굳는 것이 여기서 나온다.
         */}
-        <Sheet open={!!notesOpen && inboxOn && !seatUp} onClose={() => onNotes?.(false)} title={NOTE.inbox.title}>
-          {notesOpen && inboxOn && (
+        <Sheet open={!!notesOpen && inboxLive && !seatUp} onClose={() => onNotes?.(false)} title={NOTE.inbox.title}>
+          {notesOpen && inboxLive && (
             <NoteBox
               note={note}
               roster={state.roster}

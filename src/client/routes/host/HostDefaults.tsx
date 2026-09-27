@@ -134,10 +134,15 @@ export default function HostDefaults() {
           max={24}
           onChange={(v) => set("revealAfterH", v)}
         />
-        {/* 등록 시작 오프셋은 없다 (ADR-38) — 회차를 만들면 곧바로 열린다 */}
-        <p className="tiny dim">{HOST_UI.regOpensNow}</p>
+        {/*
+          등록 시작 오프셋은 없다 (ADR-38) — 회차를 만들면 곧바로 열린다.
+          그 사실을 알리던 줄도 걷었다 (ADR-115) — 만든 회차가 곧바로 `등록 중` 으로 뜬다.
+        */}
 
-        {/* 늘 같은 곳에서 여는 모임이면 여기 한 번 적어둔다. 회차마다 고칠 수 있다 */}
+        {/*
+          늘 같은 곳에서 여는 모임이면 여기 한 번 적어둔다. 회차마다 고칠 수 있다.
+          곁설명은 없다 (ADR-115) — 화면 이름이 `회차 기본 설정` 이다.
+        */}
         <div className="field">
           <label htmlFor="dplace">{HOST_UI.fields.place}</label>
           <input
@@ -146,7 +151,6 @@ export default function HostDefaults() {
             maxLength={LIMITS.placeMax}
             onChange={(e) => set("place", e.target.value)}
           />
-          <span className="tiny dim">{HOST_UI.fields.placeDefaultHint}</span>
         </div>
 
         {/*
@@ -224,6 +228,7 @@ export function Toggle({
   options,
   note,
   locked,
+  quiet,
   onChange,
 }: {
   label: string;
@@ -236,6 +241,11 @@ export function Toggle({
    * 지금 어느 쪽으로 돌아가고 있는지는 파티 중에 가장 자주 확인하는 값이다.
    */
   locked?: boolean;
+  /**
+   * 굳은 이유를 **이 줄에서는 말하지 않는다** (ADR-115) — 바로 아래 굳은 줄이 함께 말한다.
+   * 굳은 줄이 잇달아 서는 자리에서 같은 문장이 서너 번 쌓이지 않게, 맨 끝 줄만 빼고 붙인다.
+   */
+  quiet?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
@@ -255,7 +265,7 @@ export function Toggle({
         ))}
       </div>
       {/* 잠긴 이유가 먼저다. 고를 수 없는 줄에 고르는 근거를 남겨두면 읽는 순서가 어긋난다 */}
-      {locked ? <span className="tiny dim">{HOST_UI.frozen}</span> : note && <span className="tiny dim">{note}</span>}
+      {locked ? !quiet && <span className="tiny dim">{HOST_UI.frozen}</span> : note && <span className="tiny dim">{note}</span>}
     </div>
   );
 }
@@ -266,12 +276,15 @@ export function Toggle({
  */
 export function Num({
   label,
+  labelHidden,
   value,
   min,
   max,
   onChange,
 }: {
   label: string;
+  /** 라벨이 바로 위 제목과 같은 말일 때 화면에서만 감춘다 — 읽어 주는 이에게는 남긴다 */
+  labelHidden?: boolean;
   value: number;
   min: number;
   max: number;
@@ -279,7 +292,7 @@ export function Num({
 }) {
   return (
     <div className="field">
-      <label>{label}</label>
+      <label className={labelHidden ? "srOnly" : undefined}>{label}</label>
       <div className="row">
         <button className="btn" onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min}>
           −

@@ -157,7 +157,6 @@ const STATUS: Record<ErrorCode, number> = {
   too_many: 429,
   pin_wrong: 403,
   pin_locked: 423,
-  code_taken: 409,
   nick_taken: 409,
   closed: 409,
   no_budget: 409,

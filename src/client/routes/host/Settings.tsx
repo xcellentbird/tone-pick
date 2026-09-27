@@ -57,6 +57,11 @@ export default function Settings() {
   /** 매력 투표 1위 보너스 콕 (ADR-100). 옛 회차는 키가 없고 그게 '안 줌' 이다 */
   const [topVoteBonus, setTopVoteBonus] = useSynced(!!meta.config.topVoteBonus);
   const [schedule, setSchedule] = useSynced<EventSchedule>(meta.schedule);
+  /**
+   * 이번에 **손으로 고친** 예약 칸 (ADR-116). 파티 시작을 옮겨도 이 칸들은 따라가지 않는다 — 위저드의 `touched` 와 같다.
+   * 서버의 일정이 바뀌면(저장했거나 다른 기기가 고쳤다) 비운다 — 칸이 서버 값으로 돌아가는 바로 그때다.
+   */
+  const [touched, setTouched] = useSynced<Follower[]>([], JSON.stringify(meta.schedule));
   const [error, setError] = useState<string | null>(null);
   /** 지금 보고 있는 묶음. 라우트가 아니다 — 여는 게 아니라 거르는 것이라 닫을 것이 없다 */
   const [group, setGroup] = useState<Group>("identity");
@@ -65,6 +70,35 @@ export default function Settings() {
   const frozen = rulesLocked(meta.fired);
   /** 1위 보너스는 **파티가 시작되면** 굳는다 (ADR-100) — 1위가 그때 정해지고, 보너스 콕을 쓴 뒤에 끄면 한도를 넘는다 */
   const topVoteFrozen = !!(meta.fired.party || meta.fired.done);
+
+  /**
+   * 파티 시작을 옮긴다 — **아직 안 지난 나머지 일정이 같은 만큼 따라 움직인다** (ADR-116).
+   *
+   * 나머지는 파티 시작에서 재어지는 값이라 **간격을 지킨 채** 옮긴다. 위저드(`changeParty`)가 처음부터 하던 일이다 —
+   * 설정 탭은 파티 시작만 바꿔서, 파티를 미루면 매칭 확인이 제자리에 남아 저장이 `순서` 로 막혔다.
+   * 지난 칸(`schedLocked`)은 기록이라 제자리고(서버도 잠긴 칸이 바뀌면 거절한다), 이번에 손으로 고친 칸(`touched`)도
+   * 제자리다 — 고쳐놓은 걸 되돌리는 건 사고다.
+   *
+   * 따라 움직인 칸은 접힌 `예약` 묶음에 있어 눈에 안 보인다. **그 알약의 점과 확인창이 말한다** — 곁설명은 두지 않는다.
+   */
+  function moveParty(at: number | undefined) {
+    const from = schedule.partyAt;
+    const next: EventSchedule = { ...schedule, partyAt: at };
+    if (at !== undefined && from !== undefined) {
+      for (const k of FOLLOWERS) {
+        const was = schedule[k];
+        if (was === undefined || touched.includes(k) || schedLocked(meta.fired, k)) continue;
+        next[k] = was + (at - from);
+      }
+    }
+    setSchedule(next);
+  }
+
+  /** 예약 칸을 손으로 고쳤다. 이 칸은 이제 파티 시작을 따라가지 않는다 */
+  function setWhen(k: Follower, at: number | undefined) {
+    setSchedule({ ...schedule, [k]: at });
+    if (!touched.includes(k)) setTouched([...touched, k]);
+  }
 
   /**
    * 바뀐 것을 **묶음별로** 모은다.
@@ -230,6 +264,7 @@ export default function Settings() {
             닉네임 칸의 문구 (ADR-59). **등록이 열린 뒤에도 고칠 수 있다** —
             첫 참가자가 이상하게 적는 걸 보고 바로 고치고 싶어지는 값이다.
             기본값 화면에 적어둔 것이 새 회차로 넘어오고, 여기서 이 회차만 바뀐다.
+            곁설명은 없다 (ADR-115) — 이 탭의 칸은 전부 이 회차의 것이고, 안 잠긴 칸은 눌러 보면 고쳐진다.
           */}
           <div className="field">
             <label htmlFor="snick">{HOST_UI.fields.nickHint}</label>
@@ -239,29 +274,26 @@ export default function Settings() {
               maxLength={LIMITS.nickHintMax}
               onChange={(e) => setNickHint(e.target.value)}
             />
-            <span className="tiny dim">{HOST_UI.fields.nickHintEventHint}</span>
           </div>
           {/*
             **파티 시작이 여기 있다** (ADR-54) — 위저드 1스텝과 같은 자리다.
             나머지 일정이 여기서 거꾸로 계산되는 기준점이라 **먼저 정해져야 하는 값**이다.
             ⚠️ 예약이 된 뒤에도(ADR-93) `예약` 묶음으로 옮기지 마라 —
             거기 있으면 자기 자신을 기준으로 계산하는 칸이 되고, 위저드와도 어긋난다.
+
+            **옮기면 안 지난 나머지 일정이 따라 움직인다** (ADR-116, `moveParty`). 곁설명은 없다 (ADR-115) —
+            따라 움직인 칸은 `예약` 알약의 점과 확인창이 말한다.
           */}
           <When
             label={HOST_UI.fields.partyAt}
             value={schedule.partyAt}
             locked={schedLocked(meta.fired, "partyAt")}
-            hint={HOST_UI.fields.partyHint}
-            onChange={(v) => setSchedule({ ...schedule, partyAt: v })}
+            onChange={moveParty}
           />
-          {/* 입장 코드는 만든 뒤에 바꾸지 않는다 (ADR-22) — 이미 나간 안내와 어긋난다 */}
-          <div className="field">
-            <label>{HOST_UI.fields.code}</label>
-            <div className="fact">
-              <span className="grow">{meta.code}</span>
-            </div>
-            <span className="tiny dim">{HOST_UI.codeFixed}</span>
-          </div>
+          {/*
+            **입장 코드 줄은 없다** (ADR-117). 운영자가 코드를 치거나 불러 줄 곳이 없어졌다 — 참가자는 링크와
+            번호 + PIN 번호로 들어온다(ADR-75). 코드는 참가자 화면 주소와 소켓의 열쇠로만 남고, 바꾸는 길은 여전히 없다 (ADR-22).
+          */}
         </>
       )}
 
@@ -283,7 +315,7 @@ export default function Settings() {
             label={HOST_UI.fields.prevoteAt}
             value={schedule.prevoteAt}
             locked={schedLocked(meta.fired, "prevoteAt")}
-            onChange={(v) => setSchedule({ ...schedule, prevoteAt: v })}
+            onChange={(v) => setWhen("prevoteAt", v)}
           />
           {/* 매력 투표 마감 줄은 없다 (ADR-100) — 파티가 시작될 때 함께 닫힌다 */}
           {/*
@@ -296,7 +328,7 @@ export default function Settings() {
             value={schedule.revealAt}
             locked={schedLocked(meta.fired, "revealAt")}
             hint={HOST_UI.fields.revealHint}
-            onChange={(v) => setSchedule({ ...schedule, revealAt: v })}
+            onChange={(v) => setWhen("revealAt", v)}
           />
         </>
       )}
@@ -331,12 +363,17 @@ export default function Settings() {
             토글 다섯에 설명 셋이 붙어 화면이 글로 덮였다 — 켜고 끄는 자리가 읽는 자리가 됐다.
             ⚠️ 되붙이지 마라. 다만 `locked` 가 쓰는 `frozen` 은 **설명이 아니라 상태**라 남는다 —
             굳은 칸이 왜 안 눌리는지는 말해줘야 한다.
+
+            **굳음 표시는 굳은 줄들 맨 끝에 한 번만 선다** (ADR-115, `quiet`). 줄마다 달았더니 파티 중에는
+            같은 문장이 네 번 쌓였다. 매력 투표 중에는 알림 둘 아래, 파티부터는 1위 콕 아래다 —
+            1위 콕은 파티가 시작돼야 굳고, 그때는 위의 셋도 이미 굳어 있다 (`rulesLocked` 가 더 이르다).
           */}
           <Toggle
             label={HOST_UI.fields.pokeTarget}
             value={allowSameGender}
             options={TARGET_OPTIONS}
             locked={frozen}
+            quiet
             onChange={setAllowSameGender}
           />
           {/* 알림은 라운드마다 따로다 (ADR-43) — 매력 투표가 먼저 */}
@@ -345,6 +382,7 @@ export default function Settings() {
             value={preNotify}
             options={NOTIFY_OPTIONS}
             locked={frozen}
+            quiet
             onChange={setPreNotify}
           />
           <Toggle
@@ -352,6 +390,7 @@ export default function Settings() {
             value={pokeNotify}
             options={NOTIFY_OPTIONS}
             locked={frozen}
+            quiet={topVoteFrozen}
             onChange={setPokeNotify}
           />
           {/* 매력 투표 1위 보너스 콕 (ADR-100). 굳는 때가 위 셋과 다르다 — 매력 투표 시작이 아니라 **파티 시작** */}
@@ -416,10 +455,12 @@ export default function Settings() {
  *
  * **칸마다 따로 본다.** `적용` 은 두 번 저장한다(설정 · 일정). 앞의 것만 들어가고 뒤의 것이
  * 막히면(`순서`), 막힌 쪽 입력이 남아 있어야 무엇이 막혔는지 보인다.
+ *
+ * `key` 를 따로 주면 **그 값이 바뀔 때** `server` 로 돌아간다 — 손으로 고친 예약 칸 목록(`touched`)이
+ * 서버의 일정이 바뀔 때 비워지는 자리다 (ADR-116).
  */
-function useSynced<T>(server: T): [T, Dispatch<SetStateAction<T>>] {
+function useSynced<T>(server: T, key = JSON.stringify(server)): [T, Dispatch<SetStateAction<T>>] {
   const [value, setValue] = useState(server);
-  const key = JSON.stringify(server);
   const seen = useRef(key);
   useEffect(() => {
     if (seen.current === key) return;
@@ -438,6 +479,10 @@ type Group = (typeof GROUPS)[number];
  * `regOpenAt` 은 없다 (ADR-93) — 화면에 줄이 없으니 확인창에 뜰 일도 없다.
  */
 const SCHED_ORDER = ["prevoteAt", "partyAt", "revealAt"] as const;
+
+/** 파티 시작을 따라 움직이는 칸 (ADR-116) — 파티 시작에서 재어지는 나머지 둘이다 */
+const FOLLOWERS = ["prevoteAt", "revealAt"] as const;
+type Follower = (typeof FOLLOWERS)[number];
 
 /**
  * 익명 쪽지 스테퍼의 다음 값. **0 은 바닥 아래의 한 칸**이다 (슬라이스 36 S-D2).
