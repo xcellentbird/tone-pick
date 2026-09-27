@@ -140,9 +140,9 @@ export interface MatchInfo {
 /**
  * 내가 보낸 **익명 쪽지** 한 장 (ADR-98). 발신자 쪽에서만 쓴다.
  *
- * `read` 는 boolean 이고 **시각이 아니다.** 그리고 서버가 **5분 늦춰서** 내린다 —
- * 배지가 답할 질문은 *갔고 봤나* 이지 *지금 보고 있나* 가 아니라서, 늦춰도 그 답은 그대로고
- * **방금 폰을 든 사람을 눈으로 찾는 길**만 사라진다.
+ * `read` 는 boolean 이고 **시각이 아니다.** 늦추지 않는다 — 받는 사람이 쪽지함을 여는 순간 서고,
+ * 그 순간 보낸 사람 소켓에 다시 읽으라는 신호가 간다 (ADR-118 · 120). 한동안 5분 늦췄다(ADR-98 후기 2) —
+ * 읽은 쪽지가 `읽지 않음` 으로 남는 것을 운영자가 거짓으로 보고 걷었다.
  */
 export interface SentNote {
   text: string;
@@ -163,7 +163,7 @@ export interface SentNote {
  * 아끼려던 호출은 `received.length` 로 똑같이 아낄 수 있고, 서버는 바뀐 것이 없으면 아무것도 안 쓴다.
  * 쪽지함 배지가 쓰는 것은 **숫자 하나**(`MyNoteState.unread`)다 — 그 대가는 ADR-98 후기 3 ④.
  *
- * `id` 는 지우기에만 쓴다.
+ * `id` 는 목록의 열쇠(`key`)로만 쓴다 — 쪽지함의 지우기는 걷었다 (ADR-119).
  */
 export interface ReceivedNote {
   id: string;
@@ -183,7 +183,8 @@ export interface MyNoteState {
   received: ReceivedNote[];
   /**
    * **아직 안 읽은 받은 쪽지 수** — 상단 바 익명 쪽지함 ✉️ 의 배지 (ADR-98 후기 3).
-   * 쪽지함을 열면(`/note/seen`) 0 이 된다. 지운 줄은 세지 않는다.
+   * 쪽지함을 열면(`/note/seen`) 0 이 된다. 숨긴 줄(`hidden_at`)은 세지 않는다 —
+   * 옛 회차에서 받는 사람이 지운 줄이 그렇게 남아 있다 (ADR-119).
    *
    * ⚠️ **줄마다 싣지 마라** (`ReceivedNote` 의 `seen` 경고). 숫자 하나로 충분하다 —
    * 어느 줄이 새것인지까지 응답이 확정해 줄 이유가 없다.

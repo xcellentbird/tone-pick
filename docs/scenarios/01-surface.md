@@ -1,13 +1,17 @@
 # 슬라이스 01 — 공개 표면
 
-시나리오: `01-event-create-join.md` · 테스트: `test/01-event-create-join.test.ts`
-
+> **상태** — 구현 끝. 지금 계약은 `src/shared/types.ts` 와 테스트다 — 아래 표는 그때 옮겨 적은 것이라 고치지 않는다
+> **이후 바뀐 것** — ADR-100 (`voteEndAt` · `voteEndBeforeH` 폐기 — 매력 투표는 파티 시작에 닫힌다) ·
+> ADR-117 (`code` 지정과 `code_taken` 폐기 — 코드는 늘 서버가 붙이고, 보내와도 읽지 않는다)
+>
 > **⚠️ 이 표면은 그 뒤로 네 번 바뀌었다.** 등록 시작 예약이 없어졌고(ADR-38),
 > 참가자가 코드를 치던 길이 사람마다 다른 링크로 바뀌었다가(ADR-32 · 슬라이스 13)
 > **회차마다 하나인 링크 + 번호 + PIN 번호로 다시 바뀌었고**(ADR-75 · 슬라이스 15),
 > 파티 시작도 예약이 열게 됐다(ADR-93). 아래 표면은 **그것들을 반영해 고쳐 적은 것**이다
-> (2026-09-24 마지막 고침). 입장의 자세한 계약은 `15-surface.md` 다.
+> (2026-09-24 고침 — 그 뒤의 ADR-100 · ADR-117 은 고쳐 적지 않고 제자리에 표시만 했다). 입장의 자세한 계약은 `15-surface.md` 다.
 > 지금 계약의 원본은 타입(`src/shared/types.ts`)과 규칙 테스트다 — 어긋나면 그쪽이 맞다.
+
+시나리오: `01-event-create-join.md` · 테스트: `test/01-event-create-join.test.ts`
 
 **여기 적힌 것만 계약이다.** 내부 구조 — 클래스를 쓸지, 함수로 갈지, DO 안을 어떻게 나눌지 —
 는 구현자가 정한다. 테스트도 이 표면에만 붙어 있다.
@@ -43,7 +47,8 @@ POST /api/host/defaults/reset                    → Defaults
 ```
 
 - `Defaults` 는 `{ maxPre, maxParty, place, prevoteBeforeH, voteEndBeforeH, inviteTemplate }` — 일정은 **파티 일시에서 거꾸로** 잰다.
-  `regOpenBeforeD` 는 없어졌다 (ADR-38) — 등록은 회차를 만드는 순간 열린다
+  `regOpenBeforeD` 는 없어졌다 (ADR-38) — 등록은 회차를 만드는 순간 열린다.
+  **`voteEndBeforeH` 도 없어졌다 (ADR-100)** — 지금 모양은 `types.ts` 의 `Defaults` 다 (`revealAfterH` · `nickHint` 가 더해졌다)
 - **운영자 PIN 은 여기서 바꾸지 않는다.** 배포 시크릿 `MASTER_PIN` 하나가 유일한 출처다
 - 저장된 옛 모양은 읽을 때 지금 모양으로 맞춘다 (`withDefaults`). 없는 항목은 기본값으로 채운다
 - `reset` 은 **콕 횟수와 일정 오프셋만** 되돌린다. 운영자 PIN·기존 회차는 그대로 (S-B9)
@@ -59,6 +64,7 @@ GET  /api/host/events/:id            → EventMeta
 PUT  /api/host/events/:id/schedule   { partyAt?, prevoteAt?, voteEndAt?, revealAt? } → EventMeta
 POST /api/host/events/:id/phase      { to: Phase } → EventMeta
 ```
+> **`voteEndAt` 은 폐기다 (ADR-100)** — 받지 않고, 옛 회차에 적힌 것도 읽지 않는다.
 
 `phase` 전환은 수동 진행이다. 전환하면 `fired[to]` 에 **실제 전환 시각**이 기록되고,
 그 단계의 예약은 다시 울리지 않는다. 예약 값 자체는 지우지 않는다 — 기록으로 남는다.
@@ -69,16 +75,17 @@ ADR-14 의 *파티는 운영자가 누른다* 를 뒤집었다). 운영자의 �
 `revealAt` 은 **파티가 시작된 뒤에만** 울린다 (ADR-43) — 아무도 안 온 자리에서 발표가 뜨면
 콕이 열린 적도 없어 매칭 0 으로 끝난 것이 된다.
 
-`voteEndAt` 은 **전환이 아니라 판정이다** (ADR-39). 단계는 `prevote` 그대로고 알람도 울리지 않는다 —
-매력 투표만 닫히고, 그 시각과 파티 일시 사이가 첫 자리를 짜는 시간이다.
+~~`voteEndAt` 은 **전환이 아니라 판정이다** (ADR-39). 단계는 `prevote` 그대로고 알람도 울리지 않는다 —
+매력 투표만 닫히고, 그 시각과 파티 일시 사이가 첫 자리를 짜는 시간이다.~~ — **폐기 (ADR-100)**: 마감 시각이 없다.
+매력 투표는 파티 시작에 닫힌다 — 단계가 곧 기간이다 (`canPoke(phase)`).
 
 ### 생성 규칙
 
 | 상황 | 응답 |
 |---|---|
-| `code` 를 지정했는데 이미 쓰는 코드 | `409 { error: "code_taken", message: HOST.pin.codeTaken }` |
-| `code` 생략 | 서버가 생성. 기존 코드와 겹치지 않을 때까지 다시 뽑는다 |
-| 매력 투표 시작 → 파티 시작 → 커플 발표 순이 아니다 | `400 { error: "order", message: HOST_UI.scheduleOrder }` (ADR-93 후기). 마감은 검사하지 않는다 (ADR-39) |
+| ~~`code` 를 지정했는데 이미 쓰는 코드~~ | ~~`409 { error: "code_taken", message: HOST.pin.codeTaken }`~~ — **폐기 (ADR-117)**: `code` 를 보내와도 읽지 않는다 |
+| `code` 생략 | 서버가 생성. 기존 코드와 겹치지 않을 때까지 다시 뽑는다 — **ADR-117 뒤로는 언제나 이 줄이다** |
+| 매력 투표 시작 → 파티 시작 → 커플 발표 순이 아니다 | `400 { error: "order", message: HOST_UI.scheduleOrder }` (ADR-93 후기). 마감은 검사하지 않는다 (ADR-39) — 마감 자체가 없다 (ADR-100) |
 | 언제나 | 만드는 순간 `phase: "reg"`, `fired.reg` 기록 (ADR-38). `regOpenAt` 은 그 시각의 **기록**이다 |
 | 같은 `requestId` 로 재요청 | 새로 만들지 않고 **같은 회차**를 200 으로 돌려준다 (S-B7) |
 
@@ -152,7 +159,7 @@ POST /api/__test__/now   { at: number }   → { now: number }
 | `unauthorized` | 401 |
 | `forbidden` | 403 |
 | `not_found` | 404 |
-| `code_taken` | 409 |
+| ~~`code_taken`~~ | ~~409~~ — **폐기 (ADR-117)**. 지금 코드 목록은 `types.ts` 의 `ErrorCode` 다 |
 | `bad_request` | 400 |
 
 ---

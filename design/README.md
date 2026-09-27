@@ -1,14 +1,14 @@
 # 원본 자산 — **여기 있는 것은 번들에 안 실린다**
 
-`src/client/assets/` 와 헷갈리지 마라. 저기는 **`import` 해서 화면에 나가는 것**을 두는
-곳이고, 여기는 그것을 만들어낸 **원본**을 두는 곳이다.
+`public/` 과 헷갈리지 마라. 저기는 **배포돼서 화면에 나가는 것**을 두는 곳이고, 여기는
+그것을 만들어낸 **원본**을 두는 곳이다.
 
-원본을 `src/client/assets/` 에 두면 누가 실수로 `import` 했을 때 1.26 MB 가 그대로
-참가자에게 나간다. (지금은 `check:bundle` 이 잡지만, 애초에 헷갈릴 자리에 두지 않는 게 낫다.)
+원본을 `public/` 이나 `src/` 에 두면 실수 한 번(`<img src>` 나 `import`)에 1.26 MB 가 그대로
+참가자에게 나간다. (`check:bundle` 이 잡지만, 애초에 헷갈릴 자리에 두지 않는 게 낫다.)
 
 | 원본 | 나가는 것 | 어디에 |
 |---|---|---|
-| `TONE_PARTY_LOGO.png` <br> 1536×1024 · 1.26 MB · 알파 있음 | `src/client/assets/logo.webp` <br> 640×455 · 41 KiB | 회차 확인 화면 |
+| `TONE_PARTY_LOGO.png` <br> 1536×1024 · 1.26 MB · 알파 있음 | `public/logo.webp` <br> 640×455 · 41 KiB | 회차 확인 화면 — `index.html` 이 번들보다 먼저 띄운다 (ADR-70) |
 | ″ | `public/og.jpg` <br> 1200×630 · 36 KiB | 카톡 링크 미리보기 (ADR-68) |
 | ″ | `public/favicon.png` <br> 48×48 · 3 KiB | 브라우저 탭 |
 | ″ | `public/apple-touch-icon.png` <br> 180×180 · 19 KiB | 홈 화면 |
@@ -24,9 +24,9 @@ node scripts/make-brand-assets.mjs
 넷을 한꺼번에 다시 만든다. **자를 자리를 손으로 적지 않는다** — 투명 여백도 `O` 의 위치도
 스크립트가 픽셀에서 다시 찾으므로, 원본이 바뀌어도 같은 규칙으로 나온다.
 
-⚠️ **끝나면 `Join.tsx` 의 `<img width height>` 를 새 값으로 고쳐라.** 비율이 사는 곳은
-거기 한 곳뿐이고(CSS 에는 없다), 어긋나면 그림이 도착하는 순간 화면이 튄다.
-스크립트가 끝에 그 말을 다시 해준다.
+⚠️ **끝나면 `<img width height>` 를 새 값으로 고쳐라 — 두 곳이다.** `index.html` 의 첫 화면
+(번들 전에 뜬다, ADR-70)과 `Join.tsx`. 비율이 사는 곳은 거기뿐이고(CSS 에는 없다),
+어긋나면 그림이 도착하는 순간 화면이 튄다. 스크립트가 끝에 그 말을 다시 해준다.
 
 `npm run build && npm run check:bundle` 로 예산도 확인한다 — 로고가 커지면 거기서 걸린다.
 
@@ -39,7 +39,7 @@ node scripts/make-brand-assets.mjs
 
 ## 아이콘과 미리보기 카드
 
-`node scripts/make-brand-assets.mjs` 하나로 셋을 다시 만든다.
+같은 `node scripts/make-brand-assets.mjs` 가 아이콘 둘과 카드도 함께 다시 만든다.
 
 **아이콘은 로고 전체가 아니라 보라색 `O` 와 발끝만 잘라 쓴다.** 로고 전체는 16px 에서
 뭉갠다 — `TONE` 네 글자가 4px 씩 나눠 갖는다.

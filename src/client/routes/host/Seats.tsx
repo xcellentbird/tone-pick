@@ -41,8 +41,15 @@ export default function Seats() {
   const { confirm, toast } = useOverlay();
   const navigate = useNavigate();
   // 배정 시트도 라우트다. 뒤로 가기로 앞 화면, 이번 배정에서 한 번 더 누르면 닫힌다 (ROUTES.md)
-  const path = useLocation().pathname;
+  const location = useLocation();
+  const path = location.pathname;
   const here = `/host/${state.meta.id}/seats`;
+  /**
+   * 이 칸이 자리 탭에서 **몇 칸 위에** 섰나 — 자리 탭에서 연 이번 배정이 1, 거기서 연 테이블 수가 2 다.
+   * 배정을 마치면 이만큼 되감아 시트 칸을 다 걷는다 (`make`). **칸이 스스로 적어 둔 수를 읽는다** —
+   * 되감을 칸 수를 짐작하지 않는다. 주소로 바로 연 시트에는 없다.
+   */
+  const seatDepth = (location.state as { seatDepth?: number } | null)?.seatDepth;
   /**
    * 배정 시트의 어디인가 (ADR-112). **이번 배정**(`/new`)이 한 장이고, 줄을 누르면 고르는 화면이 push 로 선다 —
    * 뺄 사람(`/new/out`) · 쌍 목록(`/new/apart`) · 두 사람 고르기(`/new/apart/add`). 테이블 수(`/new/tables`)도 push 다.
@@ -93,7 +100,7 @@ export default function Seats() {
   /** 배정 시트를 연다. **지난 배정에서 빠진 사람을 뺀 채로 연다** — 운영자는 거기서 고친다 */
   function openSeating() {
     setOut(carriedOut(state.players, state.seatings));
-    navigate(`${here}/new`);
+    navigate(`${here}/new`, { state: { seatDepth: 1 } });
   }
   // 두 번째 라운드에서는 같은 테이블 수를 다시 고르는 일이 흔하다. 지난번 값에서 시작한다
   const lastTableCount = state.seatings.at(-1)?.tableCount ?? autoTableCount(state.players.length);
@@ -132,7 +139,13 @@ export default function Seats() {
     setBusy(true);
     try {
       await post(base, { tableCount, exclude: [...out] });
-      navigate(here, { replace: true });
+      /*
+       * **시트 칸을 다 걷고 자리 탭으로 돌아간다.** 마지막 칸만 갈아끼우면 이번 배정 칸이 남아서,
+       * 초안을 보다가 뒤로 가면 이번 배정이 다시 뜨고 거기서 한 번 더 누르면 확인 없이 초안을 새로 짠다 —
+       * 맞바꿔 둔 손이 풀린다. 되감을 칸 수를 모르면(주소로 바로 연 시트) 지금 칸만 갈아끼운다.
+       */
+      if (seatDepth) navigate(-seatDepth);
+      else navigate(here, { replace: true });
       reload();
     } catch (e) {
       // 이 화면에서 400 이 나올 이유는 인원 대비 테이블이 많은 것뿐이다. 망이 끊긴 것을 `발표 뒤` 라고 하지 않는다
@@ -457,7 +470,7 @@ export default function Seats() {
             apart={state.apart}
             onOut={() => navigate(`${here}/new/out`)}
             onApart={() => navigate(`${here}/new/apart`)}
-            onNext={() => navigate(`${here}/new/tables`)}
+            onNext={() => navigate(`${here}/new/tables`, { state: seatDepth ? { seatDepth: seatDepth + 1 } : undefined })}
           />
         )}
       </Sheet>
