@@ -1408,12 +1408,6 @@ describe("운영자 콘솔", () => {
 // ─────────────────────────────────────────── 자리 배정 시트
 
 /**
- * **배정은 두 걸음이다** (ADR-45) — 뺄 사람 고르기 → 테이블 수.
- *
- * 순서가 이래야 하는 이유가 하나다. 둘째 걸음의 `테이블당 N명` 이 첫 걸음에서 남은
- * 인원으로 계산되므로, 뒤집히면 운영자가 방금 읽은 숫자가 곧바로 틀린 것이 된다.
- */
-/**
  * 발행된 라운드를 고치는 문 (ADR-49).
  *
  * 이 카드는 대부분 *누가 어디 앉았나* 를 읽으러 여는 자리다. 그래서 **기본이 잠김**이고,
@@ -1544,53 +1538,113 @@ describe("자리 이동 확인은 운영자에게 보이지 않는다 (ADR-110)"
   });
 });
 
+/** 콘솔을 히스토리째 연다 — 마지막 주소가 지금 화면이다. 뒤로 가기(`완료`)가 어디로 가는지 보려면 앞 주소가 있어야 한다 */
+function renderAt(...entries: string[]) {
+  const router = createMemoryRouter(
+    [{ path: "/host/:id", element: <HostConsole />, children: HOST_CONSOLE_ROUTES }],
+    { initialEntries: entries, initialIndex: entries.length - 1 },
+  );
+  render(<RouterProvider router={router} />);
+  return router;
+}
+
+/** 시트 안의 것을 누른다 — 목록 화면에도 같은 이름의 버튼이 있다 */
+const inSheet = () => within(document.querySelector('[role="dialog"]') as HTMLElement);
+/** 이번 배정의 줄 — 그 이름으로 시작하는 버튼 (ADR-112) */
+const condRow = (label: string) =>
+  inSheet()
+    .getAllByRole("button")
+    .find((b) => b.textContent?.startsWith(label)) as HTMLElement;
+
+/**
+ * **자리 재배정을 누르면 이번 배정 한 장이 뜬다** (ADR-112) — `뺄 사람` · `떨어뜨려 앉히기` 두 줄과 `테이블 수 고르기`.
+ * 줄을 누르면 고르는 화면이 push 로 서고, `완료`(뒤로 가기)로 이번 배정에 돌아온다.
+ * 둘 다 지난번 그대로인 라운드가 대부분이라 **확인하고 넘어가는 자리**다 — 탭 수는 전과 같다.
+ */
 describe("자리 배정 시트", () => {
   const party = () => hostState({ phase: "party" });
-
-  /** 시트 안의 것을 누른다 — 목록 화면에도 같은 이름의 버튼이 있다 */
-  const inSheet = () => within(document.querySelector('[role="dialog"]') as HTMLElement);
-  /** 목록은 접힌 채로 열린다 (ADR-77). 이름 줄·성별 칩을 만지려면 먼저 편다 */
-  const unfold = () => fireEvent.click(inSheet().getByText(HOST_UI.seats.excludePick));
+  /** 김가(남·1) · 김나(여·2) 에 김다(여·3) 를 더한다 — 한 명을 빼고도 테이블 하나는 채운다 */
+  const withKimDa = () => {
+    const st = party();
+    st.players = [...st.players, { ...st.players[1], id: "p3", nickname: "다", realName: "김다", createdAt: 3 }];
+    return st;
+  };
   /** a 가 b 보다 앞에 섰는가 — 운영자가 보는 순서다 */
   const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
+  it("★ 자리 재배정을 누르면 이번 배정 한 장이 뜬다 — 두 줄과 테이블 수 고르기", async () => {
+    stubFetch(party());
+    const router = renderAt("/host/e1/seats");
+
+    fireEvent.click(await screen.findByText(HOST_UI.seats.make));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
+    expect(router.state.location.pathname).toBe("/host/e1/seats/new");
+    expect(condRow(HOST_UI.seats.excludeTitle), "뺄 사람 줄이 없다").toBeTruthy();
+    expect(condRow(HOST_UI.seats.apart.title), "떨어뜨려 앉히기 줄이 없다").toBeTruthy();
+    expect(inSheet().getByText(HOST_UI.seats.excludeNext)).toBeTruthy();
+    // 명단은 펼치지 않는다 (ADR-77) — 지난번 그대로 가는 운영자가 서른 줄을 지나지 않는다
+    expect(inSheet().queryByText("김가"), "이번 배정에 명단이 펼쳐졌다").toBeNull();
+  });
+
   it("★ 테이블 수보다 뺄 사람을 먼저 묻는다", async () => {
     stubFetch(party());
-    renderConsole("/host/e1/seats/new");
+    renderAt("/host/e1/seats", "/host/e1/seats/new");
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
 
-    // 첫 걸음에는 테이블 수 스테퍼가 없다
-    await screen.findByText(HOST_UI.seats.excludeNote);
-    expect(screen.queryByText(HOST_UI.seats.tableCount)).toBeNull();
-
+    // 이번 배정에는 테이블 수 스테퍼가 없다 (ADR-45)
+    expect(inSheet().queryByText(HOST_UI.seats.tableCount)).toBeNull();
     fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
-    // 시트 제목과 스테퍼 라벨이 같은 말이다. 둘 다 떴는지만 본다
     expect((await screen.findAllByText(HOST_UI.seats.tableCount)).length).toBeGreaterThan(0);
   });
 
-  it("★ 아무도 안 빼면 전원이 배정된다 — 없는 일을 알리지 않는다", async () => {
+  it("★ 뺄 사람도 쌍도 없으면 두 줄에 수가 붙지 않는다 — 없는 일을 알리지 않는다", async () => {
     stubFetch(party());
-    renderConsole("/host/e1/seats/new");
+    renderAt("/host/e1/seats", "/host/e1/seats/new");
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
 
-    await screen.findByText(HOST_UI.seats.seatedAll(2));
-    expect(screen.queryByText(HOST_UI.seats.leftOutNote)).toBeNull();
+    expect(condRow(HOST_UI.seats.excludeTitle).textContent).not.toContain(UNIT.people(0));
+    expect(condRow(HOST_UI.seats.apart.title).textContent).not.toContain(HOST_UI.seats.apart.count(0));
   });
 
-  /**
-   * ★ **접힌 채로 연다** (ADR-77). 대부분의 라운드는 아무도 안 빼므로, 서른 줄을 지나서야
-   * 다음 버튼에 닿게 하지 않는다 — 열자마자 인원 줄과 다음 버튼이 있고, 이름은 손잡이를
-   * 눌러야 선다. 펼치면 손잡이는 사라진다.
-   */
-  it("★ 접힌 채로 열린다 — 다음 버튼은 바로, 이름은 펼쳐야 보인다", async () => {
-    stubFetch(party());
-    renderConsole("/host/e1/seats/new");
-    await screen.findByText(HOST_UI.seats.seatedAll(2));
+  it("★ 뺀 사람과 떨어뜨릴 쌍이 줄에 수와 실명으로 선다", async () => {
+    // 1라운드에 김가를 뺐다 — 이어받아 빠진 채로 연다 (ADR-108). 김가 ↔ 김나 는 떨어뜨려 뒀다
+    const st = withKimDa();
+    st.seatings = [
+      {
+        round: 1, tableCount: 1, status: "published", acks: [], createdAt: 50, publishedAt: 50,
+        seats: [{ playerId: "p2", table: 1 }, { playerId: "p3", table: 1 }],
+      },
+    ];
+    st.apart = [["p1", "p2"]];
+    stubFetch(st);
+    renderAt("/host/e1/seats", "/host/e1/seats/new");
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
 
-    expect(inSheet().getByText(HOST_UI.seats.excludeNext)).toBeTruthy();
-    expect(inSheet().queryByText("김가"), "펼치기 전에는 이름이 없다").toBeNull();
+    const out = condRow(HOST_UI.seats.excludeTitle).textContent;
+    expect(out).toContain(UNIT.people(1));
+    expect(out, "빠진 사람이 이름 없이 빠졌다").toContain("김가");
+    const apart = condRow(HOST_UI.seats.apart.title).textContent;
+    expect(apart).toContain(HOST_UI.seats.apart.count(1));
+    expect(apart).toContain(HOST_UI.dash.mutualPair("김가", "김나"));
+  });
 
-    unfold();
-    expect(inSheet().getByText("김가")).toBeTruthy();
-    expect(inSheet().queryByText(HOST_UI.seats.excludePick), "펼친 뒤 손잡이는 없다").toBeNull();
+  it("★ 뺄 사람 줄을 누르면 명단이 서고, 완료하면 고른 사람이 줄에 선다", async () => {
+    stubFetch(withKimDa());
+    const router = renderAt("/host/e1/seats", "/host/e1/seats/new");
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
+
+    fireEvent.click(condRow(HOST_UI.seats.excludeTitle));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.excludeTitle });
+    expect(router.state.location.pathname).toBe("/host/e1/seats/new/out");
+
+    fireEvent.click(inSheet().getByText("김가"));
+    // 인원 줄이 누르는 대로 바뀐다 — 발에 서서 목록이 길어도 보인다
+    expect(inSheet().getByText(HOST_UI.seats.leftOut(2, 1))).toBeTruthy();
+
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.editDone));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
+    expect(router.state.location.pathname).toBe("/host/e1/seats/new");
+    expect(condRow(HOST_UI.seats.excludeTitle).textContent).toContain("김가");
   });
 
   /**
@@ -1599,9 +1653,8 @@ describe("자리 배정 시트", () => {
    */
   it("★ 줄은 실명이 앞에 서고, 닉네임과 나이가 따라온다", async () => {
     stubFetch(party());
-    renderConsole("/host/e1/seats/new");
+    renderConsole("/host/e1/seats/new/out");
     await screen.findByText(HOST_UI.seats.seatedAll(2));
-    unfold();
 
     const row = inSheet().getByText("김가").closest("button") as HTMLElement;
     const text = row.textContent ?? "";
@@ -1610,11 +1663,11 @@ describe("자리 배정 시트", () => {
   });
 
   /**
-   * ★ **자리 검토의 머리말은 뺄 사람 시트의 `제외` 와 같은 말이다** (ADR-77 후기).
+   * ★ **자리 검토의 머리말은 뺄 사람 화면의 `제외` 와 같은 말이다** (ADR-77 후기).
    * 운영자가 방금 고른 낱말이 검토 카드에서 다시 보여야 두 화면이 이어진다 —
    * `아직 앉지 않은 사람` 은 참가자가 스스로 안 앉은 것처럼 읽혔다.
    */
-  it("★ 검토 카드의 빠진 사람 머리말은 시트의 `제외` 표시와 같은 말이다", () => {
+  it("★ 검토 카드의 빠진 사람 머리말은 뺄 사람 화면의 `제외` 표시와 같은 말이다", () => {
     expect(HOST_UI.seats.unassigned).toBe(HOST_UI.seats.excludeOut);
   });
 
@@ -1628,26 +1681,12 @@ describe("자리 배정 시트", () => {
       { ...st.players[1], nickname: "나", realName: "김민" },
     ];
     stubFetch(st);
-    renderConsole("/host/e1/seats/new");
+    renderConsole("/host/e1/seats/new/out");
     await screen.findByText(HOST_UI.seats.seatedAll(3));
-    unfold();
 
     const [kim, park, lee] = ["김민", "박준", "이서"].map((n) => inSheet().getByText(n));
     expect(before(kim, park), "김민 → 박준").toBe(true);
     expect(before(park, lee), "박준 → 이서").toBe(true);
-  });
-
-  it("★ 뺀 사람은 인원에서 빠지고, 왜 빠졌는지 말한다", async () => {
-    stubFetch(party());
-    renderConsole("/host/e1/seats/new");
-    await screen.findByText(HOST_UI.seats.seatedAll(2));
-    unfold();
-
-    // 한 명을 뺀다 — `2명 배정` 이 아니라 `1명 배정 · 1명 제외`, 그리고 발에 누구를 뺐는지(실명)
-    fireEvent.click(inSheet().getByText("김가"));
-    await screen.findByText(HOST_UI.seats.leftOut(1, 1));
-    expect(screen.queryByText(HOST_UI.seats.seatedAll(2))).toBeNull();
-    expect(inSheet().getByText(HOST_UI.seats.excludedNames(["김가"], 0))).toBeTruthy();
   });
 
   /**
@@ -1656,10 +1695,9 @@ describe("자리 배정 시트", () => {
    */
   it("★ 성별 칩으로 목록을 좁힌다", async () => {
     stubFetch(party());
-    renderConsole("/host/e1/seats/new");
+    renderConsole("/host/e1/seats/new/out");
     await screen.findByText(HOST_UI.seats.seatedAll(2));
 
-    unfold();
     // 전체로 시작한다 — 남 하나, 여 하나
     expect(inSheet().getByText("김가")).toBeTruthy();
     expect(inSheet().getByText("김나")).toBeTruthy();
@@ -1677,23 +1715,45 @@ describe("자리 배정 시트", () => {
    */
   it("★ 걸러 놔도 안 보이는 사람은 그대로 배정된다", async () => {
     stubFetch(party());
-    renderConsole("/host/e1/seats/new");
+    renderAt("/host/e1/seats", "/host/e1/seats/new", "/host/e1/seats/new/out");
     await screen.findByText(HOST_UI.seats.seatedAll(2));
-    unfold();
 
     fireEvent.click(inSheet().getByText(GENDER.M, { exact: false }));
     // 인원 줄은 여전히 전원 기준이다
     expect(screen.getByText(HOST_UI.seats.seatedAll(2))).toBeTruthy();
 
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.editDone));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
     fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
     await screen.findAllByText(HOST_UI.seats.tableCount);
     fireEvent.click(inSheet().getByText(HOST_UI.seats.make));
 
     await waitFor(() => expect(calls.find((c) => c.url.endsWith("/seating"))).toBeTruthy());
-    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({
-      tableCount: 1,
-      exclude: [],
-    });
+    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({ tableCount: 1, exclude: [] });
+  });
+
+  it("★ 뺀 사람이 배정 요청에 실린다", async () => {
+    stubFetch(withKimDa());
+    renderAt("/host/e1/seats", "/host/e1/seats/new", "/host/e1/seats/new/out");
+    await screen.findByText(HOST_UI.seats.seatedAll(3));
+
+    fireEvent.click(inSheet().getByText("김가"));
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.editDone));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
+    await screen.findAllByText(HOST_UI.seats.tableCount);
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.make));
+
+    await waitFor(() => expect(calls.find((c) => c.url.endsWith("/seating"))).toBeTruthy());
+    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({ tableCount: 1, exclude: ["p1"] });
+  });
+
+  it("★ 아무도 안 빼면 테이블 수 걸음은 전원 배정 한 줄이다 — 없는 일을 알리지 않는다", async () => {
+    stubFetch(party());
+    renderConsole("/host/e1/seats/new/tables");
+
+    await screen.findByText(HOST_UI.seats.seatedAll(2));
+    expect(screen.queryByText(HOST_UI.seats.leftOut(2, 0))).toBeNull();
   });
 
   /**
@@ -1709,27 +1769,6 @@ describe("자리 배정 시트", () => {
     const buttons = await screen.findAllByText(HOST_UI.seats.make);
     expect(buttons).toHaveLength(1);
   });
-
-  it("★ 뺀 사람이 배정 요청에 실린다", async () => {
-    // 한 명을 빼고도 테이블 하나를 채울 수 있어야 다음 걸음으로 넘어간다 (최소 2명)
-    const st = party();
-    st.players = [...st.players, { ...st.players[1], id: "p3", nickname: "다", realName: "김다" }];
-    stubFetch(st);
-    renderConsole("/host/e1/seats/new");
-    await screen.findByText(HOST_UI.seats.seatedAll(3));
-    unfold();
-
-    fireEvent.click(inSheet().getByText("김가"));
-    fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
-    await screen.findAllByText(HOST_UI.seats.tableCount);
-    fireEvent.click(inSheet().getByText(HOST_UI.seats.make));
-
-    await waitFor(() => expect(calls.find((c) => c.url.endsWith("/seating"))).toBeTruthy());
-    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({
-      tableCount: 1,
-      exclude: ["p1"],
-    });
-  });
 });
 
 // ─────────────────────────────────────────── 뺄 사람 이어받기
@@ -1742,8 +1781,6 @@ describe("자리 배정 시트", () => {
  * 그 뒤에 등록한 사람은 새로 온 사람이라 이어받지 않는다. 저장하는 것은 없다 — 지난 자리와 등록 시각에서 계산한다.
  */
 describe("뺄 사람 이어받기", () => {
-  const inSheet = () => within(document.querySelector('[role="dialog"]') as HTMLElement);
-  const unfold = () => fireEvent.click(inSheet().getByText(HOST_UI.seats.excludePick));
   const seat = (playerId: string) => ({ playerId, table: 1 });
 
   /** 김가(남·1) · 김나(여·2) · 김다(여·3) — 셋은 배정(시각 50) 전에 등록했고, 김라(남·100)는 그 뒤에 왔다 */
@@ -1762,25 +1799,25 @@ describe("뺄 사람 이어받기", () => {
   });
   /** 1라운드 — 김가를 빼고(또는 자리를 비우고) 김나·김다만 앉았다. 김라는 그 뒤에 등록했다 */
   const firstRound = () => round({ seats: [seat("p2"), seat("p3")] });
+  const outRow = () => condRow(HOST_UI.seats.excludeTitle).textContent ?? "";
 
-  it("★ 지난 배정에서 빠진 사람은 빠진 채로 열린다 — 발에 실명이 선다", async () => {
+  it("★ 지난 배정에서 빠진 사람은 빠진 채로 열린다 — 이번 배정 줄에 실명이 선다", async () => {
     stubFetch(withRounds(firstRound()));
     renderConsole("/host/e1/seats");
 
     fireEvent.click(await screen.findByText(HOST_UI.seats.make));
-    await screen.findByText(HOST_UI.seats.leftOut(3, 1));
-    // 접힌 채로도 누가 빠졌는지 보인다 — 조용히 빠지는 사람이 없어야 한다 (ADR-108)
-    expect(inSheet().getByText(HOST_UI.seats.excludedNames(["김가"], 0))).toBeTruthy();
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
+    // 명단을 펼치지 않아도 누가 빠졌는지 보인다 — 조용히 빠지는 사람이 없어야 한다 (ADR-108)
+    expect(outRow()).toContain(UNIT.people(1));
+    expect(outRow()).toContain("김가");
   });
 
   it("★ 그 배정 뒤에 등록한 사람은 이어받지 않는다 — 새로 온 사람이다", async () => {
     stubFetch(withRounds(firstRound()));
-    renderConsole("/host/e1/seats/new");
+    renderConsole("/host/e1/seats/new/out");
 
     // 넷 중 셋이 앉는다 — 빠진 사람은 김가 하나다
     await screen.findByText(HOST_UI.seats.leftOut(3, 1));
-    expect(inSheet().getByText(HOST_UI.seats.excludedNames(["김가"], 0))).toBeTruthy();
-    unfold();
     const late = inSheet().getByText("김라").closest("button") as HTMLElement;
     expect(late.textContent, "새로 온 사람이 빠졌다").toContain(HOST_UI.seats.excludeIn);
   });
@@ -1790,7 +1827,8 @@ describe("뺄 사람 이어받기", () => {
     stubFetch(withRounds(firstRound()));
     renderConsole("/host/e1/seats/new");
 
-    await screen.findByText(HOST_UI.seats.leftOut(3, 1));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
+    expect(outRow()).toContain("김가");
   });
 
   it("★ 초안이 있으면 초안에서 이어받는다 — 가장 최근에 고른 것이다", async () => {
@@ -1803,22 +1841,23 @@ describe("뺄 사람 이어받기", () => {
     );
     renderConsole("/host/e1/seats/new");
 
-    await screen.findByText(HOST_UI.seats.excludedNames(["김다"], 0));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
+    expect(outRow()).toContain("김다");
+    expect(outRow()).not.toContain("김가");
   });
 
   it("★ 첫 배정은 전원으로 시작한다", async () => {
     stubFetch(withRounds());
-    renderConsole("/host/e1/seats/new");
+    renderConsole("/host/e1/seats/new/out");
 
     await screen.findByText(HOST_UI.seats.seatedAll(4));
   });
 
   it("★ 이어받은 사람도 눌러서 다시 넣는다", async () => {
     stubFetch(withRounds(firstRound()));
-    renderConsole("/host/e1/seats/new");
+    renderConsole("/host/e1/seats/new/out");
     await screen.findByText(HOST_UI.seats.leftOut(3, 1));
 
-    unfold();
     fireEvent.click(inSheet().getByText("김가"));
     await screen.findByText(HOST_UI.seats.seatedAll(4));
   });
@@ -1826,7 +1865,7 @@ describe("뺄 사람 이어받기", () => {
   it("★ 그대로 배정하면 이어받은 사람이 요청에 실린다", async () => {
     stubFetch(withRounds(firstRound()));
     renderConsole("/host/e1/seats/new");
-    await screen.findByText(HOST_UI.seats.leftOut(3, 1));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
 
     fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
     await screen.findAllByText(HOST_UI.seats.tableCount);
@@ -1834,11 +1873,6 @@ describe("뺄 사람 이어받기", () => {
 
     await waitFor(() => expect(calls.find((c) => c.url.endsWith("/seating"))).toBeTruthy());
     expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({ tableCount: 1, exclude: ["p1"] });
-  });
-
-  /** 안내 줄이 이어받는다는 것을 말한다 — `다음 배정은 전원으로` 는 이제 거짓이다 */
-  it("★ 안내 줄이 다음 배정에도 빠진 채로 시작한다고 말한다", () => {
-    expect(HOST_UI.seats.excludeNote).not.toContain("전원");
   });
 });
 
@@ -2076,7 +2110,7 @@ describe("참가자 탭 · 나이 띠", () => {
  *
  * 알리는 자리는 **자리 칩 하나**다 — 요약 문구·토스트·테이블 머리글이 없다.
  * 되돌릴 수 있는 일이라 넣기도 빼기도 확인창이 없다 (ADR-6).
- * 넣고 빼는 자리는 **자리 탭**이다 (ADR-109, 슬라이스 40).
+ * 넣고 빼는 자리는 **자리 재배정 시트의 이번 배정**이다 (ADR-112) — 자리 탭 위에는 줄이 없다.
  */
 describe("떨어뜨려 앉히기", () => {
   const published = (seats: SeatingRound["seats"]): SeatingRound => ({
@@ -2137,43 +2171,45 @@ describe("떨어뜨려 앉히기", () => {
   });
 
   /*
-   * ── 넣고 빼는 자리는 **자리 탭**이다 (ADR-109). 참가자 상세 시트에서 고르던 길은 걷어냈다 —
-   *    결과(⛔ 칩)를 보는 곳과 고치는 곳(맞교환)이 자리 탭인데 넣는 곳만 참가자 탭이었다.
+   * ── 넣고 빼는 자리는 **이번 배정**이다 (ADR-112). 자리 탭의 줄(ADR-109)과 참가자 상세 시트의 묶음은 걷어냈다 —
+   *    뺄 사람과 떨어뜨려 앉힐 쌍은 둘 다 배정할 때 보는 조건이라 한 장에 선다.
    */
 
-  /** 자리 탭 → 쌍 목록 → 고르는 시트까지 히스토리에 쌓인 채로 연다. 고르면 쌍 목록으로 돌아와야 한다 */
-  function renderApartPicker(state: HostState) {
+  /** 자리 탭 → 이번 배정 → 쌍 목록 → 고르는 화면까지 히스토리에 쌓인 채로 연다. 고르면 쌍 목록으로 돌아와야 한다 */
+  const renderApartPicker = (state: HostState) => {
     stubFetch(state);
-    const router = createMemoryRouter(
-      [{ path: "/host/:id", element: <HostConsole />, children: HOST_CONSOLE_ROUTES }],
-      { initialEntries: ["/host/e1/seats", "/host/e1/seats/apart", "/host/e1/seats/apart/add"], initialIndex: 2 },
-    );
-    render(<RouterProvider router={router} />);
-    return router;
-  }
+    return renderAt("/host/e1/seats", "/host/e1/seats/new", "/host/e1/seats/new/apart", "/host/e1/seats/new/apart/add");
+  };
   const picker = () => screen.findByRole("dialog", { name: HOST_UI.seats.apart.pickTitle });
 
-  it("★ 자리 탭에는 한 줄만 선다 — 쌍 수는 보이고 이름은 시트를 열어야 보인다", async () => {
+  it("★ 자리 탭 위에는 떨어뜨려 앉히기 줄이 없다 — 넣고 빼는 자리는 이번 배정이다", async () => {
     stubFetch(hostState({ phase: "party" }, { apart: [["p1", "p2"]] }));
     renderConsole("/host/e1/seats");
 
-    const row = (await screen.findByText(HOST_UI.seats.apart.title)).closest("button") as HTMLElement;
-    expect(row.textContent).toContain(HOST_UI.seats.apart.count(1));
+    await screen.findByText(HOST_UI.seats.make);
+    expect(screen.queryByText(HOST_UI.seats.apart.title), "자리 탭 위에 줄이 남아 있다").toBeNull();
     // 자리 탭은 테이블 번호를 보여 주려고 폰을 내미는 화면이다 — 누가 누구를 피하는지 펼쳐 두지 않는다
     expect(screen.queryByText("김가"), "탭 위에 이름이 펼쳐졌다").toBeNull();
   });
 
-  it("★ 쌍이 없으면 수를 붙이지 않는다 — 없는 일을 알리지 않는다", async () => {
-    stubFetch(hostState({ phase: "party" }));
-    renderConsole("/host/e1/seats");
+  it("★ 이번 배정의 줄을 누르면 쌍 목록이 서고, 완료하면 이번 배정으로 돌아온다", async () => {
+    stubFetch(hostState({ phase: "party" }, { apart: [["p1", "p2"]] }));
+    const router = renderAt("/host/e1/seats", "/host/e1/seats/new");
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
 
-    const row = (await screen.findByText(HOST_UI.seats.apart.title)).closest("button") as HTMLElement;
-    expect(row.textContent).toBe(HOST_UI.seats.apart.title);
+    fireEvent.click(condRow(HOST_UI.seats.apart.title));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.apart.title });
+    expect(router.state.location.pathname).toBe("/host/e1/seats/new/apart");
+    expect(inSheet().getByText(HOST_UI.seats.apart.add)).toBeTruthy();
+
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.editDone));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
+    expect(router.state.location.pathname).toBe("/host/e1/seats/new");
   });
 
-  it("★ 시트에는 쌍이 실명으로 서고, 빼기는 확인창 없이 간다", async () => {
+  it("★ 쌍 목록에는 쌍이 실명으로 서고, 빼기는 확인창 없이 간다", async () => {
     stubFetch(hostState({ phase: "party" }, { apart: [["p1", "p2"]] }));
-    renderConsole("/host/e1/seats/apart");
+    renderConsole("/host/e1/seats/new/apart");
 
     // 운영자는 실명으로 사람을 안다 (ADR-77 후기) — 닉네임은 그 아래 흐리게 따라온다
     await screen.findByText(HOST_UI.dash.mutualPair("김가", "김나"));
@@ -2197,7 +2233,7 @@ describe("떨어뜨려 앉히기", () => {
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/host/events/e1/apart"))).toBe(true));
     expect(calls.find((c) => c.url.endsWith("/host/events/e1/apart"))!.body).toEqual({ a: "p1", b: "p2" });
     // 쌍 목록에 줄이 생기는 것이 곧 알림이다 (ADR-65)
-    await waitFor(() => expect(router.state.location.pathname).toBe("/host/e1/seats/apart"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/host/e1/seats/new/apart"));
     expect(document.querySelector(".dialog"), "되돌릴 수 있는데 확인창이 떴다").toBeNull();
     expect(document.querySelector(".toast"), "줄이 생기는 것이 알림인데 토스트가 떴다").toBeNull();
   });
@@ -2247,13 +2283,13 @@ describe("떨어뜨려 앉히기", () => {
     fireEvent.click(second);
     await act(async () => release());
     await act(async () => {});
-    expect(router.state.location.pathname, "쌍 목록까지 닫혔다").toBe("/host/e1/seats/apart");
+    expect(router.state.location.pathname, "쌍 목록까지 닫혔다").toBe("/host/e1/seats/new/apart");
     expect(calls.filter((c) => c.url.endsWith("/apart"))).toHaveLength(1);
   });
 
   it("★ 발표 뒤에는 더하는 버튼이 없다 — 빼기는 된다", async () => {
     stubFetch(hostState({ phase: "done" }, { apart: [["p1", "p2"]] }));
-    renderConsole("/host/e1/seats/apart");
+    renderConsole("/host/e1/seats/new/apart");
 
     await screen.findByText(HOST_UI.dash.mutualPair("김가", "김나"));
     expect(screen.queryByText(HOST_UI.seats.apart.add)).toBeNull();
