@@ -496,7 +496,7 @@ export default function People({
               </div>
               {/*
                 ✉️ 는 👉 **옆에 같은 크기로** 선다 (ADR-98 후기 3) — 이 사람에게 할 수 있는 일이 한 줄에 모인다.
-                파티 중에만 있다. 잠긴 버튼을 미리 세우지 않는다 (ADR-96 의 방향).
+                프로필 투표부터 파티까지만 있다 (`canNote`, ADR-111). 잠긴 버튼을 미리 세우지 않는다 (ADR-96 의 방향).
               */}
               {noteOn && !revealed && (
                 <NoteControls count={sentHere} covered={covered} spent={noteLeft === 0} onOpen={openNote} />

@@ -1588,7 +1588,7 @@ export function phaseAction(
  * **이 줄이 붙는 전환은 매력 투표 시작 · 파티 시작 둘이다** (ADR-93) — 나머지는 null 이다.
  * 등록 시작은 여기서 빠졌다 (ADR-38). 지금 `regOpenAt` 은 **회차를 만든 시각**이라
  * "예약된 등록 시작" 이라고 말하면 없던 예약을 있었던 것처럼 말하게 된다.
- * 발표(`revealAt`)에도 예약이 있지만(ADR-43) 이 버튼으로 앞당기는 자리가 아니다.
+ * 발표(`revealAt`)도 예약이고 그 버튼도 예약을 앞당기지만(ADR-43·93), 이 줄은 붙이지 않는다.
  */
 export function schedDiff(
   to: Phase,
