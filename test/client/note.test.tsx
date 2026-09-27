@@ -5,6 +5,7 @@
  * `test/36-anon-note.test.ts` 가 본다. 여기서 보는 것은 화면만이 지킬 수 있는 것들이다 —
  *
  *   · 쓰는 입구는 프로필 시트의 ✉️ 하나다. 가리기 중에는 잠긴다 (S-B5)
+ *   · 상단 바의 쪽지함은 **처음부터 자리를 지키고 프로필 투표와 함께 켜진다** (ADR-111)
  *   · 받은 쪽지는 **익명 쪽지함에만** 있다 — 홈 소식에는 없다
  *   · 읽음은 **쪽지함을 열 때** 찍힌다. 덮개·가리기 아래에서는 안 찍는다 (S-B2)
  *   · 보낸 쪽지의 읽음 배지는 **쪽지함을 연 순간의 값으로 굳는다** (S-B4)
@@ -33,7 +34,7 @@ const POKE: MyPokeState = {
 
 const EMPTY: MyNoteState = { budget: { max: 2, used: 0 }, sent: {}, received: [], unread: 0 };
 
-/** 파티 중인 회차. 익명 쪽지가 2장 열려 있다 */
+/** 파티 중인 회차. 익명 쪽지를 2장 쓸 수 있다 */
 function stateOf(note: MyNoteState = EMPTY, over: { phase?: Phase; maxNotes?: number } = {}): ParticipantState {
   const phase = over.phase ?? "party";
   return {
@@ -42,7 +43,7 @@ function stateOf(note: MyNoteState = EMPTY, over: { phase?: Phase; maxNotes?: nu
       name: "테스트 파티",
       code: "ABCDEF",
       phase,
-      fired: phase === "party" ? { reg: 1, prevote: 2, party: 3 } : { reg: 1, prevote: 2 },
+      fired: phase === "party" ? { reg: 1, prevote: 2, party: 3 } : phase === "prevote" ? { reg: 1, prevote: 2 } : { reg: 1 },
       schedule: { partyAt: Date.now() - 3600_000 },
       config: { maxPre: 3, maxParty: 2, maxNotes: over.maxNotes ?? 2 },
     },
@@ -101,6 +102,8 @@ interface Mount {
   noteOpen?: boolean;
   notesOpen?: boolean;
   onNote?: (on: boolean) => void;
+  /** 쪽지함 (`/notes`) */
+  onNotes?: (on: boolean) => void;
   key?: string;
 }
 
@@ -116,7 +119,7 @@ function view(src: ParticipantSource, over: Mount = {}) {
         onTab={() => {}}
         onProfile={() => {}}
         onNote={over.onNote ?? (() => {})}
-        onNotes={() => {}}
+        onNotes={over.onNotes ?? (() => {})}
         onEdit={() => {}}
         onSeat={() => {}}
         helpOpen={false}
@@ -205,8 +208,13 @@ describe("쓰는 입구 — 프로필 시트의 ✉️", () => {
     expect(btn.textContent).not.toMatch(/\d/);
   });
 
-  it("★ 파티 전에는 없다 — 잠긴 버튼을 미리 세우지 않는다", async () => {
+  it("★ 프로필 투표부터 선다 — 그 전에는 잠긴 버튼을 미리 세우지 않는다 (ADR-111)", async () => {
     mount(sourceOf(stateOf(EMPTY, { phase: "prevote" })), { profileId: "her" });
+    await ready();
+    expect(screen.getByRole("button", { name: NOTE.writeLabel })).toBeTruthy();
+    cleanup();
+
+    mount(sourceOf(stateOf(EMPTY, { phase: "reg" })), { profileId: "her" });
     await ready();
     expect(screen.queryByRole("button", { name: NOTE.writeLabel })).toBeNull();
   });
@@ -250,13 +258,41 @@ describe("상단 바의 익명 쪽지함", () => {
     expect(inboxBtn()!.querySelector(".count")).toBeNull();
   });
 
-  it("★ 파티 전에는 없고, 쪽지를 끈 회차에도 없다 — 이미 주고받은 것이 있으면 남는다", async () => {
-    mount(sourceOf(stateOf(EMPTY, { phase: "prevote" })), { tab: "home" });
+  it("★ 등록 중에도 자리를 지킨다 — 꺼져 있고, 누르면 언제부터인지 말한다 (ADR-111)", async () => {
+    /*
+     * 없다가 생기면 상단 바의 회차 이름 칸이 그 순간 줄어든다 — 재미 탭이 처음부터 자리를 지키는 것과
+     * 같은 이유다 (ADR-20 후기). 꺼진 버튼은 **죽은 버튼이 아니다** — 눌러도 아무 일이 없으면 고장으로 읽힌다.
+     */
+    const opened: boolean[] = [];
+    mount(sourceOf(stateOf(EMPTY, { phase: "reg" })), { tab: "home", onNotes: (on) => opened.push(on) });
+    await ready();
+    const btn = inboxBtn();
+    expect(btn, "등록 중에 쪽지함이 없다").toBeTruthy();
+    // `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 — 꺼진 재미 탭과 같다
+    expect(btn!.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(btn!);
+    expect(await screen.findByText(NOTE.inbox.notYet)).toBeTruthy();
+    expect(opened, "꺼진 쪽지함이 열렸다").toEqual([]);
+  });
+
+  it("★ 프로필 투표가 시작되면 켜진다 (ADR-111)", async () => {
+    const opened: boolean[] = [];
+    mount(sourceOf(stateOf(EMPTY, { phase: "prevote" })), { tab: "home", onNotes: (on) => opened.push(on) });
+    await ready();
+    const btn = inboxBtn()!;
+    expect(btn.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(btn);
+    expect(opened).toEqual([true]);
+  });
+
+  it("★ 쪽지를 끈 회차에는 없다 — 이미 주고받은 것이 있으면 남는다", async () => {
+    mount(sourceOf(stateOf(EMPTY, { maxNotes: 0 })), { tab: "home" });
     await ready();
     expect(inboxBtn()).toBeNull();
     cleanup();
 
-    mount(sourceOf(stateOf(EMPTY, { maxNotes: 0 })), { tab: "home" });
+    // 자리를 지키는 것은 쪽지가 있는 회차의 이야기다 — 끈 회차에 꺼진 버튼을 세우면 영영 안 켜지는 버튼이 된다
+    mount(sourceOf(stateOf(EMPTY, { phase: "reg", maxNotes: 0 })), { tab: "home" });
     await ready();
     expect(inboxBtn()).toBeNull();
     cleanup();

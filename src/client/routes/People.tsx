@@ -124,7 +124,7 @@ export default function People({
 
   // ── 익명 쪽지 (슬라이스 36, ADR-98)
   const noteBudget = state.note.budget;
-  /** 이 회차에 익명 쪽지가 있고, 지금이 그 창인가. **파티 중에만이다** */
+  /** 이 회차에 익명 쪽지가 있고, 지금이 그 창인가. **매력 투표부터 발표 전까지다** (ADR-111) */
   const noteOn = noteBudget.max > 0 && canNote(state.event.phase);
   const noteLeft = Math.max(0, noteBudget.max - noteBudget.used);
   /**

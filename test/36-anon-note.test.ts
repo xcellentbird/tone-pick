@@ -33,7 +33,7 @@ const travelTo = async (at: number) => {
   expect((await api("/api/__test__/now", { method: "POST", body: { at } })).status).toBe(200);
 };
 
-/** 익명 쪽지가 열린 파티. 셋이 앉아 있다 — 이성 하나, 동성 하나 */
+/** 익명 쪽지를 쓸 수 있는 파티. 셋이 앉아 있다 — 이성 하나, 동성 하나 */
 async function party(config: Partial<EventConfig> = { maxNotes: 2 }) {
   const ev = await freshEvent(config);
   const a = await join(ev, { gender: "M", nickname: "철수" });
@@ -47,18 +47,43 @@ async function party(config: Partial<EventConfig> = { maxNotes: 2 }) {
 // ─────────────────────────────────────────── A. 보내기
 
 describe("보내기", () => {
-  it("★ 파티 중에만 보낸다 — 앞에서도 뒤에서도 409", async () => {
-    const ev = await freshEvent({ maxNotes: 2 });
+  it("★ 프로필 투표부터 보낸다 — 등록 중과 발표 뒤에는 409 closed (ADR-111)", async () => {
+    // 장 수를 넉넉히 둔다 — 발표 뒤의 409 가 장 수가 아니라 단계 때문인지 가려야 한다
+    const ev = await freshEvent({ maxNotes: 5 });
     const a = await join(ev, { gender: "M" });
     const b = await join(ev, { gender: "F" });
+    const closed = async (label: string) => {
+      const res = await send(a.cookie, b.id);
+      expect(res.status, label).toBe(409);
+      expect((res.body as unknown as { error: string }).error, label).toBe("closed");
+    };
 
-    expect((await send(a.cookie, b.id)).status, "등록 중").toBe(409);
+    await closed("등록 중");
     await setPhase(ev.id, "prevote");
-    expect((await send(a.cookie, b.id)).status, "매력 투표 중").toBe(409);
+    expect((await send(a.cookie, b.id)).status, "매력 투표 중").toBe(200);
     await setPhase(ev.id, "party");
     expect((await send(a.cookie, b.id)).status, "파티 중").toBe(200);
     await setPhase(ev.id, "done");
-    expect((await send(a.cookie, b.id)).status, "발표 뒤").toBe(409);
+    await closed("발표 뒤");
+  });
+
+  it("★ 장 수는 회차에 한 벌이다 — 매력 투표에 쓴 장은 파티가 시작돼도 돌아오지 않는다 (ADR-111)", async () => {
+    /*
+     * 콕은 라운드마다 새로 받지만(`pre` · `party`) 익명 쪽지는 아니다. 한 사람이 쓸 수 있는 장 수가 곧
+     * 한 사람에게 갈 수 있는 최대다 (ADR-98 후기 1) — 파티에서 다시 채우면 같은 사람에게 두 배가 간다.
+     */
+    const ev = await freshEvent({ maxNotes: 2 });
+    const a = await join(ev, { gender: "M" });
+    const b = await join(ev, { gender: "F" });
+    await setPhase(ev.id, "prevote");
+    await send(a.cookie, b.id);
+    await send(a.cookie, b.id);
+    await setPhase(ev.id, "party");
+
+    const res = await send(a.cookie, b.id);
+    expect(res.status).toBe(409);
+    expect((res.body as unknown as { error: string }).error).toBe("no_budget");
+    expect((await me(a.cookie, ev.code)).body.note.budget).toEqual({ max: 2, used: 2 });
   });
 
   it("★ 횟수는 회차 설정이 정한다 — 다 쓰면 409 no_budget", async () => {
