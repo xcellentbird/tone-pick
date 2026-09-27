@@ -1912,6 +1912,62 @@ describe("자리 배정 시트", () => {
   });
 
   /**
+   * ★ **배정하고 나면 시트 칸을 다 걷는다** (ROUTES.md).
+   *
+   * 마지막 칸(테이블 수)만 자리 탭으로 갈아끼우면 이번 배정 칸이 히스토리에 남는다 — 초안을 보다가 뒤로 가면
+   * 이번 배정이 다시 뜨고, 거기서 `자리 재배정` 을 또 누르면 확인 없이 초안을 새로 짜서 **맞바꿔 둔 손이 풀린다.**
+   */
+  it("★ 배정하고 뒤로 가면 이번 배정이 다시 뜨지 않는다 — 자리 탭의 앞 화면이다", async () => {
+    stubFetch(party());
+    const router = renderAt("/host/e1", "/host/e1/seats");
+
+    fireEvent.click(await screen.findByText(HOST_UI.seats.make));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
+    await screen.findAllByText(HOST_UI.seats.tableCount);
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.make));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/host/e1/seats"));
+    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({ tableCount: 1, exclude: [] });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await act(() => router.navigate(-1));
+    expect(router.state.location.pathname, "뒤로 가기가 배정 시트를 다시 열었다").toBe("/host/e1");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("★ 뺄 사람을 고르고 돌아와 배정해도 마찬가지다 — 고르는 화면의 칸도 남지 않는다", async () => {
+    stubFetch(withKimDa());
+    const router = renderAt("/host/e1", "/host/e1/seats");
+
+    fireEvent.click(await screen.findByText(HOST_UI.seats.make));
+    await screen.findByRole("dialog", { name: HOST_UI.seats.make });
+    fireEvent.click(condRow(HOST_UI.seats.excludeTitle));
+    fireEvent.click(await within(document.querySelector('[role="dialog"]') as HTMLElement).findByText("김가"));
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.editDone));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/host/e1/seats/new"));
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.excludeNext));
+    await screen.findAllByText(HOST_UI.seats.tableCount);
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.make));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/host/e1/seats"));
+    expect(calls.find((c) => c.url.endsWith("/seating"))?.body).toEqual({ tableCount: 1, exclude: ["p1"] });
+    await act(() => router.navigate(-1));
+    expect(router.state.location.pathname).toBe("/host/e1");
+  });
+
+  it("★ 주소로 바로 연 테이블 수 시트도 배정하면 자리 탭이다 — 되감을 칸을 모르면 갈아끼운다", async () => {
+    stubFetch(party());
+    const router = renderAt("/host/e1/seats/new/tables");
+
+    await screen.findAllByText(HOST_UI.seats.tableCount);
+    fireEvent.click(inSheet().getByText(HOST_UI.seats.make));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/host/e1/seats"));
+    expect(router.state.historyAction).toBe("REPLACE");
+  });
+
+  /**
    * ★ **배정 버튼은 하나뿐이다** (ADR-51).
    *
    * 옆에 `💘 커플 자리 배정` 이 있었다. 콕이 매 라운드 자리에 반영되므로 쌍만 모으는
