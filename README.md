@@ -9,7 +9,7 @@
 **참가 링크는 회차마다 하나입니다.** 참가자는 초대 명단에 있는 **전화번호**로 들어오고, 등록할 때 정한
 **PIN 번호 4자리**로 다시 들어옵니다 (ADR-75). 링크 자체에는 신원이 없습니다.
 
-지금 버전은 **2.12.0** — 무엇이 바뀌었는지는 `CHANGELOG.md`.
+지금 버전은 **2.13.0** — 무엇이 바뀌었는지는 `CHANGELOG.md`.
 
 ---
 
@@ -39,8 +39,9 @@ cp .dev.vars.example .dev.vars   # MASTER_PIN, SESSION_SECRET 설정
 # 개발 — 터미널 두 개
 npm run dev:worker   # Worker + DO  (127.0.0.1:8787). 클라이언트를 빌드해 함께 서빙한다
 npm run dev          # Vite (프록시로 /api, /ws 를 8787 로 넘긴다)
+npm run dev:worker:lan   # 같은 Wi-Fi 의 폰에서 로컬 워커에 붙을 때
 
-npm run check        # 타입 + 문구·번역투·설정·테마·ADR 검사. 커밋 전에 이걸 돌린다
+npm run check        # 타입 + 문구·번역투·설정·테마·ADR·테스트 하네스 검사. 커밋 전에 이걸 돌린다
 npm test             # workerd 안의 규칙 테스트 + 화면 테스트
 npm run guard        # 릴리스 차선. 옛 스키마 + 번들 예산 (main 으로 올리기 전에)
 npm run deploy       # 프로덕션 (KV 네임스페이스 필요 없음 — 아래 비밀값과 R2 버킷만)
@@ -100,6 +101,22 @@ qa          → PR(base: main) → CI + release-guard 통과 + 사람이 머지 
 `qa` 에는 **아직 프로덕션에 안 나간 기능**이 쌓여 있습니다. 강제 푸시로 되돌리거나 PR 없이 밀어 넣지
 마세요 — 나갈 차례를 기다리던 기능이 사라지고, CI 라는 관문을 건너뜁니다.
 
+### 손으로 하는 QA — 스테이지
+
+```bash
+npm run qa -- --phase party --watch      # 로컬 워커에 회차 + 가짜 참가자, 운영자·참가자 창을 나란히
+```
+
+`scripts/qa/stage.mjs` 가 회차와 가짜 참가자를 **실제 경로로** 만들고, 터미널(`--remote` 면 폰)에서
+`poke 3 5` · `phase done` · `late` 같은 명령을 그때그때 칩니다. 앱에는 시연 코드가 없습니다 —
+전부 공개 API 입니다 (ADR-7 후기). 시간 이동(`now +30m`)은 `.dev.vars` 에 `ALLOW_TEST_ENDPOINTS=1` 을 넣은
+로컬에서만 됩니다.
+
+컴퓨터 없이는 **온라인 스테이지** `tone-pick-qa-tool` 로 합니다 (`scripts/qa/worker/`, ADR-97 · 99).
+한 탭에 운영자와 참가자 화면을 QA 의 틀로 띄웁니다. 표적은 설정 파일의 서비스 바인딩 하나(QA)뿐이고,
+`qa` 브랜치에서 따로 배포됩니다 — 배포 설정은 `scripts/qa/worker/wrangler.jsonc` 머리에 있습니다.
+**QA 에도 실제 번호를 넣지 마세요.**
+
 ### 100명 리허설
 
 ```bash
@@ -120,6 +137,17 @@ Observability 에서 봅니다.
 QA 에서는 화면 맨 위에 노란 띠가 뜹니다. 주소가 아니라 **배포된 설정**(`ENV_LABEL`)이 근거라,
 나중에 커스텀 도메인이 붙어도 그대로 따라옵니다. 파티 당일 운영자가 연습용 콘솔에서 단계를
 넘기고 "참가자 화면이 왜 안 바뀌지?" 하는 사고를 막는 장치입니다.
+
+### 끝나고 돌아보기
+
+```bash
+npm run ops              # 운영 카운터 — 프로덕션, 최근 24시간
+npm run ops -- qa 72     # 연습용, 최근 72시간
+```
+
+`.env` 의 `CLOUDFLARE_API_TOKEN`(`Account Analytics Read`)을 씁니다. 쌓인 뒤 몇 분이 지나야 보이니
+파티 중에 지켜보는 도구가 아닙니다 — 그건 `wrangler tail` 입니다. 담기는 것은 집계뿐입니다 (ADR-56).
+콕 이력은 R2 로그 파일로 받습니다 (ADR-84, 명령은 `CLAUDE.md`).
 
 ---
 
@@ -146,27 +174,32 @@ src/
 │   ├── http.ts        환경·서버 시각·에러 응답·권한 확인
 │   ├── metrics.ts     운영 카운터 · 집계 지표 (회차 DO 밖에 쌓이는 것)
 │   ├── poke-log.ts    콕 로그 → R2 (ADR-84)
+│   ├── fortune.ts     운세·미션 LLM 호출. Worker 에서 부른다 — DO 안에서 부르지 않는다
+│   ├── og.ts          링크 미리보기 태그 — `/j/*` 에만 끼워 넣는다 (ADR-68)
+│   ├── messages.ts    DO 의 실패 사유 → 화면 문장 (문장은 copy.ts 에서 온다)
 │   └── routes/        host.ts / participant.ts
 └── client/
     ├── router.tsx     URL 맵. 모달도 라우트다
     ├── lib/           api · realtime · serverTime · history · 알림 파생
-    ├── ui/            확인창·토스트 · 상태 셀 · 자리 확인 화면
+    ├── ui/            확인창·토스트 · 시트 · 도움말 · 익명 쪽지함 · 자리·단계 전체 화면
     ├── routes/        참가자 4탭 · 운영자 5탭 · 위저드
     └── styles/theme.css   전부 CSS 변수 → 테마 교체의 토대
 
-test/                                번호는 대개 슬라이스, 일부는 ADR 번호다 (실행 순서가 아니다)
+test/                                번호는 대개 슬라이스, 일부는 ADR 번호다 (실행 순서가 아니다). 대표만 적는다
 ├── 01-event-create-join.test.ts     회차 생성·입장 코드·권한 경계
 ├── 02-register-poke-reveal.test.ts  등록·콕·공개 범위
 ├── 05-seating.test.ts               자리 배정 불변식 (순수 함수)
 ├── 15-pin-entry.test.ts             번호 + PIN 번호로 들어오는 길 (ADR-75)
 ├── 22-poke-rules.test.ts            매력 투표 ↔ 콕 라운드 경계 (ADR-34)
 ├── 44-tab-sessions.test.ts          탭마다 다른 참가자 (ADR-44)
-└── client/                          화면이 조용히 죽지 않는지 (ADR-8)
+├── client/                          화면이 조용히 죽지 않는지 (ADR-8)
+├── helpers/app.ts                   워커에 요청을 넣는 길 — `fetchApp` 하나
+└── release/                         `npm test` 가 못 잡는 것 — 옛 스키마 (`npm run guard`)
 ```
 
-**파일이 곧 성능 대책이다.** 워커 테스트는 파일마다 아이솔레이트가 새로 뜨는데
-한 파일 안에서는 앞 테스트가 뒤에 쌓인다 — 96개짜리 파일 끝에서 110ms 짜리가 11초가 됐다.
-100개 가까이 불어나면 나눈다.
+**워커에 요청을 넣는 길은 `fetchApp` 하나다.** `SELF.fetch` 는 요청마다 한 겹씩 쌓여서 파일이 커질수록
+제곱으로 느려졌다 — 파일을 나누던 게 그 증상을 피하던 것이었고, 원인을 걷은 뒤로 **파일을 나누는 건
+성능 대책이 아니다.** `npm run check:tests` 가 `SELF.fetch` 를 막는다.
 
 ---
 
@@ -191,7 +224,9 @@ test/                                번호는 대개 슬라이스, 일부는 AD
 남은 것은 `docs/PLAN.md` 의 슬라이스 표에 있습니다. 지금 열려 있는 것:
 
 - [ ] 실기기 점검 (iOS 100dvh·가장자리 스와이프, 안드로이드 백 버튼)
-- [ ] 운영자가 텍스트 공지를 쓰는 화면 (서버와 참가자 쪽 소식은 있다. 설문은 27 로 나갔다 — `docs/PLAN.md` 14)
-- [ ] 둘째 라운드부터의 함께 점수 — 실제 파티에서 재보고 확정한다 (ADR-34 `보류한 것`)
+
+닫은 것 — 운영자가 텍스트 공지만 쓰는 화면은 **안 만든다.** 파티 중에 보내는 것은 설문이 맡는다
+(ADR-104 후기, `docs/PLAN.md` 14). 둘째 라운드부터의 함께 점수(ADR-34 `보류한 것`)는
+ADR-57 이 모든 라운드의 목적함수를 바꾸면서 **거기에 흡수됐다** (`docs/PLAN.md` 28).
 
 문서는 전부 `docs/` 에 있습니다. 어느 것을 읽어야 하는지는 `CLAUDE.md` 의 라우팅 표를 보세요.

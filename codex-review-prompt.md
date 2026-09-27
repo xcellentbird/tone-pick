@@ -27,16 +27,18 @@ Load in this order:
 | `CLAUDE.md` | the rules that are load-bearing right now — "이 앱이 지키는 것" and "절대 규칙" |
 | `docs/ADR.md` | why a thing is the way it is. **Check here before calling something wrong** — most surprises are recorded decisions, often reversals of an earlier one |
 | `docs/UI.md` · `docs/FLOWS.md` | screen requirements and cross-side effects |
-| `CHANGELOG.md` | what shipped in the current major version |
+| `CHANGELOG.md` | what shipped to production (QA-only work is not listed) |
 
 ## What to weigh most
 
-1. **Anything that widens what reaches a participant.** `toPublic()` is the single place
-   participant responses are built. Assume a participant opens the raw response in devtools.
+1. **Anything that widens what reaches a participant.** `CLAUDE.md` ("설계 경계") names the only
+   places participant responses are built — a response assembled anywhere else is a finding.
+   Assume a participant opens the raw response in devtools.
 2. **Anything that lets a one-way poke be inferred** — from a response, a count, a
    notification, a timestamp, a seating hint, or a screen that says more than the code does.
-3. **Copy that promises more than the code delivers.** This has bitten twice
-   (auto-deletion that never ran; "contacts open at reveal" when they never do).
+3. **Copy that promises more than the code delivers** — and copy left behind after a feature is
+   removed. This has bitten repeatedly (auto-deletion that never ran; "contacts open at reveal"
+   when they never do; a seating promise on votes after votes left seating). `CLAUDE.md` keeps the list.
    A sentence is as load-bearing as a type here.
 4. **Server-time judgments.** A deadline decided with client `Date.now()` is a bug.
 5. **Design boundaries** listed under "설계 경계" in `CLAUDE.md`.

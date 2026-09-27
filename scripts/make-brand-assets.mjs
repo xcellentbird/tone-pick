@@ -76,10 +76,11 @@ const icon = async (px, inset, art) => {
 const art = await artBox();
 const mark = await markBox();
 
-// ① 회차 확인 화면. 최대 260px 로 뜨므로 3배 화면까지 덮는 640px
+// ① 회차 확인 화면. 최대 260px 로 뜨므로 3배 화면까지 덮는 640px.
+//    `public/` 에 둔다 — `index.html` 이 번들을 기다리지 않고 먼저 띄운다 (ADR-70)
 const LW = 640;
 await sharp(SRC).extract(art).resize(LW, Math.round((art.height / art.width) * LW), { kernel: "lanczos3" })
-  .webp({ quality: 80, effort: 6 }).toFile(out("src/client/assets/logo.webp"));
+  .webp({ quality: 80, effort: 6 }).toFile(out("public/logo.webp"));
 
 // ② 탭 · ③ 홈 화면 — 바탕을 채운다. 투명하게 두면 발끝이 밝은 탭에서 사라진다
 await sharp(await icon(48, 2, mark)).toFile(out("public/favicon.png"));
@@ -108,6 +109,6 @@ await sharp(bg)
   .toFile(out("public/og.jpg"));
 
 const kib = (p) => (statSync(out(p)).size / 1024).toFixed(1).padStart(6);
-for (const p of ["src/client/assets/logo.webp", "public/og.jpg", "public/favicon.png", "public/apple-touch-icon.png"])
+for (const p of ["public/logo.webp", "public/og.jpg", "public/favicon.png", "public/apple-touch-icon.png"])
   console.log(`${kib(p)} KiB  ${p}`);
-console.log(`\n⚠️ 로고 크기가 바뀌었으면 Join.tsx 의 <img width height> 를 고쳐라 — 비율이 사는 곳은 거기 한 곳뿐이다.`);
+console.log(`\n⚠️ 로고 크기가 바뀌었으면 <img width height> 를 두 곳 다 고쳐라 — index.html 의 첫 화면과 Join.tsx. 비율은 거기에만 산다.`);

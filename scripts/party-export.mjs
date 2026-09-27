@@ -20,7 +20,8 @@
  *
  * ⚠️ **매력 투표와 콕의 방향(누가 누구에게)이 들어간다.** 앱은 그 방향을 내주지 않는다 —
  *    콕 로그 파일(ADR-84)을 Cloudflare 에서 받아 `--pokes` 로 넘긴다. 찌름·되돌림을 다시 셈해
- *    `buildSeating` 이 받는 `votes`·`pokes` 와 같은 모양으로 담는다. 그래서 **끌림까지 그대로 재생**할 수 있다.
+ *    `buildSeating` 이 받는 `pokes` 와 같은 모양으로 담는다. 그래서 **끌림까지 그대로 재생**할 수 있다.
+ *    `votes`(매력 투표)도 같은 모양으로 담지만 ADR-100 부터 `buildSeating` 의 입력이 아니다 — 1위를 다시 셀 때만 쓴다.
  *
  *      npx wrangler r2 object get tone-pick-logs/poke-logs/<회차id>.csv --remote --file tmp/poke-log.csv
  *      MASTER_PIN=**** node scripts/party-export.mjs --pokes tmp/poke-log.csv

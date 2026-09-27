@@ -9,7 +9,8 @@ npx wrangler r2 object get tone-pick-logs/poke-logs/<회차id>.csv --remote --fi
 MASTER_PIN=**** node scripts/party-export.mjs --name 2026-09-1회차 --pokes tmp/poke-log.csv
 ```
 
-`eval/parties/<이름>.json` 하나가 나온다.
+`eval/parties/<이름>.json` 하나가 나온다. **판을 읽어 `buildSeating` 에 넣는 코드는 저장소에 없다** —
+재는 사람이 그때 짠다. 입력 모양은 `src/server/seating.ts` 의 `BuildInput` 이 원본이다.
 
 ## 들어 있는 것
 
@@ -20,7 +21,7 @@ MASTER_PIN=**** node scripts/party-export.mjs --name 2026-09-1회차 --pokes tmp
 | `players[]` | `nickname` · `age` · `gender` · `mbti` · `charms` |
 | `voteSent` · `voteReceived` | 매력 투표 — 사람별 수 |
 | `pokeSent` · `pokeReceived` | 콕 — 사람별 수 |
-| `votes` · `pokes` | **방향이 있는 표·콕** (`"p0>p3": 2`) — `buildSeating` 이 받는 모양 그대로다 |
+| `votes` · `pokes` | **방향이 있는 표·콕** (`"p0>p3": 2`). `pokes` 는 `buildSeating` 이 받는 모양 그대로다. `votes` 는 ADR-100 부터 자리에 안 들어간다 — 1위를 다시 셀 때만 쓴다 |
 | `mutual[]` | 서로 찌른 쌍 |
 | `seatings[]` | 라운드별로 실제 만들어진 자리 |
 
@@ -29,7 +30,8 @@ MASTER_PIN=**** node scripts/party-export.mjs --name 2026-09-1회차 --pokes tmp
 
 ## 방향이 있는 표·콕 — 들어간다, 그래서 무겁다
 
-`buildSeating` 은 `votes: { "A>B": n }` 를 받고, 이 판에 그 모양 그대로 들어간다.
+`buildSeating` 은 `pokes: { "A>B": n }` 를 받고, 이 판에 그 모양 그대로 들어간다.
+(매력 투표 `votes` 는 ADR-100 부터 입력에 없다 — 판에는 남지만 자리 재생에는 안 쓴다.)
 **끌림까지 그대로 재생할 수 있다** — 나이차 벌점을 바꿨을 때 그 파티의 자리가 실제로 어떻게
 달라졌을지를 잰다는 뜻이다. 앱은 그 방향을 내주지 않는다 — 콕 로그 파일(ADR-84)을 Cloudflare 에서 받아
 `--pokes tmp/poke-log.csv` 로 넘긴다. 로그는 ADR-84 배포 뒤의 파티에만 있다.

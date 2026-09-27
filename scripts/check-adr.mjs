@@ -7,7 +7,7 @@
  *  1. **번호 겹침** — 브랜치 둘이 나란히 "다음 번호"를 집으면 난다. 지금까지 **일곱 번** 났다.
  *     늘 파일 끝에 붙어서 git 이 충돌로 잡아주지만, 손으로 옮기다 빠뜨리면 여기서 걸린다
  *  2. **번호 구멍** — 지운 ADR 이 있다는 뜻이다. 뒤집힌 결정도 **기록으로 남긴다**(문서 머리)
- *  3. **끊어진 참조** — 코드가 `ADR-N` 을 **1500번** 가리킨다. 번호를 옮기면서 하나라도
+ *  3. **끊어진 참조** — 코드와 문서가 `ADR-N` 을 **수천 번** 가리킨다(돌리면 센다). 번호를 옮기면서 하나라도
  *     흘리면 주석이 엉뚱한 결정을 가리키는데, **그건 틀린 문서보다 나쁘다**
  *  4. **목차가 본문과 어긋남** — 목차가 거짓말을 하면 안 보느니만 못하다
  *  5. **뒤집힌 ADR 에 표시가 없음** — 목차는 제목을 옮겨 올 뿐이라, 뒤의 ADR 이 "ADR-N 을 뒤집는다"
@@ -105,8 +105,14 @@ const walk = (dir) =>
     return statSync(p).isDirectory() ? walk(p) : /\.(ts|tsx|css|md|mjs|html)$/.test(f) ? [p] : [];
   });
 const root = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
+/*
+ * 스크립트와 루트 문서도 훑는다 — 한동안 `src`·`test`·`docs` 와 CLAUDE·README 뿐이라
+ * `scripts/` 의 주석과 CHANGELOG·design·eval 의 참조는 번호가 옮겨져도 아무도 몰랐다.
+ */
 const files = [...walk(`${root}/src`), ...walk(`${root}/test`), ...walk(`${root}/docs`),
-               `${root}/CLAUDE.md`, `${root}/README.md`];
+               ...walk(`${root}/scripts`), ...walk(`${root}/design`), ...walk(`${root}/eval`),
+               ...walk(`${root}/reference`),
+               `${root}/CLAUDE.md`, `${root}/README.md`, `${root}/CHANGELOG.md`, `${root}/codex-review-prompt.md`];
 let refs = 0;
 for (const f of files) {
   readFileSync(f, "utf8").split("\n").forEach((line, i) => {

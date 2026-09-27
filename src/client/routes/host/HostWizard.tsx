@@ -9,7 +9,7 @@
  * 명단에 없는 사람은 어차피 못 들어오므로(ADR-75) 문을 늦게 열어 지킬 것이 없었다.
  * 그래서 예약이 걸리는 전환은 **매력 투표 시작 · 파티 시작 · 커플 발표 셋**이다 (ADR-43·93).
  * 사람이 덜 모였으면 운영자가 파티 시각을 미룬다 — `partyAt` 은 파티가 시작될 때까지 열려 있다.
- * 매력 투표 마감(`voteEndAt`)은 전환이 아니라 판정이라 알람이 울리지 않는다 (ADR-39).
+ * 매력 투표 마감 칸은 없다 — 파티 시작이 곧 마감이다 (ADR-100).
  */
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
