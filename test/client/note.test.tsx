@@ -14,7 +14,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
-import { NOTE, PEOPLE, POKE as POKE_COPY } from "../../src/shared/copy.ts";
+import { NOTE, PEOPLE } from "../../src/shared/copy.ts";
 import type { MyNoteState, MyPokeState, ParticipantState, Phase } from "../../src/shared/types.ts";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
@@ -459,7 +459,8 @@ describe("익명 쪽지함 — 받은 쪽지", () => {
     // 답장도 반응도 신고도 없다. 그 셋 중 하나라도 생기면 이것은 채팅이다 (ADR-98)
     const inList = [...document.querySelectorAll(".inbox .banner button")].map((b) => b.textContent);
     expect(inList).toEqual([NOTE.remove]);
-    expect(screen.queryByText(POKE_COPY.receivedNote)).toBeNull();
+    // 제목이 `익명` 을 말하므로 이 줄은 없다. 받은 콕 줄에서도 같은 이유로 걷었다 (ADR-113) — 되살리지 않는다
+    expect(screen.queryByText("누구인지는 비밀이에요")).toBeNull();
   });
 
   it("★ 빈 쪽지함은 없다고 말하지 않는다 — `아무도 안 보냈다` 로 읽힌다", async () => {
