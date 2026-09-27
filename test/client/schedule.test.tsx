@@ -14,6 +14,8 @@ import { SCHEDULE_STEP_MIN, formatCountdown, snapSchedule, toLocalInput } from "
 import { DEFAULTS } from "../../src/shared/constants.ts";
 import { HOST_UI } from "../../src/shared/copy.ts";
 import HostWizard from "../../src/client/routes/host/HostWizard.tsx";
+import HostDefaults from "../../src/client/routes/host/HostDefaults.tsx";
+import { Overlays } from "../../src/client/ui/Overlays.tsx";
 
 afterEach(cleanup);
 
@@ -186,9 +188,12 @@ describe("위저드", () => {
    *
    * 남긴 하나는 장소다. 참가자에게 보인다고 믿으면 안내문에 장소를 안 적고,
    * 그러면 아무도 어디로 갈지 모른다 — 그건 라벨이 말해주지 않는다.
+   *
+   * **문단(`p`)도 함께 센다** (ADR-115). 3스텝의 예상 매칭 줄(`적당해요`)은 `.tiny.dim` 이 아니라서
+   * 이 검사를 빠져나가 있었다 — 그 사이 매칭이 파티 콕만 세게 됐는데(ADR-34) 프로필 투표 횟수로 재고 있었다.
    */
   it("★ 위저드에는 설명 줄이 장소 하나뿐이다", async () => {
-    const hints = () => [...document.querySelectorAll(".tiny.dim")].map((e) => e.textContent);
+    const hints = () => [...document.querySelectorAll(".tiny.dim, p")].map((e) => e.textContent);
 
     render(<RouterProvider router={stepAt(1)} />);
     await screen.findByLabelText(HOST_UI.fields.name);
@@ -255,6 +260,35 @@ describe("위저드", () => {
 
     const input = (await screen.findByLabelText(HOST_UI.fields.place)) as HTMLInputElement;
     await waitFor(() => expect(input.value).toBe("테스트 장소"));
+  });
+});
+
+describe("기본값 화면", () => {
+  /**
+   * ★ **설명 줄은 그 글이 어디로 나가는지 말하는 둘뿐이다** (ADR-115).
+   *
+   * 닉네임 안내 문구(등록 폼에 붙는다)와 안내문(치환 자리) — 라벨만으로는 어디로 가는지 모른다.
+   * `새 회차를 만들면 이 장소가 미리 채워져요` 는 화면 이름(`회차 기본 설정`)이 이미 하는 말이었고,
+   * `등록은 회차를 만들면 바로 시작돼요` 는 만든 회차가 곧바로 `등록 중` 으로 뜨는 것이 답한다.
+   */
+  it("★ 설명 줄은 닉네임 안내 문구와 안내문 둘뿐이다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify(DEFAULTS), { status: 200, headers: { "content-type": "application/json" } }),
+      ),
+    );
+    const router = createMemoryRouter(
+      [{ path: "/host/defaults", element: <Overlays><HostDefaults /></Overlays> }],
+      { initialEntries: ["/host/defaults"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    await screen.findByLabelText(HOST_UI.fields.nickHint);
+    expect(
+      [...document.querySelectorAll(".tiny.dim, p")].map((e) => e.textContent),
+      "기본값 화면의 설명 줄이 달라졌다",
+    ).toEqual([HOST_UI.fields.nickHintDefaultHint, HOST_UI.invite.templateHint]);
   });
 });
 

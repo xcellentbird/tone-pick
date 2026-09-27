@@ -323,10 +323,17 @@ export default function Seats() {
   /**
    * 카드 머리의 한 줄. 고른 사람이 없으면 무엇을 할 수 있는지, 있으면 누구를 골랐는지 —
    * **자리 비우기는 고른 뒤에만** 보인다. 상시로 두면 사람마다 버튼이 하나씩 붙는다.
+   *
+   * **초안에는 알림 경고가 없다** (ADR-115). `바뀐 자리는 본인에게 말해주세요` 는 발행된 라운드를 고칠 때의
+   * 말이다 (ADR-49) — 초안은 아직 아무에게도 안 나갔고, 확정하면 전원에게 알림이 간다.
    */
   function editBar(round: SeatingRound) {
     const one = picked?.round === round.round ? picked.playerId : null;
-    if (!one) return <p className="small dim">{HOST_UI.seats.swapHint}</p>;
+    if (!one) {
+      return (
+        <p className="small dim">{round.status === "draft" ? HOST_UI.seats.swapHintDraft : HOST_UI.seats.swapHint}</p>
+      );
+    }
     return (
       <div className="row between">
         <span className="small grow ellipsis">{HOST_UI.seats.pickedOne(nameOf(one))}</span>
@@ -871,7 +878,12 @@ function pairStats(round: SeatingRound, mutual: Array<[string, string]>) {
   return { total, together: total - split.length, split };
 }
 
-/** 이 배정이 제 일을 했는지 한눈에. 못 붙인 쌍은 운영자가 손볼 수 있는 유일한 신호다 */
+/**
+ * 이 배정이 제 일을 했는지 한눈에. 못 붙인 쌍은 운영자가 손볼 수 있는 유일한 신호다.
+ *
+ * **쌍이 없으면 아무것도 그리지 않는다** (ADR-115). 파티 전 초안에는 쌍이 있을 수가 없어서(ADR-34)
+ * `아직 없어요` 가 늘 떠 있었다. **다 붙었으면 요약 한 줄이다** — `N쌍 중 N쌍` 이 이미 그 말이다.
+ */
 function PairReport({
   round,
   mutual,
@@ -883,13 +895,11 @@ function PairReport({
 }) {
   const { total, together, split } = pairStats(round, mutual);
   const name = (id: string) => nickOf(state.players, id);
-  if (total === 0) return <p className="small dim">{HOST_UI.seats.pairNone}</p>;
+  if (total === 0) return null;
   return (
     <div className="stack">
       <span className="small">{HOST_UI.seats.pairSummary(together, total)}</span>
-      {split.length === 0 ? (
-        <span className="small okText">{HOST_UI.seats.pairAllTogether}</span>
-      ) : (
+      {split.length > 0 && (
         <span className="small warnText">
           {HOST_UI.seats.pairSplit(split.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", "))}
         </span>
@@ -1020,6 +1030,7 @@ function Unassigned({
       <span className="small accentText">
         {HOST_UI.seats.unassigned} <span className="filterCount">{sorted.length}</span>
       </span>
+      {/* 칩 아래 안내는 없다 (ADR-115) — 누르면 `어디에 앉힐까요?` 가 뜬다. 눌러 보면 아는 것이다 */}
       <div className="chips">
         {sorted.map((p) => (
           <button className="btn ghost chipBtn" key={p.id} onClick={() => onSeat(p.id)}>
@@ -1027,7 +1038,6 @@ function Unassigned({
           </button>
         ))}
       </div>
-      <span className="tiny dim">{HOST_UI.seats.unassignedHint}</span>
     </div>
   );
 }
@@ -1092,8 +1102,7 @@ function SeatPicker({
         {HOST_UI.seats.seatAuto(auto)}
       </button>
 
-      <p className="small dim">{HOST_UI.seats.seatPickNote}</p>
-
+      {/* 머리말은 없다 (ADR-115) — 성비가 어긋나는지는 줄마다의 남녀 수가 말한다 (ADR-79) */}
       <div className="stack">
         {tables.map((t) => (
           <button key={t.no} type="button" className="fact" onClick={() => onSeat(t.no)}>

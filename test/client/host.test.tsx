@@ -767,6 +767,24 @@ describe("운영자 콘솔", () => {
     expect(document.body.textContent).not.toContain(INVITE_TEMPLATE.split("{")[0]);
   });
 
+  /**
+   * ★ **명단 시트에는 설명 줄이 없다** (ADR-115). 칸과 목록이 스스로 말한다.
+   *
+   * `하이픈이 있어도 괜찮아요` — 칸이 스스로 3-4-4 로 끊어 보인다 (ADR-75).
+   * `이미 등록한 사람은 명단에서 빼도 파티에 남아 있어요` — 이 목록에는 **등록한 사람이 없다.**
+   * 장소가 비었다는 줄(`noPlace`)은 설명이 아니라 할 일이라 여기서 세지 않는다 — 장소를 넣고 연다.
+   */
+  it("★ 명단 시트에는 설명 줄이 없다 — 칸과 목록이 스스로 말한다", async () => {
+    const st = hostState({ place: "을지로" });
+    st.invites = [{ phone: "01099998888", addedAt: 2 }];
+    stubFetch(st);
+    renderConsole("/host/e1/players/invites");
+
+    await screen.findByText(HOST_UI.invites.waitingCount(1));
+    const sheet = document.body.querySelector("[role=dialog]")!;
+    expect([...sheet.querySelectorAll(".tiny")].map((e) => e.textContent), "명단 시트에 설명 줄이 섰다").toEqual([]);
+  });
+
   /** 클립보드는 happy-dom 에 없다. 컴포넌트가 쓰는 자리만 채운다 */
   function stubClipboard() {
     // 인자 타입을 적어야 `calls[0][0]` 을 읽을 수 있다
@@ -1293,8 +1311,12 @@ describe("운영자 콘솔", () => {
    *
    * ⚠️ 다만 `frozen` 은 남아야 한다. **설명이 아니라 상태**라, 굳은 칸이 왜 안 눌리는지는
    * 말해줘야 한다 — 같은 자리에 그려지므로 함께 지우기 쉽다.
+   *
+   * 그리고 **한 번만** 선다 (ADR-115). 줄마다 달았더니 파티 중에는 같은 문장이 네 번 쌓였다 —
+   * 굳은 줄들의 **맨 끝 줄** 아래 하나다. 매력 투표 중에는 알림 둘 아래(1위 콕은 아직 열려 있다),
+   * 파티부터는 1위 콕 아래다. 열린 줄 아래 서면 그 줄이 굳은 것처럼 읽힌다.
    */
-  it("★ 콕 설정에 설명 줄은 없고, 굳음 표시는 남는다", async () => {
+  it("★ 콕 설정에 설명 줄은 없고, 굳음 표시는 굳은 줄들 끝에 한 번 남는다", async () => {
     stubFetch(hostState());
     renderConsole("/host/e1/settings");
     fireEvent.click(await screen.findByText(HOST_UI.settings.rules));
@@ -1307,10 +1329,38 @@ describe("운영자 콘솔", () => {
 
     // 굳으면 그 자리에 `frozen` 이 선다 — 설명을 걷으면서 함께 사라지면 안 된다.
     // 굳는 기준은 `rulesLocked(fired)` 다 (ADR-35) — 콕이 오갈 수 있게 된 시점부터
-    stubFetch(hostState({ phase: "party", fired: { reg: Date.now() - 2 * HOUR, party: Date.now() - HOUR } }));
+    const cases = [
+      ["prevote", { reg: Date.now() - 2 * HOUR, prevote: Date.now() - HOUR }, HOST_UI.fields.pokeNotify],
+      ["party", { reg: Date.now() - 2 * HOUR, party: Date.now() - HOUR }, HOST_UI.fields.topVoteBonus],
+    ] as const;
+    for (const [phase, fired, last] of cases) {
+      stubFetch(hostState({ phase, fired }));
+      renderConsole("/host/e1/settings");
+      fireEvent.click(await screen.findByText(HOST_UI.settings.rules));
+      const notes = screen.getAllByText(HOST_UI.frozen);
+      expect(notes, `${phase}: 굳음 표시가 한 번이 아니다`).toHaveLength(1);
+      expect(notes[0].closest(".field")!.querySelector("label")!.textContent, `${phase}: 굳은 줄들 끝이 아니다`).toBe(last);
+      cleanup();
+    }
+  });
+
+  /**
+   * ★ **남는 설명 줄은 정해져 있다** (ADR-54 후기 2 · ADR-115).
+   *
+   * 기준은 하나다 — 왜 이 칸을 지금 못 쓰는지, 그리고 모르면 사고가 나는 것.
+   * 기본 정보에는 장소(참가자 화면에 안 보인다)와 입장 코드(바꾸지 않는다)만, 예약에는 발표 시각의
+   * `파티 중일 때만` 한 줄만 선다. `파티 시작` 곁설명은 **틀린 말**이었다 — 이 탭은 파티 시작만 바꾸고
+   * 나머지를 옮기지 않는다. 닉네임 문구 곁설명은 눌러 보면 아는 말이었다.
+   */
+  it("★ 기본 정보와 예약 묶음의 설명 줄은 정해진 것뿐이다", async () => {
+    stubFetch(hostState());
     renderConsole("/host/e1/settings");
-    fireEvent.click(await screen.findByText(HOST_UI.settings.rules));
-    expect(screen.getAllByText(HOST_UI.frozen).length, "굳음 표시까지 사라졌다").toBeGreaterThan(0);
+    await screen.findByLabelText(HOST_UI.fields.name);
+    const hints = () => [...document.querySelectorAll(".tiny.dim")].map((e) => e.textContent);
+
+    expect(hints(), "기본 정보의 설명 줄이 달라졌다").toEqual([HOST_UI.fields.placeHint, HOST_UI.codeFixed]);
+    fireEvent.click(screen.getByText(HOST_UI.settings.schedule));
+    expect(hints(), "예약의 설명 줄이 달라졌다").toEqual([HOST_UI.fields.revealHint]);
   });
 
   it("★ 콕이 오가기 시작하면 규칙 셋과 일정이 잠긴다 (ADR-35)", async () => {
@@ -1964,7 +2014,7 @@ describe("자리 검토 — 서로 찌른 쌍", () => {
     stubFetch(withSeats(true));
     renderConsole("/host/e1/seats");
 
-    await screen.findByText(HOST_UI.seats.pairAllTogether);
+    await screen.findByText(HOST_UI.seats.pairSummary(1, 1));
     const marked = chips().filter((t) => t.includes(HOST_UI.seats.pairChip(1)));
     expect(marked).toHaveLength(2);
     // 그림만으로 말하지 않는다 — 같은 것을 글자로도 준다
@@ -1977,7 +2027,7 @@ describe("자리 검토 — 서로 찌른 쌍", () => {
 
     // 떨어진 쌍은 이름으로 — 그게 운영자가 손볼 목록이다
     await screen.findByText(HOST_UI.seats.pairSplit("가 ↔ 나"));
-    expect(screen.queryByText(HOST_UI.seats.pairAllTogether)).toBeNull();
+    expect(screen.getByText(HOST_UI.seats.pairSummary(0, 1))).toBeTruthy();
 
     const marked = chips().filter((t) => t.includes(HOST_UI.seats.pairChip(0)));
     expect(marked).toHaveLength(2);
@@ -1989,11 +2039,97 @@ describe("자리 검토 — 서로 찌른 쌍", () => {
     stubFetch(withSeats(true));
     renderConsole("/host/e1/seats");
 
-    await screen.findByText(HOST_UI.seats.pairAllTogether);
+    await screen.findByText(HOST_UI.seats.pairSummary(1, 1));
     // 넷이 앉아 있고 그중 둘만 쌍이다
     expect(chips()).toHaveLength(4);
     expect(chips().filter((t) => t.includes(HOST_UI.seats.pairChipNote(1)))).toHaveLength(2);
     expect(chips().filter((t) => t.includes(HOST_UI.seats.pairChipNote(0)))).toHaveLength(0);
+  });
+
+  /**
+   * ★ **성적표는 할 일이 있을 때만 길어진다** (ADR-115).
+   *
+   * 다 붙었으면 `N쌍 중 N쌍` 한 줄이다 — `모든 쌍이 같은 테이블에 앉았어요` 를 또 말하지 않는다.
+   * 쌍이 없으면 줄이 없다. 파티 전 초안에는 쌍이 **있을 수가 없어서**(ADR-34) `아직 없어요` 가 늘 떠 있었고,
+   * 짝이 이 라운드에 자리가 없을 때도 `없어요` 라고 해서 틀리기까지 했다.
+   */
+  it("★ 다 붙었으면 요약 한 줄이고, 셀 쌍이 없으면 줄이 없다", async () => {
+    stubFetch(withSeats(true));
+    renderConsole("/host/e1/seats");
+    const summary = await screen.findByText(HOST_UI.seats.pairSummary(1, 1));
+    expect(summary.parentElement!.children, "다 붙었는데 성적표가 한 줄이 아니다").toHaveLength(1);
+    cleanup();
+
+    const draftCard = async () =>
+      (await screen.findByText(HOST_UI.seats.roundTitle(1))).closest(".card") as HTMLElement;
+
+    // 파티 전 초안 — 매칭은 파티 콕만 센다
+    const before = withSeats(true);
+    before.meta = { ...before.meta, phase: "prevote" };
+    before.mutual = [];
+    stubFetch(before);
+    renderConsole("/host/e1/seats");
+    expect(within(await draftCard()).queryByText(/서로 찌른/), "쌍이 있을 수 없는 초안에 쌍 줄이 섰다").toBeNull();
+    cleanup();
+
+    // 짝이 이 라운드에 자리가 없다 — 맞교환으로 붙일 수 없으니 셀 것도 없다
+    const away = withSeats(true);
+    away.players = [...away.players, { ...away.players[1], id: "p5", nickname: "마", realName: "김마" }];
+    away.mutual = [["p1", "p5"]];
+    stubFetch(away);
+    renderConsole("/host/e1/seats");
+    expect(within(await draftCard()).queryByText(/서로 찌른/), "셀 쌍이 없는데 쌍 줄이 섰다").toBeNull();
+  });
+});
+
+/**
+ * **자리 검토 카드는 테이블이 먼저다** (ADR-49 · ADR-115).
+ *
+ * 남는 줄은 눌러서는 알 수 없는 것뿐이다. 초안에는 알림 경고가 맞지 않고(아직 아무에게도 안 나갔다),
+ * 제외 칩은 누르면 `어디에 앉힐까요?` 가 뜨고, 그 시트에서 성비는 줄마다의 남녀 수가 말한다.
+ */
+describe("자리 검토 카드 — 눌러 보면 아는 것은 적지 않는다", () => {
+  /** 김가·김나가 앉은 초안. 김다는 자리가 없어 제외 칩으로 선다 */
+  function draft() {
+    const st = hostState({ phase: "party" });
+    st.players = [...st.players, { ...st.players[1], id: "p3", nickname: "다", realName: "김다", createdAt: 3 }];
+    st.seatings = [
+      {
+        round: 1,
+        tableCount: 1,
+        status: "draft",
+        seats: [
+          { playerId: "p1", table: 1 },
+          { playerId: "p2", table: 1 },
+        ],
+        acks: [],
+        createdAt: 50,
+      },
+    ];
+    return st;
+  }
+
+  it("★ 초안의 맞교환 안내에는 알림 경고가 없다 — 확정하면 전원에게 알림이 간다", async () => {
+    stubFetch(draft());
+    renderConsole("/host/e1/seats");
+
+    await screen.findByText(HOST_UI.seats.swapHintDraft);
+    expect(screen.queryByText(HOST_UI.seats.swapHint), "초안에 발행된 라운드의 경고가 섰다").toBeNull();
+  });
+
+  it("★ 제외 칩 아래에도, 앉힐 자리 시트에도 안내 줄이 없다", async () => {
+    stubFetch(draft());
+    renderConsole("/host/e1/seats");
+
+    const chip = await screen.findByRole("button", { name: "김다" });
+    // 머리말(`제외 1`)과 칩뿐이다 — 누르면 무엇이 뜨는지는 눌러 보면 안다
+    expect(chip.closest(".chips")!.parentElement!.querySelectorAll(".tiny"), "제외 칩 아래 안내 줄이 섰다").toHaveLength(0);
+
+    fireEvent.click(chip);
+    const sheet = await screen.findByRole("dialog", { name: HOST_UI.seats.seatTitle });
+    // 자동 한 줄과 테이블 줄뿐이다 — 성비가 어긋나는지는 줄마다의 남녀 수가 말한다 (ADR-79)
+    expect(within(sheet).getByText(HOST_UI.seats.seatTable(1))).toBeTruthy();
+    expect(sheet.querySelectorAll("p"), "앉힐 자리 시트에 안내 줄이 섰다").toHaveLength(0);
   });
 });
 

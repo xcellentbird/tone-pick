@@ -13,9 +13,9 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { BTN, HOST_UI, SCREEN_TITLE, pokeEstimateLabel } from "../../../shared/copy.ts";
+import { BTN, HOST_UI, SCREEN_TITLE } from "../../../shared/copy.ts";
 import type { CreateEventInput, Defaults, EventMeta } from "../../../shared/types.ts";
-import { DEFAULTS, LIMITS, pokeEstimate } from "../../../shared/constants.ts";
+import { DEFAULTS, LIMITS } from "../../../shared/constants.ts";
 import { SCHEDULE_STEP_MIN, fromLocalInput, snapSchedule, toLocalInput } from "../../../shared/time.ts";
 import { ApiError, api, post } from "../../lib/api.ts";
 import { useLoad } from "../../lib/useLoad.ts";
@@ -129,9 +129,6 @@ export default function HostWizard() {
     }
   }
 
-  const estimate = pokeEstimate(8, 8, maxPre);
-  const label = pokeEstimateLabel(estimate.pct);
-
   return (
     <div className="screen">
       <header>
@@ -200,7 +197,7 @@ export default function HostWizard() {
         */}
         {at === 2 && (
           <>
-            {/* 등록 시작은 묻지 않는다 (ADR-38) — 만들면 곧바로 열린다. 그 사실만 한 줄로 알린다 */}
+            {/* 등록 시작은 묻지 않는다 (ADR-38) — 만들면 곧바로 열린다. 알리는 줄도 없다: 만든 회차가 `등록 중` 으로 뜬다 */}
             <div className="field">
               <label htmlFor="prevote">{HOST_UI.fields.prevoteAt}</label>
               <input
@@ -242,8 +239,10 @@ export default function HostWizard() {
               max={LIMITS.maxParty.max}
               onChange={setMaxParty}
             />
-            {/* 기대 상호 매칭 쌍 수는 파티 규모와 무관하게 k² 에 수렴한다 — 고르는 자리에서 보여준다 */}
-            <p className={`small ${label.tone === "good" ? "okText" : "warnText"}`}>{label.label}</p>
+            {/*
+              **예상 매칭 줄은 없다** (ADR-115). 매칭이 파티 콕만 세게 된 뒤에도(ADR-34) 프로필 투표 횟수로 재고 있었고,
+              고른 값이 무엇을 뜻하는지 말하는 줄이기도 하다 (ADR-54 후기 2). 되살린다면 파티 콕으로 잰다.
+            */}
 
             {/*
               대상·되돌리기 둘·알림 둘. **다섯은 콕이 오가기 시작하면 함께 굳는다** (ADR-35) —

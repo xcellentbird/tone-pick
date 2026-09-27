@@ -230,6 +230,7 @@ export default function Settings() {
             닉네임 칸의 문구 (ADR-59). **등록이 열린 뒤에도 고칠 수 있다** —
             첫 참가자가 이상하게 적는 걸 보고 바로 고치고 싶어지는 값이다.
             기본값 화면에 적어둔 것이 새 회차로 넘어오고, 여기서 이 회차만 바뀐다.
+            곁설명은 없다 (ADR-115) — 이 탭의 칸은 전부 이 회차의 것이고, 안 잠긴 칸은 눌러 보면 고쳐진다.
           */}
           <div className="field">
             <label htmlFor="snick">{HOST_UI.fields.nickHint}</label>
@@ -239,19 +240,20 @@ export default function Settings() {
               maxLength={LIMITS.nickHintMax}
               onChange={(e) => setNickHint(e.target.value)}
             />
-            <span className="tiny dim">{HOST_UI.fields.nickHintEventHint}</span>
           </div>
           {/*
             **파티 시작이 여기 있다** (ADR-54) — 위저드 1스텝과 같은 자리다.
             나머지 일정이 여기서 거꾸로 계산되는 기준점이라 **먼저 정해져야 하는 값**이다.
             ⚠️ 예약이 된 뒤에도(ADR-93) `예약` 묶음으로 옮기지 마라 —
             거기 있으면 자기 자신을 기준으로 계산하는 칸이 되고, 위저드와도 어긋난다.
+
+            **곁설명은 없다** (ADR-115). `옮기면 나머지 일정이 함께 움직입니다` 가 여기 서 있었는데
+            이 칸은 파티 시작만 바꾼다 — 따라 움직이는 것은 위저드뿐이다.
           */}
           <When
             label={HOST_UI.fields.partyAt}
             value={schedule.partyAt}
             locked={schedLocked(meta.fired, "partyAt")}
-            hint={HOST_UI.fields.partyHint}
             onChange={(v) => setSchedule({ ...schedule, partyAt: v })}
           />
           {/* 입장 코드는 만든 뒤에 바꾸지 않는다 (ADR-22) — 이미 나간 안내와 어긋난다 */}
@@ -331,12 +333,17 @@ export default function Settings() {
             토글 다섯에 설명 셋이 붙어 화면이 글로 덮였다 — 켜고 끄는 자리가 읽는 자리가 됐다.
             ⚠️ 되붙이지 마라. 다만 `locked` 가 쓰는 `frozen` 은 **설명이 아니라 상태**라 남는다 —
             굳은 칸이 왜 안 눌리는지는 말해줘야 한다.
+
+            **굳음 표시는 굳은 줄들 맨 끝에 한 번만 선다** (ADR-115, `quiet`). 줄마다 달았더니 파티 중에는
+            같은 문장이 네 번 쌓였다. 매력 투표 중에는 알림 둘 아래, 파티부터는 1위 콕 아래다 —
+            1위 콕은 파티가 시작돼야 굳고, 그때는 위의 셋도 이미 굳어 있다 (`rulesLocked` 가 더 이르다).
           */}
           <Toggle
             label={HOST_UI.fields.pokeTarget}
             value={allowSameGender}
             options={TARGET_OPTIONS}
             locked={frozen}
+            quiet
             onChange={setAllowSameGender}
           />
           {/* 알림은 라운드마다 따로다 (ADR-43) — 매력 투표가 먼저 */}
@@ -345,6 +352,7 @@ export default function Settings() {
             value={preNotify}
             options={NOTIFY_OPTIONS}
             locked={frozen}
+            quiet
             onChange={setPreNotify}
           />
           <Toggle
@@ -352,6 +360,7 @@ export default function Settings() {
             value={pokeNotify}
             options={NOTIFY_OPTIONS}
             locked={frozen}
+            quiet={topVoteFrozen}
             onChange={setPokeNotify}
           />
           {/* 매력 투표 1위 보너스 콕 (ADR-100). 굳는 때가 위 셋과 다르다 — 매력 투표 시작이 아니라 **파티 시작** */}
