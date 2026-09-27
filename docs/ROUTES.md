@@ -22,7 +22,7 @@
 | `/host/events` `/host/defaults` | 회차 목록 · 기본 설정 |
 | `/host/new/1..3` | 새 회차 위저드 |
 | `/host/:id` `/players` `/seats` `/polls` `/settings` | 콘솔 5탭 |
-| `/host/:id/players/:pid` | 참가자 상세 시트 (모달) |
+| `/host/:id/players/:pid` | 참가자 상세 시트 (모달) — 참가자 탭의 카드, 설문 상세의 카드, **현황의 순위 줄**이 push 로 연다. 뒤로 가면 연 자리다 |
 | `/host/:id/players/invites` | **초대 명단 시트** (모달) — 참가자 탭 맨 위 카드가 연다. 더하기·안내문·아직 등록 안 한 사람이 전부 여기 (ADR-33 후기). `invites` 는 참가자 아이디와 겹치지 않는다 |
 | `/host/:id/seats/new` | 배정 1걸음 — **뺄 사람 고르기** 시트 (모달). 길은 하나뿐이다 (ADR-51) |
 | `/host/:id/seats/new/tables` | 배정 2걸음 — **테이블 수**. 걸음은 push 라 뒤로 가면 1걸음이다 (ADR-45) |

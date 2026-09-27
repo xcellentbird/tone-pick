@@ -373,6 +373,37 @@ describe("현황 탭의 순위 둘", () => {
       ]);
     }
   });
+
+  /**
+   * ★ **순위의 사람을 누르면 그 사람의 상세 시트가 뜬다.** 설문 상세의 카드와 같은 길이다 —
+   * 사람을 누르면 참가자 탭의 상세 시트(`/players/:pid`, push). 한 사람의 상세는 하나다.
+   * 뒤로 가기로 닫히고 현황으로 돌아온다 (ROUTES.md).
+   *
+   * **받은 콕은 시트에 따라가지 않는다** (ADR-30) — 순위 줄에만 있다.
+   */
+  it("★ 순위의 사람을 누르면 상세 시트가 뜨고, 뒤로 가면 현황이다", async () => {
+    stubFetch(hostState({ phase: "party" }, { received: { pre: { p2: 1 }, party: { p1: 2 } } }));
+    const router = createMemoryRouter(
+      [{ path: "/host/:id", element: <HostConsole />, children: HOST_CONSOLE_ROUTES }],
+      { initialEntries: ["/host/e1"] },
+    );
+    render(<RouterProvider router={router} />);
+    await screen.findByText(HOST_UI.dash.rankTitle(1));
+
+    // 콕 TOP 의 `가` 와 매력 투표 TOP 의 `나` — 두 순위가 같은 길이다
+    for (const [id, nick, real] of [["p1", "가", "김가"], ["p2", "나", "김나"]] as const) {
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(real) }));
+      const sheet = await screen.findByRole("dialog", { name: nick });
+      expect(router.state.location.pathname).toBe(`/host/e1/players/${id}`);
+      expect(sheet.textContent).toContain(real);
+      expect(sheet.textContent, "상세 시트에 받은 콕이 따라갔다").not.toContain("받은");
+
+      await act(async () => void (await router.navigate(-1)));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(router.state.location.pathname).toBe("/host/e1");
+      expect(screen.getByText(HOST_UI.dash.rankTitle(1))).toBeTruthy();
+    }
+  });
 });
 
 describe("운영자 콘솔", () => {
