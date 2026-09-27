@@ -92,7 +92,6 @@ function fakeSource(over: Partial<ParticipantSource> = {}): ParticipantSource & 
     /* 익명 쪽지는 여기서 재지 않는다 — 규칙은 `test/36-anon-note.test.ts` 가 본다 */
     sendNote: async () => NOTE_STATE,
     seeNotes: async () => NOTE_STATE,
-    removeNote: async () => NOTE_STATE,
     load: async () => participantState(),
     poke: async (toId) => {
       calls.poke.push(toId);

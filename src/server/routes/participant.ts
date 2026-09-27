@@ -301,18 +301,6 @@ participantRoutes.post("/note/seen", async (c) => {
 });
 
 /**
- * 받는 사람이 자기 줄을 지운다. **발신자에게는 아무것도 안 간다** (ADR-98) —
- * 예산도 보낸 줄도 읽음도 그대로다. 지우는 것은 고르는 것이라 돌아가지 않는다.
- */
-participantRoutes.post("/note/remove", async (c) => {
-  const seat = await seatOf(c);
-  if (!seat) return apiError(c, "unauthorized");
-  const body = (await c.req.json().catch(() => ({}))) as { id?: unknown };
-  const { value, response } = unwrap(c, await seat.stub.removeNote(seat.playerId, body.id, serverNow()));
-  return response ?? c.json(value);
-});
-
-/**
  * A/B 투표에 한 표 (슬라이스 14).
  *
  * **갱신된 알림 하나를 돌려준다.** 화면은 이 값을 그대로 쓰고 다시 읽지 않는다 —

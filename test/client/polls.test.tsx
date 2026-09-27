@@ -147,7 +147,6 @@ describe("참가자 설문 카드", () => {
     load: async () => state(),
     sendNote: async () => state().note,
     seeNotes: async () => state().note,
-    removeNote: async () => state().note,
     poke: async () => state().poke,
     unpoke: async () => state().poke,
     markStage: async () => {},

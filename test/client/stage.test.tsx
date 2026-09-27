@@ -79,7 +79,6 @@ function sourceOf(state: ParticipantState) {
     seen,
     sendNote: async () => state.note,
     seeNotes: async () => state.note,
-    removeNote: async () => state.note,
     load: async () => state,
     poke: async () => POKE,
     unpoke: async () => POKE,

@@ -22,12 +22,10 @@ export interface ParticipantSource {
    */
   sendNote(toId: string, text: string): Promise<MyNoteState>;
   /**
-   * 홈을 열었다 — 안 본 줄을 읽음으로. **덮개가 덮고 있거나 가리기가 켜져 있으면 부르지 마라**
-   * (본문을 볼 수 없는 사람을 읽은 것으로 찍으면 배지가 거짓말을 한다).
+   * 쪽지함의 받은 쪽지를 열었다 — 안 본 줄을 읽음으로 (ADR-119). **쪽지함이 열려 있지 않으면 부르지 마라**
+   * (자리 확인 덮개가 서면 쪽지함이 닫힌다. 본문을 볼 수 없는 사람을 읽은 것으로 찍으면 배지가 거짓말을 한다).
    */
   seeNotes(): Promise<MyNoteState>;
-  /** 받은 줄을 지운다. **발신자에게는 아무것도 안 간다** (ADR-98) */
-  removeNote(id: string): Promise<MyNoteState>;
   ackSeat(round: number): Promise<void>;
   /** 단계 안내를 봤다 (ADR-96). 어느 단계를 봤는지 보낸다 — 서버가 지금 단계를 대신 적지 않는다 */
   markStage(stage: StageKey): Promise<void>;
@@ -97,7 +95,6 @@ export function sessionSource(code: string): ParticipantSource {
     unpoke: (toId) => post<MyPokeState>("/unpoke", { toId }),
     sendNote: (toId, text) => post<MyNoteState>("/note", { toId, text }),
     seeNotes: () => post<MyNoteState>("/note/seen", {}),
-    removeNote: (id) => post<MyNoteState>("/note/remove", { id }),
     ackSeat: async (round) => {
       await post("/seat/ack", { round });
     },

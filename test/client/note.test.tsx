@@ -7,10 +7,10 @@
  *   · 쓰는 입구는 프로필 시트의 ✉️ 하나다. 가리기 중에는 잠긴다 (S-B5)
  *   · 상단 바의 쪽지함은 **늘 선다.** 프로필 투표와 함께 켜지고, 쪽지를 끈 회차에서는 꺼진 채다 (ADR-111 · 후기 1)
  *   · 받은 쪽지는 **익명 쪽지함에만** 있다 — 홈 소식에는 없다
- *   · 읽음은 **쪽지함을 열 때** 찍힌다. 덮개·가리기 아래에서는 안 찍는다 (S-B2)
+ *   · 읽음은 **쪽지함의 받은 쪽지를 열 때** 찍힌다. 가리기가 켜져 있어도 찍힌다 — 쪽지함에는 가리기가 없다 (ADR-119)
  *   · 쪽지함을 열면 **서버에서 다시 읽는다** — 새로 온 쪽지와 상대의 읽음이 새로고침 없이 선다 (ADR-118)
  *   · 보낸 쪽지의 읽음 배지는 **쪽지함을 열며 다시 읽은 값으로 굳는다** (S-B4)
- *   · 받은 줄에 누를 수 있는 것은 **지우기 하나**다 (S-C3)
+ *   · 받은 줄에는 **누를 것이 없다** — 지우기도 가리기도 없다 (ADR-119)
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -69,7 +69,7 @@ function stateOf(note: MyNoteState = EMPTY, over: { phase?: Phase; maxNotes?: nu
 }
 
 function sourceOf(state: ParticipantState) {
-  const calls = { seen: 0, removed: [] as string[], sent: [] as Array<[string, string]> };
+  const calls = { seen: 0, sent: [] as Array<[string, string]> };
   const src: ParticipantSource & { calls: typeof calls } = {
     key: "t",
     calls,
@@ -83,10 +83,6 @@ function sourceOf(state: ParticipantState) {
     seeNotes: async () => {
       calls.seen++;
       return { ...state.note, unread: 0 };
-    },
-    removeNote: async (id) => {
-      calls.removed.push(id);
-      return state.note;
     },
     ackSeat: async () => {},
     markStage: async () => {},
@@ -359,22 +355,20 @@ describe("익명 쪽지함 — 받은 쪽지", () => {
     await waitFor(() => expect(src.calls.seen).toBe(1));
   });
 
-  it("★ 가리기 중에는 본문을 덮고 읽음으로 찍지 않는다 — 안 읽고 지우는 길이다 (S-B2)", async () => {
-    const open = sourceOf(stateOf(got));
-    mount(open, { tab: "home", notesOpen: true });
-    await screen.findByText("아까 웃는 모습이 좋았어요");
-    fireEvent.click(screen.getByText(PEOPLE.cover));
-    await waitFor(() => expect(screen.queryByText("아까 웃는 모습이 좋았어요")).toBeNull());
-    // 가려도 줄은 남는다 — 온 줄도 모르면 안 된다. 지우기도 그대로다
-    expect(screen.getByText(NOTE.inbox.covered)).toBeTruthy();
-    expect(screen.getByText(NOTE.remove)).toBeTruthy();
+  it("★ 가리기가 켜져 있어도 쪽지함에서는 본문이 보이고 읽음으로 찍힌다 — 쪽지함에는 가리기가 없다 (ADR-119)", async () => {
+    // 참가자 탭에서 켜 둔 가리기다 (`useCovered` 는 localStorage 하나)
+    const people = sourceOf(stateOf(got));
+    mount(people, { tab: "people" });
+    fireEvent.click(await screen.findByText(PEOPLE.cover));
+    await screen.findByText(PEOPLE.uncover);
     cleanup();
 
-    const covered = sourceOf(stateOf(got));
-    mount(covered, { tab: "home", notesOpen: true });
-    await screen.findByText(NOTE.inbox.covered);
-    await act(async () => {});
-    expect(covered.calls.seen, "가린 채로 열었는데 읽음이 찍혔다").toBe(0);
+    const src = sourceOf(stateOf(got));
+    mount(src, { tab: "home", notesOpen: true });
+    expect(await screen.findByText("아까 웃는 모습이 좋았어요")).toBeTruthy();
+    expect(within(document.querySelector(".inbox") as HTMLElement).queryByText(PEOPLE.cover)).toBeNull();
+    expect(within(document.querySelector(".inbox") as HTMLElement).queryByText(PEOPLE.uncover)).toBeNull();
+    await waitFor(() => expect(src.calls.seen, "받은 쪽지를 열었는데 읽음이 안 찍혔다").toBe(1));
   });
 
   it("★ 안 읽은 것이 없으면 열어도 읽음 요청을 보내지 않는다 — 쪽지함을 열 때마다 서버에 쓰지 않는다", async () => {
@@ -383,28 +377,6 @@ describe("익명 쪽지함 — 받은 쪽지", () => {
     await screen.findByText("아까 웃는 모습이 좋았어요");
     await act(async () => {});
     expect(src.calls.seen).toBe(0);
-  });
-
-  it("★ 연 동안 새로 온 쪽지는 읽음으로 찍힌다 — 지우기와 한 응답에 겹쳐 줄 수가 그대로여도", async () => {
-    /*
-     * 줄 수로 다시 찍을지 정하면, 지운 한 장과 새로 온 한 장이 한 응답에 겹칠 때 줄 수가 그대로라
-     * **화면에 떠 있는 새 쪽지가 읽음으로 안 찍혔다.** 안 읽은 수로 정한다.
-     */
-    const state = stateOf({ ...got, unread: 0 });
-    const src = sourceOf(state);
-    src.removeNote = async (id) => {
-      src.calls.removed.push(id);
-      return { ...state.note, received: [{ id: "n2", text: "새로 온 쪽지" }], unread: 1 };
-    };
-    mount(src, { tab: "home", notesOpen: true });
-    await screen.findByText("아까 웃는 모습이 좋았어요");
-    await act(async () => {});
-    const before = src.calls.seen;
-    fireEvent.click(screen.getByText(NOTE.remove));
-    const dialog = await screen.findByRole("dialog", { name: NOTE.removeConfirm.title });
-    fireEvent.click(within(dialog).getByRole("button", { name: NOTE.remove }));
-    expect(await screen.findByText("새로 온 쪽지")).toBeTruthy();
-    await waitFor(() => expect(src.calls.seen, "화면에 뜬 새 쪽지가 읽음으로 안 찍혔다").toBe(before + 1));
   });
 
   it("★ 덮개가 덮고 있으면 읽음으로 찍지 않는다 (S-B2)", async () => {
@@ -465,12 +437,12 @@ describe("익명 쪽지함 — 받은 쪽지", () => {
     await waitFor(() => expect(src.calls.seen).toBe(2));
   });
 
-  it("★ 누를 수 있는 것은 지우기 하나다 — `누구인지는 비밀이에요` 줄도 없다 (S-C3)", async () => {
+  it("★ 받은 줄에는 누를 것이 없다 — 지우기도 `누구인지는 비밀이에요` 줄도 없다 (ADR-119)", async () => {
     mount(sourceOf(stateOf(got)), { tab: "home", notesOpen: true });
     await screen.findByText("아까 웃는 모습이 좋았어요");
-    // 답장도 반응도 신고도 없다. 그 셋 중 하나라도 생기면 이것은 채팅이다 (ADR-98)
-    const inList = [...document.querySelectorAll(".inbox .banner button")].map((b) => b.textContent);
-    expect(inList).toEqual([NOTE.remove]);
+    // 답장도 반응도 신고도 없다. 그 셋 중 하나라도 생기면 이것은 채팅이다 (ADR-98). 지우기도 걷었다 (ADR-119)
+    expect(document.querySelectorAll(".inbox .banner button")).toHaveLength(0);
+    expect(screen.queryByText("지우기")).toBeNull();
     // 제목이 `익명` 을 말하므로 이 줄은 없다. 받은 콕 줄에서도 같은 이유로 걷었다 (ADR-113) — 되살리지 않는다
     expect(screen.queryByText("누구인지는 비밀이에요")).toBeNull();
   });
@@ -497,16 +469,6 @@ describe("익명 쪽지함 — 보낸 쪽지", () => {
     // `읽음` 이지 `21:05에 읽음` 이 아니다
     expect(screen.getByText(NOTE.read).textContent).toBe(NOTE.read);
     expect(screen.getByText(NOTE.unread)).toBeTruthy();
-  });
-
-  it("★ 가리기 중에는 보낸 쪽지가 통째로 안 보인다", async () => {
-    mount(sourceOf(stateOf(mine)), { tab: "home", notesOpen: true });
-    fireEvent.click(await screen.findByText(NOTE.inbox.sent));
-    await screen.findByText("커피 이야기");
-    fireEvent.click(screen.getByText(PEOPLE.cover));
-    await waitFor(() => expect(screen.queryByText("커피 이야기")).toBeNull());
-    // 누구에게 보냈는지가 본문보다 먼저 샌다
-    expect(screen.queryByText(NOTE.inbox.to("그녀"))).toBeNull();
   });
 
   it("★ 쪽지함을 열면 다시 읽는다 — 상대가 읽은 쪽지가 `읽지 않음` 으로 남지 않는다 (ADR-118)", async () => {
