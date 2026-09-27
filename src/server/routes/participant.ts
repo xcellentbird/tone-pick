@@ -328,7 +328,7 @@ participantRoutes.post("/fortune", async (c) => {
   // 명단·콕까지 빚는 `participantState()` 대신 **좁은 읽기**다. 파티 시작 때 인원 수만큼 열린다
   const ctx = await seat.stub.fortuneContext(seat.playerId, serverNow());
   if (!ctx.ok) return apiError(c, "not_found");
-  // 매력 투표와 함께 열린다 (ADR-20 후기). 그 전에는 탭이 꺼져 있다
+  // 매력 투표와 함께 열린다 (ADR-20 후기). 탭은 등록부터 켜져 있고(슬라이스 19) 그 전에는 카드가 닫힌 채 이 문장을 건다
   if (!canOpenFortune(ctx.value.phase)) return apiError(c, "closed", FORTUNE.closed);
   // 한 번 연 운세는 다시 만들지 않는다 (ADR-20)
   if (ctx.value.fortune) return c.json(ctx.value.fortune);
@@ -397,6 +397,42 @@ participantRoutes.post("/fortune/mission", async (c) => {
   // 운세 본문은 건드리지 않는 전용 경로다 — `saveFortune` 로 덮으면 ADR-20 이 무너진다
   const { value, response } = unwrap(c, await seat.stub.saveMission(seat.playerId, made));
   return response ?? c.json(value);
+});
+
+/**
+ * 이상형 찾기 결과를 남긴다 (슬라이스 19). **계산은 기기가 끝냈다** — 여기서는 받은 것을 넘길 뿐이고,
+ * 모양 검사는 DO 가 한다 (상태를 바꾸는 쪽이 문지기다).
+ *
+ * **단계를 보지 않는다** (S-A2). 돌려주는 건 언제나 **저장된 행**이다 — 다른 기기가 먼저 끝냈으면
+ * 그쪽이다 (S-E2). 화면은 이 응답을 그대로 그리고 다시 읽지 않는다 (`/vote` 와 같다).
+ */
+participantRoutes.post("/ideal", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const body: unknown = await c.req.json().catch(() => ({}));
+  const { value, response } = unwrap(c, await seat.stub.saveIdeal(seat.playerId, body, serverNow()));
+  if (response) return response;
+  const { ideal, first } = value!;
+  // 첫 저장에서만 센다 — 늦은 기기의 두 번째 저장은 세지 않는다. 어느 연예인인지는 담지 않는다 (S-D4)
+  if (first) pulse(c.env, { kind: "ideal", key: "save", v: ideal.v });
+  return c.json(ideal);
+});
+
+/**
+ * 정답 확인 (S-C4). 한 번만 받는다 — 이미 답했으면 저장된 행을 그대로 돌려준다.
+ * 결과가 없으면 404, 결과 셋에 없는 사람이면 400.
+ */
+participantRoutes.post("/ideal/verdict", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const body: unknown = await c.req.json().catch(() => ({}));
+  const { value, response } = unwrap(c, await seat.stub.saveIdealVerdict(seat.playerId, body, serverNow()));
+  if (response) return response;
+  const { ideal, first } = value!;
+  if (first && ideal.verdict) {
+    pulse(c.env, { kind: "ideal", key: "chosen" in ideal.verdict ? "chosen" : "none", v: ideal.v });
+  }
+  return c.json(ideal);
 });
 
 /**

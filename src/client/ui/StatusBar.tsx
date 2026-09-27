@@ -91,7 +91,7 @@ export default function StatusBar({
           className="helpBtn inboxBtn"
           aria-label={inbox.unread > 0 ? `${NOTE.inbox.open} ${NOTE.inbox.unread(inbox.unread)}` : NOTE.inbox.open}
           /*
-            꺼진 쪽지함은 **죽은 버튼이 아니다** — 꺼진 재미 탭과 같은 수다(`Participant` 의 `Tabs`).
+            꺼진 쪽지함은 **죽은 버튼이 아니다** — 아직 안 열린 미션 뒷면과 같은 수다(`Fortune.tsx`).
             `disabled` 로 두면 누른 것 자체가 안 와서 왜 꺼져 있는지 말할 수 없다.
           */
           aria-disabled={!!inbox.off || undefined}

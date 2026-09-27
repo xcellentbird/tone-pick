@@ -1,5 +1,5 @@
 /**
- * 재미 탭의 **첫 카드** — 매력 투표와 함께 열리는 운세 카드 (ADR-20).
+ * 재미 탭의 **첫 카드** — 매력 투표와 함께 열리는 운세 카드 (ADR-20). 두 번째 카드는 이상형 찾기다 (슬라이스 19).
  *
  * 이 앱에서 유일하게 기능이 아니라 **재미**인 자리다. 그래도 규칙은 같다.
  *
@@ -8,11 +8,12 @@
  *  · 뒤집기는 의식이다 — 여는 동작이 있어야 그 한 줄이 오늘 것처럼 읽힌다.
  *    그리고 그 0.6초가 LLM 을 기다리는 시간을 자연스럽게 덮는다
  *  · 움직임을 원치 않는 사람에게는 뒤집지 않고 바로 보여준다 (prefers-reduced-motion)
- *  · 카드 하나뿐인 화면이다 — 화면을 채운다 (fortuneFill). 내용이 길면 그대로 스크롤된다
+ *  · **문은 카드가 지킨다.** 탭은 등록부터 켜져 있어서(슬라이스 19) 매력 투표 전에도 이 카드가 보인다 —
+ *    그때는 생년월일 칸 없이 언제 열리는지만 말한다 (미션 뒷면과 같은 모양)
  */
 import { useState } from "react";
 import { FORTUNE } from "../../shared/copy.ts";
-import { canOpenMission } from "../../shared/phase.ts";
+import { canOpenFortune, canOpenMission } from "../../shared/phase.ts";
 import { paragraphs, validBirth, type Fortune } from "../../shared/fortune.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { messageOf, post } from "../lib/api.ts";
@@ -22,6 +23,12 @@ export default function FortuneTab({ state, onFortune }: { state: ParticipantSta
   const [opening, setOpening] = useState(false);
   const [card, setCard] = useState<Fortune | undefined>(state.fortune);
   const [missionOpening, setMissionOpening] = useState(false);
+  /*
+   * **이 화면에서 방금 연 것만 뒤집힌다** (ADR-64). 이미 연 카드가 다시 그려질 때 — 탭을 오가거나 이상형 찾기에서
+   * 돌아올 때 — 또 돌면 내가 누르지 않은 순간에 움직인다. 여는 동작이 있었다는 것을 여기 적어 둔다.
+   */
+  const [flipped, setFlipped] = useState(false);
+  const [missionFlipped, setMissionFlipped] = useState(false);
   const [birth, setBirth] = useState("");
   const [birthErr, setBirthErr] = useState(false);
   const { toast } = useOverlay();
@@ -41,6 +48,7 @@ export default function FortuneTab({ state, onFortune }: { state: ParticipantSta
     setOpening(true);
     try {
       const f = await post<Fortune>("/fortune", { birth });
+      setFlipped(true);
       setCard(f);
       // 다음에 이 화면을 열 때는 이미 열린 채로 시작한다 — 서버가 돌려준 그 카드라 `/me` 를 다시 묻지 않는다
       onFortune(f);
@@ -61,6 +69,7 @@ export default function FortuneTab({ state, onFortune }: { state: ParticipantSta
     setMissionOpening(true);
     try {
       const f = await post<Fortune>("/fortune/mission", {});
+      setMissionFlipped(true);
       setCard(f);
       onFortune(f);
     } catch (e) {
@@ -70,9 +79,26 @@ export default function FortuneTab({ state, onFortune }: { state: ParticipantSta
     }
   }
 
+  /*
+   * **아직 열리지 않은 운세** (매력 투표 전). 한동안 탭 자체가 꺼져 있어 이 카드가 닫힌 모습을 가질 일이 없었다 —
+   * 탭의 문을 걷으면서(슬라이스 19) 카드가 제 문을 맡는다. 생년월일 칸을 내밀면 치고 누른 뒤에야 서버가 거절한다.
+   * 못 여는 게 아니라 **아직 안 열린 것**이라고 말한다 (미션 뒷면의 `missionClosed` 와 같은 수).
+   * 이미 연 카드는 단계가 뒤로 물려도 그대로 보인다 — 한 번 연 것은 남는다.
+   */
+  if (!card && !canOpenFortune(state.event.phase)) {
+    return (
+      <div className="fortuneBack" aria-disabled="true">
+        <span className="orb" aria-hidden>
+          🔮
+        </span>
+        <span className="small">{FORTUNE.closed}</span>
+      </div>
+    );
+  }
+
   if (!card) {
     return (
-      <div className="stack fortuneFill">
+      <div className="stack">
         <div className={`fortuneBack ${opening ? "opening" : ""}`}>
           <span className="sparkles" aria-hidden>
             ✦ ✧ ✦
@@ -113,8 +139,8 @@ export default function FortuneTab({ state, onFortune }: { state: ParticipantSta
   }
 
   return (
-    <div className="stack fortuneFill">
-      <div className={`card stack fortuneCard tone-${card.color}`}>
+    <div className="stack">
+      <div className={`card stack fortuneCard tone-${card.color}${flipped ? " flip" : ""}`}>
         {/* 운세를 읽어준 사람. 카드가 길어도 글의 머리가 어디인지 한눈에 잡힌다 */}
         <span className="fortuneMage" aria-hidden>
           🧙‍♀️
@@ -134,7 +160,7 @@ export default function FortuneTab({ state, onFortune }: { state: ParticipantSta
           뒷면은 **미션이 들어설 그 자리**에 있다. 열려도 화면이 튀지 않는다.
         */}
         {card.mission ? (
-          <div className="fortuneMission opened">
+          <div className={`fortuneMission opened${missionFlipped ? " flip" : ""}`}>
             <div className="kicker">🎯 {FORTUNE.missionTitle}</div>
             {/*
               **왜 오늘 이것인지가 먼저다.** 한 줄만 던지면 남이 준 숙제로 읽히고,

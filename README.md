@@ -160,6 +160,7 @@ src/
 │   ├── phase.ts       5단계 + 일회성 알람 모델(dueTransition / schedLocked)
 │   ├── constants.ts   기본값 · 자리 배정 가중치(SEAT_W) · 콕 기대 매칭(k²)
 │   ├── fortune.ts     LLM 에 보내는 값을 만드는 곳 — fortuneInput / missionInput (ADR-20)
+│   ├── ideal.ts       이상형 찾기 — 모양 검사 · 고르는 순수 함수. 계산은 기기에서 (ADR-122)
 │   ├── pulse.ts       지표 허용 목록 (ADR-56)
 │   ├── copy.ts        화면에 나가는 **모든** 문구. 밖에 하드코딩하면 check:copy 가 잡는다
 │   ├── invite.ts      안내문 렌더링 — {장소} {일시} {링크} (ADR-75)
@@ -190,6 +191,7 @@ test/                                번호는 대개 슬라이스, 일부는 AD
 ├── 02-register-poke-reveal.test.ts  등록·콕·공개 범위
 ├── 05-seating.test.ts               자리 배정 불변식 (순수 함수)
 ├── 15-pin-entry.test.ts             번호 + PIN 번호로 들어오는 길 (ADR-75)
+├── 19-ideal-type.test.ts            이상형 찾기의 고르는 함수 (순수 함수 — 테스트 먼저)
 ├── 22-poke-rules.test.ts            매력 투표 ↔ 콕 라운드 경계 (ADR-34)
 ├── 44-tab-sessions.test.ts          탭마다 다른 참가자 (ADR-44)
 ├── client/                          화면이 조용히 죽지 않는지 (ADR-8)

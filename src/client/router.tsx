@@ -99,6 +99,9 @@ export const PARTICIPANT_ROUTES = [
   { path: "/e/:code/help", element: chunk(<Participant />) },
   // 익명 쪽지함 (ADR-98 후기 3). 도움말과 같다 — 상단 바에서 어느 탭에서든 연다
   { path: "/e/:code/notes", element: chunk(<Participant />) },
+  // 이상형 찾기 (슬라이스 19). 시작·결과가 한 주소, 라운드는 등록 스텝처럼 `:round` — 재미 탭 안의 페이지다
+  { path: "/e/:code/ideal", element: chunk(<Participant />) },
+  { path: "/e/:code/ideal/:round", element: chunk(<Participant />) },
 ];
 
 /**

@@ -55,6 +55,11 @@ export default defineConfig({
       },
       {
         plugins: [react()],
+        /*
+         * 이상형 찾기의 문은 빌드가 연다 (`src/client/lib/faces.ts`). 화면 테스트는 픽스처 풀을 `fetch` 로 내주므로
+         * **열린 빌드**로 잰다. 닫힌 빌드는 `ideal-gate.test.tsx` 가 그 모듈을 갈아 끼워 잰다.
+         */
+        define: { __IDEAL_FACES__: "true" },
         test: {
           name: "client",
           environment: "happy-dom",

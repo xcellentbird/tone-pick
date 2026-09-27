@@ -1391,7 +1391,7 @@ describe("재미 탭 · 운세 카드", () => {
     );
   }
 
-  it("★ 파티가 시작되면 탭이 생긴다", async () => {
+  it("★ 파티 중에도 탭이 그 자리에 있다", async () => {
     renderFortune(party());
     expect(await screen.findByText(FUN_TAB.label)).toBeTruthy();
   });
@@ -3253,25 +3253,39 @@ describe("탭 역할 분담", () => {
   });
 
   /**
-   * '재미' 탭은 **없다가 생기지 않는다** (ADR-20 후기).
-   *
-   * 처음부터 자리를 지키고 매력 투표와 함께 켜진다 — 도중에 생기면 넷이 나눠 쓰던 폭이
+   * '재미' 탭은 **없다가 생기지 않는다** (ADR-20 후기) — 도중에 생기면 넷이 나눠 쓰던 폭이
    * 통째로 다시 나뉘어, 손가락이 기억한 자리가 어긋난다.
+   *
+   * 그리고 **등록부터 켜져 있다** (슬라이스 19 S-A2). 한동안 운세의 문을 빌려 매력 투표 전에는 꺼져 있었다 —
+   * 이상형 찾기가 등록부터 열리면서 탭의 문을 걷었다. 운세 카드는 카드 안에서 제 문을 지킨다.
    */
-  it("★ 매력 투표 전에도 '재미' 탭은 자리를 지킨다 — 꺼져 있을 뿐이다", async () => {
+  it("★ 매력 투표 전에도 '재미' 탭은 자리를 지키고 켜져 있다", async () => {
     renderTab("home", inPhase("reg"));
     await screen.findByText(FUN_TAB.label);
 
     expect(document.querySelectorAll(".tabbar button")).toHaveLength(TABS_PARTICIPANT.length);
-    expect(funTab().getAttribute("aria-disabled")).toBe("true");
+    expect(funTab().getAttribute("aria-disabled")).toBeNull();
   });
 
-  it("★ 꺼진 '재미' 탭은 언제 열리는지 말한다 — 눌러도 조용하면 고장으로 읽힌다", async () => {
-    renderTab("home", inPhase("reg"));
+  it("★ 등록 중 '재미' 탭을 누르면 그 탭으로 간다 — 토스트로 막지 않는다", async () => {
+    const onTab = vi.fn();
+    render(
+      <MemoryRouter>
+        <ParticipantView
+          onHelp={() => {}}
+          source={fakeSource({ load: async () => participantState(inPhase("reg")) })}
+          tab="home"
+          onTab={onTab}
+          onProfile={() => {}} onNote={() => {}}
+          onEdit={() => {}} onSeat={() => {}}
+        />
+      </MemoryRouter>,
+    );
     await screen.findByText(FUN_TAB.label);
 
     fireEvent.click(funTab());
-    expect(await screen.findByText(FORTUNE.closed)).toBeTruthy();
+    expect(onTab).toHaveBeenCalledWith("fun");
+    expect(screen.queryByText(FORTUNE.closed)).toBeNull();
   });
 });
 
