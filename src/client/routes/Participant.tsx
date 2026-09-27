@@ -476,6 +476,30 @@ function Loaded({
     if (!notesOpen) setInboxSeg("received");
   }, [notesOpen]);
   /*
+   * **쪽지함을 열면 서버에서 다시 읽는다** (ADR-118). 받는 사람은 소켓 신호로도 다시 읽지만, 보낸 사람의 읽음 배지는
+   * 신호가 없다 — 상대가 읽은 쪽지가 마지막으로 읽은 화면의 값(`읽지 않음`)으로 굳어 있었다.
+   * 쪽지 한 칸만 갈아끼운다(`setNote`). 망이 흔들려 못 읽었으면 가진 값으로 굳는다.
+   */
+  const [inboxFresh, setInboxFresh] = useState(false);
+  useEffect(() => {
+    setInboxFresh(false);
+    if (!notesOpen) return;
+    let alive = true;
+    const done = () => alive && setInboxFresh(true);
+    source.load().then(
+      (next) => {
+        if (!alive) return;
+        setNote(next.note);
+        done();
+      },
+      done,
+    );
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notesOpen]);
+  /*
    * **안 읽은 것이 있을 때만 찍는다** (`note.unread`). 한동안 줄 수(`received.length`)로 정했는데 둘이 샜다 —
    * 다 읽은 쪽지함을 열 때마다 서버에 쓰는 요청이 나갔고, 지운 한 장과 새로 온 한 장이 한 응답에 겹치면
    * 줄 수가 그대로라 **화면에 뜬 새 쪽지가 읽음으로 안 찍혔다.**
@@ -606,7 +630,7 @@ function Loaded({
 
         {/*
           익명 쪽지함 (ADR-98 후기 3). 어느 탭에서 열든 같은 것이 뜬다.
-          **열릴 때마다 새로 붙는다** — 보낸 쪽지의 읽음 배지가 그 순간의 값으로 굳는 것이 여기서 나온다.
+          **열릴 때마다 새로 붙는다** — 보낸 쪽지의 읽음 배지가 열며 다시 읽은 값으로 굳는 것이 여기서 나온다.
         */}
         <Sheet open={!!notesOpen && inboxLive && !seatUp} onClose={() => onNotes?.(false)} title={NOTE.inbox.title}>
           {notesOpen && inboxLive && (
@@ -616,6 +640,7 @@ function Loaded({
               seg={inboxSeg}
               onSeg={setInboxSeg}
               open={canNote(state.event.phase) && (state.event.config.maxNotes ?? 0) > 0}
+              fresh={inboxFresh}
               covered={covered}
               setCovered={setCovered}
               onRemove={async (id) => setNote(await source.removeNote(id))}

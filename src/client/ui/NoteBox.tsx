@@ -8,13 +8,14 @@
  * 지키는 것은 그대로다 —
  *   · 받은 줄에 누를 수 있는 것은 **지우기 하나**다. 답장·반응·신고가 없다 (ADR-98)
  *   · 가리기 중에는 **본문만 덮고 줄은 남긴다.** 보낸 쪽지는 통째로 감춘다 — 누구에게 보냈는지가 먼저 샌다
- *   · 보낸 쪽지의 읽음 배지는 **이 시트를 연 순간의 값으로 굳는다** (S-B4) — 이 컴포넌트는
- *     시트가 열릴 때 붙고 닫히면 떨어지므로, 붙는 순간 한 번 받아 둔 값이 곧 그 값이다
+ *   · 보낸 쪽지의 읽음 배지는 **이 시트를 열며 다시 읽은 값으로 굳는다** (S-B4, ADR-118) — 이 컴포넌트는
+ *     시트가 열릴 때 붙고 닫히면 떨어진다. 여는 쪽(`Participant`)이 서버에서 한 번 다시 읽고(`fresh`),
+ *     그 값을 받는 순간 굳는다. 그 전의 값은 마지막으로 읽은 화면의 것이라 믿지 않는다
  *
  * 읽음을 찍는 것은 여기가 아니라 `Participant` 다 — 덮개가 덮고 있는지를 거기서 안다.
  * 그래서 **어느 쪽을 보고 있는지(`seg`)도 거기 있다** — 보낸 쪽지를 보는 동안 새로 온 쪽지는 읽은 것이 아니다.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BTN, NOTE, PEOPLE } from "../../shared/copy.ts";
 import type { MyNoteState, PublicPlayer, SentNote } from "../../shared/types.ts";
 import { tap } from "../lib/pulse.ts";
@@ -29,6 +30,7 @@ export default function NoteBox({
   seg,
   onSeg,
   open,
+  fresh,
   covered,
   setCovered,
   onRemove,
@@ -41,20 +43,30 @@ export default function NoteBox({
   onSeg: (seg: InboxSeg) => void;
   /** 지금 쪽지를 보낼 수 있나 (매력 투표 · 파티, 그리고 이 회차에 쪽지가 있다). 남은 장 수와 빈 칸 문구가 갈린다 */
   open: boolean;
+  /** 이 시트를 연 뒤 서버에서 다시 읽었다 (ADR-118). 읽음 배지는 이 값이 선 순간의 것으로 굳는다 */
+  fresh: boolean;
   covered: boolean;
   setCovered: (on: boolean) => void;
   onRemove: (id: string) => Promise<void>;
   onClose: () => void;
 }) {
   const { confirm } = useOverlay();
-  /** 읽음 배지는 이 시트를 연 순간의 값으로 굳는다 (S-B4). 붙을 때 한 번만 받는다 */
-  const [frozen] = useState<Record<string, SentNote[]>>(() => note.sent);
+  /**
+   * 읽음 배지는 **이 시트를 열며 다시 읽은 값으로 굳는다** (S-B4, ADR-118). 다시 읽기가 돌아오기 전에는
+   * 지금 값을 그대로 그린다 — 보낸 사람이 손으로 쓴 줄은 이미 들고 있어서, 비워 두면 한 박자 깜빡일 뿐이다.
+   */
+  const [frozen, setFrozen] = useState<Record<string, SentNote[]> | null>(() => (fresh ? note.sent : null));
+  useEffect(() => {
+    if (fresh && !frozen) setFrozen(note.sent);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fresh]);
+  const sent = frozen ?? note.sent;
   const left = Math.max(0, note.budget.max - note.budget.used);
   /*
    * 명단에 없는 사람(운영자가 내보낸 사람)에게 보낸 것은 세우지 않는다 — 본문이 이미 비었고(S-E1),
    * 이름을 댈 수도 없다. 프로필 시트에 있던 시절에도 그 사람의 시트는 열 수 없었다.
    */
-  const sentTo = roster.filter((p) => (frozen[p.id]?.length ?? 0) > 0);
+  const sentTo = roster.filter((p) => (sent[p.id]?.length ?? 0) > 0);
 
   return (
     <div className="stack inbox">
@@ -148,7 +160,7 @@ export default function NoteBox({
               <p className="kicker" style={{ margin: 0 }}>
                 {NOTE.inbox.to(p.nickname)}
               </p>
-              {frozen[p.id].map((n, i) => (
+              {sent[p.id].map((n, i) => (
                 <div className="fact anonSent" key={i}>
                   <span className="grow pre">{n.text}</span>
                   {/* 둘 다 같은 흐린 글씨다 — 색으로 좋고 나쁨을 말하지 않는다. 시각도 없다 */}

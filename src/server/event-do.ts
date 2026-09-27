@@ -57,7 +57,6 @@ import {
   DEFAULTS,
   ENTRY_TRIES,
   LIMITS,
-  NOTE_READ_DELAY,
   PIN,
   cleanName,
   nicknameProblem,
@@ -171,7 +170,7 @@ CREATE TABLE IF NOT EXISTS notes (
   to_id     TEXT NOT NULL,
   body      TEXT NOT NULL,         -- 본문. 운영자 응답에도, 콕 로그에도, 지표에도 안 나간다
   at        INTEGER NOT NULL,      -- 응답에 안 싣는다. 순서를 정하는 데만 쓴다 (받은 콕과 같다)
-  read_at   INTEGER,               -- 받는 사람이 홈을 연 시각. 발신자에게는 5분 뒤에야 boolean 으로 보인다
+  read_at   INTEGER,               -- 받는 사람이 쪽지함을 연 시각. 발신자에게는 boolean 으로만 보인다 (ADR-118)
   hidden_at INTEGER                -- 받는 사람이 지웠다. **행은 남는다** — 지우면 발신자의 예산과
                                    -- 보낸 줄이 흔들려 '상대가 내 쪽지를 지웠다' 가 새어나간다 (S-C3)
 );
@@ -1080,10 +1079,9 @@ export class EventDO extends DurableObject {
   // **받는 사람이 고르는 것은 발신자에게 돌아가지 않는다**(읽음은 앱을 연 결과라 통과하고,
   // 지우기는 고르는 것이라 안 간다).
   //
-  // ⚠️ **소켓으로 아무것도 밀지 마라.** `broadcast()` 는 회차 전체에 가서 **도착 시각이 방 안에
-  // 뿌려지고**, `toPlayer()` 는 받는 사람에게 그 시각을 준다 — 고개를 들면 방금 폰을 든 사람이 보인다.
-  // 콕은 그 선택을 회차 설정(`pokeNotify`)으로 운영자에게 넘겼는데 익명 쪽지에는 그 설정이 없다
-  // (쪽지 자체가 알림이다). 그러면 **안 미는 쪽**이 맞다 — 받는 사람은 다음에 스스로 읽을 때 본다 (ADR-26).
+  // **받는 사람에게만 민다** (ADR-118 — 운영자가 ADR-98 의 `안 민다` 를 뒤집었다). 새로고침 없이 바로 보여야 한다.
+  // ⚠️ **`broadcast()` 로 넓히지 마라.** 회차 전체가 다시 읽으면 **도착 시각이 방 안 모두에게** 뿌려진다 —
+  //    받는 사람 한 명에게 가는 것까지가 운영자가 고른 값이다. 신호에는 아무것도 싣지 않는다.
 
   async sendNote(fromId: string, toId: string, rawText: unknown, now: number): Promise<Result<MyNoteState>> {
     const meta = await this.touch(now);
@@ -1119,12 +1117,12 @@ export class EventDO extends DurableObject {
       text,
       now,
     );
-    return ok(this.noteState(fromId, meta, now));
+    this.toPlayer(toId, { type: "note" });
+    return ok(this.noteState(fromId, meta));
   }
 
   /**
-   * 받는 사람이 홈을 열었다. **안 본 것에만 시각을 찍는다** —
-   * 다시 열 때마다 새로 찍으면 `read_at` 이 계속 앞으로 밀려 5분이 영영 안 지난다.
+   * 받는 사람이 쪽지함을 열었다. **안 본 것에만 시각을 찍는다** — 읽음은 한 번 서면 그대로다.
    *
    * 화면이 문지기다: 덮개(`SeatTakeover`·`StageTakeover`)가 덮고 있거나 어깨너머 가리기가
    * 켜져 있으면 부르지 않는다 — **본문을 볼 수 없는 사람을 읽은 것으로 찍지 않기 위해서다.**
@@ -1139,7 +1137,7 @@ export class EventDO extends DurableObject {
       now,
       playerId,
     );
-    return ok(this.noteState(playerId, meta, now));
+    return ok(this.noteState(playerId, meta));
   }
 
   /**
@@ -1166,7 +1164,7 @@ export class EventDO extends DurableObject {
         playerId,
       );
     }
-    return ok(this.noteState(playerId, meta, now));
+    return ok(this.noteState(playerId, meta));
   }
 
   /** 예산에 세는 장 수. **`hidden_at` 을 보지 않는다** — 받는 쪽이 지웠다고 다시 쓸 수 있으면 안 된다 */
@@ -1179,7 +1177,7 @@ export class EventDO extends DurableObject {
    *
    * ⚠️ `received` 에 `from_id` 를 담지 마라. 담을 자리가 없는 것이 방어다 (`ReceivedNote`).
    */
-  private noteState(playerId: string, meta: EventMeta, now: number): MyNoteState {
+  private noteState(playerId: string, meta: EventMeta): MyNoteState {
     const sent: Record<string, SentNote[]> = {};
     /*
      * 예산에 세는 장 수는 **아래에서 읽는 보낸 줄의 수 그대로다** — `noteSentCount()` 와 같은 조건(`from_id`,
@@ -1191,15 +1189,10 @@ export class EventDO extends DurableObject {
       playerId,
     )) {
       /*
-       * **읽음은 5분이 지나야 보인다** (ADR-98 후기 2, S-B6). 배지가 답할 질문은 *갔고 봤나* 이지
-       * *지금 보고 있나* 가 아니다 — 늦춰도 그 답은 그대로고, **방금 폰을 든 사람을 눈으로 찾는 길**만
-       * 사라진다. 화면만으로는 못 막는다: `realtime.ts` 가 앱으로 돌아올 때마다 다시 읽어서,
-       * 30초마다 시트를 여닫으면 읽은 시각이 30초까지 좁혀진다.
-       *
-       * 5분 동안은 `읽지 않음` 이 사실과 다르다. **코드가 문구보다 좁게 말하는 쪽**이라 안전하고
-       * (넓게 말하는 것이 거짓말이다), 5분 뒤에 스스로 맞는다.
+       * **읽음은 바로 보인다** (ADR-118). 한동안 5분 늦췄다 (ADR-98 후기 2, S-B6) — *지금 보고 있나* 를 가리려던 것인데,
+       * 읽은 쪽지가 발신자 화면에 `읽지 않음` 으로 남는 것을 운영자가 거짓으로 보고 걷었다.
        */
-      const read = r.read_at !== null && now - r.read_at > NOTE_READ_DELAY;
+      const read = r.read_at !== null;
       // 지운 줄도 그대로 선다 — 받는 쪽이 지웠다는 것이 여기서 새면 안 된다 (S-C3)
       (sent[r.to_id] ??= []).push({ text: r.body, read });
       used++;
@@ -1247,7 +1240,7 @@ export class EventDO extends DurableObject {
             .map((p) => toPublic(p, meta.phase))
         : [],
       poke: await this.pokeState(playerId, meta),
-      note: this.noteState(playerId, meta, now),
+      note: this.noteState(playerId, meta),
       seat: this.mySeat(playerId),
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
       ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),

@@ -1,14 +1,15 @@
 /**
  * 슬라이스 36 — 익명 쪽지의 **화면 규칙** (ADR-98, 후기 3 의 익명 쪽지함).
  *
- * 서버 규칙(예산·발신자 익명·읽음 5분·지워도 발신자 화면 그대로·안 읽은 수)은
+ * 서버 규칙(예산·발신자 익명·바로 서는 읽음·지워도 발신자 화면 그대로·안 읽은 수·받는 사람에게만 가는 신호)은
  * `test/36-anon-note.test.ts` 가 본다. 여기서 보는 것은 화면만이 지킬 수 있는 것들이다 —
  *
  *   · 쓰는 입구는 프로필 시트의 ✉️ 하나다. 가리기 중에는 잠긴다 (S-B5)
  *   · 상단 바의 쪽지함은 **늘 선다.** 프로필 투표와 함께 켜지고, 쪽지를 끈 회차에서는 꺼진 채다 (ADR-111 · 후기 1)
  *   · 받은 쪽지는 **익명 쪽지함에만** 있다 — 홈 소식에는 없다
  *   · 읽음은 **쪽지함을 열 때** 찍힌다. 덮개·가리기 아래에서는 안 찍는다 (S-B2)
- *   · 보낸 쪽지의 읽음 배지는 **쪽지함을 연 순간의 값으로 굳는다** (S-B4)
+ *   · 쪽지함을 열면 **서버에서 다시 읽는다** — 새로 온 쪽지와 상대의 읽음이 새로고침 없이 선다 (ADR-118)
+ *   · 보낸 쪽지의 읽음 배지는 **쪽지함을 열며 다시 읽은 값으로 굳는다** (S-B4)
  *   · 받은 줄에 누를 수 있는 것은 **지우기 하나**다 (S-C3)
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -340,6 +341,17 @@ describe("익명 쪽지함 — 받은 쪽지", () => {
     expect(src.calls.seen).toBe(0);
   });
 
+  it("★ 쪽지함을 열면 다시 읽는다 — 마지막으로 읽은 뒤에 온 쪽지도 선다 (ADR-118)", async () => {
+    const stale = stateOf({ ...EMPTY, received: [{ id: "n1", text: "바람" }], unread: 0 });
+    const fresh = stateOf({ ...EMPTY, received: [{ id: "n2", text: "새로 온 쪽지" }, { id: "n1", text: "바람" }], unread: 1 });
+    const src = sourceOf(stale);
+    let loads = 0;
+    src.load = async () => (loads++ === 0 ? stale : fresh);
+    mount(src, { tab: "home", notesOpen: true });
+    expect(await screen.findByText("새로 온 쪽지")).toBeTruthy();
+    expect(screen.getByText("바람")).toBeTruthy();
+  });
+
   it("★ 쪽지함을 열면 읽음으로 찍힌다 (S-B2)", async () => {
     const src = sourceOf(stateOf(got));
     mount(src, { tab: "home", notesOpen: true });
@@ -497,12 +509,27 @@ describe("익명 쪽지함 — 보낸 쪽지", () => {
     expect(screen.queryByText(NOTE.inbox.to("그녀"))).toBeNull();
   });
 
-  it("★ 읽음 배지는 쪽지함을 연 순간의 값으로 굳는다 (S-B4)", async () => {
+  it("★ 쪽지함을 열면 다시 읽는다 — 상대가 읽은 쪽지가 `읽지 않음` 으로 남지 않는다 (ADR-118)", async () => {
+    const stale = stateOf({ ...mine, sent: { her: [{ text: "굳는 글", read: false }] } });
+    const fresh = stateOf({ ...mine, sent: { her: [{ text: "굳는 글", read: true }] } });
+    const src = sourceOf(stale);
+    // 처음 읽은 화면은 상대가 읽기 전이다. 그 뒤로 이 화면에는 다시 읽을 신호가 오지 않았다
+    let loads = 0;
+    src.load = async () => (loads++ === 0 ? stale : fresh);
+    mount(src, { tab: "home", notesOpen: true });
+    fireEvent.click(await screen.findByText(NOTE.inbox.sent));
+    expect(await screen.findByText(NOTE.read)).toBeTruthy();
+    expect(screen.queryByText(NOTE.unread)).toBeNull();
+  });
+
+  it("★ 읽음 배지는 쪽지함을 열며 다시 읽은 값으로 굳는다 (S-B4)", async () => {
     const state = stateOf({ ...mine, sent: { her: [{ text: "굳는 글", read: false }] } });
     const src = sourceOf(state);
     const v = mount(src, { tab: "home", notesOpen: true });
     fireEvent.click(await screen.findByText(NOTE.inbox.sent));
     expect(await screen.findByText(NOTE.unread)).toBeTruthy();
+    // 열며 다시 읽은 것이 돌아온다 — 배지는 이 값으로 굳는다
+    await act(async () => {});
 
     // 남이 일으킨 변화로 화면이 다시 읽혔다 (공지·자리 발행·소켓 재접속이 전부 이 길이다)
     state.note = { ...state.note, sent: { her: [{ text: "굳는 글", read: true }] } };

@@ -8,17 +8,17 @@
  *   2. **본문은 두 사람만 본다.** 운영자 응답에는 보낸 장 수 하나뿐이다
  *   3. **받는 사람이 고르는 것은 발신자에게 돌아가지 않는다** — 지워도 발신자 화면이 한 칸도 안 바뀐다
  *
+ * 새 쪽지는 **받는 사람 소켓에만** 다시 읽으라는 신호가 가고, 읽음은 바로 보인다 (ADR-118).
+ *
  * 재료는 `helpers/party.ts`. 파일이 마흔 개에 가까워지면 나눈다 (CLAUDE.md).
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { LIMITS } from "../src/shared/constants.ts";
 import { HOST_UI } from "../src/shared/copy.ts";
 import type { Defaults, EventConfig, EventMeta, HostState, MyNoteState, ParticipantState } from "../src/shared/types.ts";
-import { api, freshEvent, join, master, setPhase, signInMaster } from "./helpers/party.ts";
+import { api, freshEvent, join, listen, master, setPhase, settle, signInMaster } from "./helpers/party.ts";
 
 beforeAll(signInMaster);
-
-const MIN = 60_000;
 
 const send = (cookie: string | null, toId: string, text = "아까 웃는 모습이 좋았어요") =>
   api<MyNoteState>("/api/note", { method: "POST", cookie, body: { toId, text } });
@@ -27,11 +27,6 @@ const remove = (cookie: string | null, id: string) =>
   api<MyNoteState>("/api/note/remove", { method: "POST", cookie, body: { id } });
 const me = (cookie: string | null, code: string) => api<ParticipantState>(`/api/me?code=${code}`, { cookie });
 const hostState = (ev: EventMeta) => api<HostState>(`/api/host/events/${ev.id}/state`, { cookie: master });
-
-/** 테스트 전용 시간 이동. 읽음이 5분 뒤에야 보인다는 규칙(S-B6)을 재는 자리다 */
-const travelTo = async (at: number) => {
-  expect((await api("/api/__test__/now", { method: "POST", body: { at } })).status).toBe(200);
-};
 
 /** 익명 쪽지를 쓸 수 있는 파티. 셋이 앉아 있다 — 이성 하나, 동성 하나 */
 async function party(config: Partial<EventConfig> = { maxNotes: 2 }) {
@@ -181,34 +176,36 @@ describe("보낸 쪽", () => {
     expect(mine.sent, "받기만 한 사람에게는 보낸 묶음이 비어 있다").toEqual({});
   });
 
-  it("★ 읽음은 5분이 지나야 발신자에게 보인다 (S-B6)", async () => {
+  it("★ 읽음은 받는 사람이 쪽지함을 연 즉시 발신자에게 보인다 (ADR-118)", async () => {
     const { ev, a, b } = await party();
     await send(a.cookie, b.id);
     expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read, "아직 안 열었다").toBe(false);
 
     await seen(b.cookie);
-    expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read, "방금 읽었다 — 아직 안 보인다").toBe(false);
-
-    try {
-      await travelTo(Date.now() + 6 * MIN);
-      expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read, "5분이 지났다").toBe(true);
-    } finally {
-      await travelTo(Date.now());
-    }
+    // 한동안 5분 늦췄다 (ADR-98 후기 2) — 읽은 쪽지가 `읽지 않음` 으로 남는 것을 운영자가 걷었다
+    expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read, "방금 읽었다").toBe(true);
   });
 
-  it("★ 읽음은 한 번만 선다 — 다시 열어도 시계가 되감기지 않는다", async () => {
-    const { ev, a, b } = await party();
-    await send(a.cookie, b.id);
-    await seen(b.cookie);
-    await seen(b.cookie);
+  it("★ 새 쪽지는 받는 사람 소켓만 다시 읽게 한다 — 보낸 사람 · 다른 참가자 · 운영자에게는 가지 않는다 (ADR-118)", async () => {
+    const { ev, a, b, c } = await party();
+    const socks = {
+      to: await listen(ev, { cookie: b.cookie }),
+      from: await listen(ev, { cookie: a.cookie }),
+      other: await listen(ev, { cookie: c.cookie }),
+      host: await listen(ev, { cookie: master, host: true }),
+      nobody: await listen(ev),
+    };
+    await settle();
+    const before = Object.fromEntries(Object.entries(socks).map(([k, v]) => [k, v.length]));
 
-    try {
-      await travelTo(Date.now() + 6 * MIN);
-      // 두 번째 `seen` 이 `read_at` 을 새로 찍었다면 여기서 아직 `false` 다
-      expect((await me(a.cookie, ev.code)).body.note.sent[b.id][0].read).toBe(true);
-    } finally {
-      await travelTo(Date.now());
+    expect((await send(a.cookie, b.id)).status).toBe(200);
+    await settle();
+
+    const got = (k: keyof typeof socks) => socks[k].slice(before[k]);
+    // 신호에는 아무것도 없다 — 누가 보냈는지도, 몇 장인지도
+    expect(got("to"), "받는 사람이 새로고침 없이 새 쪽지를 봐야 한다").toEqual([JSON.stringify({ type: "note" })]);
+    for (const k of ["from", "other", "host", "nobody"] as const) {
+      expect(got(k), `${k} 에게 도착 시각이 샜다`).toEqual([]);
     }
   });
 });
