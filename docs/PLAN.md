@@ -395,7 +395,7 @@ A/B 투표는 구조상 *"둘 중 뭐가 나아요?"* 다. 그 둘이 사람이 
 | 33 떨어뜨려 앉히기 | ✅ `33-keep-apart` | `33-keep-apart` · `test/client/host` | ✅ | QA | ⬜ |
 | 34 단계가 열릴 때의 안내 화면 | ✅ `34-stage-guide` | `34-stage-guide` · `test/client/stage` | ✅ | QA | 🟡 에뮬레이션까지 |
 | 35 스테이지 워커 | ✅ `35-stage-worker` (ADR-97) | `35-stage-core` | ✅ core 나누기 · 스테이지 DO (`tone-pick-qa-tool`) · 로그인 대신 한국 문과 하루 상한 (후기 4) — 두 워커를 붙여 로컬에서 끝까지 돌림 | QA (도구 — 프로덕션에는 안 나간다) | ✅ 운영자가 접속해 확인 |
-| 36 익명 쪽지 | ✅ `36-anon-note` (ADR-98 후기 1·2 · **3 익명 쪽지함** · 후기 4 매력 투표부터, ADR-111) | `36-anon-note` · `test/client/note` · `test/client/back` | ✅ 후기 3 — 쪽지함 · 안 읽은 수 · 프로필 시트 ✉️ · 후기 4 — 처음부터 서는 쪽지함 · 매력 투표부터 쓰기 | QA | ⬜ |
+| 36 익명 쪽지 | ✅ `36-anon-note` (ADR-98 후기 1·2 · **3 익명 쪽지함** · 후기 4 매력 투표부터 · 후기 5 0장 회차에도 쪽지함, ADR-111) | `36-anon-note` · `test/client/note` · `test/client/back` | ✅ 후기 3 — 쪽지함 · 안 읽은 수 · 프로필 시트 ✉️ · 후기 4 — 처음부터 서는 쪽지함 · 매력 투표부터 쓰기 · 후기 5 — 0장 회차에도 꺼진 채 | QA | ⬜ |
 | 37 한 탭 스테이지 | ✅ `37-stage-wall` (ADR-99 · 후기) | `37-stage-wall` · `37-stage-auto` · `test/client/session` | ✅ 틀 여럿 · 참가자 쿠키 심기 · 남녀 2~50 · 콕 묶음 · 하루 상한(QA 호출) · 폰 넘기기 · 자동 콕 · 남녀 나이 — 두 워커를 붙여 헤드리스 크로미엄으로 끝까지 (폰 크기 · 터치 포함) | QA (도구) · 앱은 `session.ts` 몇 줄 (프로덕션에도 나간다) | ✅ 운영자 폰에서 참가자 틀이 로그인된 채로 떴다 · ⬜ 넘기기 · 자동 콕은 iOS 에서 아직 |
 | 38 매력 투표 1위 보너스 콕 | ✅ `38-charm-top-bonus` (ADR-100) | `38-charm-top-bonus` · `05-seating` · `test/client/screens` · `test/client/host` | ✅ 1위 보너스 · 매력 투표는 자리에서 빠지고 파티 시작에 닫힌다 | QA | ⬜ |
 | 40 자리 조건은 자리 탭에서 | ✅ `40-seat-conditions` (ADR-108 · 109) | `06-seat-edit` · `test/client/host` | ✅ 뺄 사람 이어받기 · 확정 확인창의 `제외` · 떨어뜨려 앉히기를 자리 탭으로 | QA | ⬜ |
