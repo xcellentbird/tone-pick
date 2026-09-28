@@ -232,14 +232,14 @@ describe("이상형 찾기 · 재미 탭의 문", () => {
     expect(screen.getByText(FORTUNE.closed).closest("[aria-disabled='true']")).toBeTruthy();
   });
 
-  it("★ 등록 중에도 이상형 카드가 운세 아래에 있다 — 카드만 보는 사람은 얼굴 자료를 받지 않는다", async () => {
+  it("★ 이상형 카드가 운세 위에 있다 — 등록 중에도, 카드만 보는 사람은 얼굴 자료를 받지 않는다", async () => {
     const s = stub(stateIn("reg"));
     mount(`${BASE}/fun`);
 
     const start = await screen.findByRole("button", { name: IDEAL.cardStart });
     const fortune = screen.getByText(FORTUNE.closed);
-    // 운세가 첫 카드, 이상형이 두 번째 카드다 (문서 순서)
-    expect(fortune.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 이상형이 첫 카드, 운세가 두 번째 카드다 (ADR-124) — 한 번 연 운세는 길어서 위에 두면 아래 카드를 접힌 아래로 민다
+    expect(fortune.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     expect(s.asked.some((a) => a.url.startsWith("/faces/"))).toBe(false);
   });
 });
