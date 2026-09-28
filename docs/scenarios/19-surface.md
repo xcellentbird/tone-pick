@@ -22,7 +22,7 @@ export interface Ideal {
   /** 결과를 만든 한 벌(자산+규칙)의 버전. 규칙만 바뀌어도 올린다 — 반응을 비교하는 열쇠 */
   v: number;
   pool: Gender;
-  /** 라운드별 고른 얼굴 id — 셋 묶음, 각 1~3개 (S-C2 가 다시 그릴 재료) */
+  /** 라운드별 고른 얼굴 id — 셋 묶음, 각 1~5개 (S-C2 가 다시 그릴 재료. v1 행은 1~3개) */
   picks: string[][];
   /** 가까운 순서의 연예인 id 셋 (S-C1) */
   result: string[];
@@ -50,19 +50,32 @@ ParticipantState.ideal?: Ideal
 
 ```ts
 export const IDEAL_SHAPE = {
-  rounds: 3, faces: 6, pickMin: 1, pickMax: 3, results: 3,
+  rounds: 3, faces: 9, pickMin: 1, pickMax: 5, results: 3,
+  /** 라운드마다 `다른 얼굴 보기` 횟수 (S-B7) */
+  rerolls: 1,
+  /** faces × (1 + rerolls) — 1라운드는 모두에게 같은 두 쪽(아홉 + 아홉) */
+  level1: 18,
+  /** 2라운드 후보(군집 대표). 아홉 × 두 쪽을 넉넉히 덮는다 */
+  level2: 36,
   /** 3라운드 닮은꼴 문턱(코사인). 임시값 — 실제 풀에서 종이 검증과 함께 조정한다 */
   dupCos: 0.9,
+  /** 두 무리의 평균끼리 코사인이 이보다 작으면 두 갈래 — 종이 검증 전에 v1 세션으로 정했다 (ADR-123) */
+  splitCos: -0.2,
+  /** 작은 무리가 이만큼은 돼야 두 갈래 — 한 장짜리는 잘못 누른 것일 수 있다 */
+  splitMin: 2,
   id: /^[a-z0-9]{4,16}$/,        // copy-ok
 } as const;
 
 /** 지금 기기가 새로 찾을 때 쓰는 판 — `/faces/v{n}/` 의 n. 저장된 결과는 이 값이 아니라 자기 `v` 로 그린다 */
-export const IDEAL_ASSET_V = 1;
+export const IDEAL_ASSET_V = 2;
 
 /** 모양 검사 둘 (아래 API). 맞지 않으면 null */
 export function readIdealInput(raw: unknown): IdealInput | null;
 export function readIdealVerdict(raw: unknown, result: readonly string[]): IdealVerdict | null;
 ```
+
+> **고쳤다 (2026-09-28, ADR-123)** — v1 은 `faces: 6 · pickMax: 3` 이고 `rerolls`·`level1`·`level2`·`splitCos`·`splitMin` 이 없었으며
+> `IDEAL_ASSET_V = 1` 이었다. v1 결과는 자기 `v` 로 `/faces/v1/` 에서 그대로 그린다 — 그 경로는 지우지 않는다.
 
 **모양 검사는 요청 본문을 펼치지 않는다 — 고른 칸으로 새 객체를 짓는다.** 펼쳐 담으면 기기가 보낸
 모르는 키가 저장돼 `ParticipantState.ideal` 로 매번 되돌아 나간다 (S-D1). `verdict`·`at` 을 저장 요청에
@@ -97,7 +110,8 @@ export interface FacePoolFile {
 |---|---|
 | **id 는 불투명하고 영원하다.** 빼려면 `retired` | 저장된 결과가 id 를 들고 있다. 파일명에 이름을 넣지 않는다 (S-B5) |
 | **옛 버전 경로는 지우지 않는다** | 옛 결과가 언제나 그려진다 (고정점) |
-| `level 1` 은 정확히 6 · `level 2` 는 36 | 1라운드는 모두에게 같다 |
+| `level 1` 은 정확히 18(`IDEAL_SHAPE.level1`) · `level 2` 는 36(`level2`) | 1라운드는 모두에게 같다 — 두 쪽 다 |
+| **level 1 의 자산 순서가 곧 쪽이다** — 앞 아홉이 첫 쪽(큰 군집부터), 뒤 아홉이 둘째 쪽(같은 순서) | `다른 얼굴 보기` 가 둘째 쪽을 연다 (S-B7). 순서를 섞으면 첫 화면이 바뀐다 |
 | `celebs` 와 `faces` 는 **다른 목록**이다 | 계약을 출처 결정에서 떼어두는 자리다. 출처는 실사로 닫혀(S-C5) 두 목록의 id 가 온전히 겹친다 — 같은 사람이 고르는 얼굴이자 답이고, 그래서 S-C2 가 본 얼굴을 결과에서 뺀다 |
 
 **`npm run check:faces`** — `check:copy` 옆자리, `npm run check` 에 들어간다.
@@ -114,8 +128,8 @@ export interface FacePoolFile {
 
 지금 판(`IDEAL_ASSET_V`)에서만 — **새로 찾는 데 필요한 것**:
 
-- level 개수(6·36)
-- retired 아닌 celebs 가 `라운드 × 얼굴 + 결과`(3×6+3)를 채울 만큼 있다 — 본 얼굴을 빼고도 결과가 남아야 한다
+- level 개수(18·36) — 숫자를 들고 있지 않고 `IDEAL_SHAPE.level1` · `level2` 를 글로 읽는다
+- retired 아닌 celebs 가 `라운드 × 얼굴 × (1 + rerolls) + 결과`(3×9×2+3 = 57)를 채울 만큼 있다 — 넘긴 얼굴까지 본 얼굴을 빼고도 결과가 남아야 한다
 - celebs 와 faces 의 id 겹침
 - 풀 JSON 하나가 **gzip 120 KiB** 이하 (`POOL_BUDGET`) — 여는 사람이 한 덩어리로 받는 것 중 가장 크다.
   지금 값은 어림이고 자산이 오면 실측으로 다시 적는다
@@ -151,26 +165,52 @@ qa 로 가도 되고, 그동안 qa 의 다른 수정이 main 으로 가는 길�
 ```ts
 export function decodeVec(v: string, dim: number, scale: number): Float32Array;
 export function meanOf(vecs: readonly Float32Array[]): Float32Array;   // 평균 → 정규화까지
+
+/** 고른 얼굴의 중심. weight = 그 무리의 고른 수 */
+export interface TasteCenter { vec: Float32Array; weight: number }
+/** 1 개 또는 2 개, 큰 무리가 먼저 (ADR-123 ③). 고른 게 없으면 [] */
+export function tasteCenters(picked: readonly Float32Array[]): TasteCenter[];
+
 export function pickRound(
   faces: readonly DecodedFace[], round: 1 | 2 | 3,
-  mean: Float32Array | null, shown: ReadonlySet<string>, n?: number,
+  centers: readonly TasteCenter[] | null, shown: ReadonlySet<string>, n?: number,   // n 기본 IDEAL_SHAPE.faces
 ): DecodedFace[];
 export function nearestCelebs(
-  celebs: readonly DecodedCeleb[], mean: Float32Array,
-  exclude: ReadonlySet<string>, j?: number,
+  celebs: readonly DecodedCeleb[], centers: readonly TasteCenter[],
+  exclude: ReadonlySet<string>, j?: number,                                        // j 기본 IDEAL_SHAPE.results
 ): DecodedCeleb[];
 ```
 
 `DecodedFace = { id, vec, level }` · `DecodedCeleb = { id, name, vec, retired? }` — 복원된 런타임 모양.
 
+화면은 이렇게 부른다 — 라운드 후보도 결과도 **같은 중심**이다.
+
+```ts
+const centers = tasteCenters(지금까지 고른 벡터 전부);
+pickRound(faces, round, round === 1 ? null : centers, shown);   // shown 에는 넘긴 아홉도 든다
+nearestCelebs(celebs, centers, shown);
+```
+
 **불변식 (테스트가 고정한다)**
 
 - 한 번의 반환에 같은 id 가 없고, `shown`·`exclude` 가 절대 안 나온다 (S-B3 · S-C2)
-- 1라운드는 level 1 을 **자산 순서 그대로** — 모두에게 같다 (`mean` 을 무시한다)
+- 1라운드는 level 1 을 **자산 순서 그대로** 앞에서 n — 모두에게 같다 (`centers` 를 무시한다).
+  두 번째 쪽은 `shown` 이 첫 쪽을 품을 때 나온다 (S-B7)
 - 2라운드는 level 2 후보를 코사인 내림차순으로 n 개 — 대표라서 n 개가 서로 다른 군집이다
 - 3라운드는 풀 전체에서 코사인 내림차순으로 채우되, **이미 담은 것과 `dupCos` 이상 닮은
   후보는 뒤로 민다.** 문턱 때문에 n 개를 못 채울 때만 문턱을 풀고 채운다 — 빈 칸은 없다
-- `meanOf` 는 고른 벡터 전체의 단순 평균이다 — 라운드 가중치가 없다
+- **중심이 하나면 2·3라운드와 결과가 v1 과 똑같다.** 기존 불변식 테스트는 `[{ vec: meanOf(…), weight }]` 로 부르고
+  기대 순서를 고치지 않는다
+- `tasteCenters` — 고른 것이 `splitMin × 2` 개 미만이면 평균 하나. 아니면 결정적 2-평균(시작점은 서로 가장 덜 닮은 두 얼굴,
+  같은 값이면 앞의 것 · 열 번)으로 갈라 `cos(A, B) < splitCos` 이고 작은 무리 ≥ `splitMin` 일 때만 `[A, B]` (큰 무리 먼저,
+  같으면 첫 시작점 쪽), 아니면 전체 평균 하나. 작은 무리가 한 장이면 갈리지 않는다
+- 고른 게 없으면 `tasteCenters([])` 는 `[]` 다. `pickRound` 는 `[]` 를 `null` 처럼 다뤄 **자산 순서**로 채우고
+  (3라운드의 닮은꼴 밀기는 그대로), `nearestCelebs(…, [], …)` 도 자산 순서로 앞에서 j 개다.
+  화면은 이 길에 닿지 않는다 — 고르지 않으면 라운드가 안 넘어가고 결과는 고른 것이 있어야 난다. 결정적이라는 약속만 지킨다
+- 중심이 둘이면 라운드의 자리를 무게로 나눈다 — `nB = clamp(round(n × wB/(wA+wB)), 1, floor(n/2))`, `nA = n − nB`.
+  두 목록을 같은 규칙으로 서로 겹치지 않게 채워 **A, B 를 번갈아** 놓는다. 한쪽이 모자라면 다른 쪽이 채운다 — 빈 칸은 없다
+- 중심이 둘이면 결과는 `[A 의 1위, B 의 1위, A 의 2위]` — 겹치지 않게, `retired`·`exclude` 를 빼고 (S-C1)
+- `meanOf` 는 고른 벡터의 단순 평균이다 — 라운드 가중치가 없다
 - `nearestCelebs` 는 `retired` 를 새 결과에 넣지 않는다
 - 같은 입력이면 같은 출력 — 시각·난수·DO 에 닿지 않는다
 
@@ -189,7 +229,7 @@ POST /api/ideal/verdict    IdealVerdict → Ideal
 - **돌려주는 건 언제나 저장된 행이다.** 이미 있으면 그것을 돌려준다 — 409 가 아니다.
   화면은 응답을 그대로 그린다 (S-E2: 다른 기기가 먼저 끝냈으면 그쪽이 남는다).
   서버가 방금 준 답을 버리고 다시 읽지 않는다 (14 의 `/vote` 와 같은 이유)
-- 검사는 **모양만** (`IDEAL_SHAPE`) — `pool` 이 Gender · `picks` 가 정확히 3묶음, 각 1~3개,
+- 검사는 **모양만** (`IDEAL_SHAPE`) — `pool` 이 Gender · `picks` 가 정확히 3묶음, 각 1~5개,
   라운드 안 중복 없음 · `result` 가 서로 다른 id 셋 · `v` 가 1~9999 의 정수. 어긋나면 `400`.
   내용(정말 가까운가)은 안 본다 — 벡터를 서버에 들이지 않는다 (S-D3)
 - `verdict` 는 행이 있어야 받는다 — 없으면 `404`. `chosen` 은 그 행의 `result` 셋 중 하나 — 아니면 `400`.
@@ -230,6 +270,7 @@ blob 은 `[kind, key, String(v)]` 뿐이다. **인덱스도 회차 id 도 연예
 | 탭 카드 → `/ideal` | push (`idealStep: 0`) | 뒤로 가기 = 탭 |
 | `/ideal` → `/1` → `/2` → `/3` | push | 뒤로 가기 = 이전 라운드, 1에서는 풀 고르기 (등록 스텝과 같다) |
 | `/3` 결과 보기 → `/ideal` | **되감기** `navigate(-n)` — 아니면 replace | 뒤로 가기로 라운드에 다시 들어가지 않는다. 결과에서 뒤로 가면 재미 탭이다 |
+| 라운드 안 `다른 얼굴 보기` | **이동 없음** — 주소도 칸도 그대로 | 되감기가 칸의 `idealStep` 을 믿는다. 칸을 끼우면 그 수가 틀어진다 (ADR-123 ②) |
 | 이상형 화면에서 탭 | **되감기** `navigate(-(n+1))` → 재미 탭 칸에서 여느 탭 이동 | 라운드 칸을 기록에 남기지 않는다 |
 
 칸마다 `state.idealStep`(카드가 연 `/ideal` 은 0, 라운드는 1·2·3)을 싣는다. 라운드 주소가 열리면 안 될 때(결과가 있다 ·
@@ -245,7 +286,9 @@ push 되고 수는 그 칸에 적혀 있다 (ROUTES.md). 결과는 `POST /api/id
   (`/me/edit` 이 잠긴 뒤와 같다). 새로고침·뒤로 가기·딥링크가 전부 이 문으로 걸러진다
 - 고르던 값은 메모리에만 있다 — 라운드 주소를 **직접** 열었는데 그 라운드에 필요한 값(풀·앞 라운드 고른 것)이
   없으면 `/ideal` 로 갈아끼운다 (S-B4: 닫고 나가면 버려진다). `:round` 가 1·2·3 이 아니어도 갈아끼운다
-- 뒤로 가서 앞 라운드를 고쳐 고르면 **그 뒤 라운드의 후보·고른 것은 버리고 다시 계산**한다 — 앞의 선택이 뒤의 후보를 정한다
+- 뒤로 가서 앞 라운드를 고쳐 고르면 **그 뒤 라운드의 후보·고른 것은 버리고 다시 계산**한다 — 앞의 선택이 뒤의 후보를 정한다.
+  넘긴 쪽(`다른 얼굴 보기`)도 함께 버린다
+- 라운드마다 **어느 쪽을 보여줬는지**(넘겼는지)를 고르던 값과 같은 메모리에 둔다 — 뒤로 갔다 오면 같은 아홉이 선다 (S-B7)
 
 ---
 

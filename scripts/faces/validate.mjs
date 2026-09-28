@@ -1,19 +1,33 @@
 // 종이 검증(모의) — 취향을 가진 페르소나(gpt-6-luna)가 실제 순수 함수로 세 라운드를 고르고,
 // 눈을 가린 심판이 결과 셋 vs 무작위 셋(못 본 얼굴 중)을 견준다. 팔(arm)마다: text(묘사 임베딩) · sface(인식 모델)
-// node validate.mjs <facesRoot> <arm> <tag> [personasPerPool=16] [version=1]
+// node validate.mjs <facesRoot> <arm> <tag> [personasPerPool=16] [version=IDEAL_ASSET_V] [--personas <파일>] [--first-only]
 // 앱과 같은 순수 함수(src/shared/ideal.ts)를 부른다 — Node 가 타입을 벗겨 읽는다 (22.18+/23.6+)
+// v2 흐름: 라운드마다 아홉(3×3), 1~5 고르기 또는 라운드마다 한 번 '없음'(= 다른 얼굴 보기 → 같은 규칙의 다음 아홉).
+//   둘째 쪽에서는 1~5 를 꼭 고른다. 라운드 후보와 결과는 tasteCenters(고른 벡터 전부) 의 중심(하나 또는 둘)으로 — 앱과 같다
+// --personas <파일>: 페르소나를 만들지 않고 그 파일을 쓴다 (두 인상 패널 같은 진단용). 파일 이름에 `{g}` 가 있으면 풀마다
+//   바꿔 읽는다(`personas2-{g}.json`) — 없으면 `{ "f": [...], "m": [...] }` 한 파일. 상대 경로는 지금 폴더, 없으면 ${WORK}/out/ 에서 찾는다
+// --first-only: ③ 첫 쪽 아홉만 묻는다 (풀마다 SIM_CALLS 번 · 과반). 페르소나도 세션도 없다
 //
-// 읽는 것: <facesRoot>/v{n}/{f,m}.json · {id}.webp, ${WORK}/out/personas-{g}.json (없으면 만든다), OPENAI_API_KEY
+// 읽는 것: <facesRoot>/v{n}/{f,m}.json · {id}.webp, ${WORK}/out/personas-{g}.json (없으면 만든다) 또는 --personas, OPENAI_API_KEY
 // 쓰는 것: ${WORK}/out/personas-{g}.json, ${WORK}/out/val-<tag>/ (라운드 격자 · sessions.json · report.json)
-// 순서: 10 — emit 다음. report.json 을 ADR-122 「종이 검증」의 기준에 댄다. 못 넘으면 그 판은 싣지 않는다
+// 순서: 10 — emit 다음. report.json 을 그 판의 「종이 검증」 기준에 댄다 — v1 은 ADR-122, v2 부터는 ADR-123
+//   (③ 첫 쪽 아홉에서 풀마다 많아야 두 쌍). 두 인상 패널(--personas)은 진단용이라 기준에 넣지 않는다. 못 넘으면 그 판은 싣지 않는다
 import fs from "node:fs";
 import sharp from "sharp";
 import { luna, pool as runPool } from "./luna.mjs";
-import { decodeVec, meanOf, pickRound, nearestCelebs } from "../../src/shared/ideal.ts";
+import path from "node:path";
+import { decodeVec, tasteCenters, pickRound, nearestCelebs, IDEAL_SHAPE, IDEAL_ASSET_V } from "../../src/shared/ideal.ts";
 import { OUT } from "./work.mjs";
 
-const [root, arm, tag, perArg = "16", version = "1"] = process.argv.slice(2);
+const FIRST_ONLY = process.argv.includes("--first-only");
+const argv = process.argv.slice(2).filter((a) => a !== "--first-only");
+const opt = argv.indexOf("--personas");
+const personasArg = opt < 0 ? null : argv[opt + 1];
+if (opt >= 0 && !personasArg) throw new Error("--personas 뒤에 파일을 준다");
+const pos = opt < 0 ? argv : [...argv.slice(0, opt), ...argv.slice(opt + 2)];
+const [root, arm, tag, perArg = "16", version = String(IDEAL_ASSET_V)] = pos;
 const PER = Number(perArg);
+const { faces: N, pickMin: PICK_MIN, pickMax: PICK_MAX, rerolls: REROLLS } = IDEAL_SHAPE;
 const VAL = `${OUT}val-${tag}`;
 fs.mkdirSync(VAL, { recursive: true });
 
@@ -24,6 +38,15 @@ const PERSONA_SCHEMA = {
     required: ["id", "kind", "taste"], properties: { id: { type: "string" }, kind: { type: "string", enum: ["one", "two", "vague"] }, taste: { type: "string" } } } } },
 };
 async function personas(g) {
+  if (personasArg) {
+    const name = personasArg.replaceAll("{g}", g);
+    const file = [path.resolve(name), path.join(OUT, name)].find((x) => fs.existsSync(x));
+    if (!file) throw new Error(`--personas ${name} 가 없다 (지금 폴더에도 ${OUT} 에도)`);
+    const d = JSON.parse(fs.readFileSync(file));
+    const list = personasArg.includes("{g}") ? d : d[g];
+    if (!Array.isArray(list)) throw new Error(`${file} 에 ${g} 풀의 페르소나 배열이 없다`);
+    return list;
+  }
   const p = `${OUT}personas-${g}.json`;
   if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p));
   const who = g === "f" ? "여성" : "남성";
@@ -80,21 +103,36 @@ async function session(g, P, pi) {
   const { faces, celebs } = load(g);
   const byId = new Map(faces.map((f) => [f.id, f]));
   const shown = new Set(), picked = [], rounds = [];
+  const centersOf = () => tasteCenters(picked.map((id) => byId.get(id).vec));
   for (const round of [1, 2, 3]) {
-    const mean = picked.length ? meanOf(picked.map((id) => byId.get(id).vec)) : null;
-    const six = pickRound(faces, round, mean, shown);
-    six.forEach((f) => shown.add(f.id));
-    const img = await grid(six.map((f) => f.id), 3, `${VAL}/${g}-${P.id}-r${round}.jpg`);
-    const r = await luna({ effort: "low", schema: PICK_SCHEMA, name: "pick", images: [img],
-      text: `당신은 솔로 파티 참가자다. 당신의 취향: "${P.taste}"
-사진 속 여섯 얼굴(번호 1~6) 중 이 취향에 **끌리는 얼굴을 1~3개** 고른다. 누구인지 알아보려 하지 말고 얼굴만 본다. 번호로.` });
-    const nums = [...new Set(r.value.picks.filter((n) => n >= 1 && n <= 6))].slice(0, 3);
-    if (!nums.length) nums.push(1);
-    const ids = nums.map((n) => six[n - 1].id);
+    // 라운드 후보는 그 라운드에 들어설 때의 중심으로 — 다른 얼굴 보기도 같은 중심에서 다음 아홉이다 (앱과 같다)
+    const centers = round === 1 ? null : centersOf();
+    const pages = [];
+    let ids = [], why = "", forced = false, capped = false;
+    for (let left = REROLLS; ; left--) {
+      const page = pickRound(faces, round, centers, shown);
+      page.forEach((f) => shown.add(f.id));
+      pages.push(page.map((f) => f.id));
+      const img = await grid(page.map((f) => f.id), 3, `${VAL}/${g}-${P.id}-r${round}${pages.length > 1 ? `p${pages.length}` : ""}.jpg`);
+      const canSkip = left > 0;
+      const r = await luna({ effort: "low", schema: PICK_SCHEMA, name: "pick", images: [img],
+        text: `당신은 솔로 파티 참가자다. 당신의 취향: "${P.taste}"
+사진 속 ${page.length}명의 얼굴(번호 1~${page.length}) 중 이 취향에 **끌리는 얼굴을 ${PICK_MIN}~${PICK_MAX}개** 고른다. 누구인지 알아보려 하지 말고 얼굴만 본다. 번호로.
+${canSkip ? "끌리는 얼굴이 **하나도 없으면** 빈 배열을 낸다 — 그러면 다른 얼굴들이 나온다(이 라운드에 한 번뿐). 억지로 고르지 않아도 된다." : "이번에는 반드시 1개 이상 고른다 — 그중 가장 가까운 얼굴을."}` });
+      const valid = [...new Set(r.value.picks.filter((n) => Number.isInteger(n) && n >= 1 && n <= page.length))];
+      why = r.value.why;
+      if (!valid.length && canSkip) continue; // 없음 → 다른 얼굴 보기
+      capped = valid.length > PICK_MAX; // 앱은 여섯째를 막는다 — 앞의 다섯만 받는다
+      const nums = valid.slice(0, PICK_MAX);
+      if (!nums.length) { nums.push(1); forced = true; } // 둘째 쪽에서도 없음 — 앱에서는 다음으로 못 간다. 1번으로 채우고 적어 둔다
+      ids = nums.map((n) => page[n - 1].id);
+      break;
+    }
     picked.push(...ids);
-    rounds.push({ six: six.map((f) => f.id), picks: ids, why: r.value.why });
+    rounds.push({ pages, rerolled: pages.length > 1, centers: centers?.length ?? 0, picks: ids, why, forced, capped });
   }
-  const res = nearestCelebs(celebs, meanOf(picked.map((id) => byId.get(id).vec)), shown).map((c) => c.id);
+  const centers = centersOf();
+  const res = nearestCelebs(celebs, centers, shown).map((c) => c.id);
   // 대조군 — 못 본 얼굴 중 무작위 셋 (페르소나마다 고정 씨앗)
   const rand = seeded(1000 * (g === "f" ? 1 : 2) + pi);
   const unseen = celebs.filter((c) => !shown.has(c.id) && !res.includes(c.id)).map((c) => c.id);
@@ -123,20 +161,42 @@ async function session(g, P, pi) {
   const pickedAlgo = !!mix[one.value.pick - 1]?.algo;
   const winner = ab.value.better === "same" ? "same" : (ab.value.better === "A") === algoFirst ? "algo" : "ctrl";
   return { g, persona: P.id, kind: P.kind, rounds, result: res, ctrl, ab: winner, abWhy: ab.value.why,
+    rerolledRounds: rounds.flatMap((r, i) => (r.rerolled ? [i + 1] : [])),
+    picksPerRound: rounds.map((r) => r.picks.length), split: centers.length === 2, centersPerRound: rounds.map((r) => r.centers),
     hit: hit.value.match, hitWhich: hit.value.which, hitCtrl: hitCtrl.value.match, pick6Algo: pickedAlgo };
 }
 
-// ③ 첫 여섯 — 1단계 대표가 서로 닮았나 (풀마다 한 장)
+// ③ 첫 쪽 아홉 — 1단계 대표가 서로 닮았나 (풀마다 한 장, 3×3 — 모두에게 같은 첫 화면)
+// 심판은 **같은 사진에 다른 답을 한다** — v2 연습판 두 번이 같은 여자 첫 쪽에 한 쌍 · 세 쌍을 냈다. 기준(≤ 2)이 문인데
+// 한 번 부른 답이면 어느 판을 보느냐로 통과가 갈린다. 그래서 SIM_CALLS 번 따로 묻고 **과반이 짚은 쌍만** 센다 (ADR-123).
+// 부른 답은 전부 report 에 남긴다 — 과반에서 떨어진 쌍도 보여야 다음 판에서 그 자리를 다시 본다
+const SIM_CALLS = 3;
 const SIM_SCHEMA = { type: "object", additionalProperties: false, required: ["pairs", "why"],
   properties: { pairs: { type: "array", items: { type: "array", items: { type: "integer" } } }, why: { type: "string" } } };
-const firstSix = {};
+const firstPage = {};
 for (const g of ["f", "m"]) {
   const { faces } = load(g);
-  const six = pickRound(faces, 1, null, new Set()).map((f) => f.id);
-  const img = await grid(six, 3, `${VAL}/${g}-first6.jpg`);
-  const r = await luna({ effort: "medium", schema: SIM_SCHEMA, name: "sim", images: [img],
-    text: `여섯 얼굴(1~6)이 처음 고르는 화면에 함께 나온다. 서로 인상이 많이 닮아서 '둘 중 아무거나' 가 될 만한 쌍을 모두 적어라 (예: [[1,4]]). 분명히 닮은 것만. 없으면 빈 배열. 누구인지는 따지지 않는다.` });
-  firstSix[g] = { six, pairs: r.value.pairs, why: r.value.why };
+  const ids = pickRound(faces, 1, null, new Set()).map((f) => f.id);
+  const img = await grid(ids, 3, `${VAL}/${g}-first${ids.length}.jpg`);
+  const calls = await Promise.all([...Array(SIM_CALLS)].map(() => luna({ effort: "medium", schema: SIM_SCHEMA, name: "sim", images: [img],
+    text: `${ids.length}명의 얼굴(1~${ids.length})이 처음 고르는 화면에 함께 나온다. 서로 인상이 많이 닮아서 '둘 중 아무거나' 가 될 만한 쌍을 모두 적어라 (예: [[1,4]]). 분명히 닮은 것만. 없으면 빈 배열. 누구인지는 따지지 않는다.` })
+    .then((r) => r.value)));
+  // 쌍은 순서 없이 센다 ([7,3] = [3,7]). 번호 밖 · 자기 자신 · 한 답 안의 중복은 버린다
+  const votes = new Map();
+  const answers = calls.map(({ pairs, why }) => {
+    const keys = [...new Set(pairs.filter((p) => p.length === 2 && p[0] !== p[1] && p.every((n) => n >= 1 && n <= ids.length))
+      .map((p) => [...p].sort((a, b) => a - b).join(",")))];
+    for (const k of keys) votes.set(k, (votes.get(k) ?? 0) + 1);
+    return { pairs: keys.map((k) => k.split(",").map(Number)), why };
+  });
+  const pairs = [...votes].filter(([, n]) => n * 2 > SIM_CALLS).map(([k]) => k.split(",").map(Number))
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  firstPage[g] = { ids, pairs, votes: Object.fromEntries(votes), calls: answers };
+}
+// --first-only: ③ 만 묻고 끝낸다 — 전체 검증 전에 첫 쪽이 문을 넘는지 먼저 본다 (세션 예순넷을 돌리기 전에)
+if (FIRST_ONLY) {
+  fs.writeFileSync(`${VAL}/report.json`, JSON.stringify({ firstOnly: true, version: Number(version), simCalls: SIM_CALLS, firstPage }, null, 1));
+  process.exit(0);
 }
 
 const jobs = [];
@@ -148,10 +208,16 @@ const sum = (xs) => {
   const n = xs.length, win = xs.filter((x) => x.ab === "algo").length, lose = xs.filter((x) => x.ab === "ctrl").length;
   return { n, winVsRandom: `${win}:${lose} (same ${n - win - lose})`, winRate: +(win / Math.max(1, win + lose)).toFixed(2),
     pick6: +(xs.filter((x) => x.pick6Algo).length / n).toFixed(2),
-    hit: +(xs.filter((x) => x.hit).length / n).toFixed(2), hitRandom: +(xs.filter((x) => x.hitCtrl).length / n).toFixed(2) };
+    hit: +(xs.filter((x) => x.hit).length / n).toFixed(2), hitRandom: +(xs.filter((x) => x.hitCtrl).length / n).toFixed(2),
+    // 진단 (ADR-123) — 다른 얼굴 보기를 쓴 라운드 비율 · 한 번이라도 쓴 세션 비율 · 라운드당 고른 수 · 두 갈래로 갈린 세션 비율
+    rerollRounds: +(xs.flatMap((x) => x.rounds).filter((r) => r.rerolled).length / Math.max(1, n * 3)).toFixed(2),
+    rerollSessions: +(xs.filter((x) => x.rerolledRounds.length).length / Math.max(1, n)).toFixed(2),
+    picksPerRound: [0, 1, 2].map((i) => +(xs.reduce((s, x) => s + x.picksPerRound[i], 0) / Math.max(1, n)).toFixed(2)),
+    split: +(xs.filter((x) => x.split).length / Math.max(1, n)).toFixed(2),
+    forced: xs.flatMap((x) => x.rounds).filter((r) => r.forced).length, capped: xs.flatMap((x) => x.rounds).filter((r) => r.capped).length };
 };
 const report = { arm, all: sum(ok), f: sum(ok.filter((x) => x.g === "f")), m: sum(ok.filter((x) => x.g === "m")),
   byKind: Object.fromEntries(["one", "two", "vague"].map((k) => [k, sum(ok.filter((x) => x.kind === k))])),
-  firstSix, errors: out.filter((x) => x?.error).map((x) => x.error) };
+  personas: personasArg ?? "personas-{g}.json", version: Number(version), simCalls: SIM_CALLS, firstPage, errors: out.filter((x) => x?.error).map((x) => x.error) };
 fs.writeFileSync(`${VAL}/report.json`, JSON.stringify(report, null, 1));
 console.log(JSON.stringify(report, null, 1));

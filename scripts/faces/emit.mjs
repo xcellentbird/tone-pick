@@ -27,6 +27,9 @@ const reg = fs.existsSync(regPath) ? JSON.parse(fs.readFileSync(regPath)) : {};
 // 눈으로 거른 사람 — { f: [키…], m: [키…], why: { f, m } }
 const EXCL = fs.existsSync(EXCLUDE) ? JSON.parse(fs.readFileSync(EXCLUDE)) : {};
 const dir = `${outDir}/v${V}`;
+// 나간 판의 1단계 모양 — 앱의 IDEAL_SHAPE 가 바뀐 뒤에도 옛 판을 다시 내면 같은 파일이 나와야 한다 (판을 확인하는 길이 그것뿐이다).
+// v1 여섯 한 쪽 · v2 아홉 × 두 쪽. 둘째 쪽의 판박이 문턱은 cluster.mjs 의 PAGE_TWIN_COS 에 박혀 있다
+const PUBLISHED = { 1: { k1: 6, k2: 36, pages: 1 }, 2: { k1: 9, k2: 36, pages: 2 } };
 // 나간 판은 고치지 않는다 — 저장된 결과가 자기 판으로 그려지고 사진은 1년 immutable 이다 (ADR-122 결정 ⑤).
 // 자료를 고치면 새 판 번호로 내고 IDEAL_ASSET_V 를 올린다
 if (outDir === DEFAULT_FACES && fs.existsSync(dir) && fs.readdirSync(dir).length)
@@ -82,9 +85,10 @@ for (const g of ["f", "m"]) {
     const mean = raw[0].map((_, j) => raw.reduce((s, v) => s + v[j], 0) / raw.length);
     vecs = raw.map((v) => norm(v.map((x, j) => x - mean[j])));
   }
-  // 정면 사진인가 — 1단계 여섯을 고를 때 쓴다 (cluster.mjs)
+  // 정면 사진인가 — 1단계 대표를 고를 때 쓴다 (cluster.mjs)
   const people = pool.map((p, i) => ({ ...p, vec: vecs[i], id: idFor(p.key), front: sel[p.name]?.chosen?.qc?.angle === "front" }));
-  const { lv, l1, l2, sizes1 } = levels(people);
+  // 판마다 1단계 모양이 다르다 — 나간 판은 제 모양을 박아 둔다(PUBLISHED). 새 판은 지금 앱의 모양(cluster.mjs 의 기본값)
+  const { lv, l1, l2, sizes1 } = levels(people, PUBLISHED[V] ?? {});
   const { scale, enc } = quantize(vecs);
   // 1단계는 levels() 가 정한 순서(큰 군집부터)로 앞에 둔다 — 자산 순서가 곧 1라운드 순서다
   const order = [...l1, ...l2, ...people.map((_, i) => i).filter((i) => lv[i] === 3)];
