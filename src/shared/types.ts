@@ -7,6 +7,7 @@
  */
 
 import type { Fortune } from "./fortune.ts";
+import type { Ideal } from "./ideal.ts";
 
 export type Gender = "M" | "F";
 export type Phase = "prep" | "reg" | "prevote" | "party" | "done";
@@ -777,6 +778,12 @@ export interface ParticipantState {
   seat?: MySeat;
   /** 오늘의 연애운. 한 번 열면 그대로 남는다 — 아직 안 열었으면 없다 */
   fortune?: Fortune;
+  /**
+   * 이상형 찾기 (슬라이스 19). 한 번 찾으면 그대로 남는다 — 아직 안 찾았으면 없다.
+   * **내 응답에만 있다** (S-D1) — `PublicPlayer`·`HostState` 에는 이 칸을 두지 않는다.
+   * 정답 확인(`verdict`)도 이 안이다
+   */
+  ideal?: Ideal;
   /** 운영자가 보낸 알림. 최신순 (슬라이스 14) */
   announcements: PublicAnnouncement[];
 }

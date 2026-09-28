@@ -188,7 +188,7 @@ describe("쓰는 입구 — 프로필 시트의 ✉️", () => {
     });
     await ready();
     const btn = screen.getByRole("button", { name: NOTE.writeLabel });
-    // `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 — 재미 탭과 같다
+    // `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 — 아직 안 열린 미션 뒷면과 같다
     expect(btn.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(btn);
     expect(await screen.findByText(NOTE.writeSpent)).toBeTruthy();
@@ -287,7 +287,7 @@ describe("상단 바의 익명 쪽지함", () => {
     await ready();
     const btn = inboxBtn();
     expect(btn, "등록 중에 쪽지함이 없다").toBeTruthy();
-    // `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 — 꺼진 재미 탭과 같다
+    // `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 — 아직 안 열린 미션 뒷면과 같다
     expect(btn!.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(btn!);
     expect(await screen.findByText(NOTE.inbox.notYet)).toBeTruthy();

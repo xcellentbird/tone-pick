@@ -45,6 +45,19 @@ const COUNTED = /\.(html|js|css|webp|avif|png|jpe?g|svg|woff2?)$/;
 const NOT_DOWNLOADED = /(^|\/)(og\.jpg|apple-touch-icon\.png)$/;
 
 /**
+ * **얼굴 자료도 세지 않는다** (슬라이스 19). 이상형 찾기를 **열 때만** 받는다 — 첫 화면에도,
+ * 안 여는 사람에게도 한 바이트도 안 간다.
+ *
+ * 글자체처럼 따로 무리를 두지도 않는다. 폴더 총합은 **풀의 크기**이지 한 사람이 받는 양이 아니다 —
+ * 여는 사람은 **풀 JSON 하나**(풀 전체의 벡터 — 한 덩어리로는 가장 크다)와 사진 스무 장 남짓을 받는다.
+ * 폴더 총합에 예산을 걸면 사진 한 장을 더할 때마다 울리는데, 그건 이 자가 막으려던 증가가 아니다.
+ * 그래서 JSON 한 파일의 예산은 `check:faces` 가 따로 든다(POOL_BUDGET — 래칫). 이 스크립트는
+ * `npm run build` 뒤에만 돌아 `check` 에 없고, 자료는 빌드 없이도 볼 수 있어서다.
+ * 여는 화면의 JS 청크는 그대로 센다 — 나눠 실어도 여기서는 한 덩어리다.
+ */
+const FACES = /^faces\//;
+
+/**
  * **글자체는 따로 센다** (ADR-72).
  *
  * SUIT 두 굵기가 331 KiB 다. 이걸 아래 총합에 얹으면 예산이 200 → 530 이 되는데,
@@ -90,7 +103,7 @@ function walk(dir) {
 
 let files;
 try {
-  files = walk(DIST).filter((f) => COUNTED.test(f) && !NOT_DOWNLOADED.test(f));
+  files = walk(DIST).filter((f) => COUNTED.test(f) && !NOT_DOWNLOADED.test(f) && !FACES.test(relative(DIST, f)));
 } catch {
   console.error(`✗ ${relative(ROOT, DIST)} 가 없다. \`npm run build\` 를 먼저 돌려라.`);
   process.exit(1);

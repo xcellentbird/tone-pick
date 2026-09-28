@@ -1,0 +1,271 @@
+# 슬라이스 19 — 공개 표면
+
+시나리오: `19-ideal-type.md`
+
+**여기 적힌 것만 계약이다.** 내부 구조 — DO 안을 어떻게 나눌지, 라운드 화면을 컴포넌트로
+어떻게 쪼갤지 — 는 구현자가 정한다. 테스트도 이 표면에만 붙는다.
+
+시나리오의 고정점 넷이 이 문서의 뼈대다 — 버전 있는 자산 · 순수 함수 둘 · `v` 를 새긴 저장 ·
+`v` 가 실린 집계(`pulse`). **여기 없는 필드를 응답에 늘리는 것이 이 슬라이스의 사고다** (S-D1).
+
+---
+
+## 타입 — `src/shared/ideal.ts`
+
+운세(`shared/fortune.ts`)와 같은 자리다 — 타입과 순수 함수만, DO·요청·시각에 닿지 않는다.
+
+```ts
+import type { Gender } from "./types.ts";
+
+/** 한 사람의 이상형 찾기 한 벌. 회차 DO 에 1인 1행 */
+export interface Ideal {
+  /** 결과를 만든 한 벌(자산+규칙)의 버전. 규칙만 바뀌어도 올린다 — 반응을 비교하는 열쇠 */
+  v: number;
+  pool: Gender;
+  /** 라운드별 고른 얼굴 id — 셋 묶음, 각 1~3개 (S-C2 가 다시 그릴 재료) */
+  picks: string[][];
+  /** 가까운 순서의 연예인 id 셋 (S-C1) */
+  result: string[];
+  /** 결과 확정 (S-C4). 한 번 채워지면 그대로 — 없으면 아직 무응답이다 */
+  verdict?: IdealVerdict;
+  at: number;
+}
+
+export type IdealVerdict = { chosen: string } | { none: true };
+
+/** 기기가 보내는 것. verdict 는 따로 온다 — 결과를 본 뒤에야 생기는 값이다 (S-C4) */
+export type IdealInput = Omit<Ideal, "verdict" | "at">;
+```
+
+상태에 실리는 자리는 한 칸이다.
+
+```ts
+ParticipantState.ideal?: Ideal
+```
+
+`PublicPlayer` · `HostState` 에는 **아무것도 늘지 않는다.** 타입에 없으면 화면이 실수로도 못 보여준다 —
+14 의 표와 같은 방식이다.
+
+크기 상수는 `ideal.ts` 의 한 곳에 둔다 (문구 `copy.ts` 의 `IDEAL` 과 이름이 겹치지 않게).
+
+```ts
+export const IDEAL_SHAPE = {
+  rounds: 3, faces: 6, pickMin: 1, pickMax: 3, results: 3,
+  /** 3라운드 닮은꼴 문턱(코사인). 임시값 — 실제 풀에서 종이 검증과 함께 조정한다 */
+  dupCos: 0.9,
+  id: /^[a-z0-9]{4,16}$/,        // copy-ok
+} as const;
+
+/** 지금 기기가 새로 찾을 때 쓰는 판 — `/faces/v{n}/` 의 n. 저장된 결과는 이 값이 아니라 자기 `v` 로 그린다 */
+export const IDEAL_ASSET_V = 1;
+
+/** 모양 검사 둘 (아래 API). 맞지 않으면 null */
+export function readIdealInput(raw: unknown): IdealInput | null;
+export function readIdealVerdict(raw: unknown, result: readonly string[]): IdealVerdict | null;
+```
+
+**모양 검사는 요청 본문을 펼치지 않는다 — 고른 칸으로 새 객체를 짓는다.** 펼쳐 담으면 기기가 보낸
+모르는 키가 저장돼 `ParticipantState.ideal` 로 매번 되돌아 나간다 (S-D1). `verdict`·`at` 을 저장 요청에
+실어 미리 박는 길도 같은 구멍이다. `v` 는 1 이상 **9999 이하**의 정수다 — 지표 blob 으로 흘러간다.
+
+---
+
+## 자산 — 앱이 읽는 것만 적는다 (파이프라인은 ADR-122)
+
+사진은 **실사**다 — 고르는 것도 결과도 (S-C5). 출처 확보가 파이프라인의 첫 일이고,
+그 전에는 **화면을 열지 않는다** — 문은 빌드가 연다. 지금 판(`IDEAL_ASSET_V`)의 풀 JSON 둘이 빌드에 없으면
+카드도 `/ideal` 주소도 없다 (`src/client/lib/faces.ts`, `vite.config.ts`, 아래 `출시의 문`). 출처 순서와 벡터를 만드는 법(정해진 낱말 열다섯 가지 → 속성마다 중심을 뺀 68차원)은
+ADR-122 에 있다 — 앱은 `dim` 을 파일에서 읽을 뿐 그 값을 들고 있지 않다.
+
+```
+/faces/v{n}/f.json · m.json     풀 하나에 파일 하나 (Gender 소문자)
+/faces/v{n}/{id}.webp           faces[].id 마다, 그리고 retired 아닌 celebs[].id 마다 하나 (결과가 연예인 id 로 사진을 부른다)
+```
+
+```ts
+/** 자산 JSON 의 모양. base64 int8×dim — decodeVec() 으로 복원하면 단위 길이다 */
+export interface FacePoolFile {
+  version: number;               // 경로의 v{n} 과 같아야 한다
+  dim: number;
+  scale: number;
+  celebs: { id: string; name: string; v: string; retired?: true }[];
+  faces:  { id: string; v: string; level: 1 | 2 | 3 }[];
+}
+```
+
+| 규칙 | 왜 |
+|---|---|
+| **id 는 불투명하고 영원하다.** 빼려면 `retired` | 저장된 결과가 id 를 들고 있다. 파일명에 이름을 넣지 않는다 (S-B5) |
+| **옛 버전 경로는 지우지 않는다** | 옛 결과가 언제나 그려진다 (고정점) |
+| `level 1` 은 정확히 6 · `level 2` 는 36 | 1라운드는 모두에게 같다 |
+| `celebs` 와 `faces` 는 **다른 목록**이다 | 계약을 출처 결정에서 떼어두는 자리다. 출처는 실사로 닫혀(S-C5) 두 목록의 id 가 온전히 겹친다 — 같은 사람이 고르는 얼굴이자 답이고, 그래서 S-C2 가 본 얼굴을 결과에서 뺀다 |
+
+**`npm run check:faces`** — `check:copy` 옆자리, `npm run check` 에 들어간다.
+`public/faces/` 가 없으면 조용히 통과한다 (자산이 오기 전에도 CI 가 돌아야 한다). 있으면 **판마다 보는 것이 다르다** —
+옛 판은 저장된 결과를 그리는 데만 쓰이고 고칠 수도 지울 수도 없어서, 모양이 바뀐 날 얼어붙은 옛 판이 영영 빨갛지 않게 나눴다.
+
+모든 판(`v{n}/`)에서 — **그리는 데 필요한 것**:
+
+- faces 전부와 retired 아닌 celebs 의 id 마다 사진이 있고, 사진마다 항목이 있다 · id 전부 유일 · 파일명에 celebs.name 없음
+- 벡터 길이 = dim, 복원하면 길이 ≈ 1 · JSON 의 version = 경로의 v{n}
+- 벡터는 **표준 base64**(`+/`)다 — 기기의 `atob` 가 받는 만큼만 통과시킨다. 끝 `=` 는 있어도 없어도 되고,
+  base64url(`-_`)은 `atob` 가 던지므로 빨갛다
+- 같은 사진 둘 없음 (바이트 해시) · `f.json`·`m.json`·`<id>.webp` 말고 다른 파일이 없다
+
+지금 판(`IDEAL_ASSET_V`)에서만 — **새로 찾는 데 필요한 것**:
+
+- level 개수(6·36)
+- retired 아닌 celebs 가 `라운드 × 얼굴 + 결과`(3×6+3)를 채울 만큼 있다 — 본 얼굴을 빼고도 결과가 남아야 한다
+- celebs 와 faces 의 id 겹침
+- 풀 JSON 하나가 **gzip 120 KiB** 이하 (`POOL_BUDGET`) — 여는 사람이 한 덩어리로 받는 것 중 가장 크다.
+  지금 값은 어림이고 자산이 오면 실측으로 다시 적는다
+
+### 서빙 — 정적 파일이고, 받는 쪽이 모양을 본다 (ADR-122)
+
+- **Worker 를 거치지 않는다.** `run_worker_first` 를 넓히지 않는다 (ADR-92)
+- ⚠️ **없는 파일에도 200 이 온다.** SPA 폴백이 `index.html` 을 준다. 그래서 기기가 `res.ok` · content-type 에 json ·
+  모양(`version === v`, `dim`, 배열들)을 보고, 하나라도 어긋나면 **실패**다 — 화면 안의 한 줄과 `다시 불러오기`
+  (토스트가 아니다, ADR-65). `api()` 를 거치지 않는 `fetch` 다
+- `public/_headers` 의 **1년 `immutable` 은 `/faces/*.webp` — 사진에만** 붙는다. 경로에 판이 있고 옛 판을 지우지 않는다 (ADR-72 의 글자체와 같다).
+  없는 주소에 온 `index.html` 도 1년 캐시되므로 **없는 주소를 만들지 않는 것**이 조건이다 — `check:faces` 가 지킨다
+- **JSON(`f.json`·`m.json`)은 기본값이다** — 매번 확인한다. `check:faces` 는 폴더가 없으면 통과하므로,
+  자산이 오기 전에 이상형 찾기를 연 기기가 JSON 주소에서 받은 `index.html` 을 1년 붙잡지 않게 뺐다 (ADR-122 `대가`).
+  **`_headers` 를 `/faces/*` 로 넓히지 마라**
+- `check-bundle` 은 `faces/` 를 **세지 않는다.** 첫 화면에도, 안 여는 사람에게도 안 간다
+- **받는 때는 시작 화면에서 풀을 고른 뒤**다 (결과가 있으면 결과를 그릴 때). 탭 카드만 보는 사람은 받지 않는다
+- 사진은 **4:5** (240×300). `<img width height alt="">` — 이름이 없다 (S-B5)
+
+**구현·테스트는 픽스처 풀로 돈다** — `test/fixtures/faces/` 에 손으로 만든 작은 풀
+(지어낸 벡터, `pool.ts`). 사진은 두지 않았다 — 화면 테스트(happy-dom)는 이미지를 받지 않고,
+`check:faces` 는 `public/faces/` 만 본다. 실제 자산과 종이 검증은 **출시**를 여는 것이지 구현을 막지 않는다.
+
+**출시의 문은 자산이다 — 빌드가 연다** (`FACES_READY`). `vite.config.ts` 가 빌드하는 순간 지금 판의 `f.json`·`m.json` 이
+있는지 보고 값을 박는다. 없으면 카드도, 미리 부르기도, `/ideal` 주소도 없다 — 그 주소는 홈 탭으로 읽힌다.
+**따로 켜는 스위치를 두지 마라** — 스위치는 자산 없이 켤 수 있고, 그게 막으려던 일이다. 그래서 코드는 자산보다 먼저
+qa 로 가도 되고, 그동안 qa 의 다른 수정이 main 으로 가는 길을 막지 않는다. 자산이 들어온 커밋이 곧 여는 커밋이다.
+
+---
+
+## 순수 함수 — 테스트를 먼저 쓴다 (`buildSeating` 과 같은 예외)
+
+```ts
+export function decodeVec(v: string, dim: number, scale: number): Float32Array;
+export function meanOf(vecs: readonly Float32Array[]): Float32Array;   // 평균 → 정규화까지
+export function pickRound(
+  faces: readonly DecodedFace[], round: 1 | 2 | 3,
+  mean: Float32Array | null, shown: ReadonlySet<string>, n?: number,
+): DecodedFace[];
+export function nearestCelebs(
+  celebs: readonly DecodedCeleb[], mean: Float32Array,
+  exclude: ReadonlySet<string>, j?: number,
+): DecodedCeleb[];
+```
+
+`DecodedFace = { id, vec, level }` · `DecodedCeleb = { id, name, vec, retired? }` — 복원된 런타임 모양.
+
+**불변식 (테스트가 고정한다)**
+
+- 한 번의 반환에 같은 id 가 없고, `shown`·`exclude` 가 절대 안 나온다 (S-B3 · S-C2)
+- 1라운드는 level 1 을 **자산 순서 그대로** — 모두에게 같다 (`mean` 을 무시한다)
+- 2라운드는 level 2 후보를 코사인 내림차순으로 n 개 — 대표라서 n 개가 서로 다른 군집이다
+- 3라운드는 풀 전체에서 코사인 내림차순으로 채우되, **이미 담은 것과 `dupCos` 이상 닮은
+  후보는 뒤로 민다.** 문턱 때문에 n 개를 못 채울 때만 문턱을 풀고 채운다 — 빈 칸은 없다
+- `meanOf` 는 고른 벡터 전체의 단순 평균이다 — 라운드 가중치가 없다
+- `nearestCelebs` 는 `retired` 를 새 결과에 넣지 않는다
+- 같은 입력이면 같은 출력 — 시각·난수·DO 에 닿지 않는다
+
+**알고리즘 교체 = 이 함수 몸통 교체다.** 불변식 테스트는 교체 후에도 그대로 통과해야 한다.
+함수 이름을 DOM 빌트인과 겹치게 짓지 않는다 (`createEvent` 사고).
+
+---
+
+## API — 참가자 세션, 단계 검사 없음 (S-A2)
+
+```
+POST /api/ideal            IdealInput   → Ideal
+POST /api/ideal/verdict    IdealVerdict → Ideal
+```
+
+- **돌려주는 건 언제나 저장된 행이다.** 이미 있으면 그것을 돌려준다 — 409 가 아니다.
+  화면은 응답을 그대로 그린다 (S-E2: 다른 기기가 먼저 끝냈으면 그쪽이 남는다).
+  서버가 방금 준 답을 버리고 다시 읽지 않는다 (14 의 `/vote` 와 같은 이유)
+- 검사는 **모양만** (`IDEAL_SHAPE`) — `pool` 이 Gender · `picks` 가 정확히 3묶음, 각 1~3개,
+  라운드 안 중복 없음 · `result` 가 서로 다른 id 셋 · `v` 가 1~9999 의 정수. 어긋나면 `400`.
+  내용(정말 가까운가)은 안 본다 — 벡터를 서버에 들이지 않는다 (S-D3)
+- `verdict` 는 행이 있어야 받는다 — 없으면 `404`. `chosen` 은 그 행의 `result` 셋 중 하나 — 아니면 `400`.
+  이미 있으면 그대로 돌려준다 (한 번만)
+- 단계를 보지 않는다 — 운영자가 `준비` 로 되돌린 회차에서도 된다 (S-A2).
+  세션이 없으면 `401`, **지워진 참가자면 `404`** (`/fortune` 과 같은 길 — 화면은 404 를 `빠졌다` 로 읽는다).
+  행 없는 `verdict` 도 `404` 라 상태 번호로는 갈리지 않는다 — 화면은 결과를 그린 뒤에만 답을 보내므로 받아들인다
+- **방송하지 않는다.** 내 행은 나만 본다 — 남의 화면이 다시 읽을 이유가 없다
+
+**지표 — `pulse()` 의 닫힌 키** (ADR-56 · ADR-122). 첫 저장·첫 확정에서만 센다.
+
+```ts
+{ kind: "ideal"; key: "save" | "chosen" | "none"; v: number }   // IDEAL_KEYS
+```
+
+blob 은 `[kind, key, String(v)]` 뿐이다. **인덱스도 회차 id 도 연예인 id 도 없다** — 어느 연예인인지는 결과 통계다 (S-D4).
+
+> **고쳤다 (2026-09-27)** — 두 자리를 틀리게 적었다.
+> 지워진 참가자는 `401 (ENTRY.removed 의 길)` 이 아니라 **`404`** 다. 401 은 세션이 없을 때뿐이고,
+> `ENTRY.removed` 는 `/me` 가 명단을 확인한 뒤에만 싣는다.
+> 지표는 `metrics.ts` 의 `{ v }` · `{ v, kind }` 가 아니다 — `count()` 의 모양(`{kind, outcome}`)에는 `v` 의 자리가 없고,
+> `count()` 는 **회차 id 를 인덱스로 단다.** `kind` 도 그 합집합의 구분자라 겹친다.
+
+---
+
+## 라우트 (화면)
+
+| URL | 화면 |
+|---|---|
+| `/e/:code/fun` | **재미 탭** (개명은 끝났다 — ADR-20 후기 2). 이 슬라이스는 label·이모지·경로를 건드리지 않고 **꺼진 탭 상태(`funOpen`)를 걷어낸다** — 탭은 등록부터 켜져 있다 (S-A2). 카드는 둘 — 운세(미션은 그 안) 위, 이상형 찾기 아래 |
+| `/e/:code/ideal` | 시작(풀 고르기). **결과가 있으면 결과** — 같은 주소가 상태를 따라간다 |
+| `/e/:code/ideal/1..3` | 라운드 |
+
+시트가 아니라 **재미 탭 본문 안의 화면**이다 (`/me/edit` 과 같은 자리). 탭 판정이 `/ideal` 이하를 `재미` 로 읽는다 (ADR-114).
+
+| 전환 | 방식 | 이유 |
+|---|---|---|
+| 탭 카드 → `/ideal` | push (`idealStep: 0`) | 뒤로 가기 = 탭 |
+| `/ideal` → `/1` → `/2` → `/3` | push | 뒤로 가기 = 이전 라운드, 1에서는 풀 고르기 (등록 스텝과 같다) |
+| `/3` 결과 보기 → `/ideal` | **되감기** `navigate(-n)` — 아니면 replace | 뒤로 가기로 라운드에 다시 들어가지 않는다. 결과에서 뒤로 가면 재미 탭이다 |
+| 이상형 화면에서 탭 | **되감기** `navigate(-(n+1))` → 재미 탭 칸에서 여느 탭 이동 | 라운드 칸을 기록에 남기지 않는다 |
+
+칸마다 `state.idealStep`(카드가 연 `/ideal` 은 0, 라운드는 1·2·3)을 싣는다. 라운드 주소가 열리면 안 될 때(결과가 있다 ·
+고르던 값이 없다 · 없는 라운드) **지금 선 칸**의 수가 주소와 맞으면 그만큼 되감고, 아니면 `/ideal` 로 replace 한다 —
+?·✉️ 아래라면 시트 칸을 지키고 `under` 만 바꾼다. 결과 보기도 이 길로 물러난다: 저장된 행이 그려지는 **그 순간의 칸**에서
+센다 (저장을 기다리는 동안 뒤로 갔거나 시트를 연 사람). **칸 수를 믿을 수 있는 자리다** — `/n` 은 `/n-1` 에서만
+push 되고 수는 그 칸에 적혀 있다 (ROUTES.md). 결과는 `POST /api/ideal` 의 응답 행을 그대로 그린다 (다시 읽지 않는다, S-E2).
+
+> **고쳤다 (2026-09-27)** — 처음에는 replace 로 적었다. replace 는 마지막 한 칸만 바꿔서 결과에서 뒤로 가기가
+> `/2` · `/1` 을 밟으며 매번 결과로 되돌려진다 — 세 번 헛돈다 (`ROUTES.md` 의 ⚠️ 와 같은 한계). ADR-122 ④.
+
+- **결과가 있으면 라운드 주소는 열리지 않는다** — `/ideal` 로 갈아끼운다
+  (`/me/edit` 이 잠긴 뒤와 같다). 새로고침·뒤로 가기·딥링크가 전부 이 문으로 걸러진다
+- 고르던 값은 메모리에만 있다 — 라운드 주소를 **직접** 열었는데 그 라운드에 필요한 값(풀·앞 라운드 고른 것)이
+  없으면 `/ideal` 로 갈아끼운다 (S-B4: 닫고 나가면 버려진다). `:round` 가 1·2·3 이 아니어도 갈아끼운다
+- 뒤로 가서 앞 라운드를 고쳐 고르면 **그 뒤 라운드의 후보·고른 것은 버리고 다시 계산**한다 — 앞의 선택이 뒤의 후보를 정한다
+
+---
+
+## 안 만드는 것 (계약에서 뺀다)
+
+- `GET /api/ideal` — `ParticipantState.ideal` 에 실려 온다
+- `DELETE`·`PUT /api/ideal` — 다시 하기가 없다. '없었어요'(S-C4)도 열지 않는다
+- 운영자 라우트·`HostState` 필드 — 운영자 화면이 없다 (S-D1)
+- 자산을 주는 API — 정적 파일이다. Worker 를 거치면 캐시만 잃는다
+- `picks` 를 서버가 재계산해 검증하는 것 — S-D3 의 "그래서 뭐"
+- 단계 검사 · 방송 · 읽음 표시
+
+---
+
+## 문구는 시나리오의 표대로 `copy.ts` 에 `IDEAL` 로
+
+탭 이름·이모지·경로는 건드리지 않는다. 탭 쪽 일은 `funOpen`(꺼진 탭)을 걷어내는 것과
+**운세 카드에 닫힌 모양을 주는 것**이다 — 운세·미션 카드의 문(`canOpenFortune`·`canOpenMission`)은 그대로 남는다.
+
+> **고쳤다 (2026-09-27)** — `funOpen` 을 걷어내는 것 **하나**라고 적었다. 운세 카드에는 닫힌 모양이 없었다 —
+> 탭의 문이 가려 주고 있었다. 탭이 등록부터 켜지면 생년월일 칸이 산 채로 보인다. 그래서 `!canOpenFortune && !card` 이면
+> 뒷면에 칸 없이 `FORTUNE.closed` 한 줄(`aria-disabled`)이다 — 미션 뒷면의 `missionClosed` 와 같은 모양.
+> 운세 뒷면이 탭을 다 채우던 `.fortuneFill` 은 걷는다 — 카드가 둘이다 (ADR-122 ②).
