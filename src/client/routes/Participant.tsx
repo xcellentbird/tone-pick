@@ -715,16 +715,17 @@ function Loaded({
             />
           )}
           {/*
-            재미 탭. 운세 카드(미션은 그 안의 블록이다) 아래 이상형 찾기가 **두 번째 카드**다.
+            재미 탭. 이상형 찾기가 **첫 카드**, 운세 카드(미션은 그 안의 블록이다)가 그 아래다 (ADR-124).
+            운세는 한 번 열면 한 화면을 넘게 길어져서, 위에 두면 그 아래 카드가 접힌 아래로 밀린다.
             이상형 주소(`/ideal`·`/ideal/1..3`)에서는 탭 본문이 그 화면이 된다 — **한 자리**라서
             `/ideal` 과 라운드 사이를 오가도 같은 컴포넌트가 남아 고르던 값이 산다 (S-B4).
           */}
           {tab === "fun" &&
             (idealRound === undefined ? (
               <>
-                <FortuneTab state={state} onFortune={setFortune} />
                 {/* 사진이 온 빌드에서만 연다 (S-C5, `lib/faces.ts`) */}
                 {FACES_READY && <IdealCard ideal={state.ideal} onOpen={() => onIdeal?.(0)} />}
+                <FortuneTab state={state} onFortune={setFortune} />
               </>
             ) : (
               <IdealBoundary>
