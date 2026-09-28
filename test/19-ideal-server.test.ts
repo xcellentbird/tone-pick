@@ -5,8 +5,9 @@
  * 서버는 기기가 계산한 결과를 받아 **모양만** 보고 저장한다 (S-D3). 테스트도 그 문 밖에서만 두드린다:
  * `POST /api/ideal` · `POST /api/ideal/verdict` · `GET /api/me` · 운영자 응답 · 소켓.
  *
- *   S-A2  단계를 보지 않는다 — 등록부터, 되돌아간 준비 단계에서도
- *   S-C3  먼저 온 것이 남는다. 두 번째 저장은 첫 행을 돌려받는다
+ *   S-A2  재미는 한 번에 열린다 — 프로필 투표부터. 그 전에는 새로 저장하지 않는다 (ADR-125).
+ *         한 번 찾은 결과는 단계가 되돌아가도 남고, 정답도 받는다
+ *   S-C3  다시 찾기 전에는 먼저 온 것이 남는다. 다시 찾기는 **지금 결과를 가리켜야** 바꾼다 (ADR-125)
  *   S-E2  다른 기기가 늦게 보내도 409 가 아니라 저장된 행이다
  *   S-C4  정답은 한 번. 결과는 그대로다
  *   S-D1  남의 응답·명단·운영자 응답 어디에도 없다. 요청에 섞인 모르는 키도 저장되지 않는다
@@ -17,6 +18,7 @@
  * 흔한 낱말과 겹치지 않는 모양으로 둔다.
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { FUN } from "../src/shared/copy.ts";
 import type { Ideal, IdealInput } from "../src/shared/ideal.ts";
 import type { EventMeta, ParticipantState } from "../src/shared/types.ts";
 import { api, enter, freshEvent, join, listen, master, setPhase, settle, signInMaster } from "./helpers/party.ts";
@@ -49,28 +51,48 @@ const verdict = (cookie: string | null, body: unknown) =>
   api<Ideal>("/api/ideal/verdict", { method: "POST", cookie, body });
 const me = (cookie: string | null) => api<ParticipantState>("/api/me", { cookie });
 
+/**
+ * 재미가 열린 회차 — 프로필 투표가 시작됐다 (ADR-125). 저장이 되어야 하는 테스트는 여기서 시작한다.
+ * 등록은 발표 전까지 열려 있어서 프로필 투표 중에도 사람이 들어온다.
+ */
+async function openEvent(): Promise<EventMeta> {
+  const ev = await freshEvent();
+  await setPhase(ev.id, "prevote");
+  return ev;
+}
+
+/** 다시 찾기 — 지금 결과(`at`)를 가리켜 보낸다 */
+const redo = (cookie: string | null, inp: IdealInput, replaces: unknown) => save(cookie, { ...inp, replaces });
+
 // ─────────────────────────────────────────── A. 때
 
-describe("S-A2 ★ 등록부터 열린다 — 단계를 보지 않는다", () => {
+describe("S-A2 ★ 재미는 한 번에 열린다 — 프로필 투표부터 (ADR-125)", () => {
   /*
-   * 남의 데이터를 전혀 쓰지 않으니 명단(ADR-21)처럼 아껴 열 이유가 없다.
-   * **준비 단계도 포함이다** — 운영자가 등록을 되돌려도 이미 들어온 사람의 재미 탭은 그대로다.
-   * 단계 검사가 한 줄이라도 끼면 그 단계의 사람은 저장 버튼을 눌렀다가 실패를 본다.
+   * 이상형 찾기는 한동안 등록부터 열렸다(ADR-122). 운영자가 재미 기능을 하나로 묶어 **프로필 투표가 시작될 때**
+   * 한 번에 열기로 했다 — 운세와 같은 문이다. 서버가 문지기다: 화면이 막아도 요청은 누구든 보낼 수 있다.
    */
-  it("★ 등록 · 준비(되돌림) · 매력 투표 · 파티 · 발표 뒤 — 어느 단계에서도 저장하고 답한다", async () => {
+  it("★ 등록 · 준비(되돌림) 에서는 새로 저장하지 않는다 — 409, 그 문장, 결과가 생기지 않는다", async () => {
+    const ev = await freshEvent();
+    const a = await join(ev);
+
+    const early = await save(a.cookie, input());
+    expect(early.status).toBe(409);
+    expect((early.body as unknown as { message?: string }).message).toBe(FUN.closed);
+    expect((await me(a.cookie)).body).not.toHaveProperty("ideal");
+
+    await setPhase(ev.id, "prep");
+    expect((await save(a.cookie, input())).status).toBe(409);
+    expect((await me(a.cookie)).body).not.toHaveProperty("ideal");
+  });
+
+  it("★ 프로필 투표 · 파티 · 발표 뒤에는 저장하고 답한다", async () => {
     const ev = await freshEvent();
     const people = [];
-    for (let i = 0; i < 5; i++) people.push(await join(ev, { gender: i % 2 ? "F" : "M" }));
+    for (let i = 0; i < 3; i++) people.push(await join(ev, { gender: i % 2 ? "F" : "M" }));
 
-    const steps: Array<[string, (() => Promise<void>) | null]> = [
-      ["reg", null],
-      ["prep", () => setPhase(ev.id, "prep")],
-      ["prevote", () => setPhase(ev.id, "prevote")],
-      ["party", () => setPhase(ev.id, "party")],
-      ["done", () => setPhase(ev.id, "done")],
-    ];
-    for (const [i, [phase, move]] of steps.entries()) {
-      await move?.();
+    const steps = ["prevote", "party", "done"] as const;
+    for (const [i, phase] of steps.entries()) {
+      await setPhase(ev.id, phase);
       const p = people[i];
       const inp = input();
 
@@ -87,13 +109,33 @@ describe("S-A2 ★ 등록부터 열린다 — 단계를 보지 않는다", () =>
       expect(state.body.ideal, `${phase} 에서 다시 읽으면 결과가 있어야 한다`).toEqual(said.body);
     }
   });
+
+  it("★ 한 번 찾은 결과는 단계가 되돌아가도 남고 정답도 받는다 — 막히는 건 다시 찾기뿐이다", async () => {
+    /*
+     * 문이 막는 것은 **새로 만드는 일**이다. 운영자가 단계를 되돌렸다고 이미 찾은 결과가 사라지면
+     * 테이블에서 보여준 화면이 거짓말이 된다 — 운세가 단계가 물려도 그대로 보이는 것과 같다.
+     */
+    const ev = await openEvent();
+    const a = await join(ev);
+    const made = await save(a.cookie, input());
+    expect(made.status).toBe(200);
+
+    await setPhase(ev.id, "prep");
+    expect((await me(a.cookie)).body.ideal).toEqual(made.body);
+    const said = await verdict(a.cookie, { none: true });
+    expect(said.status).toBe(200);
+
+    const again = await redo(a.cookie, input(), made.body.at);
+    expect(again.status).toBe(409);
+    expect((await me(a.cookie)).body.ideal).toEqual(said.body);
+  });
 });
 
 // ─────────────────────────────────────────── C. 결과
 
-describe("S-C3 ★ 한 번 찾으면 그대로 남는다", () => {
+describe("S-C3 ★ 다시 찾기 전에는 그대로 남는다 (ADR-125)", () => {
   it("★ 저장하면 저장된 행을 돌려준다 — 보낸 것 그대로, 시각은 서버가 적는다", async () => {
-    const ev = await freshEvent();
+    const ev = await openEvent();
     const a = await join(ev);
     const inp = input({ v: 3, pool: "M" });
 
@@ -105,8 +147,8 @@ describe("S-C3 ★ 한 번 찾으면 그대로 남는다", () => {
     expect(made.body).not.toHaveProperty("verdict");
   });
 
-  it("★ 두 번 저장돼도 먼저 온 것이 남는다 — 두 번째 요청은 첫 행을 돌려받는다", async () => {
-    const ev = await freshEvent();
+  it("★ 가리키지 않고 두 번 저장돼도 먼저 온 것이 남는다 — 두 번째 요청은 첫 행을 돌려받는다", async () => {
+    const ev = await openEvent();
     const a = await join(ev);
     const first = input();
     const second = input({ pool: "M", v: 2 });
@@ -119,8 +161,53 @@ describe("S-C3 ★ 한 번 찾으면 그대로 남는다", () => {
     expect(leaked(two.body, second)).toEqual([]);
   });
 
+  it("★ 다시 찾기 — 지금 결과를 가리켜 보내면 새 결과가 남고, 정답은 비워진다", async () => {
+    const ev = await openEvent();
+    const a = await join(ev);
+    const first = input();
+    const one = await save(a.cookie, first);
+    const answered = await verdict(a.cookie, { none: true });
+    expect(answered.body.verdict).toEqual({ none: true });
+
+    const next = input({ pool: "M" });
+    const two = await redo(a.cookie, next, one.body.at);
+    expect(two.status, JSON.stringify(two.body)).toBe(200);
+    expect(two.body).toMatchObject({ pool: "M", picks: next.picks, result: next.result });
+    // 새 결과에는 정답이 없다 — 결과마다 한 번 묻는다
+    expect(two.body).not.toHaveProperty("verdict");
+    // 가리킨 값은 요청에만 있다 — 저장되지도 되돌아오지도 않는다 (S-D1)
+    expect(Object.keys(two.body).sort()).toEqual(["at", "picks", "pool", "result", "v"]);
+    // 화면이 **새 결과인지** 가리는 열쇠다 — 같은 밀리초에 와도 지난 값과 같으면 안 된다
+    expect(two.body.at).not.toBe(one.body.at);
+    expect(leaked(two.body, first)).toEqual([]);
+    expect((await me(a.cookie)).body.ideal).toEqual(two.body);
+
+    // 새 결과에는 다시 묻는다
+    const said = await verdict(a.cookie, { chosen: next.result[0] });
+    expect(said.status).toBe(200);
+    expect(said.body.verdict).toEqual({ chosen: next.result[0] });
+  });
+
+  it("★ 가리킨 결과가 지금 것이 아니면 바꾸지 않는다 — 저장된 행을 돌려받는다", async () => {
+    const ev = await openEvent();
+    const a = await join(ev);
+    const one = await save(a.cookie, input());
+
+    for (const stale of [one.body.at - 1, one.body.at + 1]) {
+      const res = await redo(a.cookie, input(), stale);
+      expect(res.status, String(stale)).toBe(200);
+      expect(res.body, `${stale} 을 가리킨 요청이 결과를 바꿨다`).toEqual(one.body);
+    }
+    // 결과가 없을 때 가리키고 오면 — 가리킬 것이 없으니 처음 저장이다
+    const b = await join(ev);
+    const fresh = input();
+    const made = await redo(b.cookie, fresh, 12345);
+    expect(made.status).toBe(200);
+    expect(made.body.result).toEqual(fresh.result);
+  });
+
   it("★ 다시 읽으면 같은 결과다 — /api/me 에 실려 온다", async () => {
-    const ev = await freshEvent();
+    const ev = await openEvent();
     const a = await join(ev);
     const made = await save(a.cookie, input());
 
@@ -142,7 +229,7 @@ describe("S-C3 ★ 한 번 찾으면 그대로 남는다", () => {
 
 describe("S-E2 ★ 같은 사람, 두 기기 — 먼저 끝낸 쪽이 남는다", () => {
   it("★ 늦게 보낸 기기는 자기가 고른 것이 아니라 저장된 그 행을 받는다", async () => {
-    const ev = await freshEvent();
+    const ev = await openEvent();
     const a = await join(ev);
     // 두 번째 기기 — 같은 번호 + PIN 번호로 들어온다 (ADR-75)
     const other = await enter(ev.id, a.phone, a.pin);
@@ -161,11 +248,29 @@ describe("S-E2 ★ 같은 사람, 두 기기 — 먼저 끝낸 쪽이 남는다"
     expect((await me(other.cookie)).body.ideal).toEqual(first.body);
     expect((await me(a.cookie)).body.ideal).toEqual(first.body);
   });
+
+  it("★ 두 기기가 같은 결과를 가리켜 다시 찾으면 먼저 닿은 것이 남는다 (ADR-125)", async () => {
+    const ev = await openEvent();
+    const a = await join(ev);
+    const other = await enter(ev.id, a.phone, a.pin);
+    const made = await save(a.cookie, input());
+
+    const mine = input();
+    const theirs = input({ pool: "M" });
+    const one = await redo(a.cookie, mine, made.body.at);
+    const late = await redo(other.cookie, theirs, made.body.at);
+
+    expect(one.body.result).toEqual(mine.result);
+    expect(late.status, "늦은 쪽을 409 로 혼냈다").toBe(200);
+    // 늦은 쪽이 가리킨 결과는 이미 바뀌었다 — 그 행을 다시 바꾸지 않고 남은 행을 돌려준다
+    expect(late.body).toEqual(one.body);
+    expect(leaked(late.body, theirs)).toEqual([]);
+  });
 });
 
 describe("S-C4 ★ 정답을 한 번 묻는다", () => {
   async function saved() {
-    const ev = await freshEvent();
+    const ev = await openEvent();
     const a = await join(ev);
     const inp = input();
     const made = await save(a.cookie, inp);
@@ -174,7 +279,7 @@ describe("S-C4 ★ 정답을 한 번 묻는다", () => {
   }
 
   it("★ 결과가 없으면 답할 것이 없다 — 404", async () => {
-    const ev = await freshEvent();
+    const ev = await openEvent();
     const a = await join(ev);
     expect((await verdict(a.cookie, { none: true })).status).toBe(404);
     // 답을 받았다고 결과가 생기지도 않는다
@@ -218,13 +323,13 @@ describe("S-C4 ★ 정답을 한 번 묻는다", () => {
     expect((await me(a.cookie)).body.ideal).toEqual(first.body);
   });
 
-  it("★ '없었어요' 도 답이다 — 결과를 바꾸지도, 다시 찾기를 열지도 않는다", async () => {
+  it("★ '없었어요' 도 답이다 — 결과를 바꾸지 않는다. 가리키지 않은 저장도 그대로다", async () => {
     const { a, inp, made } = await saved();
     const res = await verdict(a.cookie, { none: true });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ...made, verdict: { none: true } });
 
-    // 다시 찾기가 없다 — 새 결과를 보내도 처음 것이 돌아온다
+    // 답이 결과를 바꾸지 않는다 — 가리키지 않고 보낸 새 결과도 처음 것을 돌려받는다 (다시 찾기는 가리켜야 한다)
     const retry = await save(a.cookie, input());
     expect(retry.body).toEqual(res.body);
     // 뒤늦게 고른 사람도 안 받는다
@@ -258,11 +363,11 @@ describe("S-C4 ★ 정답을 한 번 묻는다", () => {
 describe("모양만 본다 — 어긋나면 400 (S-D3)", () => {
   /*
    * 내용(정말 가까운가)은 안 본다 — 벡터를 서버에 들이지 않는다. 그래도 **모양은 서버가 문지기다.**
-   * 화면이 이 행을 그대로 그리므로, 모양이 틀린 행이 한 번 저장되면 결과 화면이 영영 깨진 채로 남는다
-   * (다시 하기가 없다).
+   * 화면이 이 행을 그대로 그리므로, 모양이 틀린 행이 한 번 저장되면 결과 화면이 깨진 채로 남는다 —
+   * 다시 찾기 단추는 그 결과 화면 안에 있다.
    */
   it("★ 표 — 어느 칸이 어긋나도 저장하지 않는다", async () => {
-    const ev = await freshEvent();
+    const ev = await openEvent();
     const a = await join(ev);
     const base = input();
     const [r1, r2, r3] = base.picks;
@@ -301,6 +406,11 @@ describe("모양만 본다 — 어긋나면 400 (S-D3)", () => {
       ["result 중복", { ...base, result: [base.result[0], base.result[0], base.result[1]] }],
       ["result 나쁜 id", { ...base, result: [base.result[0], base.result[1], "no space"] }],
       ["result 가 배열이 아님", { ...base, result: base.result.join(",") }],
+      // 다시 찾기가 가리키는 값 (ADR-125) — 서버가 적은 시각이라 양의 정수뿐이다
+      ["replaces 문자열", { ...base, replaces: "1" }],
+      ["replaces 음수", { ...base, replaces: -1 }],
+      ["replaces 소수", { ...base, replaces: 1.5 }],
+      ["replaces 묶음", { ...base, replaces: [1] }],
     ];
     for (const [why, body] of bad) {
       const res = await save(a.cookie, body);
@@ -316,9 +426,9 @@ describe("모양만 본다 — 어긋나면 400 (S-D3)", () => {
   it("★ 한 라운드에 넷·다섯도 받는다 — 상한은 다섯이다 (v2)", async () => {
     /*
      * v2 는 아홉 얼굴에서 1~5 를 고른다. 문지기가 v1 상한(셋)에 머물러 있으면 넷째를 고른 사람은
-     * 결과를 다 보고 저장에서 400 을 받는다 — 다시 하기가 없으니 그 사람의 결과는 영영 없다.
+     * 결과를 다 보고 저장에서 400 을 받는다 — 다시 찾아도 같은 자리에서 또 막힌다.
      */
-    const ev = await freshEvent();
+    const ev = await openEvent();
     const a = await join(ev);
     const b = await join(ev);
     const four = input();
@@ -344,7 +454,7 @@ describe("모양만 본다 — 어긋나면 400 (S-D3)", () => {
      * 그 칸은 매번 내 응답에 실린다. 저장 요청으로 정답(`verdict`)을 미리 박거나
      * 시각(`at`)을 지어내는 길도 같은 구멍이다.
      */
-    const ev = await freshEvent();
+    const ev = await openEvent();
     const a = await join(ev);
     const inp = input();
     const res = await save(a.cookie, {
@@ -414,7 +524,7 @@ describe("S-D1 ★ 내 결과는 내 응답에만 있다", () => {
  */
 describe("S-D2 ★ 참가자를 지우면 결과도 사라진다", () => {
   it("★ 지운 뒤 같은 번호로 다시 들어온 새 사람에게 앞사람의 결과가 없다", async () => {
-    const ev = await freshEvent();
+    const ev = await openEvent();
     const a = await join(ev);
     const inp = input();
     expect((await save(a.cookie, inp)).status).toBe(200);
@@ -444,7 +554,7 @@ describe("S-D2 ★ 참가자를 지우면 결과도 사라진다", () => {
      * 아무도 지우지 않는 행이 회차 DO 에 남는다 — 지우면 다 사라진다는 약속이 거기서 샌다.
      * 401 이 아니라 404 다: 세션은 멀쩡하고 **사람이** 없다 (화면은 404 를 `빠졌다` 로 읽는다).
      */
-    const ev = await freshEvent();
+    const ev = await openEvent();
     const a = await join(ev);
     const b = await join(ev);
     const inp = input();
@@ -473,7 +583,7 @@ describe("방송하지 않는다", () => {
    * (ADR-26), 파티 중 마흔 명이 한꺼번에 결과를 저장하면 그 읽기가 콕 앞에 선다.
    * **내 소켓에도 보내지 않는다** — 화면은 응답을 그대로 그리고, 다른 기기는 다음에 다시 읽을 때 본다.
    */
-  it("★ 저장·중복 저장·정답 확인 어느 것도 아무 소켓에도 신호를 보내지 않는다", async () => {
+  it("★ 저장·중복 저장·정답 확인·다시 찾기 어느 것도 아무 소켓에도 신호를 보내지 않는다", async () => {
     const ev: EventMeta = await freshEvent();
     const a = await join(ev, { gender: "M" });
     const b = await join(ev, { gender: "F" });
@@ -488,9 +598,11 @@ describe("방송하지 않는다", () => {
     const before = Object.fromEntries(Object.entries(socks).map(([k, v]) => [k, v.length]));
 
     const inp = input();
-    expect((await save(a.cookie, inp)).status).toBe(200);
+    const made = await save(a.cookie, inp);
+    expect(made.status).toBe(200);
     expect((await save(a.cookie, input())).status).toBe(200);
     expect((await verdict(a.cookie, { chosen: inp.result[0] })).status).toBe(200);
+    expect((await redo(a.cookie, input(), made.body.at)).status).toBe(200);
     await settle();
 
     for (const [k, got] of Object.entries(socks)) {

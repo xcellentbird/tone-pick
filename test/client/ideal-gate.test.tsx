@@ -8,7 +8,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { FORTUNE, IDEAL, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
+import { FORTUNE, FUN, IDEAL, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
 import type { ParticipantState } from "../../src/shared/types.ts";
 import { PARTICIPANT_ROUTES } from "../../src/client/router.tsx";
 
@@ -65,7 +65,9 @@ describe("이상형 찾기 · 사진이 없는 빌드 (S-C5)", () => {
   it("★ 재미 탭에 이상형 카드가 없다 — 얼굴 자료도 묻지 않는다", async () => {
     const asked = start(`${BASE}/fun`);
 
-    expect(await screen.findByText(FORTUNE.closed)).toBeTruthy();
+    expect(await screen.findByText(FUN.closed)).toBeTruthy();
+    // 운세 카드만 선다
+    expect(screen.getByText(FORTUNE.name)).toBeTruthy();
     expect(screen.queryByText(IDEAL.title)).toBeNull();
     expect(screen.queryByRole("button", { name: IDEAL.cardStart })).toBeNull();
     expect(asked.some((u) => u.startsWith("/faces/"))).toBe(false);

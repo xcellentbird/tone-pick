@@ -1954,6 +1954,76 @@ button.fact.cond .name { font-size: 15px; }
 .tableMix .men { color: var(--male); }
 .tableMix .women { color: var(--female); }
 
+/* ─────────────────────────── 재미 탭 입구 (ADR-125)
+ *
+ * 재미 탭에는 **입구만** 선다. 이상형 찾기와 파티 운세 보기가 같은 틀(`FunCard`)을 쓴다 —
+ * 모양이 같아야 둘의 차이를 자리(위·아래)와 단추만 말한다. 기능은 탭 안의 제 페이지에서 돈다.
+ * 둘 다 본문(`.body`)의 직계라 줄지 않게 둔다 (ADR-113).
+ */
+
+/*
+ * 열기 전의 한 줄 — 탭 전체를 대신 말한다. 여는 때가 하나라 카드마다 되풀이하지 않는다.
+ * 경고가 아니라 **기다리면 오는 것**이라 주 색으로 옅게 깐다 (`--warn` 을 쓰지 마라).
+ */
+.funGate {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin: 0;
+  padding: var(--gap);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--card));
+  font-size: 13px;
+}
+.funGate > span:first-child { flex: none; font-size: 18px; line-height: 1; }
+
+.funCard { flex: none; }
+.funHead { display: flex; align-items: flex-start; gap: var(--gap); }
+.funMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: calc(var(--gap-sm) / 2); }
+.funMain p { margin: 0; }
+
+/* 그림 칸 40px — 두 카드가 같은 크기라 제목이 같은 줄에서 시작한다 */
+.funVis {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+  font-size: 22px;
+  line-height: 1;
+}
+
+/*
+ * **아직 못 쓰는 카드** — 단추가 없고 그림이 흐려진다. 카드는 바탕 쪽으로 한 겹 가라앉는다.
+ * **글자는 그대로다** — 통째로 반투명하면 무엇이 오는지가 대비 2.8:1 로 가라앉는다.
+ */
+.funCard.locked { background: color-mix(in srgb, var(--card) 70%, var(--bg)); box-shadow: none; }
+.funCard.locked .funVis { opacity: 0.4; }
+
+/* 이상형 찾기의 그림 — 아홉 칸 중 셋이 켜진 격자. 이 기능이 하는 일(아홉 중에서 고르기)이다 */
+.funGrid9 { display: grid; grid-template-columns: repeat(3, 7px); gap: 2px; }
+.funGrid9 i { width: 7px; height: 9px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 38%, transparent); }
+.funGrid9 i.on { background: var(--accent); }
+
+/* 단추 두 개(결과 보기 · 다시 찾기)는 **같은 폭**으로 나란히 — 하나가 넓으면 그쪽을 권하는 것으로 읽힌다 */
+.funActions { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--gap-sm); }
+
+/* 연 운세의 제목 한 줄과 미션 칸. 세 문단 본문은 페이지에만 있다 */
+.funHeadline { font-weight: 700; }
+.funMission {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: calc(var(--gap-sm) / 2);
+  padding: var(--gap-sm) var(--gap);
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+}
+
 /* ─────────────────────────── 오늘의 연애운 (ADR-20)
  *
  * 이 앱에서 유일하게 장식이 허용된 자리다. 그래도 색은 전부 토큰에서 온다 —
@@ -1980,19 +2050,6 @@ button.fact.cond .name { font-size: 15px; }
 
 .fortuneBack .orb { font-size: 64px; line-height: 1; }
 
-/*
- * **아직 안 열린 운세** (매력 투표 전 — 슬라이스 19 에서 탭이 등록부터 켜지며 생긴 모습). 작게 선다.
- * 뒷면 크기(320px)는 생년월일 칸과 버튼을 담는 **의식**의 크기다 — 한 줄뿐인 닫힌 카드가 그 자리를 다 쓰면
- * 등록 중에 쓸 수 있는 유일한 것(이상형 카드)이 360×640 에서 접힌 아래로 밀린다.
- * 흐려지는 건 구슬이다. **글자는 `--dim` 그대로** — 통째로 반투명하면 언제 열리는지가 대비 2.8:1 로 가라앉는다.
- */
-.fortuneBack[aria-disabled="true"] {
-  min-height: 0;
-  padding: var(--pad);
-  gap: var(--gap-sm);
-  box-shadow: none;
-}
-.fortuneBack[aria-disabled="true"] .orb { font-size: 32px; opacity: 0.5; }
 .fortuneBack .sparkles { color: var(--accent); letter-spacing: 6px; }
 
 /* 여는 동안 구슬이 천천히 숨 쉰다. 기다리는 중이라는 걸 글자 없이 말한다 */

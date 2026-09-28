@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter, useLocation, useNavigate } from "react-router";
-import { ACT, BTN, ENTRY, ENV_BANNER, FAIL, GENDER, HELP, FORTUNE, HOME, MBTI_AXES, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
+import { ACT, BTN, ENTRY, ENV_BANNER, FAIL, GENDER, HELP, FORTUNE, FUN, HOME, MBTI_AXES, ME, NOTICE, PEOPLE, PHASE_LABEL, POKE, REGISTER, REVEAL, SCREEN_TITLE, SEAT, STATUS, TABS_PARTICIPANT, UNIT } from "../../src/shared/copy.ts";
 import type { EventSchedule, MyNoteState, MyPokeState, ParticipantState, RegisterInput } from "../../src/shared/types.ts";
 import Entry from "../../src/client/routes/Entry.tsx";
 import Join from "../../src/client/routes/Join.tsx";
@@ -1383,10 +1383,11 @@ describe("재미 탭 · 운세 카드", () => {
         participantState({ event: { ...participantState().event, phase: "party" }, ...over }),
     });
 
-  function renderFortune(source: ParticipantSource) {
+  /** 운세 페이지(`/fortune`) — 뒤집기와 읽기는 재미 탭이 아니라 여기서 한다 (ADR-125). `hub` 면 재미 탭의 입구 카드 */
+  function renderFortune(source: ParticipantSource, hub = false) {
     return render(
       <MemoryRouter>
-        <ParticipantView source={source} tab="fun" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
+        <ParticipantView source={source} tab="fun" fortunePage={!hub} onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}} />
       </MemoryRouter>,
     );
   }
@@ -1484,6 +1485,55 @@ describe("재미 탭 · 운세 카드", () => {
     await screen.findByText("이름을 물어보세요");
     expect(document.querySelector(".missionLead")).toBeNull();
     expect(document.querySelector(".missionLine")).toBeTruthy();
+  });
+
+  it("★ 운세 페이지의 머리글은 기능 이름이다 — 뒤집는 버튼도 같은 이름을 따른다", async () => {
+    renderFortune(party());
+    expect(await screen.findByText(FORTUNE.name)).toBeTruthy();
+    expect(screen.getByRole("button", { name: FORTUNE.open })).toBeTruthy();
+    // 같은 기능을 두 이름으로 부르지 않는다 — `오늘의 운세` 는 이 화면에 없다
+    expect(document.body.textContent).not.toContain("오늘의 운세");
+  });
+
+  it("★ 입구 카드는 연 운세의 제목과 미션을 보여준다 — 결과 보기가 페이지로 간다", async () => {
+    const onFortunePage = vi.fn();
+    render(
+      <MemoryRouter>
+        <ParticipantView
+          source={party({ fortune: { headline: "천천히 걷는 밤", body: "본문", mission: "이름을 물어보세요", color: "violet", at: 1 } })}
+          tab="fun" onFortunePage={onFortunePage}
+          onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} onHelp={() => {}}
+        />
+      </MemoryRouter>,
+    );
+    await screen.findByText("천천히 걷는 밤");
+    expect(screen.getByText(FORTUNE.name)).toBeTruthy();
+    expect(screen.getByText("이름을 물어보세요")).toBeTruthy();
+    // 세 문단 본문은 카드에 없다 — 읽는 것은 페이지의 일이다
+    expect(screen.queryByText("본문")).toBeNull();
+    // 이상형 카드의 결과 보기와 같은 말이다 — 운세 카드 쪽이 두 번째다
+    const results = screen.getAllByRole("button", { name: FUN.result });
+    fireEvent.click(results[results.length - 1]);
+    expect(onFortunePage).toHaveBeenCalledWith(true);
+  });
+
+  it("★ 입구 카드의 미션 칸 — 파티 전에는 파티를 기다린다고, 파티 중에는 열어볼 수 있다고만 말한다", async () => {
+    const opened = { headline: "천천히 걷는 밤", body: "본문", color: "violet" as const, at: 1 };
+    renderFortune(party({ fortune: opened }), true);
+    await screen.findByText("천천히 걷는 밤");
+    expect(screen.getByText(FORTUNE.missionReady)).toBeTruthy();
+    cleanup();
+
+    renderFortune(
+      fakeSource({
+        load: async () =>
+          participantState({ event: { ...participantState().event, phase: "prevote" }, fortune: opened }),
+      }),
+      true,
+    );
+    await screen.findByText("천천히 걷는 밤");
+    expect(screen.getByText(FORTUNE.missionClosed)).toBeTruthy();
+    expect(screen.queryByText(FORTUNE.missionReady)).toBeNull();
   });
 
   it("★ 점수를 보여주지 않는다", async () => {
@@ -3054,6 +3104,8 @@ describe("탭 역할 분담", () => {
     const party = bodyOf(NOTICE.party().title);
     expect(pre + party, "단계 소식이 횟수를 다시 셌다").not.toMatch(/\d+회/);
     expect(pre, "익명 쪽지를 쓸 수 있게 됐다는 줄이 사라졌다").toContain(UNIT.sheets(2));
+    // 재미가 열렸다는 줄도 같은 자리다 — 열린 단계(매력 투표)의 줄에만 선다 (ADR-125)
+    expect(pre, "재미가 열렸다는 줄이 없다").toContain(FUN.notice(true));
     // 매력 투표를 거친 회차는 쪽지 줄이 매력 투표 줄에만 선다 — 파티 줄은 제목뿐이다
     expect(party).toBe("");
   });
@@ -3256,8 +3308,9 @@ describe("탭 역할 분담", () => {
    * '재미' 탭은 **없다가 생기지 않는다** (ADR-20 후기) — 도중에 생기면 넷이 나눠 쓰던 폭이
    * 통째로 다시 나뉘어, 손가락이 기억한 자리가 어긋난다.
    *
-   * 그리고 **등록부터 켜져 있다** (슬라이스 19 S-A2). 한동안 운세의 문을 빌려 매력 투표 전에는 꺼져 있었다 —
-   * 이상형 찾기가 등록부터 열리면서 탭의 문을 걷었다. 운세 카드는 카드 안에서 제 문을 지킨다.
+   * 그리고 **등록부터 켜져 있다.** 한동안 운세의 문을 빌려 매력 투표 전에는 꺼져 있었다 —
+   * 이상형 찾기가 등록부터 열리면서 탭의 문을 걷었다(ADR-122). 재미가 다시 프로필 투표에 한 번에 열리게 된 뒤에도(ADR-125)
+   * 탭은 켜진 채이고, 열기 전이라는 말은 탭 안의 맨 위 한 줄이 한다.
    */
   it("★ 매력 투표 전에도 '재미' 탭은 자리를 지키고 켜져 있다", async () => {
     renderTab("home", inPhase("reg"));
@@ -3285,7 +3338,8 @@ describe("탭 역할 분담", () => {
 
     fireEvent.click(funTab());
     expect(onTab).toHaveBeenCalledWith("fun");
-    expect(screen.queryByText(FORTUNE.closed)).toBeNull();
+    // 토스트로 막지 않는다 — 열기 전이라는 말은 재미 탭 안의 한 줄이 한다 (ADR-125)
+    expect(screen.queryByText(FUN.closed)).toBeNull();
   });
 });
 

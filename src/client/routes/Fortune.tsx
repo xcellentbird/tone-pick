@@ -1,25 +1,74 @@
 /**
- * 재미 탭의 **두 번째 카드** — 매력 투표와 함께 열리는 운세 카드 (ADR-20). 첫 카드는 이상형 찾기다 (ADR-124).
+ * **파티 운세 보기** (ADR-125, 운영자가 지은 이름) — 재미 탭의 두 번째 입구 카드(`FortuneCard`)와,
+ * 그 카드가 여는 탭 안의 페이지(`/fortune`, 기본 내보내기). 첫 카드는 이상형 찾기다 (ADR-124).
  *
  * 이 앱에서 유일하게 기능이 아니라 **재미**인 자리다. 그래도 규칙은 같다.
  *
  *  · 점수를 매기지 않는다. `연애운 34점` 은 이 앱이 없애려던 경험을 앱이 직접 만든다
- *  · **한 번 열면 그대로 남는다.** 다시 열 때마다 달라지면 그 순간 전부 거짓말이 된다
+ *  · **한 번 열면 그대로 남는다.** 다시 열 때마다 달라지면 그 순간 전부 거짓말이 된다.
+ *    이상형 찾기에 생긴 `다시 찾기` 를 여기 두지 마라 — 운세는 부를 때마다 글을 새로 지어서 다시하기가 곧 다시 뽑기다 (ADR-125)
  *  · 뒤집기는 의식이다 — 여는 동작이 있어야 그 한 줄이 오늘 것처럼 읽힌다.
- *    그리고 그 0.6초가 LLM 을 기다리는 시간을 자연스럽게 덮는다
+ *    그리고 그 0.6초가 LLM 을 기다리는 시간을 자연스럽게 덮는다. **뒤집기는 페이지에서 한다** — 재미 탭에는 입구만 선다
  *  · 움직임을 원치 않는 사람에게는 뒤집지 않고 바로 보여준다 (prefers-reduced-motion)
- *  · **문은 카드가 지킨다.** 탭은 등록부터 켜져 있어서(슬라이스 19) 매력 투표 전에도 이 카드가 보인다 —
- *    그때는 생년월일 칸 없이 언제 열리는지만 말한다 (미션 뒷면과 같은 모양)
+ *  · **문은 하나다** (ADR-125) — 재미는 매력 투표가 시작될 때 한 번에 열린다(`canOpenFun`). 그 전에는 입구 카드에 단추가 없고
+ *    탭 맨 위 한 줄이 언제 볼 수 있는지 말한다. 미션만 하나 늦다(`canOpenMission`)
  */
 import { useState } from "react";
-import { FORTUNE } from "../../shared/copy.ts";
-import { canOpenFortune, canOpenMission } from "../../shared/phase.ts";
+import { FORTUNE, FUN } from "../../shared/copy.ts";
+import { canOpenFun, canOpenMission } from "../../shared/phase.ts";
 import { paragraphs, validBirth, type Fortune } from "../../shared/fortune.ts";
 import type { ParticipantState } from "../../shared/types.ts";
 import { messageOf, post } from "../lib/api.ts";
 import { useOverlay } from "../ui/Overlays.tsx";
+import FunCard from "../ui/FunCard.tsx";
 
-export default function FortuneTab({ state, onFortune }: { state: ParticipantState; onFortune: (f: Fortune) => void }) {
+/**
+ * 재미 탭의 입구 카드 (ADR-125). **연 운세의 제목과 미션 칸을 보여준다** — 파티 중에 미션을 다시 찾는 사람이 페이지까지
+ * 들어가지 않아도 된다. 세 문단 본문은 싣지 않는다 — 읽는 것은 페이지의 일이다.
+ * 미션 칸은 권하지 않는다: 파티 전에는 기다린다고, 파티 중에는 열어볼 수 있다고만 말한다. 뒤집는 건 참가자가 고른다.
+ */
+export function FortuneCard({ state, open, onOpen }: { state: ParticipantState; open: boolean; onOpen: () => void }) {
+  const card = state.fortune;
+  const missionOpen = canOpenMission(state.event.phase);
+  return (
+    <FunCard
+      visual="🔮"
+      title={FORTUNE.name}
+      locked={!open && !card}
+      actions={
+        card ? (
+          <button className="btn ghost block" onClick={onOpen}>
+            {FUN.result}
+          </button>
+        ) : open ? (
+          <button className="btn primary block" onClick={onOpen}>
+            {FUN.start}
+          </button>
+        ) : null
+      }
+    >
+      {card ? (
+        <>
+          <p className="funHeadline">{card.headline}</p>
+          <div className="funMission">
+            <span className="tiny dim">🎯 {FORTUNE.missionTitle}</span>
+            <p className={card.mission ? "small" : "small dim"}>
+              {card.mission ?? (missionOpen ? FORTUNE.missionReady : FORTUNE.missionClosed)}
+            </p>
+          </div>
+        </>
+      ) : (
+        <p className="dim small">{FORTUNE.cardBody}</p>
+      )}
+    </FunCard>
+  );
+}
+
+/**
+ * 파티 운세 보기 페이지 (`/e/:code/fortune`, ADR-125). 재미 탭 **안의 페이지**다 — 이상형 찾기와 같은 자리, 탭바는 `재미` 다.
+ * 머리글이 기능 이름이고, 그 아래가 한동안 재미 탭에 바로 서 있던 운세 카드 그대로다 (뒤집기 · 세 문단 · 미션).
+ */
+export default function FortunePage({ state, onFortune }: { state: ParticipantState; onFortune: (f: Fortune) => void }) {
   const [opening, setOpening] = useState(false);
   const [card, setCard] = useState<Fortune | undefined>(state.fortune);
   const [missionOpening, setMissionOpening] = useState(false);
@@ -53,7 +102,7 @@ export default function FortuneTab({ state, onFortune }: { state: ParticipantSta
       // 다음에 이 화면을 열 때는 이미 열린 채로 시작한다 — 서버가 돌려준 그 카드라 `/me` 를 다시 묻지 않는다
       onFortune(f);
     } catch (e) {
-      toast(messageOf(e, FORTUNE.closed));
+      toast(messageOf(e, FUN.closed));
     } finally {
       setOpening(false);
     }
@@ -80,25 +129,16 @@ export default function FortuneTab({ state, onFortune }: { state: ParticipantSta
   }
 
   /*
-   * **아직 열리지 않은 운세** (매력 투표 전). 한동안 탭 자체가 꺼져 있어 이 카드가 닫힌 모습을 가질 일이 없었다 —
-   * 탭의 문을 걷으면서(슬라이스 19) 카드가 제 문을 맡는다. 생년월일 칸을 내밀면 치고 누른 뒤에야 서버가 거절한다.
-   * 못 여는 게 아니라 **아직 안 열린 것**이라고 말한다 (미션 뒷면의 `missionClosed` 와 같은 수).
-   * 이미 연 카드는 단계가 뒤로 물려도 그대로 보인다 — 한 번 연 것은 남는다.
+   * **열기 전에는 이 페이지가 없다** (ADR-125) — 참가자 화면이 재미 탭으로 갈아끼운다. 생년월일 칸을 내밀면 치고 누른 뒤에야
+   * 서버가 거절한다. 이미 연 카드는 단계가 뒤로 물려도 그대로 보인다 — 한 번 연 것은 남는다.
    */
-  if (!card && !canOpenFortune(state.event.phase)) {
-    return (
-      <div className="fortuneBack" aria-disabled="true">
-        <span className="orb" aria-hidden>
-          🔮
-        </span>
-        <span className="small">{FORTUNE.closed}</span>
-      </div>
-    );
-  }
+  if (!card && !canOpenFun(state.event.phase)) return null;
 
   if (!card) {
     return (
       <div className="stack">
+        {/* 기능 이름이 머리글이다 — 이상형 찾기의 시작 화면과 같은 자리 */}
+        <div className="kicker">{FORTUNE.name}</div>
         <div className={`fortuneBack ${opening ? "opening" : ""}`}>
           <span className="sparkles" aria-hidden>
             ✦ ✧ ✦
@@ -140,6 +180,7 @@ export default function FortuneTab({ state, onFortune }: { state: ParticipantSta
 
   return (
     <div className="stack">
+      <div className="kicker">{FORTUNE.name}</div>
       <div className={`card stack fortuneCard tone-${card.color}${flipped ? " flip" : ""}`}>
         {/* 운세를 읽어준 사람. 카드가 길어도 글의 머리가 어디인지 한눈에 잡힌다 */}
         <span className="fortuneMage" aria-hidden>
