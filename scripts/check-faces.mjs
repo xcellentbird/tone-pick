@@ -8,7 +8,7 @@
  *     `index.html` 을 200 으로 주고, 그 답이 `/faces/*.webp` 규칙을 타고 1년 캐시된다 (public/_headers)
  *  2. **이름이 새는 것** (S-B5) — 파일명은 불투명 id 다. 고르는 화면이 이름을 감춰도
  *     사진 주소에 이름이 있으면 그 사진을 새 탭으로 여는 순간 보인다
- *  3. **숫자가 계약과 다른 것** — 1라운드 여섯 · 2단계 서른여섯 · 결과를 채울 만큼의 연예인 · 단위 길이 벡터
+ *  3. **숫자가 계약과 다른 것** — 1단계(1라운드 두 쪽) · 2단계 · 결과를 채울 만큼의 연예인 · 단위 길이 벡터
  *  4. **판이 섞이는 것** — JSON 의 version 이 경로의 v{n} 과 다르면 옛 결과가 새 자료로 그려진다
  *  5. **여는 사람이 받는 JSON 이 불어나는 것** — 풀·차원이 늘면 파티장 와이파이에서 한 번에 받는 양이 는다
  *
@@ -55,14 +55,23 @@ const SRC = readFileSync(new URL("../src/shared/ideal.ts", import.meta.url), "ut
 // IDEAL_SHAPE 블록 안에서만 찾는다 — 같은 파일의 FacePoolFile 에도 `faces:` 가 있다
 const SHAPE = SRC.match(/export const IDEAL_SHAPE = \{([\s\S]*?)\} as const/)?.[1] ?? "";
 const lost = [];
-const shapeNum = (key) => {
+// min 은 그 값이 될 수 있는 가장 작은 수 — `rerolls` 만 0 이 된다(다른 얼굴 보기를 없앤 날)
+const shapeNum = (key, min = 1) => {
   const n = Number(SHAPE.match(new RegExp(`\\b${key}:\\s*(\\d+)\\b`))?.[1]);
-  if (!Number.isInteger(n) || n <= 0) lost.push(`IDEAL_SHAPE.${key}`);
+  if (!Number.isInteger(n) || n < min) lost.push(`IDEAL_SHAPE.${key}`);
   return n;
 };
 const ROUNDS = shapeNum("rounds");
 const FACES = shapeNum("faces");
 const RESULTS = shapeNum("results");
+const REROLLS = shapeNum("rerolls", 0);
+/**
+ * 1단계 수 — 1라운드의 모든 쪽(한 화면 × (1 + rerolls)). 모두에게 같은 첫 화면과 `다른 얼굴 보기` 가 여는 둘째 화면이다.
+ * 2단계 수 — 2라운드가 중심 근처 아홉을 고르는 후보 집합이다. 모자라면 2라운드가 서로 다른 군집을 못 보여준다.
+ * 둘 다 ideal.ts 가 들고 파이프라인(cluster.mjs)이 맞춰 낸다
+ */
+const LEVEL1 = shapeNum("level1");
+const LEVEL2 = shapeNum("level2");
 const idSrc = SHAPE.match(/\bid:\s*\/((?:\\.|[^/\\\n])+)\/([a-z]*)/);
 if (!idSrc) lost.push("IDEAL_SHAPE.id");
 // g·y 는 뺀다 — test() 가 lastIndex 를 들고 다니면 같은 id 가 번갈아 맞고 틀린다
@@ -75,16 +84,14 @@ if (lost.length) {
   process.exit(1);
 }
 
-/**
- * 2단계 대표 수. IDEAL_SHAPE 에 없는 **자료 쪽 숫자**라 여기 적는다 (19-surface 「자산」 — 6·36).
- * 1단계는 1라운드 한 화면이라 `faces` 와 같아야 하고, 2단계는 2라운드가 평균 근처 여섯을
- * 고르는 후보 집합이다 — 모자라면 2라운드가 서로 다른 군집을 못 보여준다.
- */
-const LEVEL2 = 36;
 /** 복원 길이 허용 폭. int8 양자화가 길이를 조금 흔든다 — 그 이상이면 정규화를 빠뜨린 것이다 */
 const NORM_TOL = 0.02;
-/** 결과를 채울 최소 연예인 수 — 세 라운드에 본 얼굴을 결과에서 빼고도(S-C2) 셋이 남아야 한다 */
-const NEED_CELEBS = ROUNDS * FACES + RESULTS;
+/**
+ * 결과를 채울 최소 연예인 수 — 세 라운드에 본 얼굴을 결과에서 빼고도(S-C2) 셋이 남아야 한다.
+ * `다른 얼굴 보기` 로 넘긴 쪽도 본 얼굴이다 — 라운드마다 한 화면 × (1 + rerolls) 까지 본다
+ */
+const SEEN_MAX = ROUNDS * FACES * (1 + REROLLS);
+const NEED_CELEBS = SEEN_MAX + RESULTS;
 /**
  * 풀 JSON 한 파일의 예산(gzip 바이트). **래칫이다** — check-bundle 의 FONT_BUDGET 과 같다.
  *
@@ -250,7 +257,7 @@ for (const ver of versions) {
     });
     if (current && live < NEED_CELEBS) {
       say(
-        `${file} 의 연예인이 ${live}명(retired 뺀 수) — 세 라운드에 본 ${ROUNDS * FACES}명을 빼고도 ` +
+        `${file} 의 연예인이 ${live}명(retired 뺀 수) — 세 라운드에 본 ${SEEN_MAX}명(다른 얼굴 보기 포함)을 빼고도 ` +
           `결과 ${RESULTS}명이 남으려면 ${NEED_CELEBS}명 이상이어야 한다`,
       );
     }
@@ -262,7 +269,9 @@ for (const ver of versions) {
       if (f.level === 1 || f.level === 2 || f.level === 3) levels[f.level]++;
       else say(`${file} ${at("faces", i, f)} 의 level 이 ${JSON.stringify(f.level)} — 1 · 2 · 3 만 된다`);
     });
-    if (current && levels[1] !== FACES) say(`${file} 의 level 1 이 ${levels[1]}개 — 1라운드 한 화면인 ${FACES}개여야 한다 (모두에게 같은 첫 화면)`);
+    if (current && levels[1] !== LEVEL1) {
+      say(`${file} 의 level 1 이 ${levels[1]}개 — ${LEVEL1}개여야 한다 (1라운드 한 화면 ${FACES} × 쪽 ${1 + REROLLS} · 모두에게 같은 첫 화면)`);
+    }
     if (current && levels[2] !== LEVEL2) say(`${file} 의 level 2 가 ${levels[2]}개 — ${LEVEL2}개여야 한다`);
 
     /*

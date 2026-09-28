@@ -2,7 +2,8 @@
  * 이상형 찾기 (슬라이스 19) — 시작 · 라운드 셋 · 결과. **재미 탭 안의 페이지**다 (시트가 아니다 — `/me/edit` 과 같은 자리).
  *
  *   /ideal       결과가 없으면 풀 고르기, **있으면 결과** — 같은 주소가 상태를 따라간다
- *   /ideal/1..3  라운드. 한 칸씩 push — 뒤로 가기가 곧 이전 라운드다 (S-B4, 등록 스텝과 같다)
+ *   /ideal/1..3  라운드. 한 칸씩 push — 뒤로 가기가 곧 이전 라운드다 (S-B4, 등록 스텝과 같다).
+ *                `다른 얼굴 보기` 는 칸을 쌓지 않는다 — 같은 라운드의 다른 쪽일 뿐이다 (v2)
  *
  * **고르던 값은 이 컴포넌트의 메모리에만 있다** (S-B4 · S-E1). 참가자 화면이 이 컴포넌트를 `/ideal` 과 라운드
  * 주소 사이에서 한 자리에 두어 값이 산다. 재미 탭으로 나가면 사라진다 — 1분짜리라 이어 하기를 만들지 않는다.
@@ -12,15 +13,15 @@
  *
  * 따로 싣는 조각이다 (`React.lazy`) — 탭 카드는 `IdealCard.tsx` 에 있다.
  */
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { FAIL, IDEAL } from "../../shared/copy.ts";
 import {
   IDEAL_ASSET_V,
   IDEAL_SHAPE,
   decodeVec,
-  meanOf,
   nearestCelebs,
   pickRound,
+  tasteCenters,
   type DecodedCeleb,
   type DecodedFace,
   type FacePoolFile,
@@ -138,24 +139,31 @@ const photo = (v: number, id: string) => `/faces/v${v}/${id}.webp`;
 const W = 240;
 const H = 300;
 
+/** 고른 얼굴들의 취향 중심 — 라운드 후보도 결과도 같은 중심을 따른다. 안 고른 얼굴은 쓰지 않는다 */
+const centersOf = (pool: Pool, ids: readonly string[]) => tasteCenters(ids.map((id) => pool.vecs.get(id)!));
+
 /**
- * 라운드마다 보여줄 여섯. **고르던 값에서 매번 다시 센다** — 앞 라운드를 고쳐 고르면 뒤 라운드의 후보도
- * 달라져야 한다 (앞의 선택이 뒤의 후보를 정한다). 같은 입력이면 같은 여섯이라, 뒤로 갔다 와도 그대로다.
+ * 라운드마다 보여줄 아홉과, 지금까지 **본 얼굴 전부**(넘긴 쪽까지 — 다시 안 나오고 결과에도 안 나온다).
+ * **고르던 값에서 매번 다시 센다** — 앞 라운드를 고쳐 고르면 뒤 라운드의 후보도 달라져야 한다
+ * (앞의 선택이 뒤의 후보를 정한다). `다른 얼굴 보기` 도 값(`flips` — 라운드마다 넘긴 횟수)으로만 들고
+ * 같은 규칙으로 다시 센다 — 같은 입력이면 같은 아홉이라, 뒤로 갔다 와도 넘긴 쪽이 그대로 선다.
  * 앞 라운드를 아직 안 골랐으면 거기서 멈춘다.
  */
-function roundsOf(pool: Pool, picks: readonly string[][]): DecodedFace[][] {
+function roundsOf(pool: Pool, picks: readonly string[][], flips: readonly number[]) {
   const shown = new Set<string>();
-  const out: DecodedFace[][] = [];
+  const rounds: DecodedFace[][] = [];
   for (let r = 1; r <= IDEAL_SHAPE.rounds; r++) {
     if (r > 1 && !picks[r - 2]?.length) break;
-    const before = picks.slice(0, r - 1).flat();
-    // 평균은 지금까지 고른 얼굴 전부 — 라운드 가중치가 없다. 안 고른 얼굴은 쓰지 않는다
-    const mean = r === 1 ? null : meanOf(before.map((id) => pool.vecs.get(id)!));
-    const faces = pickRound(pool.faces, r as 1 | 2 | 3, mean, shown);
-    for (const f of faces) shown.add(f.id);
-    out.push(faces);
+    // 중심은 지금까지 고른 얼굴 전부로 — 라운드 가중치가 없다. 1라운드는 중심을 보지 않는다
+    const centers = r === 1 ? null : centersOf(pool, picks.slice(0, r - 1).flat());
+    let faces: DecodedFace[] = [];
+    for (let k = 0; k <= (flips[r - 1] ?? 0); k++) {
+      faces = pickRound(pool.faces, r as 1 | 2 | 3, centers, shown);
+      for (const f of faces) shown.add(f.id);
+    }
+    rounds.push(faces);
   }
-  return out;
+  return { rounds, shown };
 }
 
 // ─────────────────────────────────────────── 화면
@@ -177,12 +185,19 @@ interface Props {
 export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
   const [pool, setPool] = useState<Gender | null>(null);
   const [picks, setPicks] = useState<string[][]>([]);
+  /** 라운드마다 `다른 얼굴 보기` 를 누른 횟수. 고르던 값과 같이 메모리에만 있다 — 저장하지 않는다 */
+  const [flips, setFlips] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
+  /** `다른 얼굴 보기` 가 스스로를 지운 뒤 포커스가 설 자리 — 라운드 안내는 넘겨도 그대로 남는다 */
+  const hint = useRef<HTMLParagraphElement>(null);
   const { toast } = useOverlay();
 
   const src = ideal ? { v: ideal.v, pool: ideal.pool } : { v: IDEAL_ASSET_V, pool };
   const { data, failed, retry } = usePool(src.v, src.pool);
-  const rounds = useMemo(() => (data && !ideal ? roundsOf(data, picks) : []), [data, ideal, picks]);
+  const { rounds, shown } = useMemo(
+    () => (data && !ideal ? roundsOf(data, picks, flips) : { rounds: [], shown: new Set<string>() }),
+    [data, ideal, picks, flips],
+  );
 
   /*
    * 라운드 주소의 문. **결과가 있으면 열리지 않고**(S-C3), 고르던 값이 없으면(주소를 바로 열었거나 새로고침,
@@ -247,6 +262,7 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
                 if (g !== pool) {
                   setPool(g);
                   setPicks([]);
+                  setFlips([]);
                 }
                 onGo(1);
               }}
@@ -264,19 +280,33 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
   const full = mine.length >= IDEAL_SHAPE.pickMax;
   const last = round === IDEAL_SHAPE.rounds;
 
-  /** 고르고 풀기. **앞 라운드를 고치면 그 뒤 라운드에서 고른 것은 버린다** — 후보가 달라진다 */
-  const toggle = (id: string) => {
-    if (!mine.includes(id) && full) return; // 네 번째는 골라지지 않는다 (S-B2)
-    const next = mine.includes(id) ? mine.filter((x) => x !== id) : [...mine, id];
+  /**
+   * `다른 얼굴 보기` — **아무것도 안 골랐고 아직 안 썼을 때만** (v2). 억지로 고른 '덜 싫은 얼굴' 이 중심을 흐리지
+   * 않게 하는 길이라, 하나라도 골랐으면 필요 없다. 넘긴 아홉이 어느 쪽이었는지는 **이 라운드의 횟수**로 남는다.
+   */
+  const canFlip = !!data && !mine.length && (flips[round - 1] ?? 0) < IDEAL_SHAPE.rerolls;
+
+  /**
+   * 고르고 풀기·넘기기. **앞 라운드를 고치면 그 뒤 라운드는 버린다** — 고른 것도, 넘긴 쪽도.
+   * 후보가 달라지니 넘긴 아홉도 이제 다른 얼굴들이다.
+   */
+  const edit = (next: string[], flip = flips[round - 1] ?? 0) => {
     setPicks([...picks.slice(0, round - 1), next]);
+    // 앞 라운드를 한 번도 안 넘겼으면 `flips` 가 짧다 — 펼쳐 붙이면 이 라운드의 횟수가 앞 칸에 앉는다
+    const f = flips.slice(0, round - 1);
+    f[round - 1] = flip;
+    setFlips(f);
+  };
+  const toggle = (id: string) => {
+    if (!mine.includes(id) && full) return; // 여섯째는 골라지지 않는다 (S-B2)
+    edit(mine.includes(id) ? mine.filter((x) => x !== id) : [...mine, id]);
   };
 
   async function finish() {
     if (saving || !data || !pool) return;
-    const shown = new Set(rounds.flat().map((f) => f.id));
-    const mean = meanOf(picks.flat().map((id) => data.vecs.get(id)!));
-    // 답은 **안 본 사람 중에서** — 방금 본 얼굴을 돌려주는 건 답이 아니다 (S-C2)
-    const result = nearestCelebs(data.celebs, mean, shown).map((c) => c.id);
+    // 답은 **안 본 사람 중에서** — 방금 본 얼굴(넘긴 쪽까지)을 돌려주는 건 답이 아니다 (S-C2).
+    // 두 갈래 취향이면 두 중심을 번갈아 따른다 — 첫 사람은 큰 무리의 것이다
+    const result = nearestCelebs(data.celebs, centersOf(data, picks.flat()), shown).map((c) => c.id);
     const input: IdealInput = { v: IDEAL_ASSET_V, pool, picks, result };
     setSaving(true);
     try {
@@ -303,12 +333,14 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
     <div className="stack idealFlow">
       {/* 라운드 화면에는 이름도, '연예인' 이라는 말도 없다 (S-B5) — 이름을 알고 고르면 팬심으로 고른다 */}
       <div className="kicker">{IDEAL.roundCount(round)}</div>
-      <p className="idealHint">{IDEAL.roundHint}</p>
+      <p className="idealHint" tabIndex={-1} ref={hint}>
+        {IDEAL.roundHint}
+      </p>
       {failed ? (
         <LoadFail onRetry={retry} />
       ) : !data ? (
         /*
-         * 받는 동안에도 **자리는 그대로다** — 여섯 칸이 4:5 로 먼저 선다. 비워 두면 파티장 와이파이에서
+         * 받는 동안에도 **자리는 그대로다** — 아홉 칸이 4:5 로 먼저 선다. 비워 두면 파티장 와이파이에서
          * 힌트와 버튼만 있는 화면이 고장으로 읽히고, 얼굴이 들어오는 순간 버튼이 아래로 튄다.
          */
         <div className="faceGrid" aria-busy="true">
@@ -327,7 +359,7 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
                 aria-pressed={on}
                 // 이름 대신 번호만 — 대체 글에도 이름이 없다 (S-B5)
                 aria-label={IDEAL.face(i + 1)}
-                // 셋을 골랐으면 나머지는 꺼진다. 눌러도 아무 일이 없다 — 푸는 건 고른 쪽에서 한다
+                // 다섯을 골랐으면 나머지는 꺼진다. 눌러도 아무 일이 없다 — 푸는 건 고른 쪽에서 한다
                 aria-disabled={(!on && full) || undefined}
                 onClick={() => toggle(f.id)}
               >
@@ -356,6 +388,22 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
           {IDEAL.next}
         </button>
       )}
+      {/*
+        주된 행동(`다음`) 아래의 옅은 버튼 — 주소는 그대로다. push 하면 뒤로 가기가 넘긴 쪽을 되살리는 칸이 된다.
+        누르면 이 버튼이 사라진다(라운드마다 한 번) — 포커스를 안내로 옮기지 않으면 `body` 로 떨어져 키보드·
+        화면 읽기 사용자가 자리를 잃는다. 아홉 칸은 이름표(1~9번)가 같아 바뀐 줄도 모른다 — 안내에서 다시 읽게 한다.
+      */}
+      {canFlip && (
+        <button
+          className="btn ghost block"
+          onClick={() => {
+            edit([], (flips[round - 1] ?? 0) + 1);
+            hint.current?.focus();
+          }}
+        >
+          {IDEAL.reroll}
+        </button>
+      )}
     </div>
   );
 }
@@ -378,7 +426,7 @@ function LoadFail({ onRetry }: { onRetry: () => void }) {
  * **저장된 행의 `v`·`pool` 로 그린다** — 판이 올라가도 옛 결과는 옛 경로에서 그대로다.
  * 순서만 있다. `%`·점수·순위 숫자를 붙이지 마라 — 운세에 점수가 없는 이유 그대로다 (ADR-20).
  *
- * **물음이 결과 바로 아래다** (S-C4 "결과 셋 … 그 아래"). 고른 얼굴(최대 아홉)을 사이에 두면 물음이 두 화면 아래로
+ * **물음이 결과 바로 아래다** (S-C4 "결과 셋 … 그 아래"). 고른 얼굴(최대 열다섯)을 사이에 두면 물음이 두 화면 아래로
  * 밀려 이 페이지에서 가장 놓치기 쉬운 것이 된다 — 실전에서 결과를 재는 유일한 신호인데. 고른 얼굴은 결과 아래
  * 따로 있으면 된다 (S-C2) — 맨 끝이어도 그 약속은 그대로다.
  */

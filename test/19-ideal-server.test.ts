@@ -286,7 +286,8 @@ describe("모양만 본다 — 어긋나면 400 (S-D3)", () => {
       ["picks 두 라운드", { ...base, picks: [r1, r2] }],
       ["picks 네 라운드", { ...base, picks: [r1, r2, r3, ["zq999d1"]] }],
       ["빈 라운드", { ...base, picks: [[], r2, r3] }],
-      ["한 라운드에 넷", { ...base, picks: [r1, r2, [...r3, "zq999c4"]] }],
+      // 한 라운드 상한은 다섯이다 (v2) — 넷·다섯은 아래 따로 200 을 본다
+      ["한 라운드에 여섯", { ...base, picks: [r1, r2, [...r3, "zq999c4", "zq999c5", "zq999c6"]] }],
       ["라운드 안 중복", { ...base, picks: [r1, [r2[0], r2[0]], r3] }],
       ["라운드가 배열이 아님", { ...base, picks: [r1[0], r2, r3] }],
       ["id 가 문자열이 아님", { ...base, picks: [[1234], r2, r3] }],
@@ -310,6 +311,31 @@ describe("모양만 본다 — 어긋나면 400 (S-D3)", () => {
     const good = await save(a.cookie, base);
     expect(good.status).toBe(200);
     expect(good.body.result).toEqual(base.result);
+  });
+
+  it("★ 한 라운드에 넷·다섯도 받는다 — 상한은 다섯이다 (v2)", async () => {
+    /*
+     * v2 는 아홉 얼굴에서 1~5 를 고른다. 문지기가 v1 상한(셋)에 머물러 있으면 넷째를 고른 사람은
+     * 결과를 다 보고 저장에서 400 을 받는다 — 다시 하기가 없으니 그 사람의 결과는 영영 없다.
+     */
+    const ev = await freshEvent();
+    const a = await join(ev);
+    const b = await join(ev);
+    const four = input();
+    const t = four.picks[2][0].slice(0, -2);
+    const five = input();
+    const u = five.picks[2][0].slice(0, -2);
+    four.picks = [four.picks[0], [...four.picks[1], `${t}b3`, `${t}b4`], four.picks[2]];
+    five.picks = [five.picks[0], five.picks[1], [...five.picks[2], `${u}c4`, `${u}c5`]];
+    expect(four.picks[1]).toHaveLength(4);
+    expect(five.picks[2]).toHaveLength(5);
+
+    const r4 = await save(a.cookie, four);
+    expect(r4.status, JSON.stringify(r4.body)).toBe(200);
+    expect(r4.body.picks).toEqual(four.picks);
+    const r5 = await save(b.cookie, five);
+    expect(r5.status, JSON.stringify(r5.body)).toBe(200);
+    expect(r5.body.picks).toEqual(five.picks);
   });
 
   it("★ 요청에 섞인 모르는 키는 저장되지도 되돌아오지도 않는다 (S-D1)", async () => {
