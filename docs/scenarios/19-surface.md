@@ -72,6 +72,8 @@ export const IDEAL_ASSET_V = 2;
 /** 모양 검사 둘 (아래 API). 맞지 않으면 null */
 export function readIdealInput(raw: unknown): IdealInput | null;
 export function readIdealVerdict(raw: unknown, result: readonly string[]): IdealVerdict | null;
+/** 다시 찾기가 가리킨 결과의 `at` (ADR-125). 없으면 undefined(처음 찾기), 모양이 틀리면 null(400) */
+export function readIdealReplaces(raw: unknown): number | undefined | null;
 ```
 
 > **고쳤다 (2026-09-28, ADR-123)** — v1 은 `faces: 6 · pickMax: 3` 이고 `rerolls`·`level1`·`level2`·`splitCos`·`splitMin` 이 없었으며
@@ -80,6 +82,7 @@ export function readIdealVerdict(raw: unknown, result: readonly string[]): Ideal
 **모양 검사는 요청 본문을 펼치지 않는다 — 고른 칸으로 새 객체를 짓는다.** 펼쳐 담으면 기기가 보낸
 모르는 키가 저장돼 `ParticipantState.ideal` 로 매번 되돌아 나간다 (S-D1). `verdict`·`at` 을 저장 요청에
 실어 미리 박는 길도 같은 구멍이다. `v` 는 1 이상 **9999 이하**의 정수다 — 지표 blob 으로 흘러간다.
+`replaces`(다시 찾기, ADR-125)는 따로 읽고 **저장하지 않는다** — `IdealInput` 에 없는 칸이다.
 
 ---
 
@@ -219,7 +222,7 @@ nearestCelebs(celebs, centers, shown);
 
 ---
 
-## API — 참가자 세션, 단계 검사 없음 (S-A2)
+## API — 참가자 세션, 재미의 문 (S-A2 · ADR-125)
 
 ```
 POST /api/ideal            IdealInput   → Ideal
@@ -232,17 +235,23 @@ POST /api/ideal/verdict    IdealVerdict → Ideal
 - 검사는 **모양만** (`IDEAL_SHAPE`) — `pool` 이 Gender · `picks` 가 정확히 3묶음, 각 1~5개,
   라운드 안 중복 없음 · `result` 가 서로 다른 id 셋 · `v` 가 1~9999 의 정수. 어긋나면 `400`.
   내용(정말 가까운가)은 안 본다 — 벡터를 서버에 들이지 않는다 (S-D3)
+- **다시 찾기** (ADR-125) — 본문에 `replaces: number`(다시 찾기를 시작한 결과의 `at`)를 더한다. 저장된 결과의 `at` 과 같을 때만
+  새 결과로 **갈아끼우고**(정답은 비운다), 다르거나 없으면 저장된 행을 그대로 돌려준다 — 먼저 닿은 쪽이 남는다 (S-E2).
+  새 `at` 은 `max(now, 지난 at + 1)` 이다. 가리킬 결과가 없으면 처음 저장이다. 정수가 아니면 `400`
 - `verdict` 는 행이 있어야 받는다 — 없으면 `404`. `chosen` 은 그 행의 `result` 셋 중 하나 — 아니면 `400`.
-  이미 있으면 그대로 돌려준다 (한 번만)
-- 단계를 보지 않는다 — 운영자가 `준비` 로 되돌린 회차에서도 된다 (S-A2).
+  이미 있으면 그대로 돌려준다 (**결과마다** 한 번 — 다시 찾은 결과에는 답이 비어 있다)
+- **저장은 재미가 열린 동안만이다** (`canOpenFun` — 매력 투표 · 파티 · 발표 뒤, ADR-125). 닫혀 있으면 `409` 와 `FUN.closed` —
+  파티 운세 보기(`/fortune`)와 같은 문, 같은 문장이다. **`verdict` 는 문을 보지 않는다** — 이미 찾은 결과를 보는 일의 한 칸이라
+  운영자가 단계를 되돌린 회차에서도 답할 수 있다.
   세션이 없으면 `401`, **지워진 참가자면 `404`** (`/fortune` 과 같은 길 — 화면은 404 를 `빠졌다` 로 읽는다).
   행 없는 `verdict` 도 `404` 라 상태 번호로는 갈리지 않는다 — 화면은 결과를 그린 뒤에만 답을 보내므로 받아들인다
 - **방송하지 않는다.** 내 행은 나만 본다 — 남의 화면이 다시 읽을 이유가 없다
 
-**지표 — `pulse()` 의 닫힌 키** (ADR-56 · ADR-122). 첫 저장·첫 확정에서만 센다.
+**지표 — `pulse()` 의 닫힌 키** (ADR-56 · ADR-122). 첫 저장·첫 확정에서만 센다. 다시 찾아 바꾼 것은 `again` 으로 따로 센다 (ADR-125) —
+`save` 가 처음 찾은 수로 남고, `chosen`·`none` 은 결과 한 벌마다다.
 
 ```ts
-{ kind: "ideal"; key: "save" | "chosen" | "none"; v: number }   // IDEAL_KEYS
+{ kind: "ideal"; key: "save" | "again" | "chosen" | "none"; v: number }   // IDEAL_KEYS
 ```
 
 blob 은 `[kind, key, String(v)]` 뿐이다. **인덱스도 회차 id 도 연예인 id 도 없다** — 어느 연예인인지는 결과 통계다 (S-D4).
@@ -259,9 +268,11 @@ blob 은 `[kind, key, String(v)]` 뿐이다. **인덱스도 회차 id 도 연예
 
 | URL | 화면 |
 |---|---|
-| `/e/:code/fun` | **재미 탭** (개명은 끝났다 — ADR-20 후기 2). 이 슬라이스는 label·이모지·경로를 건드리지 않고 **꺼진 탭 상태(`funOpen`)를 걷어낸다** — 탭은 등록부터 켜져 있다 (S-A2). 카드는 둘 — 이상형 찾기 위, 운세(미션은 그 안) 아래 (ADR-124) |
+| `/e/:code/fun` | **재미 탭** (개명은 끝났다 — ADR-20 후기 2). 이 슬라이스는 label·이모지·경로를 건드리지 않고 **꺼진 탭 상태(`funOpen`)를 걷어낸다** — 탭은 등록부터 켜져 있다. **입구 카드 둘** — 이상형 찾기 위, 파티 운세 보기 아래 (ADR-124 · ADR-125). 프로필 투표 전에는 맨 위 한 줄이 언제 볼 수 있는지 말하고 카드에 단추가 없다 (S-A2) |
 | `/e/:code/ideal` | 시작(풀 고르기). **결과가 있으면 결과** — 같은 주소가 상태를 따라간다 |
+| `/e/:code/ideal/again` | **다시 찾기의 시작** (ADR-125) — 풀 고르기와 같은 화면에 `새로 찾으면 지금 결과 대신 새 결과가 남아요`. 결과가 없거나 문이 닫혀 있으면 `/ideal` 로 갈아끼운다 |
 | `/e/:code/ideal/1..3` | 라운드 |
+| `/e/:code/fortune` | **파티 운세 보기** (ADR-125) — 이상형 찾기와 같은 자리의 페이지. 문이 닫혀 있고 연 운세도 없으면 재미 탭으로 물러난다 |
 
 시트가 아니라 **재미 탭 본문 안의 화면**이다 (`/me/edit` 과 같은 자리). 탭 판정이 `/ideal` 이하를 `재미` 로 읽는다 (ADR-114).
 
@@ -270,6 +281,9 @@ blob 은 `[kind, key, String(v)]` 뿐이다. **인덱스도 회차 id 도 연예
 | 탭 카드 → `/ideal` | push (`idealStep: 0`) | 뒤로 가기 = 탭 |
 | `/ideal` → `/1` → `/2` → `/3` | push | 뒤로 가기 = 이전 라운드, 1에서는 풀 고르기 (등록 스텝과 같다) |
 | `/3` 결과 보기 → `/ideal` | **되감기** `navigate(-n)` — 아니면 replace | 뒤로 가기로 라운드에 다시 들어가지 않는다. 결과에서 뒤로 가면 재미 탭이다 |
+| 재미 탭 카드 `다시 찾기` → `/ideal/again` | push (`idealStep: 0`) | 뒤로 가기 = 탭. 라운드는 이 칸 위에 쌓인다 (ADR-125) |
+| 결과 화면 `다시 찾기` → `/ideal/again` | **replace** — 칸 표시(`idealStep: 0`)를 옮긴다 | 쌓으면 새 결과에서 뒤로 가기가 지난 결과를 한 번 더 보여준다 |
+| 다시 찾은 `/3` 결과 보기 → `/ideal` | 되감기로 `/ideal/again` 칸까지, 거기서 `/ideal` 로 replace | 새 결과에서 뒤로 가면 재미 탭이다 |
 | 라운드 안 `다른 얼굴 보기` | **이동 없음** — 주소도 칸도 그대로 | 되감기가 칸의 `idealStep` 을 믿는다. 칸을 끼우면 그 수가 틀어진다 (ADR-123 ②) |
 | 이상형 화면에서 탭 | **되감기** `navigate(-(n+1))` → 재미 탭 칸에서 여느 탭 이동 | 라운드 칸을 기록에 남기지 않는다 |
 
@@ -295,11 +309,12 @@ push 되고 수는 그 칸에 적혀 있다 (ROUTES.md). 결과는 `POST /api/id
 ## 안 만드는 것 (계약에서 뺀다)
 
 - `GET /api/ideal` — `ParticipantState.ideal` 에 실려 온다
-- `DELETE`·`PUT /api/ideal` — 다시 하기가 없다. '없었어요'(S-C4)도 열지 않는다
+- `DELETE`·`PUT /api/ideal` — 다시 찾기는 `POST /api/ideal` 의 `replaces` 로 한다 (ADR-125). 결과를 지우는 길은 없다.
+  '없었어요'(S-C4)가 저절로 다시 찾기를 열지도 않는다
 - 운영자 라우트·`HostState` 필드 — 운영자 화면이 없다 (S-D1)
 - 자산을 주는 API — 정적 파일이다. Worker 를 거치면 캐시만 잃는다
 - `picks` 를 서버가 재계산해 검증하는 것 — S-D3 의 "그래서 뭐"
-- 단계 검사 · 방송 · 읽음 표시
+- 방송 · 읽음 표시 (단계 검사는 ADR-125 에서 들어왔다 — 저장만, `canOpenFun`)
 
 ---
 
@@ -312,3 +327,6 @@ push 되고 수는 그 칸에 적혀 있다 (ROUTES.md). 결과는 `POST /api/id
 > 탭의 문이 가려 주고 있었다. 탭이 등록부터 켜지면 생년월일 칸이 산 채로 보인다. 그래서 `!canOpenFortune && !card` 이면
 > 뒷면에 칸 없이 `FORTUNE.closed` 한 줄(`aria-disabled`)이다 — 미션 뒷면의 `missionClosed` 와 같은 모양.
 > 운세 뒷면이 탭을 다 채우던 `.fortuneFill` 은 걷는다 — 카드가 둘이다 (ADR-122 ②).
+>
+> **다시 고쳤다 (2026-09-28, ADR-125)** — 운세 카드의 닫힌 모양(`FORTUNE.closed`)도 걷혔다. 재미는 프로필 투표에 한 번에 열리고
+> 탭 맨 위 한 줄(`FUN.closed`)이 그 전을 말한다. 두 카드는 같은 입구 틀이고, 운세는 탭 안의 페이지(`/fortune`)에서 뒤집는다.

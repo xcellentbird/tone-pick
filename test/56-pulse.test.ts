@@ -160,9 +160,12 @@ describe("이상형 찾기 지표 (슬라이스 19, S-D4)", () => {
     });
   });
 
-  /** ★ 종류는 고정된 낱말 셋이다 — 첫 저장 · 셋 중 하나 · 없었어요 */
+  /**
+   * ★ 종류는 고정된 낱말 넷이다 — 첫 저장 · 다시 찾기(ADR-125) · 셋 중 하나 · 없었어요.
+   * 넷 다 **어느 연예인인지, 누구인지** 를 담지 않는다. 새 낱말은 여기 적어야 들어온다.
+   */
   it("★ 이상형 지표의 종류가 전부 고정된 낱말이다", () => {
-    expect([...IDEAL_KEYS].sort()).toEqual(["chosen", "none", "save"]);
+    expect([...IDEAL_KEYS].sort()).toEqual(["again", "chosen", "none", "save"]);
     for (const key of IDEAL_KEYS) expect(key).toMatch(/^[a-z_]+$/);
   });
 });

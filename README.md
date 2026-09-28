@@ -182,7 +182,7 @@ src/
 └── client/
     ├── router.tsx     URL 맵. 모달도 라우트다
     ├── lib/           api · realtime · serverTime · history · 알림 파생
-    ├── ui/            확인창·토스트 · 시트 · 도움말 · 익명 쪽지함 · 자리·단계 전체 화면
+    ├── ui/            확인창·토스트 · 시트 · 도움말 · 익명 쪽지함 · 자리·단계 전체 화면 · 재미 탭 입구 카드
     ├── routes/        참가자 4탭 · 운영자 5탭 · 위저드
     └── styles/theme.css   전부 CSS 변수 → 테마 교체의 토대
 

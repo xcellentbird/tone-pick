@@ -12,7 +12,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
-import { FORTUNE, HELP, IDEAL, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
+import { FORTUNE, FUN, HELP, IDEAL, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
 import type { ParticipantState, Phase } from "../../src/shared/types.ts";
 import {
   IDEAL_ASSET_V,
@@ -126,7 +126,9 @@ function stub(state: ParticipantState, over: { saved?: Ideal; faces?: Faces } = 
         return json(Number(face[1]) === IDEAL_ASSET_V ? SYN : { ...POOL, version: Number(face[1]) });
       }
       if (url === "/api/ideal") {
-        row = over.saved ?? { ...body, at: 1 };
+        // 서버처럼 — 가리킨 값(`replaces`)은 저장하지 않고, 새 행에는 지난 행과 다른 시각이 붙는다 (다시 찾기, ADR-125)
+        const { replaces: _replaces, ...rest } = body as Record<string, unknown>;
+        row = over.saved ?? ({ ...rest, at: (row?.at ?? 0) + 1 } as Ideal);
         return json(row);
       }
       if (url === "/api/ideal/verdict") {
@@ -159,9 +161,12 @@ const rerollBtn = () => screen.queryByRole("button", { name: IDEAL.reroll });
 const tileOf = (id: string) => tiles().find((t) => idOf(t) === id)!;
 const meReads = (s: Stub) => s.asked.filter((a) => a.url.startsWith("/api/me")).length;
 
+/** 재미 탭의 이상형 카드 `시작`. 두 카드가 다 `시작` 을 든다 — 이상형이 첫 카드다 (ADR-124) */
+const idealStart = async () => (await screen.findAllByRole("button", { name: IDEAL.cardStart }))[0];
+
 /** 재미 탭 카드에서 풀을 고르고 1라운드 얼굴이 뜰 때까지 */
 async function startRun(router: ReturnType<typeof mount>, pool: "F" | "M" = "F") {
-  fireEvent.click(await screen.findByRole("button", { name: IDEAL.cardStart }));
+  fireEvent.click(await idealStart());
   await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
   fireEvent.click(await screen.findByRole("button", { name: IDEAL.pool[pool] }));
   await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/1`));
@@ -202,13 +207,13 @@ afterEach(() => {
 
 // ─────────────────────────────────────────── A. 자리와 때
 
-describe("이상형 찾기 · 재미 탭의 문", () => {
+describe("재미 탭 · 여는 때는 하나다 (ADR-125)", () => {
   /**
-   * **탭은 등록부터 켜져 있다** (S-A2). 탭의 문이 운세의 문을 빌려 쓰던 것을 끝냈다 —
-   * 운세·미션 카드는 각자의 문을 그대로 지킨다.
+   * **재미는 프로필 투표가 시작될 때 한 번에 열린다.** 탭은 그 전에도 켜져 있다 — 없다가 생기지 않고(ADR-20 후기),
+   * 흐린 탭을 눌러 토스트로 막던 옛 방식도 되살리지 않는다. 대신 탭 맨 위 한 줄이 언제 볼 수 있는지 말한다.
    */
   for (const phase of ["reg", "prep"] as const) {
-    it(`★ ${phase} 에도 재미 탭이 켜져 있고, 누르면 간다`, async () => {
+    it(`★ ${phase} 에도 재미 탭이 켜져 있고, 누르면 간다 — 맨 위 한 줄이 언제 볼 수 있는지 말한다`, async () => {
       stub(stateIn(phase));
       const router = mount(BASE);
       await screen.findByText(TABS_PARTICIPANT.find((t) => t.key === "fun")!.label);
@@ -216,31 +221,103 @@ describe("이상형 찾기 · 재미 탭의 문", () => {
       expect(funTab().getAttribute("aria-disabled")).toBeNull();
       fireEvent.click(funTab());
       await waitFor(() => expect(path(router)).toBe(`${BASE}/fun`));
-      // 홈으로 튕겨 나가지 않는다 — 한동안 꺼진 탭 주소는 홈으로 갈아끼웠다
-      expect(await screen.findByText(IDEAL.title)).toBeTruthy();
+      expect(await screen.findByText(FUN.closed)).toBeTruthy();
       expect(path(router)).toBe(`${BASE}/fun`);
     });
   }
 
-  it("★ 등록 중 운세 카드는 스스로 닫혀 있다 — 생년월일 칸이 없고 언제 열리는지 말한다", async () => {
-    stub(stateIn("reg"));
-    mount(`${BASE}/fun`);
-
-    expect(await screen.findByText(FORTUNE.closed)).toBeTruthy();
-    expect(screen.queryByLabelText(FORTUNE.birthLabel)).toBeNull();
-    expect(screen.queryByRole("button", { name: FORTUNE.open })).toBeNull();
-    expect(screen.getByText(FORTUNE.closed).closest("[aria-disabled='true']")).toBeTruthy();
-  });
-
-  it("★ 이상형 카드가 운세 위에 있다 — 등록 중에도, 카드만 보는 사람은 얼굴 자료를 받지 않는다", async () => {
+  it("★ 열기 전에는 카드가 무엇이 오는지만 말한다 — 버튼도 입력칸도 없다", async () => {
     const s = stub(stateIn("reg"));
     mount(`${BASE}/fun`);
+    await screen.findByText(FUN.closed);
 
-    const start = await screen.findByRole("button", { name: IDEAL.cardStart });
-    const fortune = screen.getByText(FORTUNE.closed);
-    // 이상형이 첫 카드, 운세가 두 번째 카드다 (ADR-124) — 한 번 연 운세는 길어서 위에 두면 아래 카드를 접힌 아래로 민다
-    expect(fortune.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(screen.getByText(IDEAL.title)).toBeTruthy();
+    expect(screen.getByText(IDEAL.cardBody)).toBeTruthy();
+    expect(screen.getByText(FORTUNE.name)).toBeTruthy();
+    expect(screen.getByText(FORTUNE.cardBody)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: FUN.start })).toBeNull();
+    expect(screen.queryByRole("button", { name: FUN.result })).toBeNull();
+    expect(screen.queryByRole("button", { name: IDEAL.again })).toBeNull();
+    // 생년월일 칸은 탭에 서지 않는다 — 운세 페이지 안에만 있다
+    expect(document.querySelector("input")).toBeNull();
     expect(s.asked.some((a) => a.url.startsWith("/faces/"))).toBe(false);
+  });
+
+  it("★ 이상형 카드가 운세 위에 있다 — 열린 뒤 두 카드에 시작이 붙는다 · 카드만 보는 사람은 얼굴 자료를 받지 않는다", async () => {
+    const s = stub(stateIn("prevote"));
+    mount(`${BASE}/fun`);
+
+    expect(await screen.findAllByRole("button", { name: FUN.start })).toHaveLength(2);
+    expect(screen.queryByText(FUN.closed)).toBeNull();
+    const fortune = screen.getByText(FORTUNE.name);
+    // 이상형이 첫 카드, 운세가 두 번째 카드다 (ADR-124) — 한 번 연 운세는 길어서 위에 두면 아래 카드를 접힌 아래로 민다
+    expect(fortune.compareDocumentPosition(screen.getByText(IDEAL.title)) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(s.asked.some((a) => a.url.startsWith("/faces/"))).toBe(false);
+  });
+
+  it("★ 파티 운세 보기는 탭 안의 페이지로 간다 — 생년월일은 거기서 받는다 · 뒤로 가면 재미 탭", async () => {
+    stub(stateIn("prevote"));
+    const router = mount(`${BASE}/fun`);
+    const starts = await screen.findAllByRole("button", { name: FUN.start });
+    fireEvent.click(starts[1]);
+
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/fortune`));
+    expect(await screen.findByLabelText(FORTUNE.birthLabel)).toBeTruthy();
+    expect(screen.getByRole("button", { name: FORTUNE.open })).toBeTruthy();
+    // 탭 안의 페이지다 — 탭바는 재미에 불이 켜진 채다
+    expect(funTab().getAttribute("aria-current")).toBe("true");
+    // 열었다고 커서를 주지 않는다 (ADR-63)
+    expect(document.activeElement?.tagName).not.toBe("INPUT");
+
+    await router.navigate(-1);
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/fun`));
+  });
+
+  it("★ 운세 페이지에서 탭을 누르면 페이지 칸이 기록에 남지 않는다 — 뒤로 한 번이면 홈이다", async () => {
+    stub(stateIn("prevote"));
+    const router = mount(BASE, `${BASE}/fun`);
+    fireEvent.click((await screen.findAllByRole("button", { name: FUN.start }))[1]);
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/fortune`));
+
+    fireEvent.click(tabBtn("people"));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/people`));
+    await router.navigate(-1);
+    await waitFor(() => expect(path(router)).toBe(BASE));
+  });
+
+  for (const at of ["/ideal", "/ideal/again", "/ideal/2", "/fortune"]) {
+    it(`★ 열기 전에 ${at} 를 열면 재미 탭으로 갈아끼운다`, async () => {
+      stub(stateIn("reg"));
+      const router = mount(`${BASE}${at}`);
+      await waitFor(() => expect(path(router)).toBe(`${BASE}/fun`));
+      expect(router.state.historyAction).toBe("REPLACE");
+      expect(await screen.findByText(FUN.closed)).toBeTruthy();
+      expect(screen.queryByText(IDEAL.poolAsk)).toBeNull();
+    });
+  }
+
+  it("★ 이상형 결과는 입구 카드에 없다 — 이름도 사진도. 결과 보기와 다시 찾기만 있다", async () => {
+    const s = stub(stateIn("prevote", SAVED));
+    mount(`${BASE}/fun`);
+
+    expect(await screen.findByRole("button", { name: FUN.result })).toBeTruthy();
+    expect(screen.getByRole("button", { name: IDEAL.again })).toBeTruthy();
+    // 탭을 열 때마다 옆 사람에게 취향이 보인다 — 결과는 결과 화면에만
+    for (const id of SAVED.result) expect(document.body.textContent).not.toContain(`n${id}`);
+    expect(document.querySelector('img[src^="/faces/"]')).toBeNull();
+    expect(s.asked.some((a) => a.url.startsWith("/faces/"))).toBe(false);
+  });
+
+  it("★ 단계가 되돌아가도 결과는 볼 수 있다 — 다시 찾기만 없다", async () => {
+    stub(stateIn("reg", SAVED));
+    const router = mount(`${BASE}/fun`);
+    await screen.findByText(FUN.closed);
+    expect(screen.queryByRole("button", { name: IDEAL.again })).toBeNull();
+
+    fireEvent.click(await screen.findByRole("button", { name: FUN.result }));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
+    await screen.findAllByText(`n${SAVED.result[0]}`);
+    expect(screen.queryByRole("button", { name: IDEAL.again })).toBeNull();
   });
 });
 
@@ -248,9 +325,9 @@ describe("이상형 찾기 · 재미 탭의 문", () => {
 
 describe("이상형 찾기 · 고르기", () => {
   it("★ 처음에 어느 쪽 얼굴을 볼지 묻는다 — 두 버튼, 어느 쪽도 눌려 있지 않다 (S-B1)", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(`${BASE}/fun`);
-    fireEvent.click(await screen.findByRole("button", { name: IDEAL.cardStart }));
+    fireEvent.click(await idealStart());
     await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
 
     expect(await screen.findByText(IDEAL.poolAsk)).toBeTruthy();
@@ -260,12 +337,13 @@ describe("이상형 찾기 · 고르기", () => {
       expect(b.getAttribute("aria-pressed")).toBeNull();
       expect(b.className).toBe(f.className); // 같은 크기 — 한쪽만 강조하지 않는다
     }
-    // 한 번 찾으면 그대로라는 것을 **시작 전에** 말한다 (S-C3)
-    expect(screen.getByText(IDEAL.once)).toBeTruthy();
+    // 처음 찾을 때는 부담을 덜어 주는 한 줄이다 — 대신한다는 말은 다시 찾을 때의 것이다 (ADR-125)
+    expect(screen.getByText(IDEAL.firstNote)).toBeTruthy();
+    expect(screen.queryByText(IDEAL.againNote)).toBeNull();
   });
 
   it("★ 한 라운드에 얼굴 아홉(3×3), 1~5개. 0개면 '다음' 이 안 눌리고 여섯째는 골라지지 않는다 (S-B2 · v2)", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(`${BASE}/fun`);
     await startRun(router);
     await screen.findByRole("button", { name: IDEAL.face(1) });
@@ -310,7 +388,7 @@ describe("이상형 찾기 · 고르기", () => {
   });
 
   it("★ 같은 얼굴이 두 번 나오지 않는다 · 고르는 동안 이름도 '연예인' 이라는 말도 없다 (S-B3 · S-B5 · S-B6)", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(`${BASE}/fun`);
     await startRun(router);
 
@@ -347,7 +425,7 @@ describe("이상형 찾기 · 고르기", () => {
   });
 
   it("★ 뒤로 가면 이전 라운드다 — 고른 건 남아 있다 (S-B4)", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(`${BASE}/fun`);
     await startRun(router);
     await screen.findByRole("button", { name: IDEAL.face(1) });
@@ -373,7 +451,7 @@ describe("이상형 찾기 · 고르기", () => {
   });
 
   it("★ 고르던 값이 없는데 라운드 주소를 열면 시작으로 갈아끼운다", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(`${BASE}/ideal/2`);
 
     await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
@@ -382,7 +460,7 @@ describe("이상형 찾기 · 고르기", () => {
   });
 
   it("★ 없는 라운드 주소도 시작으로 갈아끼운다", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(`${BASE}/ideal/9`);
 
     await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
@@ -390,7 +468,7 @@ describe("이상형 찾기 · 고르기", () => {
   });
 
   it("★ 앞 라운드를 고쳐 고르면 뒤 라운드는 다시 센다 — 뒤에서 고른 것은 버린다 (S-B4)", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     let router = mount(`${BASE}/fun`);
     await startRun(router);
     await screen.findByRole("button", { name: IDEAL.face(1) });
@@ -429,7 +507,7 @@ describe("이상형 찾기 · 고르기", () => {
   });
 
   it("★ 고른 얼굴이 두 무리로 갈리면 다음 라운드가 두 무리를 따라간다 — 평균 하나가 아니다 (v2)", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(`${BASE}/fun`);
     await startRun(router);
     await screen.findByRole("button", { name: IDEAL.face(1) });
@@ -452,7 +530,7 @@ describe("이상형 찾기 · 고르기", () => {
 
   describe("다른 얼굴 보기", () => {
     it("★ 아무것도 안 골랐고 아직 안 썼을 때만 보인다 — 누르면 다른 아홉, 주소는 그대로 (v2)", async () => {
-      stub(stateIn("reg"));
+      stub(stateIn("prevote"));
       const router = mount(`${BASE}/fun`);
       await startRun(router);
       await screen.findByRole("button", { name: IDEAL.face(1) });
@@ -494,7 +572,7 @@ describe("이상형 찾기 · 고르기", () => {
     });
 
     it("★ 뒤로 갔다 와도 넘긴 쪽이 그대로 선다 — 라운드마다 따로 기억한다 (v2)", async () => {
-      stub(stateIn("reg"));
+      stub(stateIn("prevote"));
       const router = mount(`${BASE}/fun`);
       await startRun(router);
       await screen.findByRole("button", { name: IDEAL.face(1) });
@@ -525,7 +603,7 @@ describe("이상형 찾기 · 고르기", () => {
     });
 
     it("★ 앞 라운드를 고쳐 고르면 뒤 라운드는 넘긴 쪽까지 다시 센다 (v2)", async () => {
-      stub(stateIn("reg"));
+      stub(stateIn("prevote"));
       const router = mount(`${BASE}/fun`);
       await startRun(router);
       await screen.findByRole("button", { name: IDEAL.face(1) });
@@ -553,7 +631,7 @@ describe("이상형 찾기 · 고르기", () => {
     });
 
     it("★ 넘긴 얼굴도 본 얼굴이다 — 흐름 전체에서 다시 안 나오고 결과에도 없다 · 결과는 취향의 중심으로 잰다 (v2)", async () => {
-      const s = stub(stateIn("reg"));
+      const s = stub(stateIn("prevote"));
       const router = mount(`${BASE}/fun`);
       await startRun(router);
       const { shown, skipped } = await playRounds(router, { reroll: true });
@@ -574,7 +652,7 @@ describe("이상형 찾기 · 고르기", () => {
   });
 
   it("★ 라운드에서 ? 를 열었다 닫아도 그 라운드와 고른 것이 그대로다 (ADR-114)", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(`${BASE}/fun`);
     await startRun(router);
     await screen.findByRole("button", { name: IDEAL.face(1) });
@@ -599,7 +677,7 @@ describe("이상형 찾기 · 고르기", () => {
   });
 
   it("★ ? 아래의 라운드를 새로고침으로 잃어도 ? 는 그대로다 — 그 아래만 시작으로 바뀐다", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     // 라운드에서 ? 를 연 채 새로고침 — 기록의 `under` 는 남고 고르던 값은 없다
     const router = createMemoryRouter(PARTICIPANT_ROUTES, {
       initialEntries: [{ pathname: `${BASE}/help`, state: { under: `${BASE}/ideal/2` } }],
@@ -612,7 +690,7 @@ describe("이상형 찾기 · 고르기", () => {
   });
 
   it("★ 라운드에서 탭을 누르면 라운드 칸이 기록에 남지 않는다 — 뒤로 한 번이면 홈이다", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     // 홈에서 재미 탭으로 온 사람 — 기록이 [홈, 재미]
     const router = mount(BASE, `${BASE}/fun`);
     await startRun(router);
@@ -631,14 +709,14 @@ describe("이상형 찾기 · 고르기", () => {
   });
 
   it("★ 재미 탭을 눌러 나가도 라운드 칸이 남지 않는다", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(BASE, `${BASE}/fun`);
     await startRun(router);
     await screen.findByRole("button", { name: IDEAL.face(1) });
 
     fireEvent.click(funTab());
     await waitFor(() => expect(path(router)).toBe(`${BASE}/fun`));
-    expect(await screen.findByRole("button", { name: IDEAL.cardStart })).toBeTruthy();
+    expect(await idealStart()).toBeTruthy();
     await router.navigate(-1);
     await waitFor(() => expect(path(router)).toBe(BASE));
   });
@@ -648,15 +726,19 @@ describe("이상형 찾기 · 고르기", () => {
 
 describe("이상형 찾기 · 결과", () => {
   it("★ 결과 셋은 본 얼굴이 아니고, 고른 얼굴은 그 아래 따로 있다 (S-C1 · S-C2)", async () => {
-    const s = stub(stateIn("reg"));
+    const s = stub(stateIn("prevote"));
     const router = mount(`${BASE}/fun`);
     await startRun(router);
     const { shown, picked } = await playRounds(router);
 
+    // 처음 찾는 흐름에는 대신한다는 말이 없다 — 대신할 결과가 없다 (ADR-125)
+    expect(screen.queryByText(IDEAL.againNote)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
     await screen.findByText(IDEAL.resultTitle);
 
     const sent = s.asked.find((a) => a.url === "/api/ideal")!.body as Ideal;
+    // 처음 찾을 때는 가리키는 것이 없다
+    expect(sent).not.toHaveProperty("replaces");
     expect(sent.v).toBe(IDEAL_ASSET_V);
     expect(sent.pool).toBe("F");
     expect(sent.picks).toEqual(picked);
@@ -681,7 +763,7 @@ describe("이상형 찾기 · 결과", () => {
   });
 
   it("★ 결과를 보면 기록이 시작 주소로 되감긴다 — 뒤로 가기는 재미 탭이지 라운드가 아니다", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(`${BASE}/fun`);
     await startRun(router);
     await playRounds(router);
@@ -697,7 +779,7 @@ describe("이상형 찾기 · 결과", () => {
   });
 
   it("★ 결과 뒤에 앞으로 가기로 라운드 칸에 닿아도 결과로 되돌아온다 — 라운드는 다시 열리지 않는다", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(`${BASE}/fun`);
     await startRun(router);
     await playRounds(router);
@@ -716,7 +798,7 @@ describe("이상형 찾기 · 결과", () => {
   });
 
   it("★ 저장을 기다리는 동안 뒤로 갔어도 결과에 선다 — 누른 순간의 칸으로 되감지 않는다", async () => {
-    stub(stateIn("reg"));
+    stub(stateIn("prevote"));
     const router = mount(`${BASE}/fun`);
     await startRun(router);
     await playRounds(router);
@@ -746,7 +828,7 @@ describe("이상형 찾기 · 결과", () => {
 
   it("★ 서버가 다른 행을 돌려주면 그 행을 그린다 — 다시 읽지 않는다 (S-E2)", async () => {
     const other: Ideal = { v: 1, pool: "F", picks: [["f120"], ["f130"], ["f150"]], result: ["f210", "f265", "f330"], at: 9 };
-    const s = stub(stateIn("reg"), { saved: other });
+    const s = stub(stateIn("prevote"), { saved: other });
     const router = mount(`${BASE}/fun`);
     await startRun(router);
     await playRounds(router);
@@ -777,13 +859,14 @@ describe("이상형 찾기 · 결과", () => {
     const at = SAVED.result.map((id) => text.indexOf(`n${id}`));
     expect([...at].sort((a, b) => a - b)).toEqual(at);
     expect(text).not.toMatch(/%/);
-    // 다시 고르는 길이 없다
+    // 풀 고르기는 저절로 서지 않는다 — 다시 찾기를 눌러야 선다 (ADR-125)
     expect(screen.queryByText(IDEAL.poolAsk)).toBeNull();
     expect(screen.queryByRole("button", { name: IDEAL.pool.F })).toBeNull();
+    expect(screen.getByRole("button", { name: IDEAL.again })).toBeTruthy();
   });
 
   it("★ 결과가 있으면 라운드 주소는 열리지 않는다 — 시작 주소로 갈아끼운다 (S-C3)", async () => {
-    stub(stateIn("reg", SAVED));
+    stub(stateIn("prevote", SAVED));
     const router = mount(`${BASE}/ideal/2`);
 
     await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
@@ -792,7 +875,7 @@ describe("이상형 찾기 · 결과", () => {
   });
 
   it("★ 정답을 한 번 묻는다 — 셋 중 하나를 고르면 물음이 답으로 바뀐다 (S-C4)", async () => {
-    const s = stub(stateIn("reg", SAVED));
+    const s = stub(stateIn("prevote", SAVED));
     mount(`${BASE}/ideal`);
     expect(await screen.findByText(IDEAL.verdictAsk)).toBeTruthy();
 
@@ -808,8 +891,8 @@ describe("이상형 찾기 · 결과", () => {
     for (const id of SAVED.result) expect(document.body.textContent).toContain(`n${id}`);
   });
 
-  it("★ '없었어요' 도 답이다 — 다시 찾기를 열지 않는다 (S-C4)", async () => {
-    const s = stub(stateIn("reg", SAVED));
+  it("★ '없었어요' 도 답이다 — 결과는 그대로이고, 풀 고르기가 저절로 서지 않는다 (S-C4)", async () => {
+    const s = stub(stateIn("prevote", SAVED));
     mount(`${BASE}/ideal`);
 
     fireEvent.click(await screen.findByRole("button", { name: IDEAL.verdictNone }));
@@ -822,7 +905,7 @@ describe("이상형 찾기 · 결과", () => {
   });
 
   it("★ 이미 답한 결과에는 묻지 않는다", async () => {
-    stub(stateIn("reg", { ...SAVED, verdict: { none: true } }));
+    stub(stateIn("prevote", { ...SAVED, verdict: { none: true } }));
     mount(`${BASE}/ideal`);
 
     await screen.findAllByText(`n${SAVED.result[0]}`);
@@ -832,7 +915,7 @@ describe("이상형 찾기 · 결과", () => {
 
   it("★ v1 결과는 v1 경로에서 그린다 — 지금 판(v2)의 자료를 받지 않는다", async () => {
     expect(IDEAL_ASSET_V).not.toBe(1);
-    const s = stub(stateIn("reg", SAVED));
+    const s = stub(stateIn("prevote", SAVED));
     mount(`${BASE}/ideal`);
 
     // 이름은 v1 풀에만 있다 — 이름이 섰다면 v1 자료로 그렸다
@@ -844,7 +927,7 @@ describe("이상형 찾기 · 결과", () => {
   });
 
   it("★ 옛 판의 결과는 옛 경로에서 그린다", async () => {
-    const s = stub(stateIn("reg", { ...SAVED, v: 3 }));
+    const s = stub(stateIn("prevote", { ...SAVED, v: 3 }));
     mount(`${BASE}/ideal`);
 
     await screen.findAllByText(`n${SAVED.result[0]}`);
@@ -852,6 +935,125 @@ describe("이상형 찾기 · 결과", () => {
     const srcs = Array.from(document.querySelectorAll(".body img")).map((i) => i.getAttribute("src")!);
     expect(srcs.length).toBeGreaterThan(0);
     for (const src of srcs) expect(src).toMatch(/^\/faces\/v3\//);
+  });
+});
+
+// ─────────────────────────────────────────── 다시 찾기 (ADR-125)
+
+describe("이상형 찾기 · 다시 찾기 (ADR-125)", () => {
+  /**
+   * **다시 뽑기가 아니라 다시 고르기다.** 이 기능에는 난수가 없어서 같은 얼굴을 고르면 같은 결과다.
+   * 지난 결과는 **새 결과가 저장될 때만** 바뀐다 — 다시 찾다가 나가면 그대로다. 확인창은 없다: 시작 화면과
+   * 마지막 `결과 보기` 위에서 미리 말한다 (S-C3 이 처음부터 그렇게 해 왔다).
+   */
+  it("★ 결과 화면에서 다시 찾는다 — 시작 화면과 마지막 결과 보기 위에서 대신한다고 말하고, 새 결과에는 다시 묻는다 · 뒤로 가면 재미 탭", async () => {
+    const s = stub(stateIn("prevote", { ...SAVED, verdict: { none: true } }));
+    const router = mount(`${BASE}/fun`);
+    fireEvent.click(await screen.findByRole("button", { name: FUN.result }));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
+    await screen.findByText(IDEAL.verdictNoneDone);
+
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.again }));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/again`));
+    // 결과 칸을 갈아끼운다 — 쌓으면 뒤로 가기가 지난 결과를 한 번 더 보여준다
+    expect(router.state.historyAction).toBe("REPLACE");
+    expect(await screen.findByText(IDEAL.againNote)).toBeTruthy();
+    expect(screen.queryByText(IDEAL.firstNote)).toBeNull();
+    // 지난번 쪽을 미리 눌러 두지 않는다 (S-B1)
+    for (const g of ["F", "M"] as const) {
+      expect(screen.getByRole("button", { name: IDEAL.pool[g] }).getAttribute("aria-pressed")).toBeNull();
+    }
+
+    // 지난번과 같은 쪽이다 — 지금 판의 남자 쪽은 아래 `404` 테스트가 처음 받아야 실패가 보인다 (자산은 모듈 캐시에 남는다)
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.pool.F }));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/1`));
+    await playRounds(router);
+    // 되돌릴 수 없는 버튼 위에서 한 번 더 말한다
+    expect(screen.getByText(IDEAL.againNote)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
+
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
+    const sent = s.asked.find((a) => a.url === "/api/ideal")!.body as Record<string, unknown>;
+    // 지금 결과를 가리켜 보낸다 — 그 사이 다른 기기가 바꿨으면 서버가 먼저 온 것을 남긴다 (S-E2)
+    expect(sent.replaces).toBe(SAVED.at);
+    expect(sent.pool).toBe("F");
+    expect(sent.v).toBe(IDEAL_ASSET_V);
+    // 새 결과에는 정답을 다시 묻는다. 지난 결과는 사라졌다
+    expect(await screen.findByText(IDEAL.verdictAsk)).toBeTruthy();
+    for (const id of SAVED.result) expect(document.body.textContent).not.toContain(`n${id}`);
+
+    // 뒤로 가면 재미 탭이다 — 라운드도, 다시 찾기 시작도, 지난 결과도 밟지 않는다
+    await router.navigate(-1);
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/fun`));
+  });
+
+  it("★ 재미 탭 카드에서도 다시 찾는다 — 같은 시작 화면이다 · 뒤로 가면 재미 탭 · 저장하지 않는다", async () => {
+    const s = stub(stateIn("prevote", SAVED));
+    const router = mount(`${BASE}/fun`);
+    fireEvent.click(await screen.findByRole("button", { name: IDEAL.again }));
+
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/again`));
+    expect(router.state.historyAction).toBe("PUSH");
+    expect(await screen.findByText(IDEAL.againNote)).toBeTruthy();
+    await router.navigate(-1);
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/fun`));
+    expect(s.asked.some((a) => a.url === "/api/ideal")).toBe(false);
+  });
+
+  it("★ 다시 찾다가 나가면 지난 결과가 그대로다 — 아무것도 저장하지 않는다", async () => {
+    const s = stub(stateIn("prevote", SAVED));
+    const router = mount(`${BASE}/fun`);
+    fireEvent.click(await screen.findByRole("button", { name: IDEAL.again }));
+    fireEvent.click(await screen.findByRole("button", { name: IDEAL.pool.F }));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/1`));
+    await screen.findByRole("button", { name: IDEAL.face(1) });
+    fireEvent.click(tiles()[0]);
+
+    // 탭을 눌러 나간다 — 다시 찾기가 쌓은 칸부터 걷고 재미 탭에 선다
+    fireEvent.click(funTab());
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/fun`));
+    fireEvent.click(await screen.findByRole("button", { name: FUN.result }));
+    await screen.findAllByText(`n${SAVED.result[0]}`);
+    expect(s.asked.some((a) => a.url === "/api/ideal")).toBe(false);
+  });
+
+  it("★ 다시 찾다가 단계가 되돌아가면 지난 결과로 물러난다 — 누를 수 없는 풀 고르기가 아니다", async () => {
+    const st = stateIn("prevote", SAVED);
+    stub(st);
+    // 소켓 신호 하나가 곧 다시 읽기다 (ADR-26) — 운영자가 단계를 되돌린 순간을 그렇게 만든다
+    const socks: { onmessage?: (e: { data: string }) => void }[] = [];
+    vi.stubGlobal(
+      "WebSocket",
+      class {
+        onmessage?: (e: { data: string }) => void;
+        constructor() {
+          socks.push(this);
+        }
+        close() {}
+      },
+    );
+    const router = mount(`${BASE}/ideal`);
+    fireEvent.click(await screen.findByRole("button", { name: IDEAL.again }));
+    fireEvent.click(await screen.findByRole("button", { name: IDEAL.pool.F }));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/1`));
+    await screen.findByRole("button", { name: IDEAL.face(1) });
+
+    st.event.phase = "reg";
+    socks.at(-1)!.onmessage?.({ data: JSON.stringify({ type: "phase" }) });
+
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
+    await screen.findAllByText(`n${SAVED.result[0]}`);
+    expect(screen.queryByRole("button", { name: IDEAL.pool.F })).toBeNull();
+    // 문이 닫혔으니 다시 찾기도 없다 — 결과는 본다
+    expect(screen.queryByRole("button", { name: IDEAL.again })).toBeNull();
+  });
+
+  it("★ 결과가 없으면 다시 찾기 주소는 시작 화면으로 갈아끼운다", async () => {
+    stub(stateIn("prevote"));
+    const router = mount(`${BASE}/ideal/again`);
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
+    expect(router.state.historyAction).toBe("REPLACE");
+    expect(await screen.findByText(IDEAL.firstNote)).toBeTruthy();
   });
 });
 
@@ -863,7 +1065,7 @@ describe("이상형 찾기 · 얼굴 자료를 못 받았을 때", () => {
    * 실패는 화면 안에서 말한다 — 토스트가 아니다 (ADR-65). 다시 불러오면 그 자리에서 이어진다.
    */
   it("★ HTML 이 200 으로 오면 실패다 — 다시 불러오면 이어진다", async () => {
-    const s = stub(stateIn("reg", { ...SAVED, v: 5 }), { faces: "html" });
+    const s = stub(stateIn("prevote", { ...SAVED, v: 5 }), { faces: "html" });
     mount(`${BASE}/ideal`);
 
     expect(await screen.findByText(IDEAL.loadFail)).toBeTruthy();
@@ -876,7 +1078,7 @@ describe("이상형 찾기 · 얼굴 자료를 못 받았을 때", () => {
   });
 
   it("★ 404 도 실패다 — 실패는 캐시에 남지 않는다", async () => {
-    const s = stub(stateIn("reg"), { faces: "404" });
+    const s = stub(stateIn("prevote"), { faces: "404" });
     const router = mount(`${BASE}/fun`);
     await startRun(router, "M");
 
@@ -890,14 +1092,14 @@ describe("이상형 찾기 · 얼굴 자료를 못 받았을 때", () => {
   });
 
   it("★ 모양이 틀린 JSON 도 실패다 — 판 번호가 경로와 다르면 받지 않는다", async () => {
-    const s = stub(stateIn("reg", { ...SAVED, v: 6 }));
+    const s = stub(stateIn("prevote", { ...SAVED, v: 6 }));
     vi.stubGlobal(
       "fetch",
       vi.fn(async (u: string) => {
         const url = String(u);
         s.asked.push({ url });
         if (url.startsWith("/faces/")) return json({ ...POOL, version: 1 });
-        return json(stateIn("reg", { ...SAVED, v: 6 }));
+        return json(stateIn("prevote", { ...SAVED, v: 6 }));
       }),
     );
     mount(`${BASE}/ideal`);

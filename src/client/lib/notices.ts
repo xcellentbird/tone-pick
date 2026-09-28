@@ -5,7 +5,8 @@
  * 이미 보낸 알림을 어떻게 할 것인가"가 곧바로 생긴다. 파생시키면 상태가 하나뿐이라
  * 단계가 바뀌면 목록이 그 자리에서 따라간다.
  */
-import { ACT, NOTICE, POKE } from "../../shared/copy.ts";
+import { ACT, FUN, NOTICE, POKE } from "../../shared/copy.ts";
+import { FACES_READY } from "./faces.ts";
 import type { ParticipantState, PokeRound } from "../../shared/types.ts";
 
 /**
@@ -67,14 +68,19 @@ export function noticesOf(state: ParticipantState): Notice[] {
    * 매력 투표를 건너뛰고 파티로 간 회차만 파티 줄에 붙는다. 두 줄에 다 붙이면 한 번 받은 것을 두 번 받은 것으로 읽는다.
    */
   const notes = config.maxNotes ?? 0;
+  /*
+   * 재미가 열렸다는 줄도 같은 자리다 (ADR-125) — 재미는 매력 투표가 시작될 때 한 번에 열린다(`canOpenFun`).
+   * 쪽지 줄과 같은 규칙으로 **열린 단계의 줄**에만 붙는다. 얼굴 자료가 없는 빌드에는 이상형 찾기가 없다.
+   */
+  const fun = FUN.notice(FACES_READY);
 
   if (fired.prevote) {
-    list.push({ key: "prevote", ...NOTICE.prevote(notes), at: fired.prevote, order: fired.prevote, bannerable: true, tab: "home" });
+    list.push({ key: "prevote", ...NOTICE.prevote(notes, fun), at: fired.prevote, order: fired.prevote, bannerable: true, tab: "home" });
   }
   if (fired.party) {
     list.push({
       key: "party",
-      ...NOTICE.party(fired.prevote ? 0 : notes),
+      ...(fired.prevote ? NOTICE.party(0) : NOTICE.party(notes, fun)),
       at: fired.party,
       order: fired.party,
       bannerable: true,

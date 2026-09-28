@@ -101,6 +101,18 @@ export function readIdealInput(raw: unknown): IdealInput | null {
 }
 
 /**
+ * 다시 찾기가 가리키는 결과 — 지금 저장된 결과의 `at` (ADR-125). 서버가 적은 시각이라 양의 정수뿐이다.
+ * 없으면 `undefined`(처음 찾기), 모양이 어긋나면 `null`(400). **저장하지 않는다** — 요청에만 있는 값이다.
+ * 가리킨 결과가 지금 것이 아니면 서버는 바꾸지 않고 저장된 행을 돌려준다 (S-E2 를 다시 찾기로 넓힌 것).
+ */
+export function readIdealReplaces(raw: unknown): number | undefined | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const r = (raw as Record<string, unknown>).replaces;
+  if (r === undefined) return undefined;
+  return typeof r === "number" && Number.isSafeInteger(r) && r > 0 ? r : null;
+}
+
+/**
  * 정답 확인의 모양 (S-C4). **결과 셋 중 하나** 또는 **없었어요** — 둘 중 정확히 하나다.
  * 둘 다 오거나 다른 값이면 null. 여기도 새 객체를 짓는다 (위와 같은 이유).
  */

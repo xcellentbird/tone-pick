@@ -1,9 +1,14 @@
 /**
  * 이상형 찾기 (슬라이스 19) — 시작 · 라운드 셋 · 결과. **재미 탭 안의 페이지**다 (시트가 아니다 — `/me/edit` 과 같은 자리).
  *
- *   /ideal       결과가 없으면 풀 고르기, **있으면 결과** — 같은 주소가 상태를 따라간다
- *   /ideal/1..3  라운드. 한 칸씩 push — 뒤로 가기가 곧 이전 라운드다 (S-B4, 등록 스텝과 같다).
- *                `다른 얼굴 보기` 는 칸을 쌓지 않는다 — 같은 라운드의 다른 쪽일 뿐이다 (v2)
+ *   /ideal        결과가 없으면 풀 고르기, **있으면 결과** — 같은 주소가 상태를 따라간다
+ *   /ideal/again  다시 찾기의 풀 고르기 (ADR-125). 결과가 없거나 재미가 닫혔으면 `/ideal` 로 물러난다
+ *   /ideal/1..3   라운드. 한 칸씩 push — 뒤로 가기가 곧 이전 라운드다 (S-B4, 등록 스텝과 같다).
+ *                 `다른 얼굴 보기` 는 칸을 쌓지 않는다 — 같은 라운드의 다른 쪽일 뿐이다 (v2)
+ *
+ * **다시 찾기는 다시 뽑기가 아니라 다시 고르기다** (ADR-125) — 이 기능에는 난수가 없어서 같은 얼굴을 고르면 같은 결과다.
+ * 지난 결과는 **새 결과가 저장될 때만** 바뀐다. 다시 찾다가 나가면 그대로다 — 무엇을 대신하는지는 이 화면의 메모리
+ * (`redo.from` — 지난 결과의 `at`)에만 있고, 저장할 때 서버에 그 값을 가리켜 보낸다.
  *
  * **고르던 값은 이 컴포넌트의 메모리에만 있다** (S-B4 · S-E1). 참가자 화면이 이 컴포넌트를 `/ideal` 과 라운드
  * 주소 사이에서 한 자리에 두어 값이 산다. 재미 탭으로 나가면 사라진다 — 1분짜리라 이어 하기를 만들지 않는다.
@@ -169,21 +174,32 @@ function roundsOf(pool: Pool, picks: readonly string[][], flips: readonly number
 // ─────────────────────────────────────────── 화면
 
 interface Props {
-  /** 0 = `/ideal`, 1~3 = 라운드. 그 밖의 값은 없는 주소다 — 시작으로 갈아끼운다 */
+  /** 0 = `/ideal`(또는 `/ideal/again`), 1~3 = 라운드. 그 밖의 값은 없는 주소다 — 시작으로 갈아끼운다 */
   round: number;
-  /** 저장된 결과. 있으면 라운드 주소는 열리지 않는다 (S-C3) */
+  /** `/ideal/again` — 다시 찾기의 시작 화면 (ADR-125) */
+  again: boolean;
+  /** 재미가 열렸나 (`canOpenFun`, ADR-125). 닫혔으면 새로 고르지 못한다 — 찾은 결과는 그대로 본다 */
+  open: boolean;
+  /** 저장된 결과. 있으면 라운드 주소는 다시 찾는 중에만 열린다 (S-C3 · ADR-125) */
   ideal?: Ideal;
   /**
    * 0 = 시작, 1~3 = 라운드. 라운드는 push, `replace` 는 가드가 쓴다 — **열리면 안 되는 라운드 주소에서 물러나라**는 뜻이고,
    * 되감을지 갈아끼울지는 기록을 아는 쪽(참가자 화면)이 **그 순간의 칸**을 보고 정한다
    */
   onGo: (to: number, opts?: { replace?: boolean }) => void;
+  /** 결과 화면의 `다시 찾기` — 결과 칸을 `/ideal/again` 으로 갈아끼운다 (쌓으면 뒤로 가기가 지난 결과를 한 번 더 보여준다) */
+  onAgain: () => void;
   /** 서버가 돌려준 행 하나만 갈아끼운다 (`setFortune` 과 같은 좁은 통로) */
   onSaved: (ideal: Ideal) => void;
 }
 
-export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
+export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, onAgain, onSaved }: Props) {
   const [pool, setPool] = useState<Gender | null>(null);
+  /**
+   * 다시 찾는 중이면 **무엇을 대신하는지** — 지난 결과의 `at` (ADR-125). 다시 찾기의 풀을 고를 때 적는다.
+   * 저장된 결과의 `at` 이 이 값과 다르면 새 결과가 선 것이다 (다른 기기가 먼저 바꾼 것도 같다 — S-E2).
+   */
+  const [redo, setRedo] = useState<{ from: number } | null>(null);
   const [picks, setPicks] = useState<string[][]>([]);
   /** 라운드마다 `다른 얼굴 보기` 를 누른 횟수. 고르던 값과 같이 메모리에만 있다 — 저장하지 않는다 */
   const [flips, setFlips] = useState<number[]>([]);
@@ -192,11 +208,21 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
   const hint = useRef<HTMLParagraphElement>(null);
   const { toast } = useOverlay();
 
-  const src = ideal ? { v: ideal.v, pool: ideal.pool } : { v: IDEAL_ASSET_V, pool };
+  /**
+   * 다시 찾는 중 — 지난 결과가 아직 서 있다. **다시 찾기의 흐름(시작 주소 · 라운드) 안에서만이다** — 결과 주소로 물러났으면
+   * (문이 닫혀 라운드가 되감겼다) 결과를 그린다. 그 자리에서 다시 찾기를 잊는다 (아래 효과).
+   */
+  const redoing = (again || round > 0) && !!ideal && !!redo && ideal.at === redo.from;
+  /** 방금 새 결과가 섰다 (또는 그 사이 다른 기기가 바꿨다) — 다시 찾기의 시작 주소에서 결과로 물러난다 */
+  const redone = !!ideal && !!redo && ideal.at !== redo.from;
+  /** 고르는 흐름인가 — 판과 풀이 지금 것이다. 결과를 그릴 때는 **저장된 행의 판·풀**이다 */
+  const drafting = !ideal || redoing || (again && round === 0 && !redone);
+
+  const src = drafting ? { v: IDEAL_ASSET_V, pool } : { v: ideal!.v, pool: ideal!.pool };
   const { data, failed, retry } = usePool(src.v, src.pool);
   const { rounds, shown } = useMemo(
-    () => (data && !ideal ? roundsOf(data, picks, flips) : { rounds: [], shown: new Set<string>() }),
-    [data, ideal, picks, flips],
+    () => (data && drafting ? roundsOf(data, picks, flips) : { rounds: [], shown: new Set<string>() }),
+    [data, drafting, picks, flips],
   );
 
   /*
@@ -213,18 +239,32 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
     round <= IDEAL_SHAPE.rounds &&
     !!pool &&
     picks.slice(0, round - 1).filter((p) => p.length > 0).length === round - 1;
-  const open = round === 0 || (!ideal && draftOk);
+  /*
+   * 다시 찾기의 시작 주소(`/ideal/again`)는 **열려 있고 결과가 있을 때만** 선다 (ADR-125). 새 결과가 섰으면(`redone`)
+   * 할 일을 마쳤다 — 결과 주소로 물러나고 다시 찾기를 잊는다. 라운드가 저장 뒤 여기로 되감긴 그 자리다.
+   */
+  const againOk = funOpen && !!ideal && !redone;
+  const allowed = round === 0 ? !again || againOk : draftOk && funOpen && (!ideal || redoing);
   useEffect(() => {
-    if (!open) onGo(0, { replace: true });
-  }, [round, open, onGo]);
+    if (!allowed) onGo(0, { replace: true });
+  }, [round, allowed, onGo]);
+  // 결과 주소에 섰으면 다시 찾기를 잊는다 — 새 결과가 섰거나, 다시 찾다가 문이 닫혀 물러났다
+  useEffect(() => {
+    if (round === 0 && !again && redo) setRedo(null);
+  }, [round, again, redo]);
 
-  if (ideal) {
+  // 다시 찾기의 풀 고르기 — 결과 대신 시작 화면이다
+  if (ideal && round === 0 && again && againOk) return startScreen(true);
+
+  if (ideal && !redoing) {
     return (
       <Result
         ideal={ideal}
         pool={data}
         failed={failed}
         onRetry={retry}
+        // 다시 찾기는 열려 있는 동안만이다 — 단계가 되돌아가도 결과는 본다 (ADR-125)
+        onAgain={funOpen ? onAgain : undefined}
         onAnswer={async (v) => {
           try {
             // 서버가 준 행을 그대로 그린다 — 이미 답했으면 그 답이 온다 (한 번만)
@@ -236,21 +276,22 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
       />
     );
   }
-  if (!open) return null;
+  if (!allowed) return null;
 
-  if (round === 0) {
+  /**
+   * 풀 고르기. 처음 찾을 때와 다시 찾을 때가 **한 줄만** 다르다 — 처음에는 부담을 덜어 주고, 다시 찾을 때는 무엇을
+   * 대신하는지 **누르기 전에** 말한다 (확인창 대신이다, S-C3). 버튼 아래에 작게 두면 하나뿐인 행동을 먼저 누르고 지나간다.
+   */
+  function startScreen(redoStart: boolean) {
     return (
       <div className="card stack idealFlow">
         <div className="kicker">{IDEAL.title}</div>
         <h2 className="cardTitle">{IDEAL.poolAsk}</h2>
-        {/*
-          한 번 찾으면 그대로라는 것을 **누르기 전에** 읽히게 말한다 (S-C3) — 확인창을 띄우지 않는 대신이다.
-          버튼 아래에 작게 두면 하나뿐인 행동을 먼저 누르고 지나간다.
-        */}
-        <p className="small dim">{IDEAL.once}</p>
+        <p className="small dim">{redoStart ? IDEAL.againNote : IDEAL.firstNote}</p>
         {/*
           **같은 크기, 어느 쪽도 눌려 있지 않다** (S-B1). 누구에게 마음이 가는지는 앱이 정할 일이 아니다 (ADR-17) —
-          내 성별의 반대를 미리 골라두지 않는다. 그래서 `.choice`(하나가 늘 켜진 묶음)가 아니다.
+          내 성별의 반대를 미리 골라두지 않는다. 다시 찾을 때도 지난번 쪽을 미리 눌러 두지 않는다.
+          그래서 `.choice`(하나가 늘 켜진 묶음)가 아니다.
         */}
         <div className="idealPools">
           {(["F", "M"] as const).map((g) => (
@@ -258,12 +299,16 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
               key={g}
               className="btn"
               onClick={() => {
-                // 다른 쪽을 고르면 고르던 것은 버린다 — 같은 쪽이면 뒤로 왔다 다시 가는 것이라 그대로 둔다
-                if (g !== pool) {
+                /*
+                 * 다른 쪽을 고르면 고르던 것은 버린다 — 같은 쪽이면 뒤로 왔다 다시 가는 것이라 그대로 둔다.
+                 * **다시 찾기를 새로 시작하면 늘 비운다** — 이 화면은 결과를 본 뒤에도 같은 자리에 남아 지난번 고른 값을 들고 있다.
+                 */
+                if (g !== pool || (redoStart && !redo)) {
                   setPool(g);
                   setPicks([]);
                   setFlips([]);
                 }
+                if (redoStart && ideal) setRedo({ from: ideal.at });
                 onGo(1);
               }}
             >
@@ -274,6 +319,9 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
       </div>
     );
   }
+
+  // 재미가 닫혔으면 처음 찾기도 없다 — 참가자 화면이 재미 탭으로 물러난다. 누를 수 없는 풀 고르기를 비추지 않는다 (ADR-125)
+  if (round === 0) return funOpen ? startScreen(false) : null;
 
   const faces = rounds[round - 1] ?? [];
   const mine = picks[round - 1] ?? [];
@@ -308,6 +356,8 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
     // 두 갈래 취향이면 두 중심을 번갈아 따른다 — 첫 사람은 큰 무리의 것이다
     const result = nearestCelebs(data.celebs, centersOf(data, picks.flat()), shown).map((c) => c.id);
     const input: IdealInput = { v: IDEAL_ASSET_V, pool, picks, result };
+    // 다시 찾기면 지금 결과를 가리킨다 — 그 사이 다른 기기가 바꿨으면 서버가 먼저 온 것을 남긴다 (ADR-125 · S-E2)
+    const body = redoing && redo ? { ...input, replaces: redo.from } : input;
     setSaving(true);
     try {
       /*
@@ -317,7 +367,7 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
        * 옮기는 건 라운드 주소의 문(위 가드)이 한다 — 결과가 그려진 그 순간의 칸에서 물러난다.
        * 저장하는 동안 뒤로 갔거나 ?·✉️ 를 열었어도 결과는 그려지고, 문이 **그때 선 칸**에서 물러난다.
        */
-      onSaved(await post<Ideal>("/ideal", input));
+      onSaved(await post<Ideal>("/ideal", body));
     } catch (e) {
       toast(messageOf(e, FAIL.action));
     } finally {
@@ -377,8 +427,11 @@ export default function IdealFlow({ round, ideal, onGo, onSaved }: Props) {
       )}
       {last ? (
         <>
-          {/* 되돌릴 수 없는 버튼은 이것 하나다 — 시작 화면에서 한 말을 **누르는 자리에서** 한 번 더 한다 (S-C3) */}
-          <p className="small dim">{IDEAL.once}</p>
+          {/*
+            다시 찾는 중이면 이 버튼이 지난 결과를 대신한다 — 시작 화면에서 한 말을 **누르는 자리에서** 한 번 더 한다 (S-C3).
+            처음 찾을 때는 대신할 것이 없다 (ADR-125)
+          */}
+          {redoing && <p className="small dim">{IDEAL.againNote}</p>}
           <button className="btn primary block" disabled={!mine.length || !data || saving} onClick={finish}>
             {saving ? IDEAL.saving : IDEAL.finish}
           </button>
@@ -436,12 +489,15 @@ function Result({
   failed,
   onRetry,
   onAnswer,
+  onAgain,
 }: {
   ideal: Ideal;
   pool?: Pool;
   failed: boolean;
   onRetry: () => void;
   onAnswer: (v: IdealVerdict) => Promise<void>;
+  /** 다시 찾기 (ADR-125). 재미가 닫혔으면 없다 */
+  onAgain?: () => void;
 }) {
   const [answering, setAnswering] = useState(false);
   const pickedId = useId();
@@ -488,8 +544,8 @@ function Result({
       </section>
 
       {/*
-        정답은 **한 번** 묻는다 (S-C4). 답하면 물음이 답으로 바뀌고 다시 묻지 않는다 — '없었어요' 도 다시 찾기를 열지 않는다.
-        답하지 않아도 아무 일 없다 — 다음에 열면 물음이 그대로 있다.
+        정답은 **결과마다 한 번** 묻는다 (S-C4). 답하면 물음이 답으로 바뀌고 다시 묻지 않는다 — 답이 결과를 바꾸지 않는다.
+        답하지 않아도 아무 일 없다 — 다음에 열면 물음이 그대로 있다. 다시 찾은 결과에는 다시 묻는다 (ADR-125).
       */}
       {pool && (
         <section className="card stack">
@@ -513,6 +569,16 @@ function Result({
             </>
           )}
         </section>
+      )}
+
+      {/*
+        **다시 찾기는 정답 물음 바로 아래다** (ADR-125) — 답을 먼저 하고 다시 찾게 되는 순서다. 위에 두면 답 없이
+        다시 찾게 되고, 실전에서 결과를 재는 유일한 신호(S-C4)가 비어 간다. 고른 얼굴(최대 열다섯) 아래에 두면 두 화면 아래다.
+      */}
+      {onAgain && (
+        <button className="btn ghost block" onClick={onAgain}>
+          {IDEAL.again}
+        </button>
       )}
 
       {/*
