@@ -2288,7 +2288,39 @@ button.fact.cond .name { font-size: 15px; }
 .idealResult li.top .name { font-size: 18px; }
 .idealPicked li { display: flex; flex-direction: column; align-items: center; gap: var(--gap-sm); min-width: 0; }
 .faceName { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.idealVerdicts { display: flex; flex-wrap: wrap; gap: var(--gap-sm); }
+/*
+ * 정답의 이름 셋 (ADR-127) — **같은 폭의 세 칸**이다. 이름 길이(두 글자 ~ `올리비아 혜`)로 폭이 갈리지 않고,
+ * 긴 이름은 낱말 단위로 두 줄이 된다. 한 줄의 칸들은 높이가 같다(그리드가 늘인다).
+ * 켜도 크기가 그대로다 — ✓ 는 글자 앞이 아니라 모서리에 얹는다
+ */
+.idealVerdicts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-sm); }
+.idealVerdicts .btn {
+  position: relative;
+  min-height: var(--tap);
+  padding: var(--gap-sm);
+  font-size: 15px;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.verdictCheck {
+  position: absolute;
+  /* 모서리 **바깥**에 반쯤 걸친다 — 안쪽에 두면 긴 이름(`올리비아 혜`)의 끝 글자를 덮는다 */
+  top: calc(var(--gap-sm) * -1);
+  right: calc(var(--gap-sm) * -1);
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--card);
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  font-size: 11px;
+  /* 기호 하나짜리 알약이다 — 줄 간격을 받으면 동그라미가 찌그러진다 */
+  line-height: 1;
+}
+.idealVerdictActions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-sm); }
+.idealVerdictActions .btn { min-height: var(--tap); }
 
 /* 움직임을 원치 않는 사람에게는 돌지 않고 그대로 나온다 */
 @media (prefers-reduced-motion: reduce) {
