@@ -539,22 +539,20 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
   );
 }
 
-/** 끌린 얼굴의 특징 한 장 (ADR-127). 점수 · % · 순위는 없다 — 낱말뿐이다 */
+/**
+ * 끌린 얼굴의 특징 한 장 (ADR-127 · ADR-128). 점수 · % · 순위는 없다 — 글뿐이다.
+ * 무게는 크기가 아니라 차이로 준다 — 제목, 그 얼굴에서 읽히는 사람(본문), 고른 얼굴의 특징(흐리게), 연구 한 줄(가장 작게).
+ * 두드러진 것이 없었다는 것도 답이다 — 카드를 감추지 않고 그렇다고 말한다 (`IDEAL.traits` 가 정한다)
+ */
 function TraitsCard({ traits }: { traits: IdealTraits }) {
-  const has = Object.keys(traits).length > 0;
-  const text = has ? IDEAL.traits(traits) : null;
+  const text = IDEAL.traits(traits);
   return (
     <section className="card stack">
       <div className="kicker">{IDEAL.traitsKicker}</div>
-      {text ? (
-        <>
-          <h2 className="cardTitle">{text.title}</h2>
-          {text.line && <p className="idealAnswer">{text.line}</p>}
-        </>
-      ) : (
-        // 두드러진 것이 없었다는 것도 답이다 — 카드를 감추지 않는다
-        <p className="idealAnswer">{IDEAL.traitsNone}</p>
-      )}
+      <h2 className="cardTitle">{text.title}</h2>
+      {text.person && <p className="idealPerson">{text.person}</p>}
+      {text.detail && <p className="idealDetail">{text.detail}</p>}
+      <p className="idealNote">{text.note}</p>
     </section>
   );
 }
