@@ -17,6 +17,7 @@ import type { ParticipantState, Phase } from "../../src/shared/types.ts";
 import {
   IDEAL_ASSET_V,
   IDEAL_SHAPE,
+  IDEAL_TRAITS,
   decodeVec,
   idealTraits,
   meanOf,
@@ -25,6 +26,7 @@ import {
   tasteCenters,
   type FacePoolFile,
   type Ideal,
+  type IdealTraits,
 } from "../../src/shared/ideal.ts";
 import { PARTICIPANT_ROUTES } from "../../src/client/router.tsx";
 import { forgetPools } from "../../src/client/routes/Ideal.tsx";
@@ -1173,12 +1175,17 @@ describe("끌린 얼굴의 특징 (ADR-127)", () => {
       SYN_DEGS.map((d) => synTraits(d.deg)),
     );
     expect(want).toEqual({ animal: ["cat"], vibe: ["chic"] });
-    const { title } = IDEAL.traits(want);
+    const { title, person, note } = IDEAL.traits(want);
     const text = document.body.textContent!;
     expect(text).toContain(IDEAL.traitsKicker);
     expect(text).toContain(title);
+    // 낱말만이 아니다 — 그 얼굴에서 읽히는 사람과 연구 한 줄까지 (ADR-128)
+    expect(person).toBeTruthy();
+    expect(text).toContain(person!);
+    expect(text).toContain(note);
     // 특징이 먼저, 연예인이 그 예다
-    expect(text.indexOf(title)).toBeLessThan(text.indexOf(IDEAL.resultTitle));
+    expect(text.indexOf(title)).toBeLessThan(text.indexOf(person!));
+    expect(text.indexOf(note)).toBeLessThan(text.indexOf(IDEAL.resultTitle));
     expect(text).not.toMatch(/%/);
   });
 
@@ -1195,6 +1202,61 @@ describe("끌린 얼굴의 특징 (ADR-127)", () => {
     mount(`${BASE}/ideal`);
     await screen.findAllByText(`n${SAVED.result[0]}`);
     expect(document.body.textContent).not.toContain(IDEAL.traitsKicker);
+  });
+});
+
+describe("끌린 얼굴의 글 (ADR-128)", () => {
+  /** 칸마다 부호 하나씩, 그리고 둘씩 고를 수 있는 칸은 둘씩 — 화면이 받을 수 있는 모양을 고루 */
+  const shapes = (): IdealTraits[] => {
+    const out: IdealTraits[] = [];
+    for (const k of Object.keys(IDEAL_TRAITS) as (keyof typeof IDEAL_TRAITS)[]) {
+      const codes = IDEAL_TRAITS[k] as readonly string[];
+      for (const a of codes) {
+        out.push({ [k]: [a] });
+        if (k === "animal" || k === "vibe") for (const b of codes) if (b !== a) out.push({ [k]: [a, b] });
+      }
+    }
+    for (const gaze of IDEAL_TRAITS.gaze)
+      for (const jaw of IDEAL_TRAITS.jaw)
+        for (const features of IDEAL_TRAITS.features) out.push({ vibe: ["warm"], gaze: [gaze], jaw: [jaw], features: [features] });
+    return out as IdealTraits[];
+  };
+
+  it("★ 어느 특징으로도 몸의 한 부분이나 평가하는 말, 점수가 나오지 않는다", () => {
+    // 칸을 인상 다섯으로 줄인 까닭 그대로다 (ADR-127) — 나란히 보는 화면에서 몸의 한 부분은 평가로 읽힌다
+    const banned = /예쁘|예쁜|잘생|못생|미인|미남|매력적|섹시|피부|광대|쌍꺼풀|눈썹|입술|콧|코[가는를와]|얼굴형|눈 크기|큰 눈|작은 눈|점수|순위|등급|%|\d/;
+    for (const t of shapes()) {
+      const { title, person, detail } = IDEAL.traits(t);
+      for (const s of [title, person, detail]) if (s) expect(s, JSON.stringify(t)).not.toMatch(banned);
+    }
+  });
+
+  it("★ 그 얼굴에서 읽히는 사람을 말한다 — 분위기가 있으면 분위기로, 없을 때만 동물상으로", () => {
+    for (const t of shapes()) {
+      const { person } = IDEAL.traits(t);
+      if (t.vibe || t.animal) expect(person, JSON.stringify(t)).toMatch(/사람에게 눈이 갔어요\.$/);
+    }
+    // 분위기가 사람을 정한다 — 같은 분위기면 동물상이 달라도 같은 사람이다
+    expect(IDEAL.traits({ animal: ["dog"], vibe: ["chic"] }).person).toBe(IDEAL.traits({ animal: ["fox"], vibe: ["chic"] }).person);
+  });
+
+  it("★ 조사는 앞말의 받침을 따른다", () => {
+    // 눈매(받침 없음) — 와 · 가, 턱선(받침 ㄴ) — 과 · 이
+    expect(IDEAL.traits({ gaze: ["gentle"], jaw: ["slim"] }).detail).toContain("순한 눈매와 갸름한 턱선이 많았어요");
+    expect(IDEAL.traits({ jaw: ["slim"], features: ["bold"] }).detail).toContain("갸름한 턱선과 뚜렷한 이목구비가 많았어요");
+    expect(IDEAL.traits({ gaze: ["gentle"] }).detail).toContain("순한 눈매가 많았어요");
+    expect(IDEAL.traits({ jaw: ["round"] }).detail).toContain("둥근 턱선이 많았어요");
+  });
+
+  it("★ 두드러진 것이 없으면 그렇다고 말한다 — 없는 것을 채우지 않고, 연구 한 줄은 그대로 선다", () => {
+    const none = IDEAL.traits({});
+    expect(none.title).toBe(IDEAL.traitsNone);
+    expect(none.person).toBeUndefined();
+    expect(none.note).toBeTruthy();
+  });
+
+  it("같은 특징이면 같은 글이다 — 난수가 없다", () => {
+    for (const t of shapes()) expect(IDEAL.traits(t)).toEqual(IDEAL.traits(t));
   });
 });
 

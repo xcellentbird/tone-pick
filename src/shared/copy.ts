@@ -1334,6 +1334,150 @@ export const MISSION = {
 
 
 // ─────────────────────────────────────────── 참가자 · 이상형 찾기 (슬라이스 19)
+
+/** 낱말 끝의 받침에 맞는 조사를 붙인다 — `pair` 는 [받침 있을 때, 없을 때] (`이가` · `과와` · `은는` · `을를`) */
+const withJosa = (word: string, pair: "이가" | "과와" | "은는" | "을를") => {
+  const code = word.charCodeAt(word.length - 1);
+  const batchim = code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 !== 0;
+  return word + pair[batchim ? 0 : 1];
+};
+
+/** 이어 쓸 때와 끝낼 때의 두 꼴 — `[이어 쓰는 꼴, 끝내는 꼴]` */
+type TwoForms = readonly [string, string];
+/** 여럿을 하나로 잇는다 — 앞은 이어 쓰는 꼴, 마지막만 끝내는 꼴 (`다정하고 섬세한`) */
+const chain = (forms: readonly TwoForms[], sep = " ") => forms.map((f, i) => f[i === forms.length - 1 ? 1 : 0]).join(sep);
+
+/**
+ * 끌린 얼굴의 글 재료 (ADR-127 · ADR-128). 부호는 `ideal.ts` 의 `IDEAL_TRAITS` 다 — 칸마다 모든 부호가 있어야 한다 (`satisfies` 가 본다).
+ *
+ * 사람은 얼굴을 0.1초만 보고도 성격을 짐작하고(Willis & Todorov 2006), 끌리는 얼굴은 **바라는 성격이 비치는 얼굴**인 편이다
+ * (Little, Burt & Perrett 2006 — 무리 단위의 결과다). 그래서 낱말만 늘어놓던 한 줄을 *어떤 사람에게 눈이 갔는지* 로 옮겨 쓴다.
+ *
+ * ⚠️ **성격을 단정하지 마라** — `~해 보이는` · `~할 것 같은` 까지다. 얼굴 인상은 사람들끼리 잘 맞지만 실제 성격과는 거의 안 맞는다
+ *    (Todorov 외 2015, 믿음직함 인상의 정확도 r≈.14 — Foo 외 2022). 파티장의 누군가가 그 얼굴을 닮았을 수도 있다.
+ * ⚠️ **고정관념은 좋은 쪽 절반만 쓴다.** 앳된 얼굴은 다정하게도 읽히지만 순진하게도 읽히고, 남성적인 얼굴은 든든하게도 읽히지만
+ *    덜 정직하게도 읽힌다(Perrett 외 1998). 앞의 것만 쓴다.
+ * ⚠️ **몸의 한 부분을 집는 말을 더하지 마라** — 눈 크기 · 코 · 입술 · 피부 같은 것. 칸을 다섯으로 줄인 까닭 그대로다 (ADR-127).
+ * ⚠️ **평가하는 말을 쓰지 마라** — `예쁜` `잘생긴` `매력적인`. 나란히 보는 화면이다.
+ */
+const TRAIT_TEXT = {
+  /** 제목 — 동물상 이름 */
+  animal: {
+    dog: "강아지상", cat: "고양이상", fox: "여우상", rabbit: "토끼상", deer: "사슴상",
+    bear: "곰상", wolf: "늑대상", dino: "공룡상", squirrel: "다람쥐상", hamster: "햄스터상",
+    horse: "말상", snake: "뱀상", tofu: "두부상", chick: "병아리상",
+  },
+  /** 제목 — 분위기. 노골적인 말은 덜어낸다 (`sexy` → `그윽한`) */
+  vibe: {
+    pure: ["청순하고", "청순한"], cute: ["귀엽고", "귀여운"], bubbly: ["발랄하고", "발랄한"],
+    chic: ["시크하고", "시크한"], haughty: ["도도하고", "도도한"], elegant: ["우아하고", "우아한"],
+    sexy: ["그윽하고", "그윽한"], smart: ["지적이고", "지적인"], warm: ["따뜻하고", "따뜻한"],
+    soft: ["부드럽고", "부드러운"], cold: ["차갑고", "차가운"], strong: ["강인하고", "강인한"],
+    manly: ["남성적이고", "남성적인"], androgynous: ["중성적이고", "중성적인"],
+    boyish: ["소년 같고", "소년 같은"], exotic: ["이국적이고", "이국적인"], plain: ["수수하고", "수수한"],
+    glam: ["화려하고", "화려한"], mature: ["성숙하고", "성숙한"], playful: ["장난스럽고", "장난스러운"],
+  },
+  /** 특징 이름 — 눈매 · 턱선 · 이목구비 */
+  gaze: {
+    gentle: "순한 눈매", clear: "또렷한 눈매", sharp: "날카로운 눈매", sleepy: "나른한 눈매", smiling: "웃는 듯한 눈매",
+  },
+  jaw: { slim: "갸름한 턱선", curved: "부드러운 턱선", angular: "각진 턱선", round: "둥근 턱선" },
+  features: { soft: "은은한 이목구비", balanced: "균형 잡힌 이목구비", bold: "뚜렷한 이목구비" },
+} satisfies {
+  animal: Record<NonNullable<IdealTraits["animal"]>[number], string>;
+  vibe: Record<NonNullable<IdealTraits["vibe"]>[number], TwoForms>;
+  gaze: Record<NonNullable<IdealTraits["gaze"]>[number], string>;
+  jaw: Record<NonNullable<IdealTraits["jaw"]>[number], string>;
+  features: Record<NonNullable<IdealTraits["features"]>[number], string>;
+};
+
+/**
+ * 그 얼굴에서 읽히는 사람 — `~에게 눈이 갔어요` 앞에 선다. **이 카드의 본문이다.**
+ * 분위기가 있으면 분위기로, 없을 때만 동물상으로 쓴다 — 동물상을 다룬 연구는 없고(대중의 말이다), 분위기 낱말이 사람에 가깝다.
+ *
+ * **곁에 있을 때의 모습**으로 쓴다. 형용사를 하나 더 얹으면 제목을 되풀이할 뿐이고, 그런 사람과 있으면 어떤지를 말해야
+ * 고개가 끄덕여진다. 반전은 **표정 하나로만** 쓴다(`평소에는 차가워 보여도 웃으면`) — 연애 방식이나 속마음을 예언하지 않는다.
+ * 앞의 꼴은 단정, 끝의 꼴은 `~해 보이는` · `~할 것 같은` 이다 — 둘을 이으면 끝의 짐작이 문장 전체를 덮는다.
+ * 이 짝들은 연구가 아니라 흔히 하는 말에서 지었다 (`TRAIT_READ` 와 다르다)
+ */
+const TRAIT_PERSON = {
+  vibe: {
+    pure: ["티 없이 맑고", "티 없이 맑아 보이는 사람"],
+    cute: ["보고 있으면 기분이 좋아지고", "보고 있으면 기분이 좋아지는 사람"],
+    bubbly: ["어디서든 분위기를 밝히고", "어디서든 분위기를 밝힐 것 같은 사람"],
+    chic: ["자기만의 색이 분명하고", "자기만의 색이 분명해 보이는 사람"],
+    haughty: ["아무에게나 곁을 내주지 않고", "아무에게나 곁을 내주지 않을 것 같은 사람"],
+    elegant: ["작은 몸짓에도 기품이 묻어나고", "작은 몸짓에도 기품이 묻어날 것 같은 사람"],
+    sexy: ["가만히 있어도 눈길이 가고", "가만히 있어도 눈길이 가는 사람"],
+    smart: ["이야기가 잘 통하고", "이야기가 잘 통할 것 같은 사람"],
+    warm: ["처음 만나도 먼저 웃어 주고", "처음 만나도 먼저 웃어 줄 것 같은 사람"],
+    soft: ["곁에 있으면 마음이 놓이고", "곁에 있으면 마음이 놓일 것 같은 사람"],
+    cold: ["평소에는 차가워 보여도 웃으면 확 달라지고", "평소에는 차가워 보여도 웃으면 확 달라질 것 같은 사람"],
+    strong: ["쉽게 흔들리지 않고", "쉽게 흔들리지 않을 것 같은 사람"],
+    manly: ["기대고 싶을 만큼 듬직하고", "기대고 싶을 만큼 듬직해 보이는 사람"],
+    androgynous: ["틀에 얽매이지 않고", "틀에 얽매이지 않을 것 같은 사람"],
+    boyish: ["장난기 속에 순수함이 남아 있고", "장난기 속에 순수함이 남아 있을 것 같은 사람"],
+    exotic: ["흔하지 않은 분위기를 지니고", "흔하지 않은 분위기를 지닌 사람"],
+    plain: ["꾸미지 않아도 편안하고", "꾸미지 않아도 편안해 보이는 사람"],
+    glam: ["어디에 있어도 눈에 띄고", "어디에 있어도 눈에 띄는 사람"],
+    mature: ["생각이 깊고", "생각이 깊어 보이는 사람"],
+    playful: ["같이 있으면 지루할 틈이 없고", "같이 있으면 지루할 틈이 없을 것 같은 사람"],
+  },
+  animal: {
+    dog: ["누구에게나 다정하고", "누구에게나 다정할 것 같은 사람"],
+    cat: ["자기만의 세계가 분명하고", "자기만의 세계가 분명해 보이는 사람"],
+    fox: ["눈치가 빠르고", "눈치가 빠를 것 같은 사람"],
+    rabbit: ["생기가 넘치고", "생기가 넘쳐 보이는 사람"],
+    deer: ["분위기가 맑고", "분위기가 맑은 사람"],
+    bear: ["푸근하고", "푸근해 보이는 사람"],
+    wolf: ["조용해도 존재감이 뚜렷하고", "조용해도 존재감이 뚜렷해 보이는 사람"],
+    dino: ["무심한 듯 든든하고", "무심한 듯 든든해 보이는 사람"],
+    squirrel: ["야무지고", "야무져 보이는 사람"],
+    hamster: ["볼수록 귀엽고", "볼수록 귀여운 사람"],
+    horse: ["시원시원하고", "시원시원해 보이는 사람"],
+    snake: ["신비롭고", "신비로워 보이는 사람"],
+    tofu: ["담백하고", "담백해 보이는 사람"],
+    chick: ["해맑고", "해맑아 보이는 사람"],
+  },
+} satisfies {
+  vibe: Record<keyof typeof TRAIT_TEXT.vibe, TwoForms>;
+  animal: Record<keyof typeof TRAIT_TEXT.animal, TwoForms>;
+};
+
+/**
+ * 눈매 · 턱선 · 이목구비에서 사람들이 먼저 받는 인상 — `사람들은 이런 얼굴에서 ~ 인상을 먼저 받아요`.
+ *
+ * 연구가 받치는 짝 — 웃는 얼굴을 닮은 얼굴은 무표정이어도 친근하고 믿음직하게 읽히고(Said, Sebe & Todorov 2009),
+ * 순하고 둥근 얼굴은 다정하고 푸근하게(Zebrowitz & Montepare 2008), 곡선은 부드럽게(Bar & Neta 2006),
+ * 날카롭고 각진 얼굴은 단단하고 지배적으로 읽힌다(Oosterhof & Todorov 2008 · Geniole 외 2015). 평균에 가까운 얼굴은
+ * 낯설지 않아 편안하다(Winkielman 외 2006). 갸름한 턱선의 섬세함은 절반만 받친다(여성스러운 얼굴 → 감성적, Perrett 외 1998).
+ * 흔히 하는 말을 따른 짝 — 나른한 → 여유로운 · 은은한 → 차분한 · 뚜렷한 → 당당한 · 또렷한 → 생기 있는.
+ *
+ * ⚠️ **각진 턱선을 `믿음직한` 으로 쓰지 마라** — 그럴듯해 보이는 짝이라 처음에 그렇게 적었다. 각지고 남성적인 얼굴은 든든하게
+ *    읽히는 만큼 덜 정직하게 읽히고(Perrett 외 1998), 믿음직함은 턱이 아니라 웃는 얼굴을 닮은 정도를 따른다.
+ *    `또렷한 눈매` 를 `총명한` 으로 쓰지 않는 것도 같은 까닭이다 — 받치는 연구가 없다
+ */
+const TRAIT_READ = {
+  gaze: {
+    gentle: ["다정하고", "다정한"], clear: ["생기 있고", "생기 있는"], sharp: ["똑 부러지고", "똑 부러진"],
+    sleepy: ["여유롭고", "여유로운"], smiling: ["친근하고", "친근한"],
+  },
+  jaw: { slim: ["섬세하고", "섬세한"], curved: ["온화하고", "온화한"], angular: ["단단하고", "단단한"], round: ["푸근하고", "푸근한"] },
+  features: { soft: ["차분하고", "차분한"], balanced: ["편안하고", "편안한"], bold: ["당당하고", "당당한"] },
+} satisfies {
+  gaze: Record<keyof typeof TRAIT_TEXT.gaze, TwoForms>;
+  jaw: Record<keyof typeof TRAIT_TEXT.jaw, TwoForms>;
+  features: Record<keyof typeof TRAIT_TEXT.features, TwoForms>;
+};
+
+/** 끌린 얼굴 카드 한 장의 글. `person` · `detail` 은 쓸 재료가 없으면 비어 있다 */
+export interface IdealTraitsText {
+  title: string;
+  person?: string;
+  detail?: string;
+  note: string;
+}
+
 export const IDEAL = {
   /** 재미 탭 카드와 시작 화면에서 기능 이름을 같게 쓴다. */
   title: "이상형 찾기",
@@ -1394,55 +1538,65 @@ export const IDEAL = {
   /** 고를 얼굴이 없었다는 답을 짧게 그대로 둔다. */
   verdictNone: "없었어요",
   /** 물음이 사라진 자리에 고른 이름을 남긴다 — 마지막 이름의 받침에 맞춰 한 명도 여럿도 문장으로 잇는다 */
-  verdictChosen: (names: readonly string[]) => {
-    const last = names.at(-1) ?? "";
-    const code = last.charCodeAt(last.length - 1);
-    const subject = code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 !== 0 ? "이" : "가";
-    return `${names.join(", ")}${subject} 진짜 이상형이에요`;
-  },
+  verdictChosen: (names: readonly string[]) => `${withJosa(names.join(", "), "이가")} 진짜 이상형이에요`,
   /** 직접 고른 얼굴에서 나온 특징임을 밝힌다 — 아래 연예인 셋의 공통점으로 읽히지 않게 한다 (ADR-127) */
   traitsKicker: "내가 끌린 얼굴",
   /**
-   * 동물상과 분위기는 제목으로, 눈매와 턱선, 이목구비는 끌리는 특징을 말하는 문장으로 쓴다.
-   * 분위기는 앞에서 이을 말과 끝에서 꾸밀 말을 나눈다. 나란히 볼 화면이라 노골적인 말은 덜어낸다.
-   * 빈 칸은 건너뛴다 — 제목에 쓸 칸이 없으면 나머지 특징 하나를 올리고, 되풀이하는 줄은 두지 않는다.
+   * 끌린 얼굴 카드의 글 (ADR-127 · ADR-128). 재료는 위의 `TRAIT_TEXT` · `TRAIT_PERSON` · `TRAIT_READ` 다.
+   *
+   * - `title` — 분위기와 동물상 (`도도하고 시크한 여우상`). 둘 다 없으면 눈매나 턱선 하나를 올린다
+   * - `person` — 그 얼굴에서 읽히는 사람. **이 카드의 본문이다** — 낱말을 늘어놓는 대신 어떤 사람에게 눈이 갔는지를 말한다
+   * - `detail` — 고른 얼굴에 많던 눈매 · 턱선 · 이목구비와 사람들이 거기서 받는 인상. 제목에 올린 것도 다시 말한다 —
+   *   제목은 이름이고 여기는 까닭이다
+   * - `note` — 연구 한 줄
+   *
+   * **이번에 고른 것은 과거형이다** (`눈이 갔어요` · `많았어요`) — 이번 세 라운드에 있었던 일만 말한다. `~에 끌려요` 로 쓰면
+   * 취향 전체를 단정하게 된다. 사람들이 받는 인상처럼 늘 그런 것만 현재형이다.
+   * **두드러진 것이 하나도 없으면** 그렇다고 말한다(`traitsNone`) — 카드를 감추지 않는다 (S-C6).
+   * 같은 선택이면 같은 글이다 — 난수가 없다.
    */
-  traits: (t: IdealTraits): { title: string; line?: string } => {
-    const animal = {
-      dog: "강아지상", cat: "고양이상", fox: "여우상", rabbit: "토끼상", deer: "사슴상",
-      bear: "곰상", wolf: "늑대상", dino: "공룡상", squirrel: "다람쥐상", hamster: "햄스터상",
-      horse: "말상", snake: "뱀상", tofu: "두부상", chick: "병아리상",
-    };
-    const vibe = {
-      pure: ["청순하고", "청순한"], cute: ["귀엽고", "귀여운"], bubbly: ["발랄하고", "발랄한"],
-      chic: ["시크하고", "시크한"], haughty: ["도도하고", "도도한"], elegant: ["우아하고", "우아한"],
-      sexy: ["그윽하고", "그윽한"], smart: ["지적이고", "지적인"], warm: ["따뜻하고", "따뜻한"],
-      soft: ["부드럽고", "부드러운"], cold: ["차갑고", "차가운"], strong: ["강인하고", "강인한"],
-      manly: ["남성적이고", "남성적인"], androgynous: ["중성적이고", "중성적인"],
-      boyish: ["소년 같고", "소년 같은"], exotic: ["이국적이고", "이국적인"], plain: ["수수하고", "수수한"],
-      glam: ["화려하고", "화려한"], mature: ["성숙하고", "성숙한"], playful: ["장난스럽고", "장난스러운"],
-    };
-    const gaze = {
-      gentle: "순한 눈매", clear: "또렷한 눈매", sharp: "날카로운 눈매", sleepy: "나른한 눈매", smiling: "웃는 듯한 눈매",
-    };
-    const jaw = {
-      slim: "갸름하고 뾰족한 턱선", curved: "부드러운 턱선", angular: "각진 턱선", round: "둥근 턱선",
-    };
-    const features = {
-      soft: "은은한 이목구비", balanced: "균형 잡힌 이목구비", bold: "뚜렷한 이목구비",
-    };
-    const animals = (t.animal ?? []).map((key) => animal[key]).join("과 ");
-    const vibes = (t.vibe ?? []).map((key, i, all) => vibe[key][i === all.length - 1 ? 1 : 0]).join(" ");
+  traits: (t: IdealTraits): IdealTraitsText => {
+    const vibes = (t.vibe ?? []).map((k) => TRAIT_TEXT.vibe[k]);
+    const animals = (t.animal ?? []).map((k) => TRAIT_TEXT.animal[k]).join("과 ");
     const details = [
-      ...(t.gaze ?? []).map((key) => gaze[key]),
-      ...(t.jaw ?? []).map((key) => jaw[key]),
-      ...(t.features ?? []).map((key) => features[key]),
+      ...(t.gaze ?? []).map((k) => ({ word: TRAIT_TEXT.gaze[k], read: TRAIT_READ.gaze[k] })),
+      ...(t.jaw ?? []).map((k) => ({ word: TRAIT_TEXT.jaw[k], read: TRAIT_READ.jaw[k] })),
+      ...(t.features ?? []).map((k) => ({ word: TRAIT_TEXT.features[k], read: TRAIT_READ.features[k] })),
     ];
-    const title = [vibes, animals || (vibes ? "인상" : "")].filter(Boolean).join(" ") || details.shift()!;
-    return details.length ? { title, line: `${details.join(", ")}에 끌려요` } : { title };
+    const head = vibes.length ? chain(vibes) : "";
+    const title = [head, animals || (head ? "인상" : "")].filter(Boolean).join(" ") || details[0]?.word;
+    if (!title) return { title: IDEAL.traitsNone, detail: IDEAL.traitsNoneDetail, note: IDEAL.traitsNoneNote };
+
+    // 분위기가 사람을 가장 잘 말한다 — 없을 때만 동물상으로
+    const who = t.vibe?.length
+      ? t.vibe.map((k) => TRAIT_PERSON.vibe[k])
+      : (t.animal ?? []).map((k) => TRAIT_PERSON.animal[k]);
+    const person = who.length ? `${chain(who, ", ")}에게 눈이 갔어요.` : undefined;
+
+    const words = details.map((d) => d.word);
+    const list = words.length === 2 ? `${withJosa(words[0], "과와")} ${words[1]}` : words.join(", ");
+    const detail = details.length
+      ? `고른 얼굴에는 ${withJosa(list, "이가")} 많았어요. 사람들은 이런 얼굴에서 ${chain(details.map((d) => d.read))} 인상을 먼저 받아요.`
+      : undefined;
+    return { title, person, detail, note: IDEAL.traitsNote };
   },
+  /**
+   * 연구 한 줄 — 선 아래 가장 작게 선다. 말로 하는 이상형은 실제로 끌리는 사람을 잘 맞히지 못한다
+   * (Eastwick & Finkel 2008 스피드 데이트 · Eastwick 외 2014 메타분석 · Joel 외 2017). 이 기능은 말이 아니라
+   * **고른 얼굴**에서 답을 찾으니, 결과가 내가 말해 온 이상형과 달라도 이상하지 않다는 것을 미리 말한다.
+   * `다를 때가 많아요` 까지다 — 이상형이 조금은 맞힌다는 결과도 있다(Eastwick 외 2024). 만나 보라고 권하지 않는다 (SHYNESS.md)
+   */
+  traitsNote: "말로 하는 이상형과 실제로 끌리는 사람은 다를 때가 많아요. 이 결과는 눈이 먼저 고른 얼굴에서 나왔어요.",
   /** 두드러진 특징이 없어도 취향의 한 모습이다 — 실패나 부족함으로 말하지 않는다 */
   traitsNone: "서로 다른 인상에 고루 끌렸어요",
+  /** 무엇이 없었는지가 아니라 무엇을 했는지 — 고른 얼굴마다 인상이 달랐다 */
+  traitsNoneDetail: "한 가지 틀로 묶이지 않는 것도 취향이에요.",
+  /**
+   * 두드러진 것이 없을 때의 연구 한 줄. 얼굴 취향의 절반쯤은 사람마다 다르고(Hönekopp 2006 · Germine 외 2015 — 공유 48% · 개인 52%),
+   * 그 개인 몫은 유전보다 저마다의 경험이 만든다(같은 쌍둥이 연구 — 유전 22%). **어떤 경험인지는 쓰지 마라** — 친구나 매체라는 것은
+   * 저자들의 짐작이고, 부모의 나이를 닮은 얼굴에 끌린다는 결과(Perrett 외 2002)는 다시 재었을 때 나오지 않았다(Li 외 2025)
+   */
+  traitsNoneNote: "어떤 얼굴에 끌리는지는 절반쯤이 사람마다 달라요. 타고난 것보다 저마다 겪어 온 일이 그 차이를 만들어요.",
   /** 셋 중에는 없었다는 답을 온전히 말해 선택 실패나 다시 찾으라는 뜻을 피한다. */
   verdictNoneDone: "셋 중에는 진짜 이상형이 없었어요",
   /** 실패 이유만 전해 다시 여는 안내와 아래 버튼의 역할을 겹치지 않게 한다. */
