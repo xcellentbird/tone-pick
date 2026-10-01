@@ -29,7 +29,12 @@ export interface Ideal {
   at: number;
 }
 
-export type IdealVerdict = { chosen: string } | { none: true };
+/**
+ * 정답 (S-C4). **결과 셋 중 진짜 이상형이 있었던 사람 전부**(1~3명) 또는 없었어요 (ADR-127).
+ * v2 까지는 한 명이었다 — 그때 저장된 `{ chosen: "id" }` 는 읽을 때 `normalizeIdeal` 이 배열로 편다.
+ * 여럿을 받는 까닭은 평가 자료다: 결과 셋이 저마다 맞았는지가 결과 1위만 맞았는지보다 많이 말한다
+ */
+export type IdealVerdict = { chosen: string[] } | { none: true };
 
 /** 기기가 보내는 것. verdict 는 따로 온다 — 결과를 본 뒤에야 생기는 값이다 (S-C4) */
 export type IdealInput = Omit<Ideal, "verdict" | "at">;
@@ -51,6 +56,13 @@ export const IDEAL_SHAPE = {
   /** 3라운드 닮은꼴 문턱(코사인). 임시값 — 실제 풀에서 종이 검증과 함께 조정한다 */
   dupCos: 0.9,
   /**
+   * 3라운드가 **보여주지 않고 결과 몫으로 남기는** 가장 가까운 얼굴 수 — 중심마다 (ADR-127).
+   * 본 얼굴은 결과에 안 나온다(S-C2). 3라운드가 중심에 가장 가까운 아홉을 보여주면 답이 될 얼굴을
+   * 화면이 먼저 써버려, 결과 1위가 열 번째쯤으로 밀렸다. 남기면 모의 실험(recover.mjs)의 여섯 줄 모두 11~17점 오른다 —
+   * 3 · 6 · 9 끼리는 2점 안이고 6 이 넷에서 가장 높거나 같았다
+   */
+  reserve: 6,
+  /**
    * 두 무리의 평균끼리 코사인이 이보다 작으면 두 갈래다 — 반대쪽으로 **꽤** 벌어질 때만(약 102° 넘게) 가른다.
    * 0 으로 두면 다섯씩 고르는 한 인상이 절반 가까이 쪼개졌다 — 다섯 중엔 목표에서 먼 얼굴이 섞여서다 (ADR-123 문턱 표).
    * 한 인상을 쪼개는 것이 두 인상을 못 가르는 것보다 나쁘다. 종이 검증 **전에** 정했다
@@ -66,7 +78,7 @@ export const IDEAL_SHAPE = {
  * **저장된 결과는 이 값이 아니라 자기 `v` 로 그린다.** 판이 올라가도 옛 결과는 옛 경로에서
  * 그대로 그려져야 한다 (옛 버전 경로는 지우지 않는다 — 19-surface).
  */
-export const IDEAL_ASSET_V = 2;
+export const IDEAL_ASSET_V = 3;
 
 /**
  * `v` 의 윗끝. 기기가 보낸 값이 그대로 지표 blob 으로 흘러가서(`pulse` 의 ideal) 막아둔다 —
@@ -113,7 +125,9 @@ export function readIdealReplaces(raw: unknown): number | undefined | null {
 }
 
 /**
- * 정답 확인의 모양 (S-C4). **결과 셋 중 하나** 또는 **없었어요** — 둘 중 정확히 하나다.
+ * 정답 확인의 모양 (S-C4). **결과 셋 중 1~3명**(겹치지 않게) 또는 **없었어요** — 둘 중 정확히 하나다 (ADR-127).
+ * 한 명을 문자열로 보내도 받는다 — 배포 전에 열어 둔 탭이 옛 모양으로 보낸다.
+ * 저장은 **결과 순서대로** 한다 — 누른 순서는 뜻이 없고, 같은 답이 같은 모양이어야 센다.
  * 둘 다 오거나 다른 값이면 null. 여기도 새 객체를 짓는다 (위와 같은 이유).
  */
 export function readIdealVerdict(raw: unknown, result: readonly string[]): IdealVerdict | null {
@@ -121,8 +135,89 @@ export function readIdealVerdict(raw: unknown, result: readonly string[]): Ideal
   const r = raw as Record<string, unknown>;
   if (r.chosen !== undefined && r.none !== undefined) return null;
   if (r.none === true) return { none: true };
-  if (typeof r.chosen === "string" && result.includes(r.chosen)) return { chosen: r.chosen };
-  return null;
+  const chosen = typeof r.chosen === "string" ? [r.chosen] : r.chosen;
+  if (!Array.isArray(chosen) || !chosen.length || new Set(chosen).size !== chosen.length) return null;
+  if (!chosen.every((c) => typeof c === "string" && result.includes(c))) return null;
+  return { chosen: result.filter((id) => chosen.includes(id)) };
+}
+
+/**
+ * 저장된 행을 지금 모양으로 편다 — v2 까지의 정답(`{ chosen: "id" }`)은 한 명짜리 배열이 된다.
+ * 행을 고쳐 쓰지 않는다. 읽을 때마다 편다 (옛 회차의 행이 그대로 남아 있어도 되게)
+ */
+export function normalizeIdeal(ideal: Ideal): Ideal {
+  const v = ideal.verdict as { chosen?: unknown } | undefined;
+  if (v && typeof v.chosen === "string") return { ...ideal, verdict: { chosen: [v.chosen] } };
+  return ideal;
+}
+
+// ─────────────────────────────────────────── 끌리는 얼굴의 특징 (ADR-127)
+
+/**
+ * 결과 화면에 한 줄로 쓰는 얼굴 특징의 어휘 — 자산 파이프라인(`scripts/faces/attrs.mjs`)이 사진마다
+ * 고른 낱말의 **부분집합**이다. 벡터가 이 낱말들로 만들어져서, 고른 얼굴의 낱말을 세면 그 사람이
+ * 끌린 쪽을 벡터와 같은 말로 설명한다. 화면 글은 `copy.ts` 의 `IDEAL.traits` 에 있다 — 여기는 부호뿐이다.
+ *
+ * **빼둔 칸** — 피부 톤 · 광대 · 코 · 나이 느낌 · 쌍꺼풀 · 눈썹 · 입술 · 얼굴형 · 눈 크기.
+ * 파티에서 화면을 나란히 본다. 몸의 한 부분을 집는 말은 평가처럼 읽히고, 테이블의 누군가를 가리킨다.
+ * 인상을 말하는 다섯 칸만 쓴다. **점수 · % · 순위는 붙이지 않는다** (ADR-20).
+ */
+export const IDEAL_TRAITS = {
+  animal: ["dog", "cat", "fox", "rabbit", "deer", "bear", "wolf", "dino", "squirrel", "hamster", "horse", "snake", "tofu", "chick"],
+  vibe: ["pure", "cute", "bubbly", "chic", "haughty", "elegant", "sexy", "smart", "warm", "soft", "cold", "strong", "manly", "androgynous", "boyish", "exotic", "plain", "glam", "mature", "playful"],
+  gaze: ["gentle", "clear", "sharp", "sleepy", "smiling"],
+  jaw: ["slim", "curved", "angular", "round"],
+  features: ["soft", "balanced", "bold"],
+} as const;
+export type TraitKey = keyof typeof IDEAL_TRAITS;
+export const TRAIT_KEYS = Object.keys(IDEAL_TRAITS) as TraitKey[];
+
+/** 고른 얼굴들에서 뽑은 특징 — 칸마다 부호. 비어 있는 칸은 뚜렷하지 않았던 것이다 */
+export type IdealTraits = { [K in TraitKey]?: (typeof IDEAL_TRAITS)[K][number][] };
+
+export const TRAIT_SHAPE = {
+  /** 고른 얼굴 중 이만큼은 그 낱말을 가져야 한다 — 절반. 그리고 적어도 둘 (한 장은 우연이다) */
+  share: 0.5,
+  minCount: 2,
+  /**
+   * 풀 전체보다 이만큼 더 자주 나와야 한다. 흔한 낱말(`균형 잡힌 이목구비` 처럼 풀 절반이 가진 것)은
+   * 누구의 취향도 설명하지 않는다 — 빼지 않으면 마흔 명이 같은 문장을 받는다 (모의 실험: 1.5 에서 200명 중 94~117가지)
+   */
+  lift: 1.5,
+  /** 칸마다 몇 낱말까지. 동물상 · 분위기는 사진마다 여럿을 골랐다 */
+  max: { animal: 2, vibe: 2, gaze: 1, jaw: 1, features: 1 } as Record<TraitKey, number>,
+} as const;
+
+/** 부호 하나 — `animal.cat` 꼴. 자산의 `t` 가 이 모양의 목록이다 */
+export const traitToken = (k: TraitKey, code: string) => `${k}.${code}`;
+
+/**
+ * 고른 얼굴들의 특징 (ADR-127). `picked` 는 고른 얼굴마다의 부호 목록, `pool` 은 그 풀 전체의 것이다.
+ * 칸마다 **고른 얼굴의 절반 이상이 가졌고, 풀보다 `lift` 배 이상 자주 나온** 낱말을, 풀보다 더 자주 나온 순서로
+ * (같으면 어휘 순서로) `max` 개까지. 결과 연예인이 아니라 **본인이 고른 얼굴**을 센다 — 결과가 빗나가도 이건 빗나가지 않는다.
+ * 같은 입력이면 같은 출력.
+ */
+export function idealTraits(picked: readonly (readonly string[])[], pool: readonly (readonly string[])[]): IdealTraits {
+  const out: IdealTraits = {};
+  if (!picked.length || !pool.length) return out;
+  const share = (rows: readonly (readonly string[])[], tok: string) => rows.filter((r) => r.includes(tok)).length;
+  const need = Math.max(TRAIT_SHAPE.minCount, Math.ceil(picked.length * TRAIT_SHAPE.share));
+  for (const k of TRAIT_KEYS) {
+    const got = IDEAL_TRAITS[k]
+      .map((code, i) => {
+        const tok = traitToken(k, code);
+        const n = share(picked, tok);
+        const base = share(pool, tok) / pool.length;
+        const lift = base > 0 ? n / picked.length / base : 0;
+        return { code, i, n, lift };
+      })
+      .filter((x) => x.n >= need && x.lift >= TRAIT_SHAPE.lift)
+      .sort((a, b) => b.lift - a.lift || a.i - b.i)
+      .slice(0, TRAIT_SHAPE.max[k])
+      .map((x) => x.code);
+    if (got.length) (out as Record<string, string[]>)[k] = got;
+  }
+  return out;
 }
 
 /** 자산 JSON 의 모양. base64 int8×dim — decodeVec() 으로 복원하면 단위 길이다 */
@@ -130,7 +225,8 @@ export interface FacePoolFile {
   version: number; // 경로의 v{n} 과 같아야 한다
   dim: number;
   scale: number;
-  celebs: { id: string; name: string; v: string; retired?: true }[];
+  /** `t` — 그 사람의 특징 부호(`animal.cat` 꼴, v3 부터). 없으면 그 판은 특징을 말하지 않는다 */
+  celebs: { id: string; name: string; v: string; retired?: true; t?: string[] }[];
   faces: { id: string; v: string; level: 1 | 2 | 3 }[];
 }
 
@@ -146,6 +242,7 @@ export interface DecodedCeleb {
   name: string;
   vec: Float32Array;
   retired?: true;
+  t?: string[];
 }
 
 export function decodeVec(v: string, dim: number, scale: number): Float32Array {
@@ -262,6 +359,9 @@ export function tasteCenters(picked: readonly Float32Array[]): TasteCenter[] {
  * 2·3라운드는 중심마다 코사인 내림차순 목록을 세우고, 중심이 둘이면 자리를 무게로 나눠
  * **번갈아** 놓는다 (A, B, A, B …). 작은 쪽도 적어도 한 칸, 많아야 절반(내림) —
  * 두 갈래라도 큰 무리가 그 사람의 주된 취향이다.
+ *
+ * 3라운드는 중심마다 가장 가까운 `reserve` 명을 **건너뛴다** (ADR-127) — 결과의 몫이다. 본 얼굴은 결과에
+ * 안 나오므로(S-C2), 여기서 보여주면 답이 될 얼굴이 사라진다. 남기고도 한 화면이 안 차면 남기지 않는다 — 빈 칸은 없다.
  */
 export function pickRound(
   faces: readonly DecodedFace[],
@@ -269,15 +369,20 @@ export function pickRound(
   centers: readonly TasteCenter[] | null,
   shown: ReadonlySet<string>,
   n: number = IDEAL_SHAPE.faces,
+  reserve: number = IDEAL_SHAPE.reserve,
 ): DecodedFace[] {
   // 1라운드는 자산 순서 그대로 — 모두에게 같아야 "첫 화면에서 누구 골랐어?" 가 된다
   if (round === 1) return faces.filter((f) => f.level === 1 && !shown.has(f.id)).slice(0, n);
 
   const pool = faces.filter((f) => (round === 2 ? f.level === 2 : true) && !shown.has(f.id));
   // 중심이 없으면(0 벡터로 무너진 평균과 같이) 자산 순서 — 안정 정렬이라 결정적이다
-  const lists = centers?.length
+  let lists = centers?.length
     ? centers.map((c) => [...pool].sort((a, b) => cos(b.vec, c.vec) - cos(a.vec, c.vec)))
     : [pool];
+  if (round === 3 && centers?.length && reserve > 0) {
+    const kept = new Set(lists.flatMap((l) => l.slice(0, reserve).map((f) => f.id)));
+    if (pool.length - kept.size >= n) lists = lists.map((l) => l.filter((f) => !kept.has(f.id)));
+  }
 
   let quota = [n];
   if (centers && centers.length === 2) {

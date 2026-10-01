@@ -3,7 +3,7 @@
  *
  * **진짜 라우터의 표를 그대로 쓴다** (`PARTICIPANT_ROUTES`) — 라운드는 주소이고 뒤로 가기가 곧 이전 라운드라,
  * 표에 빠진 주소는 여기서 "찾을 수 없어요" 로 드러나야 한다.
- * 얼굴 자료는 `fetch` 가 내준다 — **지금 판(v2)은 아래 합성 풀**, 옛 판은 픽스처 풀(`test/fixtures/faces/pool.ts`).
+ * 얼굴 자료는 `fetch` 가 내준다 — **지금 판(IDEAL_ASSET_V)은 아래 합성 풀**, 옛 판은 픽스처 풀(`test/fixtures/faces/pool.ts`).
  * 픽스처 풀은 v1 크기(1단계 여섯)라 아홉 × 두 쪽을 세 라운드 채우지 못한다. 이름은 `n<id>` 라 화면에서 셀 수 있다.
  *
  * ⚠️ 자산은 모듈 캐시에 남는다 (같은 판을 두 번 받지 않는다). 그래서 **실패를 재는 테스트는 저마다 다른 `v`** 를
@@ -18,6 +18,7 @@ import {
   IDEAL_ASSET_V,
   IDEAL_SHAPE,
   decodeVec,
+  idealTraits,
   meanOf,
   nearestCelebs,
   pickRound,
@@ -71,11 +72,13 @@ const SYN_DEGS = [
   ...Array.from({ length: 36 }, (_, k) => ["b", 5 + 10 * k, 2] as const),
   ...Array.from({ length: 30 }, (_, k) => ["c", 2 + 12 * k, 3] as const),
 ].map(([p, deg, level]) => ({ id: p + String(deg).padStart(3, "0"), deg, level }));
+/** 특징 부호 (ADR-127) — 0°~90° 는 고양이상 · 시크한, 나머지는 강아지상. 그 밖의 칸은 없다 */
+const synTraits = (deg: number) => (deg <= 90 ? ["animal.cat", "vibe.chic"] : ["animal.dog"]);
 const SYN: FacePoolFile = {
   version: IDEAL_ASSET_V,
   dim: 2,
   scale: 127,
-  celebs: SYN_DEGS.map(({ id, deg }) => ({ id, name: `n${id}`, v: enc(deg) })),
+  celebs: SYN_DEGS.map(({ id, deg }) => ({ id, name: `n${id}`, v: enc(deg), t: synTraits(deg) })),
   faces: SYN_DEGS.map(({ id, deg, level }) => ({ id, v: enc(deg), level })),
 };
 const SYN_FACES = SYN.faces.map((f) => ({ id: f.id, level: f.level, vec: decodeVec(f.v, SYN.dim, SYN.scale) }));
@@ -874,21 +877,49 @@ describe("이상형 찾기 · 결과", () => {
     await screen.findAllByText(`n${SAVED.result[0]}`);
   });
 
-  it("★ 정답을 한 번 묻는다 — 셋 중 하나를 고르면 물음이 답으로 바뀐다 (S-C4)", async () => {
+  /** 정답 물음의 이름 단추 — 결과 칸에도 같은 이름이 있어 마지막 것이 단추다 */
+  const verdictBtn = (id: string) => {
+    const all = screen.getAllByRole("button", { name: `n${id}` });
+    return all[all.length - 1];
+  };
+  const submitBtn = () => screen.getByRole("button", { name: IDEAL.verdictSubmit }) as HTMLButtonElement;
+
+  it("★ 정답을 한 번 묻는다 — 고르고 보내면 물음이 답으로 바뀐다 (S-C4)", async () => {
     const s = stub(stateIn("prevote", SAVED));
     mount(`${BASE}/ideal`);
     expect(await screen.findByText(IDEAL.verdictAsk)).toBeTruthy();
 
     const pick = SAVED.result[1];
-    const buttons = screen.getAllByRole("button", { name: `n${pick}` });
-    fireEvent.click(buttons[buttons.length - 1]);
-    await screen.findByText(IDEAL.verdictChosen(`n${pick}`));
+    // 이름을 누르는 것은 고르기일 뿐이다 — 보내기 전에는 아무것도 가지 않는다
+    expect(submitBtn().disabled).toBe(true);
+    fireEvent.click(verdictBtn(pick));
+    expect(verdictBtn(pick).getAttribute("aria-pressed")).toBe("true");
+    expect(s.asked.some((a) => a.url === "/api/ideal/verdict")).toBe(false);
+    fireEvent.click(submitBtn());
+    await screen.findByText(IDEAL.verdictChosen([`n${pick}`]));
 
-    expect(s.asked.find((a) => a.url === "/api/ideal/verdict")!.body).toEqual({ chosen: pick });
+    expect(s.asked.find((a) => a.url === "/api/ideal/verdict")!.body).toEqual({ chosen: [pick] });
     expect(screen.queryByText(IDEAL.verdictAsk)).toBeNull();
     expect(screen.queryByRole("button", { name: IDEAL.verdictNone })).toBeNull();
     // 결과는 그대로다
     for (const id of SAVED.result) expect(document.body.textContent).toContain(`n${id}`);
+  });
+
+  it("★ 여럿을 고를 수 있다 — 다시 누르면 빠진다 (ADR-127)", async () => {
+    const s = stub(stateIn("prevote", SAVED));
+    mount(`${BASE}/ideal`);
+    await screen.findByText(IDEAL.verdictAsk);
+
+    const [a, b, c] = SAVED.result;
+    fireEvent.click(verdictBtn(c));
+    fireEvent.click(verdictBtn(a));
+    fireEvent.click(verdictBtn(b));
+    fireEvent.click(verdictBtn(b)); // 다시 누르면 빠진다
+    expect(verdictBtn(b).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(submitBtn());
+    await screen.findByText(IDEAL.verdictChosen([`n${c}`, `n${a}`]));
+
+    expect(s.asked.find((x) => x.url === "/api/ideal/verdict")!.body).toEqual({ chosen: [c, a] });
   });
 
   it("★ '없었어요' 도 답이다 — 결과는 그대로이고, 풀 고르기가 저절로 서지 않는다 (S-C4)", async () => {
@@ -927,14 +958,16 @@ describe("이상형 찾기 · 결과", () => {
   });
 
   it("★ 옛 판의 결과는 옛 경로에서 그린다", async () => {
-    const s = stub(stateIn("prevote", { ...SAVED, v: 3 }));
+    // 지금 판(IDEAL_ASSET_V)이 아닌 판 — 저장된 행의 v 를 따라간다
+    const old = IDEAL_ASSET_V - 1;
+    const s = stub(stateIn("prevote", { ...SAVED, v: old }));
     mount(`${BASE}/ideal`);
 
     await screen.findAllByText(`n${SAVED.result[0]}`);
-    expect(s.asked.map((a) => a.url)).toContain("/faces/v3/f.json");
+    expect(s.asked.map((a) => a.url)).toContain(`/faces/v${old}/f.json`);
     const srcs = Array.from(document.querySelectorAll(".body img")).map((i) => i.getAttribute("src")!);
     expect(srcs.length).toBeGreaterThan(0);
-    for (const src of srcs) expect(src).toMatch(/^\/faces\/v3\//);
+    for (const src of srcs) expect(src.startsWith(`/faces/v${old}/`)).toBe(true);
   });
 });
 
@@ -1105,5 +1138,55 @@ describe("이상형 찾기 · 얼굴 자료를 못 받았을 때", () => {
     mount(`${BASE}/ideal`);
 
     expect(await screen.findByText(IDEAL.loadFail)).toBeTruthy();
+  });
+});
+
+describe("끌린 얼굴의 특징 (ADR-127)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  /** 지금 판으로 찾은 한 벌 — 0°~60° 를 골랐다 */
+  const NOW: Ideal = {
+    v: IDEAL_ASSET_V,
+    pool: "F",
+    picks: [["a000", "a020"], ["b005", "b015"], ["c014"]],
+    result: ["a040", "b025", "c026"],
+    at: 1,
+  };
+
+  it("★ 결과 얼굴 위에, 고른 얼굴로 센 특징이 선다", async () => {
+    stub(stateIn("prevote", NOW));
+    mount(`${BASE}/ideal`);
+    await screen.findAllByText(`n${NOW.result[0]}`);
+
+    const want = idealTraits(
+      NOW.picks.flat().map((id) => synTraits(SYN_DEGS.find((d) => d.id === id)!.deg)),
+      SYN_DEGS.map((d) => synTraits(d.deg)),
+    );
+    expect(want).toEqual({ animal: ["cat"], vibe: ["chic"] });
+    const { title } = IDEAL.traits(want);
+    const text = document.body.textContent!;
+    expect(text).toContain(IDEAL.traitsKicker);
+    expect(text).toContain(title);
+    // 특징이 먼저, 연예인이 그 예다
+    expect(text.indexOf(title)).toBeLessThan(text.indexOf(IDEAL.resultTitle));
+    expect(text).not.toMatch(/%/);
+  });
+
+  it("★ 두드러진 것이 없으면 그렇다고 말한다 — 카드를 감추지 않는다", async () => {
+    // 강아지상은 풀의 대부분이라 두드러지지 않는다
+    stub(stateIn("prevote", { ...NOW, picks: [["a180", "a200"], ["b185"], ["c194"]] }));
+    mount(`${BASE}/ideal`);
+    await screen.findAllByText(`n${NOW.result[0]}`);
+    expect(document.body.textContent).toContain(IDEAL.traitsNone);
+  });
+
+  it("★ 특징이 없는 옛 판의 결과에는 카드가 없다", async () => {
+    stub(stateIn("prevote", SAVED));
+    mount(`${BASE}/ideal`);
+    await screen.findAllByText(`n${SAVED.result[0]}`);
+    expect(document.body.textContent).not.toContain(IDEAL.traitsKicker);
   });
 });

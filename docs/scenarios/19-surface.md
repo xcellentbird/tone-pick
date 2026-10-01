@@ -31,7 +31,7 @@ export interface Ideal {
   at: number;
 }
 
-export type IdealVerdict = { chosen: string } | { none: true };
+export type IdealVerdict = { chosen: string[] } | { none: true };   // 1~3명, 결과 순서 (ADR-127). v2 까지의 { chosen: "id" } 는 읽을 때 편다
 
 /** 기기가 보내는 것. verdict 는 따로 온다 — 결과를 본 뒤에야 생기는 값이다 (S-C4) */
 export type IdealInput = Omit<Ideal, "verdict" | "at">;
@@ -238,7 +238,8 @@ POST /api/ideal/verdict    IdealVerdict → Ideal
 - **다시 찾기** (ADR-125) — 본문에 `replaces: number`(다시 찾기를 시작한 결과의 `at`)를 더한다. 저장된 결과의 `at` 과 같을 때만
   새 결과로 **갈아끼우고**(정답은 비운다), 다르거나 없으면 저장된 행을 그대로 돌려준다 — 먼저 닿은 쪽이 남는다 (S-E2).
   새 `at` 은 `max(now, 지난 at + 1)` 이다. 가리킬 결과가 없으면 처음 저장이다. 정수가 아니면 `400`
-- `verdict` 는 행이 있어야 받는다 — 없으면 `404`. `chosen` 은 그 행의 `result` 셋 중 하나 — 아니면 `400`.
+- `verdict` 는 행이 있어야 받는다 — 없으면 `404`. `chosen` 은 그 행의 `result` 중 **1~3명, 겹치지 않게** — 아니면 `400` (ADR-127).
+  한 명을 문자열로 보내도 받는다(배포 전에 열어 둔 탭). 결과 순서대로 저장한다
   이미 있으면 그대로 돌려준다 (**결과마다** 한 번 — 다시 찾은 결과에는 답이 비어 있다)
 - **저장은 재미가 열린 동안만이다** (`canOpenFun` — 매력 투표 · 파티 · 발표 뒤, ADR-125). 닫혀 있으면 `409` 와 `FUN.closed` —
   파티 운세 보기(`/fortune`)와 같은 문, 같은 문장이다. **`verdict` 는 문을 보지 않는다** — 이미 찾은 결과를 보는 일의 한 칸이라

@@ -22,14 +22,18 @@
 import { describe, expect, it } from "vitest";
 import {
   IDEAL_SHAPE,
+  TRAIT_SHAPE,
   decodeVec,
+  idealTraits,
   meanOf,
+  normalizeIdeal,
   nearestCelebs,
   pickRound,
   readIdealInput,
   tasteCenters,
   type DecodedCeleb,
   type DecodedFace,
+  type Ideal,
   type TasteCenter,
 } from "../src/shared/ideal.ts";
 import { POOL, b64int8 } from "./fixtures/faces/pool.ts";
@@ -54,6 +58,11 @@ const L1 = ["f000", "f060", "f120", "f180", "f240", "f300"];
 
 /** 픽스처 풀은 한 화면 여섯(v1)으로 셈해 뒀다 — 그 풀을 쓰는 테스트는 이 수로 부른다 */
 const N6 = 6;
+/**
+ * 3라운드의 결과 몫(ADR-127)을 두지 않고 부른다 — 픽스처 풀의 기대 순서는 그 규칙 전에 셈했다.
+ * 결과 몫은 아래 `3라운드 — 결과 몫` 이 인라인 풀로 본다
+ */
+const R0 = 0;
 
 /** 단위원 위 deg° — 양자화 없는 인라인 벡터 (엣지 케이스용) */
 const fvec = (deg: number) => {
@@ -167,12 +176,12 @@ describe("pickRound 3라운드 — 전체에서, 닮은꼴은 뒤로", () => {
   const mean12 = one(meanOf([vecOf("f000"), vecOf("f010")]), 2); // ≈ 5°
 
   it("가장 가까운 셋(3°·6°·8°)은 닮은꼴이라 하나만 남고, 나머지는 밀려난다", () => {
-    const r3 = pickRound(FACES, 3, mean12, shown12, N6);
+    const r3 = pickRound(FACES, 3, mean12, shown12, N6, R0);
     expect(ids(r3)).toEqual(["f006", "f330", "f050", "f085", "f265", "f130"]);
   });
 
   it("2단계도 3라운드 후보다 — 전체에서 뽑는다", () => {
-    const r3 = pickRound(FACES, 3, mean12, shown12, N6);
+    const r3 = pickRound(FACES, 3, mean12, shown12, N6, R0);
     expect(r3.some((f) => f.level === 2)).toBe(true); // f130
   });
 
@@ -183,8 +192,52 @@ describe("pickRound 3라운드 — 전체에서, 닮은꼴은 뒤로", () => {
       level: 3,
       vec: fvec(d),
     }));
-    const out = pickRound(cluster, 3, one(fvec(0)), new Set(), N6);
+    const out = pickRound(cluster, 3, one(fvec(0)), new Set(), N6, R0);
     expect(ids(out)).toEqual(["g000", "g002", "g004", "g006", "g008", "g010"]);
+  });
+});
+
+describe("pickRound 3라운드 — 가장 가까운 얼굴은 결과 몫으로 남긴다 (ADR-127)", () => {
+  /** 0° 에서 9° 간격 스무 명. 서로 닮은꼴(dupCos)이라 화면 안의 순서는 문턱이 정한다 — 여기서는 누가 빠지는지만 본다 */
+  const line: DecodedFace[] = Array.from({ length: 20 }, (_, i) => ({
+    id: `h${String(i * 9).padStart(3, "0")}`,
+    level: 3,
+    vec: fvec(i * 9),
+  }));
+  const asCeleb = (f: DecodedFace): DecodedCeleb => ({ id: f.id, name: f.id, vec: f.vec });
+
+  it("중심에 가장 가까운 reserve 명은 3라운드에 안 나오고, 결과가 그 사람들이다", () => {
+    const r3 = pickRound(line, 3, one(fvec(0)), new Set(), 3, 3);
+    expect(r3).toHaveLength(3);
+    for (const kept of ["h000", "h009", "h018"]) expect(ids(r3)).not.toContain(kept);
+    const result = nearestCelebs(line.map(asCeleb), one(fvec(0)), new Set(ids(r3)));
+    expect(ids(result)).toEqual(["h000", "h009", "h018"]);
+  });
+
+  it("기본값은 IDEAL_SHAPE.reserve 다", () => {
+    const r3 = pickRound(line, 3, one(fvec(0)), new Set(), 3);
+    for (const kept of line.slice(0, IDEAL_SHAPE.reserve)) expect(ids(r3)).not.toContain(kept.id);
+    expect(ids(r3)).toContain(line[IDEAL_SHAPE.reserve].id);
+  });
+
+  it("중심이 둘이면 중심마다 남긴다", () => {
+    const two = [
+      { vec: fvec(0), weight: 2 },
+      { vec: fvec(171), weight: 2 },
+    ];
+    const r3 = pickRound(line, 3, two, new Set(), 4, 2);
+    for (const kept of ["h000", "h009", "h171", "h162"]) expect(ids(r3)).not.toContain(kept);
+  });
+
+  it("2라운드는 남기지 않는다 — 결과 몫은 마지막 라운드의 일이다", () => {
+    const l2 = line.map((f) => ({ ...f, level: 2 as const }));
+    expect(ids(pickRound(l2, 2, one(fvec(0)), new Set(), 3, 3))).toEqual(["h000", "h009", "h018"]);
+  });
+
+  it("남기고 나서 한 화면이 안 차면 남기지 않는다 — 빈 칸은 없다", () => {
+    const few = line.slice(0, 5);
+    const r3 = pickRound(few, 3, one(fvec(0)), new Set(), 3, 3);
+    expect(r3).toHaveLength(3);
   });
 });
 
@@ -221,7 +274,7 @@ describe("세 라운드 흐름 — 시나리오의 방식 그대로", () => {
     ] as const) {
       // 화면이 조합하는 그대로 — 고른 셋은 두 무리가 될 수 없어(splitMin × 2 미만) 중심 하나다
       const centers = picked.length ? tasteCenters(picked.map(vecOf)) : null;
-      const faces = pickRound(FACES, round, centers, shown, N6);
+      const faces = pickRound(FACES, round, centers, shown, N6, R0);
       for (const f of faces) shown.add(f.id);
       rounds.push(ids(faces));
       expect(ids(faces)).toContain(want);
@@ -514,5 +567,79 @@ describe("readIdealInput — 라운드마다 1~5", () => {
   it("여섯은 막는다 — 비어도 막는다", () => {
     expect(readIdealInput({ ...base, picks: [base.picks[0], base.picks[1], [...base.picks[2], "zz0011"]] })).toBeNull();
     expect(readIdealInput({ ...base, picks: [[], base.picks[1], base.picks[2]] })).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────── 끌린 얼굴의 특징 (ADR-127)
+
+describe("idealTraits — 고른 얼굴의 절반 이상이 가졌고, 풀보다 두드러진 낱말만", () => {
+  /** 풀 열 명 — 고양이상 둘 · 강아지상 여덟. 균형 잡힌 이목구비는 모두가 가졌다 */
+  const pool: string[][] = [
+    ["animal.cat", "vibe.chic", "features.balanced"],
+    ["animal.cat", "vibe.chic", "features.balanced", "gaze.sharp"],
+    ...Array.from({ length: 8 }, () => ["animal.dog", "vibe.warm", "features.balanced"]),
+  ];
+
+  it("고른 얼굴의 절반 이상이 가졌고 풀보다 흔하면 남는다", () => {
+    const t = idealTraits([pool[0], pool[1], pool[2]], pool);
+    expect(t.animal).toEqual(["cat"]);
+    expect(t.vibe).toEqual(["chic"]);
+  });
+
+  it("모두가 가진 낱말은 아무의 취향도 말하지 않는다 — 빠진다", () => {
+    expect(idealTraits([pool[0], pool[1]], pool).features).toBeUndefined();
+  });
+
+  it("한 장만 가진 낱말은 빠진다 — 절반이어도 둘은 돼야 한다", () => {
+    // gaze.sharp 는 둘 중 한 장(절반)이지만 한 장뿐이다
+    expect(idealTraits([pool[0], pool[1]], pool).gaze).toBeUndefined();
+    expect(TRAIT_SHAPE.minCount).toBe(2);
+  });
+
+  it("절반에 못 미치면 빠진다", () => {
+    const t = idealTraits([pool[0], pool[1], pool[2], pool[3], pool[4]], pool);
+    expect(t.animal).toBeUndefined(); // 고양이상 다섯 중 둘
+  });
+
+  it("칸마다 max 개까지, 풀보다 더 두드러진 순서로", () => {
+    const p2: string[][] = [
+      ["vibe.chic", "vibe.cold", "vibe.elegant"],
+      ["vibe.chic", "vibe.cold", "vibe.elegant"],
+      ["vibe.chic", "vibe.cold", "vibe.elegant"],
+      ["vibe.elegant"],
+      ["vibe.cold", "vibe.elegant"],
+      ["vibe.warm"],
+      ["vibe.warm"],
+      ["vibe.warm"],
+    ];
+    // 셋을 고르면 chic(풀 3/8) · cold(4/8) · elegant(5/8) 가 모두 셋 다 — 풀에서 드문 chic 이 먼저, 둘까지
+    expect(idealTraits(p2.slice(0, 3), p2).vibe).toEqual(["chic", "cold"]);
+    expect(TRAIT_SHAPE.max.vibe).toBe(2);
+  });
+
+  it("두드러진 것이 없으면 빈 객체다 — 점수로 채우지 않는다", () => {
+    expect(idealTraits([pool[2], pool[3]], pool)).toEqual({});
+    expect(idealTraits([], pool)).toEqual({});
+  });
+
+  it("같은 입력이면 같은 출력", () => {
+    const pick = [pool[0], pool[1], pool[5]];
+    expect(idealTraits(pick, pool)).toEqual(idealTraits(pick, pool));
+  });
+});
+
+describe("normalizeIdeal — v2 까지의 한 명짜리 정답을 배열로 편다", () => {
+  const base: Ideal = { v: 2, pool: "F", picks: [["a1"], ["b1"], ["c1"]], result: ["r1", "r2", "r3"], at: 1 };
+
+  it("옛 모양 { chosen: 'id' } 은 [id] 가 된다", () => {
+    const old = { ...base, verdict: { chosen: "r2" } } as unknown as Ideal;
+    expect(normalizeIdeal(old).verdict).toEqual({ chosen: ["r2"] });
+  });
+
+  it("지금 모양과 없었어요 · 무응답은 그대로다", () => {
+    for (const v of [{ chosen: ["r1", "r3"] }, { none: true as const }, undefined]) {
+      const row = { ...base, ...(v ? { verdict: v } : {}) } as Ideal;
+      expect(normalizeIdeal(row)).toEqual(row);
+    }
   });
 });
