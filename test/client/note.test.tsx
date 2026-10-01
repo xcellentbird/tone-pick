@@ -5,6 +5,7 @@
  * `test/36-anon-note.test.ts` 가 본다. 여기서 보는 것은 화면만이 지킬 수 있는 것들이다 —
  *
  *   · 쓰는 입구는 프로필 시트의 ✉️ 하나다. 가리기 중에는 잠긴다 (S-B5)
+ *   · 쪽지함에서는 쓰지 않는다 — 남은 장 수도 없고, 아직 보낸 쪽지가 없으면 쓰는 곳을 한 줄로 말할 뿐이다 (ADR-126)
  *   · 상단 바의 쪽지함은 **늘 선다.** 프로필 투표와 함께 켜지고, 쪽지를 끈 회차에서는 꺼진 채다 (ADR-111 · 후기 1)
  *   · 받은 쪽지는 **익명 쪽지함에만** 있다 — 홈 소식에는 없다
  *   · 읽음은 **쪽지함의 받은 쪽지를 열 때** 찍힌다. 가리기가 켜져 있어도 찍힌다 — 쪽지함에는 가리기가 없다 (ADR-119)
@@ -188,7 +189,7 @@ describe("쓰는 입구 — 프로필 시트의 ✉️", () => {
     });
     await ready();
     const btn = screen.getByRole("button", { name: NOTE.writeLabel });
-    // `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 — 재미 탭과 같다
+    // `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 — 아직 안 열린 미션 뒷면과 같다
     expect(btn.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(btn);
     expect(await screen.findByText(NOTE.writeSpent)).toBeTruthy();
@@ -287,7 +288,7 @@ describe("상단 바의 익명 쪽지함", () => {
     await ready();
     const btn = inboxBtn();
     expect(btn, "등록 중에 쪽지함이 없다").toBeTruthy();
-    // `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 — 꺼진 재미 탭과 같다
+    // `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 — 아직 안 열린 미션 뒷면과 같다
     expect(btn!.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(btn!);
     expect(await screen.findByText(NOTE.inbox.notYet)).toBeTruthy();
@@ -535,5 +536,61 @@ describe("익명 쪽지함 — 보낸 쪽지", () => {
     await push("note");
     expect(await screen.findByText(NOTE.read)).toBeTruthy();
     expect(screen.queryByText(NOTE.unread)).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────── 익명 쪽지함 — 여기서는 쓰지 않는다 (ADR-126)
+
+describe("익명 쪽지함 — 쓰는 곳은 프로필 시트이고, 쪽지함은 길만 말한다 (ADR-126)", () => {
+  const inbox = () => within(document.querySelector(".inbox") as HTMLElement);
+  const some: MyNoteState = {
+    budget: { max: 2, used: 1 },
+    sent: { her: [{ text: "한 장", read: false }] },
+    received: [],
+    unread: 0,
+  };
+
+  it("★ 남은 장 수가 없다 — 쓸 길 없이 숫자만 서 있었다. 다 쓰면 `0장` 을 들이댔다", async () => {
+    const spent: MyNoteState = { ...some, budget: { max: 2, used: 2 } };
+    for (const note of [EMPTY, some, spent]) {
+      mount(sourceOf(stateOf(note)), { tab: "people", notesOpen: true });
+      await screen.findByText(NOTE.inbox.title);
+      for (const seg of [NOTE.inbox.received, NOTE.inbox.sent]) {
+        fireEvent.click(inbox().getByRole("button", { name: seg }));
+        const text = document.querySelector(".inbox")!.textContent ?? "";
+        for (const n of [0, 1, 2]) expect(text, `${seg} · ${note.budget.used}장 씀`).not.toContain(NOTE.left(n));
+      }
+      cleanup();
+    }
+  });
+
+  it("★ 아직 보낸 쪽지가 없으면 열자마자 쓰는 곳을 말한다 — 보낸 쪽지에서 같은 말을 두 번 하지 않는다", async () => {
+    mount(sourceOf(stateOf()), { tab: "home", notesOpen: true });
+    await screen.findByText(NOTE.inbox.title);
+    // 열면 먼저 보이는 받은 쪽지에 선다 — 한동안 `보낸 쪽지` 의 빈 칸에만 있어서 한 번 더 눌러 봐야 보였다
+    expect(inbox().getByText(NOTE.inbox.howTo)).toBeTruthy();
+    fireEvent.click(inbox().getByRole("button", { name: NOTE.inbox.sent }));
+    expect(inbox().getAllByText(NOTE.inbox.howTo)).toHaveLength(1);
+    expect(inbox().queryByText(NOTE.inbox.sentNone)).toBeNull();
+  });
+
+  it("★ 한 장 보내면 그 줄은 사라진다 — 이미 길을 안다", async () => {
+    mount(sourceOf(stateOf(some)), { tab: "home", notesOpen: true });
+    await screen.findByText(NOTE.inbox.title);
+    expect(inbox().queryByText(NOTE.inbox.howTo)).toBeNull();
+    fireEvent.click(inbox().getByRole("button", { name: NOTE.inbox.sent }));
+    expect(inbox().getByText("한 장")).toBeTruthy();
+    expect(inbox().queryByText(NOTE.inbox.howTo)).toBeNull();
+  });
+
+  it("★ 쓸 수 없는 때에는 길을 말하지 않는다 — 운영자가 0 으로 내린 회차", async () => {
+    const got: MyNoteState = { budget: { max: 0, used: 0 }, sent: {}, received: [{ id: "n1", text: "a" }], unread: 0 };
+    mount(sourceOf(stateOf(got, { maxNotes: 0 })), { tab: "home", notesOpen: true });
+    await screen.findByText(NOTE.inbox.title);
+    expect(inbox().queryByText(NOTE.inbox.howTo)).toBeNull();
+    fireEvent.click(inbox().getByRole("button", { name: NOTE.inbox.sent }));
+    // 내가 안 한 일이라 그대로 말한다
+    expect(inbox().getByText(NOTE.inbox.sentNone)).toBeTruthy();
+    expect(inbox().queryByText(NOTE.inbox.howTo)).toBeNull();
   });
 });

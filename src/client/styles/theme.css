@@ -409,7 +409,8 @@ h1,
 .sheetTitle,
 .person .age,
 .rank .name, .rank .no, .rank .ct, .rank .topVote,
-.mineCell .n, .mineCell .t {
+.mineCell .n, .mineCell .t,
+.faceName {
   line-height: 1.3;
 }
 
@@ -629,15 +630,9 @@ h1,
 .tabbar button.active { color: var(--accent); }
 
 /*
- * 아직 안 열린 탭 — **자리는 지키고 꺼져 있다** (ADR-20 후기의 '재미').
- *
- * 없애면 열리는 순간 넷이 나눠 쓰던 폭이 다시 나뉘어 손가락이 기억한 자리가 어긋난다.
- * 흐리게 두면 "여기 뭔가 생길 자리" 라는 것까지 미리 말해준다.
- * 누르는 것 자체는 막지 않는다 — 언제 열리는지 알려줘야 고장으로 안 읽힌다.
+ * 아직 안 열린 운세·미션 카드 — **자리는 지키고 톤이 물러난다** (ADR-20 후기).
+ * 탭은 등록부터 켜져 있어서(슬라이스 19) 꺼진 탭은 없다 — 문은 카드마다 카드 안에서 지킨다.
  */
-.tabbar button[aria-disabled="true"] { opacity: 0.38; }
-
-/* 아직 안 열린 미션 카드도 같은 말을 쓴다 — 자리는 지키고 톤이 물러난다 */
 .fortuneMission[aria-disabled="true"] { opacity: 0.5; }
 .tabbar .icon { font-size: 18px; }
 
@@ -1117,7 +1112,7 @@ h1,
 .inboxBtn svg { width: 15px; height: 15px; display: block; }
 /*
  * 매력 투표 전, 또는 쪽지를 0장으로 둔 회차 — **자리는 지키고 꺼져 있다** (ADR-111 · 후기 1).
- * 꺼진 재미 탭(`.tabbar button[aria-disabled]`)과 같은 값이다.
+ * 한동안 꺼진 재미 탭과 같은 값이었다 — 그 탭은 등록부터 켜지게 됐고(슬라이스 19) 이 값만 남았다.
  * 흐려지는 것은 봉투 그림 하나다 — 알약은 `?` 와 같이 쓰는 것이라 그대로 둔다.
  */
 .inboxBtn[aria-disabled="true"] > span { opacity: 0.38; }
@@ -1959,6 +1954,76 @@ button.fact.cond .name { font-size: 15px; }
 .tableMix .men { color: var(--male); }
 .tableMix .women { color: var(--female); }
 
+/* ─────────────────────────── 재미 탭 입구 (ADR-125)
+ *
+ * 재미 탭에는 **입구만** 선다. 이상형 찾기와 파티 운세 보기가 같은 틀(`FunCard`)을 쓴다 —
+ * 모양이 같아야 둘의 차이를 자리(위·아래)와 단추만 말한다. 기능은 탭 안의 제 페이지에서 돈다.
+ * 둘 다 본문(`.body`)의 직계라 줄지 않게 둔다 (ADR-113).
+ */
+
+/*
+ * 열기 전의 한 줄 — 탭 전체를 대신 말한다. 여는 때가 하나라 카드마다 되풀이하지 않는다.
+ * 경고가 아니라 **기다리면 오는 것**이라 주 색으로 옅게 깐다 (`--warn` 을 쓰지 마라).
+ */
+.funGate {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin: 0;
+  padding: var(--gap);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--card));
+  font-size: 13px;
+}
+.funGate > span:first-child { flex: none; font-size: 18px; line-height: 1; }
+
+.funCard { flex: none; }
+.funHead { display: flex; align-items: flex-start; gap: var(--gap); }
+.funMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: calc(var(--gap-sm) / 2); }
+.funMain p { margin: 0; }
+
+/* 그림 칸 40px — 두 카드가 같은 크기라 제목이 같은 줄에서 시작한다 */
+.funVis {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+  font-size: 22px;
+  line-height: 1;
+}
+
+/*
+ * **아직 못 쓰는 카드** — 단추가 없고 그림이 흐려진다. 카드는 바탕 쪽으로 한 겹 가라앉는다.
+ * **글자는 그대로다** — 통째로 반투명하면 무엇이 오는지가 대비 2.8:1 로 가라앉는다.
+ */
+.funCard.locked { background: color-mix(in srgb, var(--card) 70%, var(--bg)); box-shadow: none; }
+.funCard.locked .funVis { opacity: 0.4; }
+
+/* 이상형 찾기의 그림 — 아홉 칸 중 셋이 켜진 격자. 이 기능이 하는 일(아홉 중에서 고르기)이다 */
+.funGrid9 { display: grid; grid-template-columns: repeat(3, 7px); gap: 2px; }
+.funGrid9 i { width: 7px; height: 9px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 38%, transparent); }
+.funGrid9 i.on { background: var(--accent); }
+
+/* 단추 두 개(결과 보기 · 다시 찾기)는 **같은 폭**으로 나란히 — 하나가 넓으면 그쪽을 권하는 것으로 읽힌다 */
+.funActions { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--gap-sm); }
+
+/* 연 운세의 제목 한 줄과 미션 칸. 세 문단 본문은 페이지에만 있다 */
+.funHeadline { font-weight: 700; }
+.funMission {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: calc(var(--gap-sm) / 2);
+  padding: var(--gap-sm) var(--gap);
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+}
+
 /* ─────────────────────────── 오늘의 연애운 (ADR-20)
  *
  * 이 앱에서 유일하게 장식이 허용된 자리다. 그래도 색은 전부 토큰에서 온다 —
@@ -1984,6 +2049,7 @@ button.fact.cond .name { font-size: 15px; }
 }
 
 .fortuneBack .orb { font-size: 64px; line-height: 1; }
+
 .fortuneBack .sparkles { color: var(--accent); letter-spacing: 6px; }
 
 /* 여는 동안 구슬이 천천히 숨 쉰다. 기다리는 중이라는 걸 글자 없이 말한다 */
@@ -1992,14 +2058,6 @@ button.fact.cond .name { font-size: 15px; }
   50% { transform: scale(1.12); opacity: 0.75; }
 }
 
-/* 재미 탭은 화면을 채운다 — 지금은 카드 하나뿐이라 아래가 비면 허전하다.
-   카드가 둘 이상이 되면(이상형 찾기) 채울 일이 없어져 이 규칙이 물러난다.
-   min-height 라서 내용이 화면보다 길면 지금처럼 스크롤된다.
-   내용은 카드 세로 **중앙**에 모은다 — 위아래로 갈라두면 가운데가 휑하다.
-   (내용이 카드보다 길면 남는 공간이 없어 center 는 그냥 위에서부터 흐른다) */
-.fortuneFill { min-height: 100%; }
-.fortuneFill .fortuneBack,
-.fortuneFill .fortuneCard { flex: 1; justify-content: center; }
 .fortuneMage { font-size: 44px; line-height: 1; text-align: center; }
 /* 색·결 메타 — 미션과 같은 내부 카드 꼴. 본문(읽는 것)과 정보(찾아보는 것)가 형태로 갈린다 */
 .fortuneMeta {
@@ -2047,9 +2105,13 @@ button.fact.cond .name { font-size: 15px; }
   -webkit-box-shadow: 0 0 0 1000px color-mix(in srgb, var(--accent) 12%, var(--bg)) inset;
 }
 
-/* 뒤집혀 나온 카드. 한 번만 돈다 */
+/*
+ * 뒤집혀 나온 카드. **여는 그 순간에 한 번만** 돈다 (`.flip` — 이 화면에서 방금 연 카드에만 붙는다).
+ * 카드에 늘 걸어 두면 그려질 때마다 돈다 — 탭을 오갈 때도, 이상형 찾기에서 돌아올 때도(슬라이스 19).
+ * 내가 누르지 않은 순간에 움직이면 안 된다 (ADR-64).
+ */
+.fortuneCard.flip { animation: fortuneFlip 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 .fortuneCard {
-  animation: fortuneFlip 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   transform-origin: center;
   border: 1px solid var(--tone);
   background:
@@ -2105,8 +2167,8 @@ button.fact.cond .name { font-size: 15px; }
 .missionBack:disabled { cursor: default; }
 /* 여는 동안 과녁이 천천히 숨 쉰다. 기다리는 중이라는 걸 글자 없이도 말한다 */
 .missionBack.opening .orb { animation: fortunePulse 1.6s ease-in-out infinite; }
-/* 열린 미션은 뒤집히며 들어선다 — 운세 카드와 같은 동작 */
-.fortuneMission.opened { animation: fortuneFlip 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+/* 열린 미션은 뒤집히며 들어선다 — 운세 카드와 같은 동작. 같은 이유로 **방금 연 것만** 돈다 (`.flip`) */
+.fortuneMission.opened.flip { animation: fortuneFlip 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 
 .fortuneMission {
   margin-top: 4px;
@@ -2139,11 +2201,101 @@ button.fact.cond .name { font-size: 15px; }
   font-weight: 700;
 }
 
+/* ─────────────────────────── 이상형 찾기 (슬라이스 19)
+ *
+ * 재미 탭 안의 페이지다 — 시트가 아니다. **라운드가 바뀔 때 움직이지 않는다** (ADR-64, 탭 전환과 같다).
+ * 움직이는 건 내가 누른 타일의 테두리 하나뿐이다.
+ */
+.idealFlow p { margin: 0; }
+.idealLead { margin: 0; }
+
+/* 여자·남자 — **같은 크기** (S-B1). 한쪽을 넓히거나 채우면 그쪽이 기본값으로 읽힌다 */
+.idealPools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+}
+
+/*
+ * 얼굴 아홉 — 3열 × 3줄 (S-B2, 한 칸 100px 이상 · v2). 360px 폭에서 한 칸 **104px** 이다:
+ * 360 − 본문 여백 16×2 − 칸 사이 8×2 = 312, ÷3 = 104. **그래서 라운드 화면은 카드에 담지 않는다** —
+ * 카드의 여백 16×2 와 테두리 1×2 가 더 빠지면 92.7px(375px 폭에서도 97.7px)로 줄어든다 (`Ideal.tsx`).
+ * 타일 테두리 2px 는 칸 안쪽이라 사진은 100px 이다.
+ * 사진 크기는 `<img width height>` 가 잡는다(4:5, 240×300) — `.joinLogo` 와 같은 규칙이라 img 에 aspect-ratio 를 두지 않는다.
+ * 비율은 **칸**이 쥔다: 사진이 늦거나 못 와도 격자가 무너지지 않는다.
+ */
+.faceGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--gap-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.faceTile {
+  position: relative;
+  display: block;
+  padding: 0;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+  transition: border-color 0.12s ease;
+}
+.faceTile img,
+.idealResult img,
+.idealPicked img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+}
+.faceTile img { height: 100%; object-fit: cover; border-radius: 0; }
+/* 골랐음은 테두리와 ✓ 두 겹이다 — 색으로만 말하지 않는다 (S-B6) */
+.faceTile[aria-pressed="true"] { border-color: var(--accent); }
+.faceCheck {
+  position: absolute;
+  top: var(--gap-sm);
+  right: var(--gap-sm);
+  display: grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  font-weight: 700;
+  /* 기호 하나짜리 알약이다 — 줄 간격을 받으면 동그라미가 찌그러진다 */
+  line-height: 1;
+}
+/* 다섯을 골랐으면 나머지는 물러난다 — 눌러도 아무 일이 없다는 것을 먼저 보여준다 */
+.faceTile[aria-disabled="true"] { opacity: 0.45; }
+
+/* 결과 셋 — 첫 사람이 답이라 크게, 둘은 그 아래 나란히. **순위 숫자는 없다** (S-C1) */
+.idealResult {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.idealResult li { display: flex; flex-direction: column; align-items: center; gap: var(--gap-sm); }
+.idealResult li.top { grid-column: 1 / -1; }
+.idealResult li.top img { width: 60%; }
+.idealResult li.top .name { font-size: 18px; }
+.idealPicked li { display: flex; flex-direction: column; align-items: center; gap: var(--gap-sm); min-width: 0; }
+.faceName { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.idealVerdicts { display: flex; flex-wrap: wrap; gap: var(--gap-sm); }
+
 /* 움직임을 원치 않는 사람에게는 돌지 않고 그대로 나온다 */
 @media (prefers-reduced-motion: reduce) {
   .pokeBtn { transition: none; }
-  .fortuneCard,
-  .fortuneMission.opened { animation: none; }
+  .faceTile { transition: none; }
+  .fortuneCard.flip,
+  .fortuneMission.opened.flip { animation: none; }
   .missionBack.opening .orb { animation: none; }
   .fortuneBack.opening .orb { animation: none; }
   /*

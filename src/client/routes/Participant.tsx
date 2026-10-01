@@ -3,13 +3,14 @@
  *
  * 자료는 통로(source)로 받는다 — 화면은 세션도 요청 경로도 모른다.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { BTN, ENTRY, FAIL, FORTUNE, HELP, NOTE, TABS_PARTICIPANT } from "../../shared/copy.ts";
+import { BTN, ENTRY, FAIL, FUN, HELP, NOTE, TABS_PARTICIPANT } from "../../shared/copy.ts";
 import type { MyNoteState, MyPokeState, PublicAnnouncement, ParticipantState, StageKey } from "../../shared/types.ts";
 import type { Fortune } from "../../shared/fortune.ts";
+import type { Ideal } from "../../shared/ideal.ts";
 import { connect } from "../lib/realtime.ts";
-import { canNote, canPoke } from "../../shared/phase.ts";
+import { canNote, canOpenFun, canPoke } from "../../shared/phase.ts";
 import { bannerOf, noticesOf } from "../lib/notices.ts";
 import { now } from "../lib/serverTime.ts";
 import { sessionSource, type ParticipantSource } from "../lib/participant.ts";
@@ -17,8 +18,9 @@ import { useCovered } from "../lib/covered.ts";
 import { useLoad } from "../lib/useLoad.ts";
 import { ApiError } from "../lib/api.ts";
 import { nav, startPulse } from "../lib/pulse.ts";
+import { FACES_READY } from "../lib/faces.ts";
 import type { NavKey } from "../../shared/pulse.ts";
-import { Overlays, useOverlay } from "../ui/Overlays.tsx";
+import { Overlays } from "../ui/Overlays.tsx";
 import People from "./People.tsx";
 import Me from "./Me.tsx";
 import Home from "./Home.tsx";
@@ -27,9 +29,45 @@ import StageTakeover from "../ui/StageTakeover.tsx";
 import Sheet from "../ui/Sheet.tsx";
 import Help from "../ui/Help.tsx";
 import NoteBox, { type InboxSeg } from "../ui/NoteBox.tsx";
-import { canOpenFortune } from "../../shared/phase.ts";
-import FortuneTab from "./Fortune.tsx";
+import FortunePage, { FortuneCard } from "./Fortune.tsx";
+import IdealCard from "./IdealCard.tsx";
 import StatusBar from "../ui/StatusBar.tsx";
+
+/*
+ * 이상형 찾기의 고르는 화면은 **따로 싣는다** (슬라이스 19). 여는 사람만 받으면 되는 조각이다 —
+ * 재미 탭이 그려지면 미리 부르기 시작해서, 카드를 누를 때는 이미 와 있다.
+ */
+const loadIdeal = () => import("./Ideal.tsx");
+const IdealFlow = lazy(loadIdeal);
+
+/**
+ * 이상형 조각을 못 받았을 때 (슬라이스 19). **세션 한가운데서 받는 첫 조각**이라 생긴 자리다 —
+ * 등록은 파티 며칠 전에 열려서(ADR-38) 그때 연 탭이 배포를 건너 살아 있을 수 있고, 그 탭이 아는
+ * 옛 `Ideal-<해시>.js` 는 새 배포에 없다(`/assets/*` 는 없는 파일에 일부러 404 — src/server/index.ts).
+ *
+ * `lazy` 는 실패한 약속을 **그대로 쥐고 있어서** 그 자리에서 다시 부를 길이 없다 — 새로고침만 된다.
+ * 그래서 버튼은 `FAIL.retry`(새로고침)다. 재미 탭 본문 **안에서** 말한다 — 탭 바와 헤더는 산다.
+ * 토스트가 아니다: 화면이 비어 있는 동안 계속 말해야 한다 (ADR-65).
+ */
+class IdealBoundary extends Component<{ children: ReactNode }, { dead: boolean }> {
+  state = { dead: false };
+
+  static getDerivedStateFromError() {
+    return { dead: true };
+  }
+
+  render() {
+    if (!this.state.dead) return this.props.children;
+    return (
+      <div className="card stack center">
+        <p className="dim small">{FAIL.title}</p>
+        <button className="btn" onClick={() => location.reload()}>
+          {FAIL.retry}
+        </button>
+      </div>
+    );
+  }
+}
 
 export type Tab = "home" | "fun" | "people" | "me";
 
@@ -78,38 +116,52 @@ interface ViewProps {
    */
   notesOpen?: boolean;
   onNotes?: (on: boolean, opts?: { replace?: boolean }) => void;
+  /**
+   * 이상형 찾기 (슬라이스 19). 재미 탭 **안의 페이지**다 — 시트가 아니다.
+   * `undefined` 면 재미 탭 카드, 0 이면 `/ideal`(시작 또는 결과), 1~3 이면 라운드, 그 밖은 없는 주소다.
+   */
+  idealRound?: number;
+  /** `/ideal/again` — 다시 찾기의 시작 화면 (ADR-125). `idealRound` 는 0 이다 */
+  idealAgain?: boolean;
+  /**
+   * 0 = `/ideal`(push), 1~3 = 라운드(push). `replace` 는 **열리면 안 되는 라운드 주소에서 시작으로 물러날 때**다 —
+   * 이 화면이 쌓은 칸이면 그만큼 되감고, 아니면 갈아끼운다 (결과를 저장한 뒤의 되감기도 이 길이다).
+   */
+  onIdeal?: (to: number, opts?: { replace?: boolean }) => void;
+  /**
+   * 다시 찾기 (ADR-125). 재미 탭 카드에서는 쌓고(push), 결과 화면에서는 결과 칸을 **갈아끼운다** —
+   * 쌓으면 새 결과를 본 뒤의 뒤로 가기가 지난 결과를 한 번 더 보여준다.
+   */
+  onIdealAgain?: (opts?: { replace?: boolean }) => void;
+  /** 파티 운세 보기 페이지(`/fortune`, ADR-125) — 재미 탭 **안의 페이지**다. 이상형 찾기와 같은 자리 */
+  fortunePage?: boolean;
+  onFortunePage?: (on: boolean) => void;
 }
 
 /**
  * 하단 탭.
  *
- * **'재미' 는 없다가 생기지 않는다** (ADR-20 후기). 처음부터 자리를 지키고,
- * 매력 투표와 함께 켜진다 — 탭이 도중에 생기면 넷이 나눠 쓰던 폭이 통째로 다시 나뉘어
- * 손가락이 기억한 자리가 어긋난다.
+ * **'재미' 는 없다가 생기지 않는다** (ADR-20 후기). 처음부터 자리를 지킨다 —
+ * 탭이 도중에 생기면 넷이 나눠 쓰던 폭이 통째로 다시 나뉘어 손가락이 기억한 자리가 어긋난다.
  *
- * 꺼진 탭은 **죽은 버튼이 아니다.** 누르면 언제 열리는지 말한다 —
- * 눌러도 아무 일이 없으면 고장으로 읽힌다. (`Overlays` 안이라 토스트를 쓸 수 있다)
+ * **넷 다 등록부터 켜져 있다.** 한동안 '재미' 는 운세의 문을 빌려 매력 투표 전에 꺼져 있었다(흐린 탭 + 토스트) —
+ * 이상형 찾기가 등록부터 열리면서 그 문을 걷었다(ADR-122). 재미가 다시 한 번에 열리게 됐어도(ADR-125) **꺼진 탭을
+ * 되살리지 않는다** — 탭 안에서 맨 위 한 줄이 언제 볼 수 있는지 말하고, 카드는 무엇이 오는지 보여준다.
  */
-function Tabs({ tab, onTab, funOpen }: { tab: Tab; onTab: (t: Tab) => void; funOpen: boolean }) {
-  const { toast } = useOverlay();
+function Tabs({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   return (
     <nav className="tabbar">
-      {TABS_PARTICIPANT.map((t) => {
-        const off = t.key === "fun" && !funOpen;
-        return (
-          <button
-            key={t.key}
-            className={tab === t.key ? "active" : ""}
-            /* `disabled` 로 두면 누른 것 자체가 안 와서 왜 안 되는지 말할 수 없다 */
-            aria-disabled={off || undefined}
-            onClick={() => (off ? toast(FORTUNE.closed) : onTab(t.key as Tab))}
-            aria-current={tab === t.key}
-          >
-            <span className="icon">{t.icon}</span>
-            <span>{t.label}</span>
-          </button>
-        );
-      })}
+      {TABS_PARTICIPANT.map((t) => (
+        <button
+          key={t.key}
+          className={tab === t.key ? "active" : ""}
+          onClick={() => onTab(t.key as Tab)}
+          aria-current={tab === t.key}
+        >
+          <span className="icon">{t.icon}</span>
+          <span>{t.label}</span>
+        </button>
+      ))}
     </nav>
   );
 }
@@ -139,9 +191,55 @@ export default function Participant() {
   // 프로필 시트(/p/:id)는 참가자 탭 위에, 편집(/me/edit)은 내 정보 탭 위에 뜬 것이다 —
   // 탭 표시는 그 아래 탭 그대로 둔다
   const editing = under.endsWith("/me/edit");
+  /*
+   * 이상형 찾기(슬라이스 19)는 재미 탭 위의 페이지다. **`under` 로 읽는다** (ADR-114) — 라운드 중에 ? 나 ✉️ 를 열어도
+   * 시트 뒤에 그 라운드가 그대로 서고, 고르던 값도 산다. 이 회차의 `/ideal` 로 **시작하는** 주소만 받는다 —
+   * 끝 조각으로 보면 다른 주소의 아이디가 우연히 걸린다.
+   */
+  const idealAt = `${base}/ideal`;
+  const idealRest = under === idealAt ? "" : under.startsWith(`${idealAt}/`) ? under.slice(idealAt.length + 1) : null;
+  /*
+   * 1~3 이 아닌 조각(`/ideal/9`)은 -1 — 화면이 시작으로 갈아끼운다.
+   * **자산이 없는 빌드에서는 이상형 주소가 없다** (S-C5, `lib/faces.ts`) — 카드도 없고 주소는 홈으로 읽힌다.
+   */
+  const idealRound = !FACES_READY || idealRest === null
+    ? undefined
+    : idealRest === "" || idealRest === "again" ? 0 : /^[1-3]$/.test(idealRest) ? Number(idealRest) : -1;
+  /** 다시 찾기의 시작 주소 (ADR-125). 칸 수는 `/ideal` 과 같다 — 카드나 결과 화면이 연 첫 칸(0)이다 */
+  const idealAgain = idealRound === 0 && idealRest === "again";
+  /*
+   * 파티 운세 보기 페이지 (ADR-125). 이상형 찾기처럼 재미 탭 위의 페이지이고, **`under` 로 읽는다** — ?·✉️ 를 열어도
+   * 그 페이지가 시트 뒤에 선다. 카드가 연 칸이면 `fortuneStep: 0` 을 싣는다 — 탭을 누를 때 이 칸부터 걷는 근거다.
+   */
+  const fortuneAt = `${base}/fortune`;
+  const fortunePage = under === fortuneAt;
+  const rawFortuneStep = (location.state as { fortuneStep?: unknown } | null)?.fortuneStep;
+  const fortuneStep = !helpOpen && !notesOpen && fortunePage && rawFortuneStep === 0 ? 0 : undefined;
+  /*
+   * 이 칸을 이상형 화면이 **직접 쌓았나** — 카드가 `/ideal` 을 0 으로, 라운드 n 을 n 으로 싣는다.
+   * 주소와 맞을 때만 믿는다(시트 칸에는 없다). 그 수가 곧 **이 칸 뒤에 이 화면이 쌓은 칸 수**이고,
+   * `/ideal`(0) 바로 뒤는 카드를 누른 재미 탭이다 — 되감을 칸 수의 근거가 여기 하나다.
+   */
+  const rawStep = (location.state as { idealStep?: unknown } | null)?.idealStep;
+  const idealStep =
+    !helpOpen && !notesOpen && idealRound !== undefined && rawStep === Math.max(idealRound, 0) ? rawStep : undefined;
+  /** 같은 칸에서 두 번 되감지 않는다 — 가드는 그릴 때마다 돌고, 되감기는 한 박자 뒤에 끝난다 */
+  const rewound = useRef<string | null>(null);
+  /*
+   * 이상형 화면에서 탭을 누르면 그 화면이 쌓은 칸부터 걷고(재미 탭 칸까지 되감고) **거기서** 탭을 옮긴다.
+   * 되감기는 한 박자 뒤에 끝나서, 옮길 곳을 들고 있다가 재미 탭에 닿으면 갈아끼운다.
+   */
+  const pendingTab = useRef<string | null>(null);
+  useEffect(() => {
+    const to = pendingTab.current;
+    if (!to) return;
+    pendingTab.current = null;
+    if (location.pathname === `${base}/fun`) navigate(to, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key]);
   const tab: Tab = under.endsWith("/me") || editing
     ? "me"
-    : under.endsWith("/fun")
+    : under.endsWith("/fun") || idealRound !== undefined || fortunePage
       ? "fun"
       : under.endsWith("/people") || under.includes("/p/")
         ? "people"
@@ -181,6 +279,22 @@ export default function Participant() {
          * "내 발자국 되감기"가 됐다. 사람은 뒤로 가기를 "목록으로 돌아가기"로 기대한다.
          */
         const to = next === "home" ? base : `${base}/${next}`;
+        /*
+         * **이상형 화면이 쌓은 칸 위라면 그 칸부터 걷는다** (슬라이스 19). 그대로 갈아끼우면 라운드 칸이 기록에 남아
+         * 뒤로 가기가 그 칸들을 하나씩 밟는다 — 가드가 매번 시작 화면으로 돌려보내 같은 화면을 몇 번이고 본 뒤에야
+         * 홈에 닿는다. 재미 탭 칸까지 되감은 뒤 거기서 여느 때처럼 옮긴다 (재미 탭에서 누른 것과 같다).
+         */
+        if (idealStep !== undefined) {
+          pendingTab.current = next === "fun" ? null : to;
+          navigate(-(idealStep + 1));
+          return;
+        }
+        // 파티 운세 보기 페이지도 같다 — 카드가 쌓은 한 칸을 걷고 재미 탭에서 옮긴다 (ADR-125)
+        if (fortuneStep !== undefined) {
+          pendingTab.current = next === "fun" ? null : to;
+          navigate(-1);
+          return;
+        }
         navigate(to, { replace: tab !== "home" });
       }}
       profileId={profileId}
@@ -231,6 +345,50 @@ export default function Participant() {
             ? navigate(`${base}/me`, { replace: true })
             : navigate(-1)
       }
+      idealRound={idealRound}
+      idealAgain={idealAgain}
+      /*
+       * 카드 → `/ideal` → `/1` → `/2` → `/3` 은 전부 push — 뒤로 가기가 곧 이전 라운드다 (등록 스텝과 같다).
+       * 칸마다 몇 번째인지 싣는다(`idealStep` — 카드가 연 `/ideal` 은 0). 되감을 칸 수를 거기서 읽는다.
+       */
+      onIdeal={(to, opts) => {
+        if (to >= 1) return navigate(`${idealAt}/${to}`, { state: { idealStep: to } });
+        if (!opts?.replace) return navigate(idealAt, { state: { idealStep: 0 } });
+        /*
+         * **열리면 안 되는 라운드 주소에서 시작으로 물러난다** — 결과가 있거나(결과를 막 저장했을 때도 이 길이다),
+         * 고르던 값이 없거나(새로고침·탭 바로 나갔다 뒤로 오기·앞으로 가기), 없는 라운드다.
+         *
+         * ① 시트(?·✉️)가 떠 있으면 **시트 칸을 지키고 그 아래만 바꾼다.** 주소를 갈아끼우면 시트가 사라지고
+         *    뒤로 가기로 닫힐 칸도 같이 사라진다.
+         * ② 이 칸을 이 화면이 쌓았으면(`idealStep`) **그만큼 되감는다.** 갈아끼우면 뒤의 라운드 칸이 기록에 남아
+         *    뒤로 가기가 그 칸을 하나씩 밟으며 시작 화면을 몇 번이고 보여준다. 결과를 저장한 뒤라면
+         *    뒤로 가기가 라운드를 되밟지 않고 재미 탭으로 간다 (S-B4).
+         *    ⚠️ ROUTES.md 는 기록을 손으로 되감지 않는다 — 몇 칸이 쌓였는지 믿을 수 없어서다. 여기는 칸마다
+         *    이 화면이 직접 적어 둔 수가 있고, **지금 선 칸**의 수로 센다. 누른 순간의 칸으로 세면 저장을 기다리는
+         *    동안 뒤로 가거나 시트를 연 사람에게 엉뚱한 칸에 닿는다.
+         * ③ 표시가 없으면(주소를 바로 열었다) 믿지 않고 갈아끼운다 — 뒤로 갈 자리가 없다.
+         */
+        if (helpOpen || notesOpen) return navigate(location.pathname, { replace: true, state: { under: idealAt } });
+        if (idealStep !== undefined && idealStep >= 1) {
+          if (rewound.current === location.key) return;
+          rewound.current = location.key;
+          return navigate(-idealStep);
+        }
+        // 다시 찾기의 시작 칸(0)에서 결과로 물러날 때는 칸 표시를 그대로 옮긴다 — 뒤가 재미 탭이라는 근거다
+        navigate(idealAt, { replace: true, state: idealStep === 0 ? { idealStep: 0 } : undefined });
+      }}
+      /*
+       * 다시 찾기 (ADR-125). 결과 화면에서는 **그 칸을 갈아끼운다** — 칸 표시(뒤가 재미 탭인가)도 그대로 옮긴다.
+       * 재미 탭 카드에서는 쌓는다. 어느 쪽이든 이 칸이 이 흐름의 첫 칸(0)이고, 라운드는 그 위에 쌓인다.
+       */
+      onIdealAgain={(opts) =>
+        opts?.replace
+          ? navigate(`${idealAt}/again`, { replace: true, state: idealStep === 0 ? { idealStep: 0 } : undefined })
+          : navigate(`${idealAt}/again`, { state: { idealStep: 0 } })
+      }
+      fortunePage={fortunePage}
+      // 카드 → 페이지는 push, 닫기는 뒤로 가기 — 안드로이드 백 버튼으로 재미 탭에 돌아온다
+      onFortunePage={(on) => (on ? navigate(fortuneAt, { state: { fortuneStep: 0 } }) : navigate(-1))}
     />
   );
 }
@@ -284,6 +442,12 @@ export function ParticipantView(props: ViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.set],
   );
+  /** 이상형 찾기 한 칸만 갈아끼운다 (슬라이스 19). 서버가 돌려준 **저장된 행**이다 — 방금 고른 셋이 아닐 수 있다 (S-E2) */
+  const setIdeal = useCallback(
+    (ideal: Ideal) => state.set((cur) => (cur ? { ...cur, ideal } : cur)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.set],
+  );
   useEffect(() => {
     if (!source.liveCode || failed) return;
     const socket = connect(source.liveCode, () => state.reload());
@@ -302,6 +466,7 @@ export function ParticipantView(props: ViewProps) {
       setNote={setNote}
       setAnnouncement={setAnnouncement}
       setFortune={setFortune}
+      setIdeal={setIdeal}
     />
   );
 }
@@ -324,10 +489,17 @@ function Loaded({
   setNote,
   setAnnouncement,
   setFortune,
+  setIdeal,
   helpOpen,
   onHelp,
   notesOpen,
   onNotes,
+  idealRound,
+  idealAgain,
+  onIdeal,
+  onIdealAgain,
+  fortunePage,
+  onFortunePage,
 }: ViewProps & {
   state: ParticipantState;
   reload: () => void;
@@ -335,6 +507,7 @@ function Loaded({
   setNote: (note: MyNoteState) => void;
   setAnnouncement: (a: PublicAnnouncement) => void;
   setFortune: (f: Fortune) => void;
+  setIdeal: (i: Ideal) => void;
 }) {
   const [acked, setAcked] = useState<number[]>([]);
   const banner = bannerOf(noticesOf(state), now());
@@ -372,16 +545,25 @@ function Loaded({
   const started = state.event.phase === "party" || state.event.phase === "done";
 
   /*
-   * 아직 안 열린 '재미' 주소를 직접 연 경우. 탭이 꺼져 있어도 주소는 칠 수 있다 —
-   * 자리 화면과 같이 홈으로 **갈아끼운다** (`onTab` 이 replace 한다).
-   *
-   * 탭의 문은 **가장 먼저 열리는 카드의 문**이다. 지금은 그게 운세라 `canOpenFortune` 이
-   * 그대로 탭의 문이고, 더 일찍 열리는 카드가 들어오면 이 줄이 바뀔 자리다.
+   * 재미 탭이 그려지면 이상형 화면 조각을 미리 부른다 — 카드를 누를 때 빈 화면으로 기다리지 않게.
+   * 조각만이다. **얼굴 자료는 받지 않는다** — 안 여는 사람은 1바이트도 안 받는다 (슬라이스 19).
    */
-  const funOpen = canOpenFortune(state.event.phase);
   useEffect(() => {
-    if (tab === "fun" && !funOpen) onTab("home");
-  }, [tab, funOpen, onTab]);
+    // 실패는 여기서 삼킨다 — 여는 순간 `lazy` 가 다시 부르고, 그때 실패는 `IdealBoundary` 가 말한다
+    if (tab === "fun" && FACES_READY) loadIdeal().catch(() => {});
+  }, [tab]);
+
+  /*
+   * **재미는 한 번에 열린다 — 프로필 투표부터** (ADR-125). 열기 전에 기능 페이지 주소가 열리면(주소를 바로 열었거나 운영자가
+   * 단계를 되돌렸다) 재미 탭으로 물러난다 — 거기서 맨 위 한 줄이 언제 볼 수 있는지 말한다. **찾은 결과가 있으면 그대로 본다** —
+   * 막는 것은 새로 만드는 일뿐이다. 물러나는 길은 탭을 누른 것과 같다: 이 화면이 쌓은 칸이면 걷고, 아니면 갈아끼운다.
+   */
+  const funOpen = canOpenFun(state.event.phase);
+  const funStray = !funOpen && ((idealRound !== undefined && !state.ideal) || (!!fortunePage && !state.fortune));
+  useEffect(() => {
+    if (funStray) onTab("fun");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [funStray]);
 
   // 발표가 끝났으면 자리 이동 확인을 띄우지 않는다 (FLOWS.md)
   const needsSeatAck =
@@ -588,14 +770,55 @@ function Loaded({
               underTakeover={seatUp}
             />
           )}
-          {/* 재미 탭. 지금은 운세 카드 하나뿐이다 — 이상형 찾기가 여기 두 번째로 붙는다 */}
-          {tab === "fun" && <FortuneTab state={state} onFortune={setFortune} />}
+          {/*
+            재미 탭 — **입구만 모인다** (ADR-125). 이상형 찾기가 **첫 카드**, 파티 운세 보기가 그 아래다 (ADR-124).
+            두 기능은 각자 탭 안의 페이지에서 돈다 — 이상형은 `/ideal`(라운드 `/1..3`, 다시 찾기 `/again`), 운세는 `/fortune`.
+            이상형 주소에서는 탭 본문이 그 화면이 된다 — **한 자리**라서 `/ideal` 과 라운드 사이를 오가도 같은 컴포넌트가 남아
+            고르던 값이 산다 (S-B4). 열기 전에는 맨 위 한 줄이 탭 전체를 대신 말하고, 카드에는 단추가 없다.
+          */}
+          {tab === "fun" &&
+            (idealRound !== undefined ? (
+              <IdealBoundary>
+                <Suspense fallback={<div />}>
+                  <IdealFlow
+                    round={idealRound}
+                    again={!!idealAgain}
+                    open={funOpen}
+                    ideal={state.ideal}
+                    onGo={(to, opts) => onIdeal?.(to, opts)}
+                    onAgain={() => onIdealAgain?.({ replace: true })}
+                    onSaved={setIdeal}
+                  />
+                </Suspense>
+              </IdealBoundary>
+            ) : fortunePage ? (
+              <FortunePage state={state} onFortune={setFortune} />
+            ) : (
+              <>
+                {!funOpen && (
+                  <p className="funGate">
+                    <span aria-hidden>🎲</span>
+                    <span>{FUN.closed}</span>
+                  </p>
+                )}
+                {/* 사진이 온 빌드에서만 연다 (S-C5, `lib/faces.ts`) */}
+                {FACES_READY && (
+                  <IdealCard
+                    ideal={state.ideal}
+                    open={funOpen}
+                    onOpen={() => onIdeal?.(0)}
+                    onAgain={() => onIdealAgain?.()}
+                  />
+                )}
+                <FortuneCard state={state} open={funOpen} onOpen={() => onFortunePage?.(true)} />
+              </>
+            ))}
           {tab === "me" && (
             <Me state={state} source={source} reload={reload} editing={!!editing} onEdit={onEdit} />
           )}
         </div>
 
-        <Tabs tab={tab} onTab={onTab} funOpen={funOpen} />
+        <Tabs tab={tab} onTab={onTab} />
 
         {/*
           아직 안 본 사람에게는 **자동으로** 덮치고 확인을 받는다.

@@ -78,7 +78,31 @@ export type Pulse =
    * ⚠️ **누구를 옮겼는지는 담지 않는다.** 자리 번호도, 참가자도, 라운드도 없다 —
    * 조작의 종류 하나뿐이다. 이 목록에 사람을 가리키는 값을 더하지 마라.
    */
-  | { kind: "seating"; key: SeatingKey };
+  | { kind: "seating"; key: SeatingKey }
+  /**
+   * 이상형 찾기 (슬라이스 19, S-D4). **이 판(`v`)의 결과가 취향에 맞나** 를 여기서 읽는다 —
+   * `save` 가 몇 번 저장됐나, `chosen`·`none` 의 비가 *셋 중에 진짜가 있었나* 다.
+   * 쌓인 답이 다음 판의 벡터·규칙을 고르는 재료가 된다.
+   *
+   * ⚠️ **어느 연예인인지, 무엇을 골랐는지는 담지 않는다.** `이 파티 이상형 1위` 는 결과 통계다 —
+   * 두셋뿐인 회차에서 그건 곧 한 사람의 취향이고, 파기 뒤에도 90일 남는다.
+   * 담기는 건 종류와 판 번호뿐이다. `v` 는 기기가 보낸 값이라 `readIdealInput` 이 윗끝을 막아 둔다.
+   * **첫 저장·첫 답에서만** 센다 — 두 번 누른 기기가 숫자를 부풀리지 않게. 정답은 결과마다 한 번이라
+   * 다시 찾은 결과의 답도 센다 — `chosen`·`none` 은 **결과 한 벌마다**의 비다 (ADR-125).
+   */
+  | { kind: "ideal"; key: IdealKey; v: number };
+
+/**
+ * 이상형 찾기의 세는 자리. 자리 조작(`SEATING_KEYS`)과 같은 이유로 **타입으로 닫는다** —
+ * 서버가 만드는 값이고, 화면이 보낸 문자열이 여기 올 길이 없다.
+ */
+export const IDEAL_KEYS = [
+  "save",    // 결과를 처음 저장했다
+  "again",   // 다시 찾아 결과를 바꿨다 (ADR-125) — `save` 가 처음 찾은 수로 남게 따로 센다
+  "chosen",  // 셋 중 하나가 진짜 이상형이었다 — 누구였는지는 안 담는다
+  "none",    // 없었어요
+] as const;
+export type IdealKey = (typeof IDEAL_KEYS)[number];
 
 /**
  * 자리를 손보는 조작. **서버가 만드는 값이라 허용 목록이 아니라 타입으로 막는다** —
@@ -112,7 +136,9 @@ export function pulse(env: Env, p: Pulse): void {
           ? [[p.kind, p.bucket, p.who], [1]]
           : p.kind === "seating"
             ? [[p.kind, p.key], [1]]   // `who` 를 두지 않는다 — 운영자만 하는 일이라 물을 것이 없다
-            : [[p.kind, p.key, p.who], [1]];
+            : p.kind === "ideal"
+              ? [[p.kind, p.key, String(p.v)], [1]]   // 참가자만 하는 일이라 `who` 가 없다. 판 번호도 인덱스가 아니라 blob 이다
+              : [[p.kind, p.key, p.who], [1]];
     env.METRICS?.writeDataPoint({ blobs: b, doubles: d });
   } catch {
     /* 위와 같다. 지표가 요청을 깨뜨리지 않는다 */

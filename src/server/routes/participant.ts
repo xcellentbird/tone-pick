@@ -10,9 +10,9 @@
  */
 import { Hono } from "hono";
 import type { EnterProbe, EnterResult, RegisterInput } from "../../shared/types.ts";
-import { ENTRY, FORTUNE, ME } from "../../shared/copy.ts";
+import { ENTRY, FORTUNE, FUN, ME } from "../../shared/copy.ts";
 import { validPin } from "../../shared/constants.ts";
-import { canOpenFortune, canOpenMission } from "../../shared/phase.ts";
+import { canOpenFun, canOpenMission } from "../../shared/phase.ts";
 import { fortuneInput, missionInput, validBirth } from "../../shared/fortune.ts";
 import { makeFortune, makeMission } from "../fortune.ts";
 import { count, pulse } from "../metrics.ts";
@@ -328,8 +328,8 @@ participantRoutes.post("/fortune", async (c) => {
   // 명단·콕까지 빚는 `participantState()` 대신 **좁은 읽기**다. 파티 시작 때 인원 수만큼 열린다
   const ctx = await seat.stub.fortuneContext(seat.playerId, serverNow());
   if (!ctx.ok) return apiError(c, "not_found");
-  // 매력 투표와 함께 열린다 (ADR-20 후기). 그 전에는 탭이 꺼져 있다
-  if (!canOpenFortune(ctx.value.phase)) return apiError(c, "closed", FORTUNE.closed);
+  // 재미는 한 번에 열린다 — 매력 투표부터 (ADR-125). 그 전에는 재미 탭 맨 위 한 줄과 같은 문장으로 거절한다
+  if (!canOpenFun(ctx.value.phase)) return apiError(c, "closed", FUN.closed);
   // 한 번 연 운세는 다시 만들지 않는다 (ADR-20)
   if (ctx.value.fortune) return c.json(ctx.value.fortune);
 
@@ -389,7 +389,7 @@ participantRoutes.post("/fortune/mission", async (c) => {
   if (!canOpenMission(ctx.value.phase)) return apiError(c, "closed", FORTUNE.missionClosed);
   const saved = ctx.value.fortune;
   // 운세가 없으면 재료가 없다. 화면에서도 이 버튼은 운세가 나온 뒤에야 뜬다
-  if (!saved) return apiError(c, "closed", FORTUNE.closed);
+  if (!saved) return apiError(c, "closed", FUN.closed);
   if (saved.mission) return c.json(saved);
 
   // 두 칸이 함께 온다 — 왜 오늘 이것인지(`lead`)와 언제 무엇을(`mission`)
@@ -397,6 +397,46 @@ participantRoutes.post("/fortune/mission", async (c) => {
   // 운세 본문은 건드리지 않는 전용 경로다 — `saveFortune` 로 덮으면 ADR-20 이 무너진다
   const { value, response } = unwrap(c, await seat.stub.saveMission(seat.playerId, made));
   return response ?? c.json(value);
+});
+
+/**
+ * 이상형 찾기 결과를 남긴다 (슬라이스 19). **계산은 기기가 끝냈다** — 여기서는 받은 것을 넘길 뿐이고,
+ * 모양 검사와 문(재미가 열렸나, ADR-125)은 DO 가 본다 (상태를 바꾸는 쪽이 문지기다).
+ *
+ * 본문에 `replaces`(지금 결과의 `at`)가 있으면 **다시 찾기**다 (ADR-125). 돌려주는 건 언제나 **저장된 행**이다 —
+ * 다른 기기가 먼저 끝냈거나 먼저 바꿨으면 그쪽이다 (S-E2). 화면은 이 응답을 그대로 그리고 다시 읽지 않는다 (`/vote` 와 같다).
+ */
+participantRoutes.post("/ideal", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const body: unknown = await c.req.json().catch(() => ({}));
+  const { value, response } = unwrap(c, await seat.stub.saveIdeal(seat.playerId, body, serverNow()), (error) =>
+    error === "closed" ? FUN.closed : undefined,
+  );
+  if (response) return response;
+  const { ideal, first, again } = value!;
+  // 첫 저장에서만 센다 — 늦은 기기의 두 번째 저장은 세지 않는다. 어느 연예인인지는 담지 않는다 (S-D4)
+  if (first) pulse(c.env, { kind: "ideal", key: "save", v: ideal.v });
+  // 다시 찾기는 따로 센다 — `save` 가 *처음 찾은 사람 수* 로 남는다 (ADR-125)
+  if (again) pulse(c.env, { kind: "ideal", key: "again", v: ideal.v });
+  return c.json(ideal);
+});
+
+/**
+ * 정답 확인 (S-C4). 결과마다 한 번 받는다 — 이미 답했으면 저장된 행을 그대로 돌려준다.
+ * 결과가 없으면 404, 결과 셋에 없는 사람이면 400.
+ */
+participantRoutes.post("/ideal/verdict", async (c) => {
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const body: unknown = await c.req.json().catch(() => ({}));
+  const { value, response } = unwrap(c, await seat.stub.saveIdealVerdict(seat.playerId, body, serverNow()));
+  if (response) return response;
+  const { ideal, first } = value!;
+  if (first && ideal.verdict) {
+    pulse(c.env, { kind: "ideal", key: "chosen" in ideal.verdict ? "chosen" : "none", v: ideal.v });
+  }
+  return c.json(ideal);
 });
 
 /**

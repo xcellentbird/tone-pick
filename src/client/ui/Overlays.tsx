@@ -35,6 +35,9 @@ interface Overlay {
 
 const Ctx = createContext<Overlay | null>(null);
 
+/** 한꺼번에 서는 토스트의 최대 줄 수 (ADR-121). 탭바 위로 세 줄이면 목록의 절반을 덮지 않는다 */
+export const TOAST_MAX = 3;
+
 export function useOverlay(): Overlay {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error("Overlays provider missing");
@@ -79,10 +82,15 @@ export function Overlays({
   // 사라짐 타이머는 콜백 안에서 걸린다 — 화면이 내려갈 때 지우는 건 `useTimeouts` 가 맡는다
   const later = useTimeouts();
 
+  /**
+   * **같은 말은 한 줄이고, 줄은 `TOAST_MAX` 까지다** (ADR-121). 꺼진 버튼을 연달아 누르면 같은 토스트가
+   * 화면 절반까지 쌓여 목록을 덮었다. 같은 말은 앞의 것을 걷고 새로 세워 시간을 다시 잰다 —
+   * 누른 것이 닿았다는 표시는 남는다. 넘치면 가장 오래된 것부터 뺀다
+   */
   const toast = useCallback(
     (text: string) => {
       const id = Date.now() + Math.random();
-      setToasts((list) => [...list, { id, text }]);
+      setToasts((list) => [...list.filter((t) => t.text !== text), { id, text }].slice(-TOAST_MAX));
       later(() => setToasts((list) => list.filter((t) => t.id !== id)), 2600);
     },
     [later],

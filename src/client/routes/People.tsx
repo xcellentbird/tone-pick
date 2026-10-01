@@ -496,7 +496,7 @@ export default function People({
               </div>
               {/*
                 ✉️ 는 👉 **옆에 같은 크기로** 선다 (ADR-98 후기 3) — 이 사람에게 할 수 있는 일이 한 줄에 모인다.
-                파티 중에만 있다. 잠긴 버튼을 미리 세우지 않는다 (ADR-96 의 방향).
+                프로필 투표부터 파티까지만 있다 (`canNote`, ADR-111). 잠긴 버튼을 미리 세우지 않는다 (ADR-96 의 방향).
               */}
               {noteOn && !revealed && (
                 <NoteControls count={sentHere} covered={covered} spent={noteLeft === 0} onOpen={openNote} />
@@ -675,7 +675,7 @@ function MatchName({ match }: { match: MatchInfo }) {
  * 이 사람에게 보낸 장 수다. 목록 카드에는 두지 않는다 — 카드 오른쪽은 👉 하나라야 한다 (UI.md).
  *
  * 다 썼으면 `disabled` 가 아니라 `aria-disabled` 다. 누른 것 자체가 와야 왜 안 되는지 말할 수 있다 —
- * 꺼진 재미 탭과 같은 수다.
+ * 아직 안 열린 미션 뒷면과 같은 수다 (`Fortune.tsx`).
  *
  * ⚠️ **가리기 중에는 진짜로 잠그고 숫자도 뺀다** (S-B5). 누르면 시트 제목과 확인창이 상대 이름을 말하고
  * 그 사이 내내 글을 친다 — 콕 한 번보다 훨씬 오래 드러난다. 숫자는 👉 가 🙈 가 되는 것과 같은 이유로 뺀다.

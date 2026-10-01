@@ -25,7 +25,7 @@ import {
   zodiacIndex,
 } from "../src/shared/fortune.ts";
 import { FORTUNE, MISSION } from "../src/shared/copy.ts";
-import { canOpenFortune, canOpenMission } from "../src/shared/phase.ts";
+import { canOpenFun, canOpenMission } from "../src/shared/phase.ts";
 import type { Player } from "../src/shared/types.ts";
 
 const TODAY = "2026-08-20";
@@ -404,13 +404,13 @@ describe("문단 나누기", () => {
 });
 
 describe("언제 열리나", () => {
-  it("★ 운세는 매력 투표부터 열린다", () => {
-    expect(canOpenFortune("prep")).toBe(false);
-    expect(canOpenFortune("reg")).toBe(false);
-    expect(canOpenFortune("prevote")).toBe(true);
-    expect(canOpenFortune("party")).toBe(true);
+  it("★ 재미는 매력 투표부터 한 번에 열린다 — 운세도 이상형 찾기도 같은 문이다 (ADR-125)", () => {
+    expect(canOpenFun("prep")).toBe(false);
+    expect(canOpenFun("reg")).toBe(false);
+    expect(canOpenFun("prevote")).toBe(true);
+    expect(canOpenFun("party")).toBe(true);
     // 발표가 끝났다고 오늘 하루의 것이 사라질 이유는 없다
-    expect(canOpenFortune("done")).toBe(true);
+    expect(canOpenFun("done")).toBe(true);
   });
 
   it("★ 미션의 문은 하나 늦다 — 파티부터", () => {

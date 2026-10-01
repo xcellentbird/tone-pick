@@ -45,6 +45,19 @@ const COUNTED = /\.(html|js|css|webp|avif|png|jpe?g|svg|woff2?)$/;
 const NOT_DOWNLOADED = /(^|\/)(og\.jpg|apple-touch-icon\.png)$/;
 
 /**
+ * **얼굴 자료도 세지 않는다** (슬라이스 19). 이상형 찾기를 **열 때만** 받는다 — 첫 화면에도,
+ * 안 여는 사람에게도 한 바이트도 안 간다.
+ *
+ * 글자체처럼 따로 무리를 두지도 않는다. 폴더 총합은 **풀의 크기**이지 한 사람이 받는 양이 아니다 —
+ * 여는 사람은 **풀 JSON 하나**(풀 전체의 벡터 — 한 덩어리로는 가장 크다)와 사진 스무 장 남짓을 받는다.
+ * 폴더 총합에 예산을 걸면 사진 한 장을 더할 때마다 울리는데, 그건 이 자가 막으려던 증가가 아니다.
+ * 그래서 JSON 한 파일의 예산은 `check:faces` 가 따로 든다(POOL_BUDGET — 래칫). 이 스크립트는
+ * `npm run build` 뒤에만 돌아 `check` 에 없고, 자료는 빌드 없이도 볼 수 있어서다.
+ * 여는 화면의 JS 청크는 그대로 센다 — 나눠 실어도 여기서는 한 덩어리다.
+ */
+const FACES = /^faces\//;
+
+/**
  * **글자체는 따로 센다** (ADR-72).
  *
  * SUIT 두 굵기가 331 KiB 다. 이걸 아래 총합에 얹으면 예산이 200 → 530 이 되는데,
@@ -75,8 +88,13 @@ const FONT_BUDGET = 340 * 1024;
  * (모르는 새 넘어가는 것과 알고 넘기는 것을 가른다).
  * 그때처럼 8% 남겨 잡았다 — 문구·화면을 더하는 보통 작업은 안 걸리고, **이미지가 한 장 더
  * 들어오면 걸린다.** 그때 다시 "이게 첫 화면에 있어야 하는가" 를 묻게 하려는 값이다.
+ *
+ * **2026-09-28 — 216.1 → 217.3 KiB 로 넘었다** (재미 탭 다시 짜기, ADR-125 — 입구 카드 · 파티 운세 보기 페이지 ·
+ * 다시 찾기). 기준 커밋이 이미 0.1 KiB 넘어 있었다 — 이상형 찾기(슬라이스 19 · v2)가 쌓은 몫이다.
+ * 늘어난 1.2 KiB 는 참가자 화면 청크 0.6 · css 0.2 · 이상형 청크 0.2 · 첫 청크 0.15 — 이미지가 아니라
+ * 화면이 조금씩 쌓인 것이라 ADR-75 때처럼 **다시 8% 남겨** 잡는다(217.3 × 1.08).
  */
-const BUDGET = 216 * 1024;
+const BUDGET = 235 * 1024;
 
 function walk(dir) {
   const out = [];
@@ -90,7 +108,7 @@ function walk(dir) {
 
 let files;
 try {
-  files = walk(DIST).filter((f) => COUNTED.test(f) && !NOT_DOWNLOADED.test(f));
+  files = walk(DIST).filter((f) => COUNTED.test(f) && !NOT_DOWNLOADED.test(f) && !FACES.test(relative(DIST, f)));
 } catch {
   console.error(`✗ ${relative(ROOT, DIST)} 가 없다. \`npm run build\` 를 먼저 돌려라.`);
   process.exit(1);

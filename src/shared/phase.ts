@@ -48,8 +48,8 @@ export function dueTransition(ev: EventMeta, now: number): Phase | null {
  * 서버는 알람을 걸 때, 운영자 화면은 단계 버튼 옆 카운트다운에 쓴다 —
  * 그 버튼이 하는 일이 **이 시각을 앞당기는 것**이라 옆에 남은 시간이 함께 서야 말이 된다.
  *
- * 넷이 다 여기 있다 (ADR-93). 매력 투표 마감(`voteEndAt`)만 없는데, 그건 전환이 아니라
- * **판정**이라서다 (ADR-39) — 단계가 안 바뀌니 걸 알람도 없다.
+ * 예약이 걸리는 전환 셋이 다 여기 있다 (ADR-93). `prep → reg` 줄은 등록 시작을 받던 옛 회차의 것이다 —
+ * 새 회차는 `reg` 로 만들어진다 (ADR-38). 매력 투표 마감은 따로 없다 — 파티 시작이 곧 마감이다 (ADR-100).
  */
 export function dueAt(ev: EventMeta): number | null {
   const { phase, fired, schedule } = ev;
@@ -179,13 +179,17 @@ export function canNote(phase: Phase): boolean {
 }
 
 /**
- * 오늘의 연애운은 **매력 투표가 시작되면** 열린다 (ADR-20 후기).
- * 발표 뒤에도 그대로 남는다 — 오늘 하루의 것이라 파티가 끝났다고 사라질 이유가 없다.
+ * **재미는 한 번에 열린다 — 매력 투표가 시작될 때** (ADR-125). 이상형 찾기도 파티 운세 보기도 이 문 하나다.
+ * 발표 뒤에도 그대로 열려 있다 — 파티가 끝났다고 사라질 이유가 없다.
  *
- * 그 전에도 **탭은 자리를 지킨다** — 없다가 생기는 게 아니라 비활성으로 서 있다가 켜진다.
- * 탭이 도중에 생기면 손가락이 기억한 자리가 어긋난다.
+ * 화면(재미 탭의 입구 카드)과 서버(`/fortune` · `/ideal`)가 **같은 판정**을 쓴다. 카드마다 문을 따로 두던 것을 합쳤다 —
+ * 한동안 이상형 찾기는 등록부터(ADR-122), 운세는 매력 투표부터(ADR-20 후기)였다.
+ * 그 전에도 **탭은 자리를 지키고 켜져 있다** — 안에서 맨 위 한 줄이 언제 쓸 수 있는지 말한다.
+ *
+ * **미션은 여기 들지 않는다** — `canOpenMission` 이 하나 늦게 연다. 한 번 연 결과는 이 문이 닫혀도(운영자가 단계를
+ * 되돌려도) 보인다 — 막는 것은 **새로 만드는 일**뿐이다.
  */
-export function canOpenFortune(phase: Phase): boolean {
+export function canOpenFun(phase: Phase): boolean {
   return phase === "prevote" || phase === "party" || phase === "done";
 }
 

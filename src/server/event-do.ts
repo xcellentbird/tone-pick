@@ -47,6 +47,8 @@ import type {
 } from "../shared/types.ts";
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
+import type { Ideal } from "../shared/ideal.ts";
+import { readIdealInput, readIdealReplaces, readIdealVerdict } from "../shared/ideal.ts";
 import { isStageKey, rosterOpen, toMe, toPublic } from "../shared/types.ts";
 import { apartClashes, apartFrom, autoTable, autoTableCount, isApart, pairKey, sortPair } from "../shared/seats.ts";
 import { appendPokeLog, pokeLogLine, type PokeLogEntry } from "./poke-log.ts";
@@ -69,6 +71,7 @@ import {
 import {
   PHASE_ORDER,
   canNote,
+  canOpenFun,
   canPoke,
   dueAt,
   dueTransition,
@@ -129,6 +132,12 @@ CREATE INDEX IF NOT EXISTS entry_tries_ip ON entry_tries(ip_hash);
 CREATE TABLE IF NOT EXISTS fortunes (
   player_id TEXT PRIMARY KEY,   -- 1인 1회. 다시 열어도 같은 운세가 나온다
   json      TEXT NOT NULL
+);
+-- 이상형 찾기 (슬라이스 19). 새 표라 여기 둔다 — 옛 표에 칸을 더하는 게 아니라 인덱스 함정과 무관하다.
+-- 인덱스는 두지 않는다: 기본 키 하나로 읽고 쓴다
+CREATE TABLE IF NOT EXISTS ideals (
+  player_id TEXT PRIMARY KEY,   -- 1인 1행. 다시 찾으면 이 행을 갈아끼운다 (S-C3, ADR-125)
+  json      TEXT NOT NULL       -- Ideal. 연예인·얼굴은 불투명 id 뿐 — 이름도 벡터도 여기 없다 (S-D3)
 );
 CREATE TABLE IF NOT EXISTS announcements (
   id         TEXT PRIMARY KEY,
@@ -928,6 +937,8 @@ export class EventDO extends DurableObject {
     );
     // 운세 문장에는 닉네임이 들어 있다. 사람을 지웠는데 그 문장이 남으면 지운 게 아니다
     this.ctx.storage.sql.exec("DELETE FROM fortunes WHERE player_id = ?", playerId);
+    // 이상형 찾기 결과도 그 사람과 함께 간다 (슬라이스 19, S-D2) — 같은 번호로 다시 온 새 사람이 물려받지 않는다
+    this.ctx.storage.sql.exec("DELETE FROM ideals WHERE player_id = ?", playerId);
     // 없는 사람을 가리키는 쌍은 아무것도 지키지 않는다 (ADR-90)
     this.ctx.storage.sql.exec("DELETE FROM apart WHERE a = ? OR b = ?", playerId, playerId);
     // 이미 발행한 자리에서도 빠진다
@@ -1197,6 +1208,7 @@ export class EventDO extends DurableObject {
     if (!row) return fail("not_found");
     const me = toPlayer(row);
     const saved = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
+    const ideal = this.rows<{ json: string }>("SELECT json FROM ideals WHERE player_id = ?", playerId)[0];
 
     return ok({
       event: {
@@ -1220,6 +1232,8 @@ export class EventDO extends DurableObject {
       seat: this.mySeat(playerId),
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
       ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),
+      // 운세와 같다 — 찾은 사람에게만, **본인에게만** (S-D1). 명단·운영자 응답에는 이 칸이 없다
+      ...(ideal ? { ideal: JSON.parse(ideal.json) as Ideal } : {}),
       announcements: this.publicAnnouncements(playerId),
     });
   }
@@ -1540,6 +1554,97 @@ export class EventDO extends DurableObject {
     );
     const row = this.rows<{ json: string }>("SELECT json FROM fortunes WHERE player_id = ?", playerId)[0];
     return ok(readFortune(JSON.parse(row.json)));
+  }
+
+  // ─────────────────────────── 이상형 찾기 (슬라이스 19)
+
+  /*
+   * 계산은 기기가 끝냈다 (S-D3). 여기서는 **모양만** 보고 저장한다 — 벡터도 이름도 DO 에 없다.
+   *
+   * **재미가 열린 동안만 새로 만든다** (ADR-125) — 프로필 투표부터, 운세와 같은 문(`canOpenFun`)이다.
+   * 한동안 단계를 보지 않았다(등록부터, ADR-122). 이미 찾은 결과는 문이 닫혀도(운영자가 단계를 되돌려도) 응답에
+   * 남고 정답도 받는다 — 막는 것은 새로 만드는 일뿐이다. 그리고 **방송하지 않는다** — 내 행은 나만 보고,
+   * 신호 하나가 곧 인원수만큼의 재조회다 (ADR-26). 다른 기기는 다음에 다시 읽을 때 본다.
+   *
+   * `first` · `again` 은 라우트가 지표를 세라고 준다. 참가자 응답에는 싣지 않는다.
+   */
+
+  /**
+   * 처음 저장한 것이 남는다 (S-C3). 두 기기가 각자 보내도 **먼저 닿은 하나**가 결과다 (S-E2) —
+   * 늦은 쪽에게는 409 가 아니라 저장된 그 행을 돌려준다. 늦은 쪽이 잘못한 게 아니다.
+   *
+   * **다시 찾기** (ADR-125) — 요청이 **지금 결과의 `at` 을 가리킬 때만** 새 결과로 바꾼다. 가리키지 않았거나 다른 결과를
+   * 가리켰으면(그 사이 다른 기기가 먼저 바꿨다) 바꾸지 않고 저장된 행을 돌려준다 — 먼저 온 쪽이 남는 규칙 그대로다.
+   * 바꾼 행에는 정답이 없다 — 결과마다 한 번 묻는다. 읽기와 쓰기 사이에 await 가 없다 (`saveMission` 과 같은 원자성).
+   */
+  async saveIdeal(
+    playerId: string,
+    raw: unknown,
+    now: number,
+  ): Promise<Result<{ ideal: Ideal; first: boolean; again: boolean }>> {
+    // 지운 회차에서는 표가 이미 없다 — 날것의 SELECT 가 던지기 전에 여기서 돌려보낸다
+    const meta = await this.touch(now);
+    if (!meta) return fail("not_found");
+    // 지운 사람의 세션은 한동안 산다. 여기서 쓰면 아무도 안 지우는 행이 남는다
+    if (!this.player(playerId)) return fail("not_found");
+    if (!canOpenFun(meta.phase)) return fail("closed");
+    const input = readIdealInput(raw);
+    const replaces = readIdealReplaces(raw);
+    if (!input || replaces === null) return fail("bad_request");
+
+    const row = this.rows<{ json: string }>("SELECT json FROM ideals WHERE player_id = ?", playerId)[0];
+    if (row) {
+      const saved = JSON.parse(row.json) as Ideal;
+      if (replaces !== saved.at) return ok({ ideal: saved, first: false, again: false });
+      /*
+       * 새 결과의 시각은 **지난 값과 달라야 한다** — 화면이 "새 결과가 섰나" 를 이 값으로 가린다(다시 찾는 중이던 결과와
+       * 같으면 아직 바뀌지 않은 것으로 읽는다). 같은 밀리초에 와도 한 칸 뒤로 민다.
+       */
+      const next: Ideal = { ...input, at: Math.max(now, saved.at + 1) };
+      this.ctx.storage.sql.exec("UPDATE ideals SET json = ? WHERE player_id = ?", JSON.stringify(next), playerId);
+      return ok({ ideal: next, first: false, again: true });
+    }
+
+    const ideal: Ideal = { ...input, at: now };
+    const cur = this.ctx.storage.sql.exec(
+      // 가리킬 결과가 없으면 처음 저장이다 — 가리키고 왔어도 그렇다. 정답은 `saveIdealVerdict` 가 따로 채운다
+      "INSERT INTO ideals (player_id, json) VALUES (?,?) ON CONFLICT(player_id) DO NOTHING",
+      playerId,
+      JSON.stringify(ideal),
+    );
+    // 첫 저장인지는 다음 쿼리 전에 읽어 둔다 — 지표가 이 한 번만 센다
+    const first = cur.rowsWritten > 0;
+    // 방금 보낸 것이 아니라 **저장된 것**을 돌려준다 — 화면은 이 응답을 그대로 그린다
+    const stored = this.rows<{ json: string }>("SELECT json FROM ideals WHERE player_id = ?", playerId)[0];
+    return ok({ ideal: JSON.parse(stored.json) as Ideal, first, again: false });
+  }
+
+  /**
+   * 정답 확인 (S-C4). **결과마다 한 번 채운다** — 이미 답했으면 무엇이 오든 저장된 행을 그대로 돌려준다
+   * (같은 답을 두 번 보낸 기기를 400 으로 혼내지 않는다). 결과·고른 얼굴은 건드리지 않는다 —
+   * '없었어요' 가 결과를 바꾸면 S-C3 이 무너진다. 결과를 바꾸는 길은 다시 찾기 하나다 (ADR-125).
+   * **문(`canOpenFun`)을 보지 않는다** — 이미 찾은 결과를 보는 일의 한 칸이다. 단계가 되돌아가도 답할 수 있다.
+   *
+   * 읽기와 쓰기 사이에 await 가 없다 — `saveMission` 과 같은 원자성이다.
+   */
+  async saveIdealVerdict(
+    playerId: string,
+    raw: unknown,
+    now: number,
+  ): Promise<Result<{ ideal: Ideal; first: boolean }>> {
+    if (!(await this.touch(now))) return fail("not_found");
+    if (!this.player(playerId)) return fail("not_found");
+    const row = this.rows<{ json: string }>("SELECT json FROM ideals WHERE player_id = ?", playerId)[0];
+    // 결과가 없으면 답할 것이 없다
+    if (!row) return fail("not_found");
+    const saved = JSON.parse(row.json) as Ideal;
+    if (saved.verdict) return ok({ ideal: saved, first: false });
+
+    const verdict = readIdealVerdict(raw, saved.result);
+    if (!verdict) return fail("bad_request");
+    const next: Ideal = { ...saved, verdict };
+    this.ctx.storage.sql.exec("UPDATE ideals SET json = ? WHERE player_id = ?", JSON.stringify(next), playerId);
+    return ok({ ideal: next, first: true });
   }
 
   // ─────────────────────────── 자리

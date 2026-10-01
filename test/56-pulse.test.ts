@@ -11,7 +11,7 @@
  *   ③ 원값을 담기 — 초 단위 체류 시간은 그 자체로 한 사람의 습관이다
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import { SEATING_KEYS, pulse, type Pulse } from "../src/server/metrics.ts";
+import { IDEAL_KEYS, SEATING_KEYS, pulse, type Pulse } from "../src/server/metrics.ts";
 import { NAV_KEYS, PULSE_MAX, TAP_KEYS, WS_KEYS, allowedKey, msBucket, stayBucket } from "../src/shared/pulse.ts";
 import { api, freshEvent, join, signInMaster } from "./helpers/party.ts";
 
@@ -44,6 +44,7 @@ describe("집계 지표는 사람을 가리키지 않는다", () => {
       { kind: "ws", key: "drop", who: "player" },
       { kind: "stay", bucket: "<5m", who: "host" },
       { kind: "seating", key: "swap" },
+      { kind: "ideal", key: "save", v: 1 },
     ];
     for (const p of all) pulse(s.env, p);
 
@@ -134,6 +135,38 @@ describe("자리 조작 지표 (ADR-58)", () => {
   it("★ 조작 이름이 전부 고정된 낱말이다", () => {
     for (const key of SEATING_KEYS) expect(key).toMatch(/^[a-z_]+$/);
     expect(new Set(SEATING_KEYS).size).toBe(SEATING_KEYS.length);
+  });
+});
+
+describe("이상형 찾기 지표 (슬라이스 19, S-D4)", () => {
+  /**
+   * ★ **어느 연예인인지 담지 않는다.**
+   *
+   * 알고 싶은 건 *이 판(`v`)의 결과가 취향에 맞나* 하나다 — 첫 저장 수와 `chosen`·`none` 의 비.
+   * 결과 id 가 담기면 `이 파티 이상형 1위` 라는 결과 통계가 되고, 두셋뿐인 회차에서는 그게 곧 한 사람의 취향이다.
+   * 저장하는 코드에는 결과·고른 얼굴 id 가 손에 잡히는 곳에 있어서 한 줄 미끄러지기 쉽다.
+   *
+   * 담기는 것은 `["ideal", 종류, v]` 셋뿐이고 그 이상이 오면 이 줄이 깨진다.
+   */
+  it("★ 이상형 지표에는 사람도 회차도 연예인도 없다 — 종류와 판 번호뿐이다", () => {
+    const s = spy();
+    for (const key of IDEAL_KEYS) pulse(s.env, { kind: "ideal", key, v: 3 });
+
+    expect(s.wrote).toHaveLength(IDEAL_KEYS.length);
+    s.wrote.forEach((w, i) => {
+      expect(w.blobs).toEqual(["ideal", IDEAL_KEYS[i], "3"]);
+      expect(w.doubles).toEqual([1]);
+      expect(w.indexes).toBeUndefined();
+    });
+  });
+
+  /**
+   * ★ 종류는 고정된 낱말 넷이다 — 첫 저장 · 다시 찾기(ADR-125) · 셋 중 하나 · 없었어요.
+   * 넷 다 **어느 연예인인지, 누구인지** 를 담지 않는다. 새 낱말은 여기 적어야 들어온다.
+   */
+  it("★ 이상형 지표의 종류가 전부 고정된 낱말이다", () => {
+    expect([...IDEAL_KEYS].sort()).toEqual(["again", "chosen", "none", "save"]);
+    for (const key of IDEAL_KEYS) expect(key).toMatch(/^[a-z_]+$/);
   });
 });
 

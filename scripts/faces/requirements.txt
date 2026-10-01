@@ -1,0 +1,4 @@
+# face.py 의 파이썬 의존성 — v1 을 만든 판으로 묶는다 (크롭은 OpenCV 의 보간 · webp 인코더를 탄다)
+# python3 -m venv .faces-work/venv && .faces-work/venv/bin/pip install -r scripts/faces/requirements.txt
+opencv-python-headless==5.0.0.93
+numpy==2.5.3
