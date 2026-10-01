@@ -10,7 +10,7 @@
  *    쓴다 — 앞 테스트가 받아 둔 판을 다시 받지 않아 실패가 안 보이는 일이 없게.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { FORTUNE, FUN, HELP, IDEAL, TABS_PARTICIPANT } from "../../src/shared/copy.ts";
 import type { ParticipantState, Phase } from "../../src/shared/types.ts";
@@ -27,6 +27,7 @@ import {
   type Ideal,
 } from "../../src/shared/ideal.ts";
 import { PARTICIPANT_ROUTES } from "../../src/client/router.tsx";
+import { forgetPools } from "../../src/client/routes/Ideal.tsx";
 import { POOL, enc } from "../fixtures/faces/pool.ts";
 
 const BASE = "/e/ABCDEF";
@@ -1111,6 +1112,8 @@ describe("이상형 찾기 · 얼굴 자료를 못 받았을 때", () => {
   });
 
   it("★ 404 도 실패다 — 실패는 캐시에 남지 않는다", async () => {
+    // 앞 테스트의 시작 화면이 지금 판을 미리 받아 뒀다 — 비우고 시작한다
+    forgetPools();
     const s = stub(stateIn("prevote"), { faces: "404" });
     const router = mount(`${BASE}/fun`);
     await startRun(router, "M");
@@ -1118,10 +1121,14 @@ describe("이상형 찾기 · 얼굴 자료를 못 받았을 때", () => {
     expect(await screen.findByText(IDEAL.loadFail)).toBeTruthy();
     expect(screen.queryByRole("button", { name: IDEAL.face(1) })).toBeNull();
 
+    const asks = () => s.asked.filter((a) => a.url === `/faces/v${IDEAL_ASSET_V}/m.json`).length;
+    const before = asks();
     s.faces = "ok";
     fireEvent.click(screen.getByRole("button", { name: IDEAL.retry }));
     expect(await screen.findByRole("button", { name: IDEAL.face(1) })).toBeTruthy();
-    expect(s.asked.filter((a) => a.url === `/faces/v${IDEAL_ASSET_V}/m.json`)).toHaveLength(2);
+    // 다시 불러오기가 정말 다시 묻는다 — 실패가 캐시에 남았으면 묻지 않고 같은 실패를 돌려준다
+    expect(asks()).toBe(before + 1);
+    expect(screen.queryByText(IDEAL.loadFail)).toBeNull();
   });
 
   it("★ 모양이 틀린 JSON 도 실패다 — 판 번호가 경로와 다르면 받지 않는다", async () => {
@@ -1188,5 +1195,81 @@ describe("끌린 얼굴의 특징 (ADR-127)", () => {
     mount(`${BASE}/ideal`);
     await screen.findAllByText(`n${SAVED.result[0]}`);
     expect(document.body.textContent).not.toContain(IDEAL.traitsKicker);
+  });
+});
+
+describe("다음에 보일 사진은 미리 받는다", () => {
+  /**
+   * 한국에서 이 워커는 멀리 붙어(LAX) 왕복 한 번이 150ms 쯤이다. 자료 → 사진을 차례로 기다리면 라운드마다 빈 칸이 섰다.
+   * 미리 받는 것은 `new Image()` 다 — 그 주소를 센다.
+   */
+  let warmed: string[] = [];
+  function stubImage() {
+    warmed = [];
+    vi.stubGlobal(
+      "Image",
+      class {
+        decoding = "";
+        set src(v: string) {
+          warmed.push(v);
+        }
+      },
+    );
+  }
+  const url = (id: string) => `/faces/v${IDEAL_ASSET_V}/${id}.webp`;
+
+  // 미리 받은 주소는 모듈에 남는다 — 앞 테스트가 받아 둔 사진은 다시 부르지 않으니 비우고 시작한다
+  beforeEach(forgetPools);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("★ 시작 화면이 서면 두 풀의 자료와 1라운드 첫 쪽을 받는다 — 풀을 고르기 전에", async () => {
+    const s = stub(stateIn("prevote"));
+    stubImage();
+    const router = mount(`${BASE}/fun`);
+    fireEvent.click(await idealStart());
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
+
+    await waitFor(() => expect(warmed).toEqual(expect.arrayContaining(LEVEL1.slice(0, IDEAL_SHAPE.faces).map(url))));
+    const asked = s.asked.map((a) => a.url);
+    expect(asked).toContain(`/faces/v${IDEAL_ASSET_V}/f.json`);
+    expect(asked).toContain(`/faces/v${IDEAL_ASSET_V}/m.json`);
+    expect(path(router)).toBe(`${BASE}/ideal`);
+  });
+
+  it("★ 고르면 다음 라운드의 아홉을 받는다 — 고른 대로 다시 센 그 아홉", async () => {
+    stub(stateIn("prevote"));
+    stubImage();
+    const router = mount(`${BASE}/fun`);
+    await startRun(router);
+    await screen.findByRole("button", { name: IDEAL.face(1) });
+
+    const first = idOf(tiles()[0]);
+    fireEvent.click(tiles()[0]);
+    const r2 = pickRound(SYN_FACES, 2, tasteCenters([vecOf(first)]), new Set(shownIds()));
+    await waitFor(() => expect(warmed).toEqual(expect.arrayContaining(r2.map((f) => url(f.id)))));
+  });
+
+  it("★ 아무것도 안 골랐으면 `다른 얼굴 보기` 의 아홉도 받는다", async () => {
+    stub(stateIn("prevote"));
+    stubImage();
+    const router = mount(`${BASE}/fun`);
+    await startRun(router);
+    await screen.findByRole("button", { name: IDEAL.face(1) });
+    await waitFor(() => expect(warmed).toEqual(expect.arrayContaining(LEVEL1.slice(IDEAL_SHAPE.faces).map(url))));
+  });
+
+  it("★ 마지막 라운드에서 고르면 결과 셋을 받는다", async () => {
+    stub(stateIn("prevote"));
+    stubImage();
+    const router = mount(`${BASE}/fun`);
+    await startRun(router);
+    const { picked, shown } = await playRounds(router);
+
+    const centers = tasteCenters(picked.flat().map(vecOf));
+    const result = nearestCelebs(SYN_CELEBS, centers, new Set(shown.flat()));
+    await waitFor(() => expect(warmed).toEqual(expect.arrayContaining(result.map((c) => url(c.id)))));
   });
 });

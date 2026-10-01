@@ -14,7 +14,12 @@
  * 주소 사이에서 한 자리에 두어 값이 산다. 재미 탭으로 나가면 사라진다 — 1분짜리라 이어 하기를 만들지 않는다.
  *
  * 계산은 전부 기기에서 한다 (S-D3). 서버에는 고른 id 와 결과 id 만 간다.
- * 얼굴 자료는 **여기서만** 받는다 — 풀을 고른 뒤에, 또는 결과를 그릴 때. 재미 탭 카드만 보는 사람은 받지 않는다.
+ * 얼굴 자료는 **여기서만** 받는다 — 시작 화면이 서면, 또는 결과를 그릴 때. 재미 탭 카드만 보는 사람은 받지 않는다.
+ *
+ * **다음에 보일 사진은 미리 받는다** (`warm`). 한국에서 이 워커는 멀리(LAX) 붙어 왕복 한 번이 150ms 쯤이고,
+ * 자료 → 사진이 차례로 기다리면 라운드마다 반 초가 넘게 빈 칸이 섰다. 시작 화면에서는 두 풀의 자료와 1라운드 첫 쪽을,
+ * 라운드에서는 고를 때마다 **다음 라운드의 아홉**(이미 계산해 둔 값이다)과 `다른 얼굴 보기` 의 아홉을, 마지막 라운드에서는
+ * 결과 셋을. 사진은 1년 캐시라 한 번 받으면 다시 묻지 않는다.
  *
  * 따로 싣는 조각이다 (`React.lazy`) — 탭 카드는 `IdealCard.tsx` 에 있다.
  */
@@ -147,6 +152,30 @@ function usePool(v: number, pool: Gender | null) {
 }
 
 const photo = (v: number, id: string) => `/faces/v${v}/${id}.webp`;
+
+/**
+ * 테스트가 모듈 캐시를 비우는 문 — 시작 화면이 자료를 미리 받으므로, 실패를 재는 테스트는 앞 테스트가 받아 둔 풀을 비우고 시작한다
+ */
+export function forgetPools() {
+  pools.clear();
+  warmed.clear();
+}
+
+/** 이미 미리 받은 사진 주소 — 같은 사진을 두 번 부르지 않는다 */
+const warmed = new Set<string>();
+/**
+ * 사진을 미리 받아 브라우저 캐시에 넣는다. 화면에 붙이지 않는다 — 실패해도 아무 말이 없다
+ * (그 사진이 정말 필요해지면 `<img>` 가 다시 부르고, 그때의 실패는 그 칸이 말한다)
+ */
+function warm(urls: readonly string[]) {
+  for (const u of urls) {
+    if (warmed.has(u)) continue;
+    warmed.add(u);
+    const img = new Image();
+    img.decoding = "async";
+    img.src = u;
+  }
+}
 /** 자산의 픽셀 크기 (4:5). 먼저 자리를 잡아 사진이 들어올 때 화면이 튀지 않는다 */
 const W = 240;
 const H = 300;
@@ -243,6 +272,36 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
     () => (data && drafting ? roundsOf(data, picks, flips) : { rounds: [], shown: new Set<string>() }),
     [data, drafting, picks, flips],
   );
+
+  // 시작 화면 — 어느 쪽을 고를지 모르니 두 풀의 자료와 1라운드 첫 쪽을. 1라운드는 모두에게 같다
+  const atStart = drafting && round === 0 && funOpen;
+  useEffect(() => {
+    if (!atStart) return;
+    for (const g of ["F", "M"] as const) {
+      loadPool(IDEAL_ASSET_V, g).then(
+        (p) => warm(pickRound(p.faces, 1, null, new Set()).map((f) => photo(IDEAL_ASSET_V, f.id))),
+        () => {}, // 실패는 풀을 고른 뒤 그 화면이 말한다 — 실패한 약속은 캐시에 남지 않는다
+      );
+    }
+  }, [atStart]);
+
+  // 라운드 — 다음 라운드의 아홉(고르는 대로 다시 센 값), 이 라운드의 `다른 얼굴 보기`, 마지막이면 결과 셋
+  useEffect(() => {
+    if (!data || !drafting || round < 1) return;
+    const urls: string[] = [];
+    const next = rounds[round];
+    if (next) urls.push(...next.map((f) => photo(IDEAL_ASSET_V, f.id)));
+    if (!picks[round - 1]?.length && (flips[round - 1] ?? 0) < IDEAL_SHAPE.rerolls) {
+      const f = flips.slice(0, round);
+      f[round - 1] = (f[round - 1] ?? 0) + 1;
+      const alt = roundsOf(data, picks, f).rounds[round - 1] ?? [];
+      urls.push(...alt.map((x) => photo(IDEAL_ASSET_V, x.id)));
+    }
+    if (round === IDEAL_SHAPE.rounds && picks[round - 1]?.length) {
+      urls.push(...nearestCelebs(data.celebs, centersOf(data, picks.flat()), shown).map((c) => photo(IDEAL_ASSET_V, c.id)));
+    }
+    warm(urls);
+  }, [data, drafting, round, rounds, picks, flips, shown]);
 
   /*
    * 라운드 주소의 문. **결과가 있으면 열리지 않고**(S-C3), 고르던 값이 없으면(주소를 바로 열었거나 새로고침,
