@@ -605,7 +605,9 @@ function Result({
               <p className="idealAnswer">{IDEAL.verdictAsk}</p>
               {/*
                 **여럿을 고를 수 있다** (ADR-127) — 이름은 켜고 끄는 단추이고, 보내기는 따로다. `없었어요` 는 그 자체로 답이라
-                바로 보낸다. 켠 것은 색만이 아니라 ✓ 로도 말한다 (S-B6 과 같은 이유)
+                바로 보낸다. 켠 것은 색만이 아니라 ✓ 로도 말한다 (S-B6 과 같은 이유).
+                **이름 셋은 같은 폭의 세 칸이다** — 이름 길이로 폭이 갈리면 단추가 들쭉날쭉하고, 켤 때 ✓ 가 글자 앞에 붙으면
+                눌린 단추가 커져 옆 단추를 민다. ✓ 는 모서리에 얹는다
               */}
               <div className="idealVerdicts">
                 {ideal.result.map((id) => {
@@ -619,18 +621,25 @@ function Result({
                       onClick={() => setSel(on ? sel.filter((x) => x !== id) : [...sel, id])}
                     >
                       {/* ✓ 는 이름표에서 뺀다 — 켜졌는지는 aria-pressed 가 말하고, 이름은 그대로 이름이다 */}
-                      {on && <span aria-hidden>✓ </span>}
+                      {on && (
+                        <span className="verdictCheck" aria-hidden>
+                          ✓
+                        </span>
+                      )}
                       {name(id)}
                     </button>
                   );
                 })}
+              </div>
+              {/* 답하는 두 길 — 같은 폭으로 나란히. `없었어요` 는 바로 보내고, 보내기는 이름을 켜야 눌린다 */}
+              <div className="idealVerdictActions">
                 <button className="btn ghost" disabled={answering} onClick={() => answer({ none: true })}>
                   {IDEAL.verdictNone}
                 </button>
+                <button className="btn primary" disabled={answering || !sel.length} onClick={() => answer({ chosen: sel })}>
+                  {IDEAL.verdictSubmit}
+                </button>
               </div>
-              <button className="btn primary block" disabled={answering || !sel.length} onClick={() => answer({ chosen: sel })}>
-                {IDEAL.verdictSubmit}
-              </button>
             </>
           )}
         </section>
