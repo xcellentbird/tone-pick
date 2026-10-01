@@ -50,6 +50,7 @@
 import type { Phase, PinState, PokeRound } from "./types.ts";
 import { animalIndex, fortuneSeed, pickColor, toneIndex, zodiacIndex } from "./fortune.ts";
 import { TOP_VOTE_MIN } from "./poke.ts";
+import type { IdealTraits } from "./ideal.ts";
 
 // ─────────────────────────────────────────── 공통
 
@@ -1386,16 +1387,62 @@ export const IDEAL = {
   resultTitle: "내 이상형에 가까운 얼굴",
   /** 결과 아래에서 라운드 중 직접 고른 얼굴 묶음을 구분한다. */
   pickedTitle: "내가 고른 얼굴",
-  /** 셋 가운데 실제 취향이 있었는지 부담 없이 묻는다. */
-  verdictAsk: "이 중에 진짜 이상형이 있었나요?",
+  /** 셋 가운데 진짜 이상형이 있었는지 묻는다 — 한 명만 고를 필요는 없다 (ADR-127) */
+  verdictAsk: "셋 중에 진짜 이상형이 있었나요? 여러 명 골라도 돼요",
+  /** 고른 이름들을 답으로 보내는 버튼. 행동을 명사형으로 보여준다 */
+  verdictSubmit: "답 보내기",
   /** 고를 얼굴이 없었다는 답을 짧게 그대로 둔다. */
   verdictNone: "없었어요",
-  /** 물음이 사라져도 셋 중 누구였는지 답만으로 알 수 있게 하고, 이름에 맞는 과거형으로 쓴다. */
-  verdictChosen: (name: string) => {
-    const last = name.charCodeAt(name.length - 1);
-    const hasFinalConsonant = last >= 0xac00 && last <= 0xd7a3 && (last - 0xac00) % 28 !== 0;
-    return `셋 중 진짜 이상형은 ${name}${hasFinalConsonant ? "이었어요" : "였어요"}`;
+  /** 물음이 사라진 자리에 고른 이름을 남긴다 — 마지막 이름의 받침에 맞춰 한 명도 여럿도 문장으로 잇는다 */
+  verdictChosen: (names: readonly string[]) => {
+    const last = names.at(-1) ?? "";
+    const code = last.charCodeAt(last.length - 1);
+    const subject = code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 !== 0 ? "이" : "가";
+    return `${names.join(", ")}${subject} 진짜 이상형이에요`;
   },
+  /** 직접 고른 얼굴에서 나온 특징임을 밝힌다 — 아래 연예인 셋의 공통점으로 읽히지 않게 한다 (ADR-127) */
+  traitsKicker: "내가 끌린 얼굴",
+  /**
+   * 동물상과 분위기는 제목으로, 눈매와 턱선, 이목구비는 끌리는 특징을 말하는 문장으로 쓴다.
+   * 분위기는 앞에서 이을 말과 끝에서 꾸밀 말을 나눈다. 나란히 볼 화면이라 노골적인 말은 덜어낸다.
+   * 빈 칸은 건너뛴다 — 제목에 쓸 칸이 없으면 나머지 특징 하나를 올리고, 되풀이하는 줄은 두지 않는다.
+   */
+  traits: (t: IdealTraits): { title: string; line?: string } => {
+    const animal = {
+      dog: "강아지상", cat: "고양이상", fox: "여우상", rabbit: "토끼상", deer: "사슴상",
+      bear: "곰상", wolf: "늑대상", dino: "공룡상", squirrel: "다람쥐상", hamster: "햄스터상",
+      horse: "말상", snake: "뱀상", tofu: "두부상", chick: "병아리상",
+    };
+    const vibe = {
+      pure: ["청순하고", "청순한"], cute: ["귀엽고", "귀여운"], bubbly: ["발랄하고", "발랄한"],
+      chic: ["시크하고", "시크한"], haughty: ["도도하고", "도도한"], elegant: ["우아하고", "우아한"],
+      sexy: ["그윽하고", "그윽한"], smart: ["지적이고", "지적인"], warm: ["따뜻하고", "따뜻한"],
+      soft: ["부드럽고", "부드러운"], cold: ["차갑고", "차가운"], strong: ["강인하고", "강인한"],
+      manly: ["남성적이고", "남성적인"], androgynous: ["중성적이고", "중성적인"],
+      boyish: ["소년 같고", "소년 같은"], exotic: ["이국적이고", "이국적인"], plain: ["수수하고", "수수한"],
+      glam: ["화려하고", "화려한"], mature: ["성숙하고", "성숙한"], playful: ["장난스럽고", "장난스러운"],
+    };
+    const gaze = {
+      gentle: "순한 눈매", clear: "또렷한 눈매", sharp: "날카로운 눈매", sleepy: "나른한 눈매", smiling: "웃는 듯한 눈매",
+    };
+    const jaw = {
+      slim: "갸름하고 뾰족한 턱선", curved: "부드러운 턱선", angular: "각진 턱선", round: "둥근 턱선",
+    };
+    const features = {
+      soft: "은은한 이목구비", balanced: "균형 잡힌 이목구비", bold: "뚜렷한 이목구비",
+    };
+    const animals = (t.animal ?? []).map((key) => animal[key]).join("과 ");
+    const vibes = (t.vibe ?? []).map((key, i, all) => vibe[key][i === all.length - 1 ? 1 : 0]).join(" ");
+    const details = [
+      ...(t.gaze ?? []).map((key) => gaze[key]),
+      ...(t.jaw ?? []).map((key) => jaw[key]),
+      ...(t.features ?? []).map((key) => features[key]),
+    ];
+    const title = [vibes, animals || (vibes ? "인상" : "")].filter(Boolean).join(" ") || details.shift()!;
+    return details.length ? { title, line: `${details.join(", ")}에 끌려요` } : { title };
+  },
+  /** 두드러진 특징이 없어도 취향의 한 모습이다 — 실패나 부족함으로 말하지 않는다 */
+  traitsNone: "서로 다른 인상에 고루 끌렸어요",
   /** 셋 중에는 없었다는 답을 온전히 말해 선택 실패나 다시 찾으라는 뜻을 피한다. */
   verdictNoneDone: "셋 중에는 진짜 이상형이 없었어요",
   /** 실패 이유만 전해 다시 여는 안내와 아래 버튼의 역할을 겹치지 않게 한다. */

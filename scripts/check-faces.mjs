@@ -84,6 +84,9 @@ if (lost.length) {
   process.exit(1);
 }
 
+/** 특징 부호 하나의 모양 — `animal.cat` (ideal.ts 의 traitToken) */
+const TRAIT_TOKEN = /^[a-z]+\.[a-z]+$/;
+
 /** 복원 길이 허용 폭. int8 양자화가 길이를 조금 흔든다 — 그 이상이면 정규화를 빠뜨린 것이다 */
 const NORM_TOL = 0.02;
 /**
@@ -251,6 +254,9 @@ for (const ver of versions) {
       if (typeof c.name !== "string" || !c.name.trim()) say(`${file} ${at("celebs", i, c)} 에 이름이 없다 — 결과 화면이 이름을 말한다`);
       else names.add(c.name);
       if (c.retired !== undefined && c.retired !== true) say(`${file} ${at("celebs", i, c)} 의 retired 는 true 이거나 없어야 한다`);
+      // 특징 부호(ADR-127) — 있으면 `칸.부호` 꼴의 목록이어야 한다. 모르는 부호는 화면에서 조용히 빠진다
+      if (c.t !== undefined && !(Array.isArray(c.t) && c.t.every((x) => typeof x === "string" && TRAIT_TOKEN.test(x))))
+        say(`${file} ${at("celebs", i, c)} 의 t 가 \`칸.부호\` 목록이 아니다`);
       if (c.retired === true) return;
       live++;
       if (typeof c.id === "string") needPhoto.add(c.id);

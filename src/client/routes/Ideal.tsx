@@ -24,6 +24,7 @@ import {
   IDEAL_ASSET_V,
   IDEAL_SHAPE,
   decodeVec,
+  idealTraits,
   nearestCelebs,
   pickRound,
   tasteCenters,
@@ -32,6 +33,7 @@ import {
   type FacePoolFile,
   type Ideal,
   type IdealInput,
+  type IdealTraits,
   type IdealVerdict,
 } from "../../shared/ideal.ts";
 import type { Gender } from "../../shared/types.ts";
@@ -47,6 +49,8 @@ interface Pool {
   vecs: Map<string, Float32Array>;
   /** 이름은 자산에만 있다 — DO 에는 이름이 없다 (S-D3) */
   names: Map<string, string>;
+  /** 사람마다의 특징 부호 (ADR-127). 그 판에 없으면(v1 · v2) 비어 있고, 결과 화면은 특징 카드를 그리지 않는다 */
+  traits: Map<string, string[]>;
 }
 
 /**
@@ -62,7 +66,8 @@ function readPool(raw: unknown, v: number): FacePoolFile | null {
   if (!Array.isArray(f.faces) || !Array.isArray(f.celebs)) return null;
   const ok = (x: { id?: unknown; v?: unknown } | null) =>
     !!x && typeof x.id === "string" && IDEAL_SHAPE.id.test(x.id) && typeof x.v === "string";
-  if (!f.faces.every(ok) || !f.celebs.every((c) => ok(c) && typeof c.name === "string")) return null;
+  const okT = (t: unknown) => t === undefined || (Array.isArray(t) && t.every((x) => typeof x === "string"));
+  if (!f.faces.every(ok) || !f.celebs.every((c) => ok(c) && typeof c.name === "string" && okT(c.t))) return null;
   return f as FacePoolFile;
 }
 
@@ -85,12 +90,14 @@ async function fetchPool(v: number, pool: Gender): Promise<Pool> {
     name: c.name,
     vec: decodeVec(c.v, dim, scale),
     ...(c.retired ? { retired: true as const } : {}),
+    ...(c.t ? { t: c.t } : {}),
   }));
   return {
     faces,
     celebs,
     vecs: new Map(faces.map((f) => [f.id, f.vec])),
     names: new Map(celebs.map((c) => [c.id, c.name])),
+    traits: new Map(celebs.filter((c) => c.t).map((c) => [c.id, c.t!])),
   };
 }
 
@@ -146,6 +153,18 @@ const H = 300;
 
 /** 고른 얼굴들의 취향 중심 — 라운드 후보도 결과도 같은 중심을 따른다. 안 고른 얼굴은 쓰지 않는다 */
 const centersOf = (pool: Pool, ids: readonly string[]) => tasteCenters(ids.map((id) => pool.vecs.get(id)!));
+
+/**
+ * 고른 얼굴들의 특징 (ADR-127). 그 판에 특징이 없으면 null — 옛 결과(v1 · v2)에는 카드가 서지 않는다.
+ * **고른 얼굴**로 센다. 결과 연예인으로 세면 결과가 빗나간 만큼 문장도 빗나간다
+ */
+function traitsOf(pool: Pool, picks: readonly string[][]): IdealTraits | null {
+  if (!pool.traits.size) return null;
+  return idealTraits(
+    picks.flat().map((id) => pool.traits.get(id) ?? []),
+    [...pool.traits.values()],
+  );
+}
 
 /**
  * 라운드마다 보여줄 아홉과, 지금까지 **본 얼굴 전부**(넘긴 쪽까지 — 다시 안 나오고 결과에도 안 나온다).
@@ -461,6 +480,26 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
   );
 }
 
+/** 끌린 얼굴의 특징 한 장 (ADR-127). 점수 · % · 순위는 없다 — 낱말뿐이다 */
+function TraitsCard({ traits }: { traits: IdealTraits }) {
+  const has = Object.keys(traits).length > 0;
+  const text = has ? IDEAL.traits(traits) : null;
+  return (
+    <section className="card stack">
+      <div className="kicker">{IDEAL.traitsKicker}</div>
+      {text ? (
+        <>
+          <h2 className="cardTitle">{text.title}</h2>
+          {text.line && <p className="idealAnswer">{text.line}</p>}
+        </>
+      ) : (
+        // 두드러진 것이 없었다는 것도 답이다 — 카드를 감추지 않는다
+        <p className="idealAnswer">{IDEAL.traitsNone}</p>
+      )}
+    </section>
+  );
+}
+
 /** 얼굴 자료를 못 받았다. **화면 안에서** 말한다 — 토스트는 곧 사라지고 화면은 빈 채로 남는다 (ADR-65) */
 function LoadFail({ onRetry }: { onRetry: () => void }) {
   return (
@@ -500,6 +539,8 @@ function Result({
   onAgain?: () => void;
 }) {
   const [answering, setAnswering] = useState(false);
+  /** 정답으로 누른 이름들 (ADR-127). 보내기 전까지 이 화면에만 있다 — 눌러 켜고 다시 눌러 끈다 */
+  const [sel, setSel] = useState<string[]>([]);
   const pickedId = useId();
   if (failed) {
     return (
@@ -525,9 +566,15 @@ function Result({
     }
   };
   const verdict = ideal.verdict;
+  const traits = pool ? traitsOf(pool, ideal.picks) : null;
 
   return (
     <div className="stack idealFlow">
+      {/*
+        끌린 얼굴의 특징 (ADR-127) — 결과 얼굴보다 **위**다. 문장이 먼저 `이런 얼굴` 을 말하고, 연예인 셋이 그 예가 된다.
+        결과 화면에만 선다. 재미 탭 입구 카드에는 싣지 않는다 — 결과 얼굴과 같은 어깨너머다 (ADR-125)
+      */}
+      {traits && <TraitsCard traits={traits} />}
       <section className="card stack">
         {/* '연예인' 이라는 말이 처음 나오는 자리다 (S-B5) */}
         <div className="kicker">{IDEAL.resultKicker}</div>
@@ -551,21 +598,39 @@ function Result({
         <section className="card stack">
           {verdict ? (
             <p className="idealAnswer">
-              {"chosen" in verdict ? IDEAL.verdictChosen(name(verdict.chosen) ?? "") : IDEAL.verdictNoneDone}
+              {"chosen" in verdict ? IDEAL.verdictChosen(verdict.chosen.map((id) => name(id) ?? "")) : IDEAL.verdictNoneDone}
             </p>
           ) : (
             <>
               <p className="idealAnswer">{IDEAL.verdictAsk}</p>
+              {/*
+                **여럿을 고를 수 있다** (ADR-127) — 이름은 켜고 끄는 단추이고, 보내기는 따로다. `없었어요` 는 그 자체로 답이라
+                바로 보낸다. 켠 것은 색만이 아니라 ✓ 로도 말한다 (S-B6 과 같은 이유)
+              */}
               <div className="idealVerdicts">
-                {ideal.result.map((id) => (
-                  <button key={id} className="btn" disabled={answering} onClick={() => answer({ chosen: id })}>
-                    {name(id)}
-                  </button>
-                ))}
+                {ideal.result.map((id) => {
+                  const on = sel.includes(id);
+                  return (
+                    <button
+                      key={id}
+                      className={on ? "btn primary" : "btn"}
+                      aria-pressed={on}
+                      disabled={answering}
+                      onClick={() => setSel(on ? sel.filter((x) => x !== id) : [...sel, id])}
+                    >
+                      {/* ✓ 는 이름표에서 뺀다 — 켜졌는지는 aria-pressed 가 말하고, 이름은 그대로 이름이다 */}
+                      {on && <span aria-hidden>✓ </span>}
+                      {name(id)}
+                    </button>
+                  );
+                })}
                 <button className="btn ghost" disabled={answering} onClick={() => answer({ none: true })}>
                   {IDEAL.verdictNone}
                 </button>
               </div>
+              <button className="btn primary block" disabled={answering || !sel.length} onClick={() => answer({ chosen: sel })}>
+                {IDEAL.verdictSubmit}
+              </button>
             </>
           )}
         </section>

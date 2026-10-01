@@ -100,9 +100,9 @@ describe("S-A2 ★ 재미는 한 번에 열린다 — 프로필 투표부터 (AD
       expect(made.status, `${phase} 에서 저장이 막혔다: ${JSON.stringify(made.body)}`).toBe(200);
       expect(made.body.result).toEqual(inp.result);
 
-      const said = await verdict(p.cookie, { chosen: inp.result[0] });
+      const said = await verdict(p.cookie, { chosen: [inp.result[0]] });
       expect(said.status, `${phase} 에서 정답 확인이 막혔다`).toBe(200);
-      expect(said.body.verdict).toEqual({ chosen: inp.result[0] });
+      expect(said.body.verdict).toEqual({ chosen: [inp.result[0]] });
 
       const state = await me(p.cookie);
       expect(state.body.event.phase).toBe(phase);
@@ -183,9 +183,9 @@ describe("S-C3 ★ 다시 찾기 전에는 그대로 남는다 (ADR-125)", () =>
     expect((await me(a.cookie)).body.ideal).toEqual(two.body);
 
     // 새 결과에는 다시 묻는다
-    const said = await verdict(a.cookie, { chosen: next.result[0] });
+    const said = await verdict(a.cookie, { chosen: [next.result[0]] });
     expect(said.status).toBe(200);
-    expect(said.body.verdict).toEqual({ chosen: next.result[0] });
+    expect(said.body.verdict).toEqual({ chosen: [next.result[0]] });
   });
 
   it("★ 가리킨 결과가 지금 것이 아니면 바꾸지 않는다 — 저장된 행을 돌려받는다", async () => {
@@ -292,32 +292,53 @@ describe("S-C4 ★ 정답을 한 번 묻는다", () => {
 
   it("★ 결과 셋에 없는 사람은 고를 수 없다 — 400, 아무것도 남지 않는다", async () => {
     const { a, made } = await saved();
-    const res = await verdict(a.cookie, { chosen: "zzzzother" });
+    const res = await verdict(a.cookie, { chosen: ["zzzzother"] });
     expect(res.status).toBe(400);
     expect((await me(a.cookie)).body.ideal).toEqual(made);
   });
 
   it("★ 셋 중 하나를 고르면 물음이 답으로 바뀐다 — 결과는 그대로다", async () => {
     const { a, inp, made } = await saved();
+    const res = await verdict(a.cookie, { chosen: [inp.result[1]] });
+    expect(res.status).toBe(200);
+    expect(res.body.verdict).toEqual({ chosen: [inp.result[1]] });
+    // 답이 결과를 바꾸면 S-C3 이 무너진다
+    expect(res.body).toEqual({ ...made, verdict: { chosen: [inp.result[1]] } });
+    expect((await me(a.cookie)).body.ideal).toEqual(res.body);
+  });
+
+  it("★ 여럿을 고를 수 있다 — 결과 순서대로 남는다 (ADR-127)", async () => {
+    const { a, inp, made } = await saved();
+    const res = await verdict(a.cookie, { chosen: [inp.result[2], inp.result[0]] });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ...made, verdict: { chosen: [inp.result[0], inp.result[2]] } });
+    expect((await me(a.cookie)).body.ideal).toEqual(res.body);
+  });
+
+  it("★ 셋 다 골라도 된다", async () => {
+    const { a, inp } = await saved();
+    const res = await verdict(a.cookie, { chosen: [...inp.result] });
+    expect(res.body.verdict).toEqual({ chosen: inp.result });
+  });
+
+  it("한 명을 문자열로 보내도 받는다 — 배포 전에 열어 둔 탭이다. 남는 것은 배열이다", async () => {
+    const { a, inp } = await saved();
     const res = await verdict(a.cookie, { chosen: inp.result[1] });
     expect(res.status).toBe(200);
-    expect(res.body.verdict).toEqual({ chosen: inp.result[1] });
-    // 답이 결과를 바꾸면 S-C3 이 무너진다
-    expect(res.body).toEqual({ ...made, verdict: { chosen: inp.result[1] } });
-    expect((await me(a.cookie)).body.ideal).toEqual(res.body);
+    expect(res.body.verdict).toEqual({ chosen: [inp.result[1]] });
   });
 
   it("★ 한 번 답하면 다시 묻지 않는다 — 두 번째 답은 첫 답을 돌려받는다", async () => {
     const { a, inp } = await saved();
-    const first = await verdict(a.cookie, { chosen: inp.result[0] });
+    const first = await verdict(a.cookie, { chosen: [inp.result[0]] });
 
-    for (const again of [{ chosen: inp.result[2] }, { none: true }]) {
+    for (const again of [{ chosen: [inp.result[2]] }, { none: true }]) {
       const res = await verdict(a.cookie, again);
       expect(res.status, JSON.stringify(again)).toBe(200);
       expect(res.body, `${JSON.stringify(again)} 이 첫 답을 덮었다`).toEqual(first.body);
     }
     // 이미 답했으면 무엇이 오든 저장된 행이다 — 같은 답을 두 번 보낸 기기를 400 으로 혼내지 않는다
-    const junk = await verdict(a.cookie, { chosen: "zzzzother" });
+    const junk = await verdict(a.cookie, { chosen: ["zzzzother"] });
     expect(junk.status).toBe(200);
     expect(junk.body).toEqual(first.body);
     expect((await me(a.cookie)).body.ideal).toEqual(first.body);
@@ -333,7 +354,7 @@ describe("S-C4 ★ 정답을 한 번 묻는다", () => {
     const retry = await save(a.cookie, input());
     expect(retry.body).toEqual(res.body);
     // 뒤늦게 고른 사람도 안 받는다
-    expect((await verdict(a.cookie, { chosen: inp.result[0] })).body.verdict).toEqual({ none: true });
+    expect((await verdict(a.cookie, { chosen: [inp.result[0]] })).body.verdict).toEqual({ none: true });
   });
 
   it("★ 답의 모양이 어긋나면 400 — 둘 다거나, 다른 값이거나", async () => {
@@ -348,7 +369,10 @@ describe("S-C4 ★ 정답을 한 번 묻는다", () => {
       { none: "true" },
       { none: 1 },
       { chosen: 1 },
-      { chosen: [inp.result[0]] },
+      { chosen: [] },
+      { chosen: [1] },
+      { chosen: [inp.result[0], inp.result[0]] },
+      { chosen: [inp.result[0], "zzzzother"] },
       { chosen: inp.result[0].toUpperCase() },
     ];
     for (const body of bad) {
@@ -469,9 +493,9 @@ describe("모양만 본다 — 어긋나면 400 (S-D3)", () => {
     expect(res.body.at, "시각을 기기가 정했다").not.toBe(1);
     expect(JSON.stringify(res.body)).not.toContain("zqleak");
 
-    const said = await verdict(a.cookie, { chosen: inp.result[2], zqleakkey: "zqleakvalue" });
+    const said = await verdict(a.cookie, { chosen: [inp.result[2]], zqleakkey: "zqleakvalue" });
     expect(said.status).toBe(200);
-    expect(said.body.verdict).toEqual({ chosen: inp.result[2] });
+    expect(said.body.verdict).toEqual({ chosen: [inp.result[2]] });
 
     const state = await me(a.cookie);
     expect(state.body.ideal).toEqual(said.body);
@@ -490,7 +514,7 @@ describe("S-D1 ★ 내 결과는 내 응답에만 있다", () => {
     await setPhase(ev.id, "party");
     const inp = input();
     expect((await save(a.cookie, inp)).status).toBe(200);
-    expect((await verdict(a.cookie, { chosen: inp.result[0] })).status).toBe(200);
+    expect((await verdict(a.cookie, { chosen: [inp.result[0]] })).status).toBe(200);
 
     // 내 응답에는 있다 — 한 칸이 전부다
     const mine = await me(a.cookie);
@@ -564,7 +588,7 @@ describe("S-D2 ★ 참가자를 지우면 결과도 사라진다", () => {
     await api(`/api/host/events/${ev.id}/players/${b.id}`, { method: "DELETE", cookie: master });
 
     expect((await save(a.cookie, input())).status).toBe(404);
-    expect((await verdict(b.cookie, { chosen: inp.result[0] })).status).toBe(404);
+    expect((await verdict(b.cookie, { chosen: [inp.result[0]] })).status).toBe(404);
   });
 });
 
@@ -601,7 +625,7 @@ describe("방송하지 않는다", () => {
     const made = await save(a.cookie, inp);
     expect(made.status).toBe(200);
     expect((await save(a.cookie, input())).status).toBe(200);
-    expect((await verdict(a.cookie, { chosen: inp.result[0] })).status).toBe(200);
+    expect((await verdict(a.cookie, { chosen: [inp.result[0]] })).status).toBe(200);
     expect((await redo(a.cookie, input(), made.body.at)).status).toBe(200);
     await settle();
 
