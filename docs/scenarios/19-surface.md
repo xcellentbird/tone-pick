@@ -311,7 +311,7 @@ push 되고 수는 그 칸에 적혀 있다 (ROUTES.md). 결과는 `POST /api/id
 
 - `GET /api/ideal` — `ParticipantState.ideal` 에 실려 온다
 - `DELETE`·`PUT /api/ideal` — 다시 찾기는 `POST /api/ideal` 의 `replaces` 로 한다 (ADR-125). 결과를 지우는 길은 없다.
-  '없었어요'(S-C4)가 저절로 다시 찾기를 열지도 않는다
+  '없음'(S-C4)이 저절로 다시 찾기를 열지도 않는다
 - 운영자 라우트·`HostState` 필드 — 운영자 화면이 없다 (S-D1)
 - 자산을 주는 API — 정적 파일이다. Worker 를 거치면 캐시만 잃는다
 - `picks` 를 서버가 재계산해 검증하는 것 — S-D3 의 "그래서 뭐"

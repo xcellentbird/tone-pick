@@ -636,7 +636,7 @@ describe("normalizeIdeal — v2 까지의 한 명짜리 정답을 배열로 편�
     expect(normalizeIdeal(old).verdict).toEqual({ chosen: ["r2"] });
   });
 
-  it("지금 모양과 없었어요 · 무응답은 그대로다", () => {
+  it("지금 모양과 없음 · 무응답은 그대로다", () => {
     for (const v of [{ chosen: ["r1", "r3"] }, { none: true as const }, undefined]) {
       const row = { ...base, ...(v ? { verdict: v } : {}) } as Ideal;
       expect(normalizeIdeal(row)).toEqual(row);
