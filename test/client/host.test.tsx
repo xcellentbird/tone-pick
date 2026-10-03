@@ -360,7 +360,7 @@ describe("현황 탭의 순위 둘", () => {
     expect(empties.length, `빈 stack ${empties.length}개가 간격을 먹고 있다`).toBe(0);
   });
 
-  it("★ 파티가 시작되면 매칭 · 콕 TOP · 매력 투표 순으로 선다", async () => {
+  it("★ 파티가 시작되면 매칭 · 콕을 찌른 사람 · 콕 TOP · 매력 투표 순으로 선다", async () => {
     for (const phase of ["party", "done"] as const) {
       cleanup();
       stubFetch(hostState({ phase }, { received: { pre: { p1: 2, p2: 1 }, party: { p1: 1, p2: 0 } }, mutual: [["p1", "p2"]] }));
@@ -369,6 +369,8 @@ describe("현황 탭의 순위 둘", () => {
 
       expect(sections(), `${phase} 의 순서가 다르다`).toEqual([
         HOST_UI.dash.mutualTitle(1),
+        // 참여율은 받은 콕 TOP **바로 위**다 (ADR-131)
+        HOST_UI.dash.pokeShareTitle,
         HOST_UI.dash.rankTitle(1),
         HOST_UI.dash.preRankTitle(2),
       ]);
@@ -404,6 +406,61 @@ describe("현황 탭의 순위 둘", () => {
       expect(router.state.location.pathname).toBe("/host/e1");
       expect(screen.getByText(HOST_UI.dash.rankTitle(1))).toBeTruthy();
     }
+  });
+});
+
+/**
+ * 현황 탭의 참여율 — 콕을 한 번 이상 찌른 사람을 남녀 따로 (ADR-131).
+ *
+ * 세는 것은 **파티 콕**이다. 프로필 투표 표를 섞으면 투표만 하고 콕은 한 번도 안 찌른 사람이
+ * 참여한 것으로 적힌다 — 두 라운드는 쓰임이 다르다 (ADR-34 · 46). 파티 전에 카드가 서지 않는 것은
+ * 위의 `★ 파티 전에는 매칭도 콕 TOP 도 서지 않는다` 가 본다 (그 테스트는 카드 제목 전부를 센다).
+ */
+describe("현황 탭의 콕을 찌른 사람 (ADR-131)", () => {
+  /** 남녀 줄을 [성별, 값] 으로 읽는다 */
+  const shareRows = () =>
+    [...document.querySelectorAll(".shareRow")].map((r) => [
+      r.querySelector(".sex")!.textContent,
+      r.querySelector(".small")!.textContent,
+    ]);
+
+  const person = (id: string, gender: "M" | "F", n: number) => ({
+    id, nickname: `사람${n}`, realName: `김${n}`, age: 30, gender,
+    phone: `0100000000${n}`, instagram: `gram_${n}`, mbti: "ENFP",
+    charms: ["a", "b", "c"] as [string, string, string], createdAt: n, pin: "set" as const,
+  });
+
+  it("★ 남녀 따로 몇 명 중 몇 명인지와 비율 — 파티 콕만 센다", async () => {
+    const players = [person("m1", "M", 1), person("m2", "M", 2), person("m3", "M", 3), person("f1", "F", 4), person("f2", "F", 5)];
+    stubFetch(
+      hostState({ phase: "party" }, {
+        players,
+        // 여자 둘은 프로필 투표만 했고 파티에서는 한 번도 안 찔렀다. `m3` 은 0 이 적혀 있다 — 되돌려서 다시 0 이 된 사람이다
+        sent: { pre: { f1: 3, f2: 1, m1: 1 }, party: { m1: 2, m2: 1, m3: 0 } },
+        received: { pre: {}, party: { f1: 2, f2: 1 } },
+      }),
+    );
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.pokeShareTitle);
+
+    expect(shareRows()).toEqual([
+      [GENDER.M, HOST_UI.dash.pokeShare(2, 3)],
+      [GENDER.F, HOST_UI.dash.pokeShare(0, 2)],
+    ]);
+    // 비율은 반올림이다 — 셋 중 둘은 67%
+    expect(HOST_UI.dash.pokeShare(2, 3)).toContain("67%");
+  });
+
+  it("★ 그 성별로 등록한 사람이 없으면 0% 가 아니라 없다고 말한다", async () => {
+    stubFetch(hostState({ phase: "party" }, { players: [person("m1", "M", 1)], sent: { pre: {}, party: { m1: 1 } } }));
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.pokeShareTitle);
+
+    expect(shareRows()).toEqual([
+      [GENDER.M, HOST_UI.dash.pokeShare(1, 1)],
+      [GENDER.F, HOST_UI.dash.pokeShareNone],
+    ]);
+    expect(document.body.textContent).not.toContain("NaN");
   });
 });
 

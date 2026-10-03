@@ -2385,6 +2385,16 @@ export const HOST_UI = {
      */
     preRankEmpty: "아직 받은 표가 없어요",
     rankEmpty: "아직 받은 콕이 없어요",
+    /**
+     * 참여율 — 콕을 한 번 이상 찌른 사람, 남녀 따로 (ADR-131). 파티가 시작돼야 서고, 받은 콕 TOP 바로 위다.
+     * **사람 수와 비율을 함께 적는다** — 비율만 두면 셋 중 하나와 서른 중 열이 같아 보인다.
+     * ⚠️ **누가 안 찔렀는지 이름을 두지 마라.** 알면 그 사람을 다르게 대하게 된다 —
+     * 현황 탭이 `콕을 못 받은 사람` 을 두지 않는 것과 같은 까닭이다
+     */
+    pokeShareTitle: "👉 콕을 찌른 사람",
+    pokeShare: (used: number, total: number) => `${used}/${total}명 · ${Math.round((used / total) * 100)}%`,
+    /** 그 성별로 등록한 사람이 아직 없을 때 — 0명 중 0명은 0% 가 아니다 */
+    pokeShareNone: "등록한 사람이 없어요",
     registered: (n: number) => `등록 ${n}명`,
   },
 
