@@ -410,31 +410,34 @@ describe("현황 탭의 순위 둘", () => {
 });
 
 /**
- * 현황 탭의 참여율 — 콕을 한 번 이상 찌른 사람을 남녀 따로 (ADR-131).
+ * 현황 탭의 참여율 — 콕을 찌른 참가자와 익명 쪽지를 보낸 참가자를 남녀 따로 (ADR-131).
  *
- * 세는 것은 **파티 콕**이다. 프로필 투표 표를 섞으면 투표만 하고 콕은 한 번도 안 찌른 사람이
- * 참여한 것으로 적힌다 — 두 라운드는 쓰임이 다르다 (ADR-34 · 46). 파티 전에 카드가 서지 않는 것은
+ * 콕은 **파티 콕**만 센다. 프로필 투표 표를 섞으면 투표만 하고 콕은 한 번도 안 찌른 사람이
+ * 참여한 것으로 적힌다 — 두 라운드는 쓰임이 다르다 (ADR-34 · 46). 콕 카드가 파티 전에 서지 않는 것은
  * 위의 `★ 파티 전에는 매칭도 콕 TOP 도 서지 않는다` 가 본다 (그 테스트는 카드 제목 전부를 센다).
+ * 쪽지는 프로필 투표부터 쓴다 (ADR-111) — 쪽지 카드는 그때부터, **쪽지를 쓰는 회차에만** 선다.
  */
-describe("현황 탭의 콕을 찌른 사람 (ADR-131)", () => {
-  /** 남녀 줄을 [성별, 값] 으로 읽는다 */
-  const shareRows = () =>
-    [...document.querySelectorAll(".shareRow")].map((r) => [
+describe("현황 탭의 참여율 — 콕 · 쪽지 (ADR-131)", () => {
+  /** 그 제목 아래 카드의 남녀 줄을 [성별, 값] 으로 읽는다 */
+  const shareRows = (title: string) =>
+    [...(screen.getByText(title).nextElementSibling?.querySelectorAll(".shareRow") ?? [])].map((r) => [
       r.querySelector(".sex")!.textContent,
       r.querySelector(".small")!.textContent,
     ]);
+  /** 화면에 선 카드 제목을 **위에서 아래 순서 그대로** 읽는다 */
+  const sections = () => [...document.querySelectorAll(".kicker")].map((k) => k.textContent);
 
   const person = (id: string, gender: "M" | "F", n: number) => ({
     id, nickname: `사람${n}`, realName: `김${n}`, age: 30, gender,
     phone: `0100000000${n}`, instagram: `gram_${n}`, mbti: "ENFP",
     charms: ["a", "b", "c"] as [string, string, string], createdAt: n, pin: "set" as const,
   });
+  const five = () => [person("m1", "M", 1), person("m2", "M", 2), person("m3", "M", 3), person("f1", "F", 4), person("f2", "F", 5)];
 
-  it("★ 남녀 따로 몇 명 중 몇 명인지와 비율 — 파티 콕만 센다", async () => {
-    const players = [person("m1", "M", 1), person("m2", "M", 2), person("m3", "M", 3), person("f1", "F", 4), person("f2", "F", 5)];
+  it("★ 콕 — 남녀 따로 몇 명 중 몇 명인지와 비율, 파티 콕만 센다", async () => {
     stubFetch(
       hostState({ phase: "party" }, {
-        players,
+        players: five(),
         // 여자 둘은 프로필 투표만 했고 파티에서는 한 번도 안 찔렀다. `m3` 은 0 이 적혀 있다 — 되돌려서 다시 0 이 된 사람이다
         sent: { pre: { f1: 3, f2: 1, m1: 1 }, party: { m1: 2, m2: 1, m3: 0 } },
         received: { pre: {}, party: { f1: 2, f2: 1 } },
@@ -443,12 +446,12 @@ describe("현황 탭의 콕을 찌른 사람 (ADR-131)", () => {
     renderConsole();
     await screen.findByText(HOST_UI.dash.pokeShareTitle);
 
-    expect(shareRows()).toEqual([
-      [GENDER.M, HOST_UI.dash.pokeShare(2, 3)],
-      [GENDER.F, HOST_UI.dash.pokeShare(0, 2)],
+    expect(shareRows(HOST_UI.dash.pokeShareTitle)).toEqual([
+      [GENDER.M, HOST_UI.dash.share(2, 3)],
+      [GENDER.F, HOST_UI.dash.share(0, 2)],
     ]);
     // 비율은 반올림이다 — 셋 중 둘은 67%
-    expect(HOST_UI.dash.pokeShare(2, 3)).toContain("67%");
+    expect(HOST_UI.dash.share(2, 3)).toContain("67%");
   });
 
   it("★ 그 성별로 등록한 사람이 없으면 0% 가 아니라 없다고 말한다", async () => {
@@ -456,11 +459,59 @@ describe("현황 탭의 콕을 찌른 사람 (ADR-131)", () => {
     renderConsole();
     await screen.findByText(HOST_UI.dash.pokeShareTitle);
 
-    expect(shareRows()).toEqual([
-      [GENDER.M, HOST_UI.dash.pokeShare(1, 1)],
-      [GENDER.F, HOST_UI.dash.pokeShareNone],
+    expect(shareRows(HOST_UI.dash.pokeShareTitle)).toEqual([
+      [GENDER.M, HOST_UI.dash.share(1, 1)],
+      [GENDER.F, HOST_UI.dash.shareNone],
     ]);
     expect(document.body.textContent).not.toContain("NaN");
+  });
+
+  it("★ 쪽지 — 쪽지를 쓰는 회차면 콕 카드 바로 아래에, 보낸 참가자를 남녀 따로", async () => {
+    stubFetch(
+      hostState({ phase: "party", config: { maxPre: 3, maxParty: 3, maxNotes: 2 } }, {
+        players: five(),
+        sent: { pre: {}, party: { m1: 1 } },
+        received: { pre: { f1: 1 }, party: { f1: 1 } },
+        // 받은 장 수는 운영자 응답에 아예 없다 (ADR-98 후기 2) — 보낸 장 수만으로 센다
+        noteSent: { m2: 1, f1: 2, f2: 0 },
+        noteUsedMax: 2,
+      }),
+    );
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.noteShareTitle);
+
+    expect(sections()).toEqual([
+      HOST_UI.dash.mutualTitle(0),
+      HOST_UI.dash.pokeShareTitle,
+      HOST_UI.dash.noteShareTitle,
+      HOST_UI.dash.rankTitle(1),
+      HOST_UI.dash.preRankTitle(1),
+    ]);
+    expect(shareRows(HOST_UI.dash.noteShareTitle)).toEqual([
+      [GENDER.M, HOST_UI.dash.share(1, 3)],
+      [GENDER.F, HOST_UI.dash.share(1, 2)],
+    ]);
+  });
+
+  it("★ 쪽지는 프로필 투표부터 쓴다 — 쪽지 카드도 그때부터, 콕 카드는 아직이다", async () => {
+    const notes = { config: { maxPre: 3, maxParty: 3, maxNotes: 2 } };
+    stubFetch(hostState({ phase: "prevote", ...notes }, { received: { pre: { p1: 1 }, party: {} }, noteSent: { p2: 1 }, noteUsedMax: 1 }));
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.noteShareTitle);
+    expect(sections()).toEqual([HOST_UI.dash.noteShareTitle, HOST_UI.dash.preRankTitle(1)]);
+
+    cleanup();
+    stubFetch(hostState({ phase: "reg", ...notes }, { received: { pre: { p1: 1 }, party: {} } }));
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.preRankTitle(1));
+    expect(screen.queryByText(HOST_UI.dash.noteShareTitle), "등록 중에 쪽지 카드가 섰다").toBeNull();
+  });
+
+  it("★ 쪽지를 안 쓰는 회차에는 쪽지 카드가 없다 — 늘 0% 인 카드는 기능이 하나 는 것처럼 보인다", async () => {
+    stubFetch(hostState({ phase: "party", config: { maxPre: 3, maxParty: 3, maxNotes: 0 } }, { noteSent: {}, noteUsedMax: 0 }));
+    renderConsole();
+    await screen.findByText(HOST_UI.dash.pokeShareTitle);
+    expect(screen.queryByText(HOST_UI.dash.noteShareTitle)).toBeNull();
   });
 });
 

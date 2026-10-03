@@ -922,7 +922,7 @@ h1,
 /* 숫자가 흔들리면 두 줄을 견주기 어렵다 */
 .ageRow .small, .shareRow .small { flex: none; font-variant-numeric: tabular-nums; line-height: 1.3; }
 /*
- * 👉 콕을 찌른 사람 (현황 탭, ADR-131) — 나이 띠와 같은 생김새를 빌린다. 다른 것은 막대 하나다:
+ * 참여율 두 카드 (현황 탭, ADR-131 — 콕 · 익명 쪽지) — 나이 띠와 같은 생김새를 빌린다. 다른 것은 막대 하나다:
  * 띠는 **구간**이라 `left` 로 움직이고, 여기는 0 에서 차오르는 **비율**이다
  */
 .shareRow .bar i { left: 0; }
