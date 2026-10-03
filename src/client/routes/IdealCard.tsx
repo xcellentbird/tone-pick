@@ -42,21 +42,21 @@ export default function IdealCard({
       visual={<Grid9 />}
       title={IDEAL.title}
       locked={!open && !ideal}
-      actions={
+      actions={(of) =>
         ideal ? (
           // 다시 보는 것이라 테두리 단추다. 열려 있는 동안에만 다시 찾는다 — 단계가 되돌아가도 결과는 본다
           <div className="funActions">
-            <button className="btn ghost" onClick={onOpen}>
+            <button className="btn ghost" aria-describedby={of} onClick={onOpen}>
               {IDEAL.cardResult}
             </button>
             {open && (
-              <button className="btn ghost" onClick={onAgain}>
+              <button className="btn ghost" aria-describedby={of} onClick={onAgain}>
                 {IDEAL.again}
               </button>
             )}
           </div>
         ) : open ? (
-          <button className="btn primary block" onClick={onOpen}>
+          <button className="btn primary block" aria-describedby={of} onClick={onOpen}>
             {IDEAL.cardStart}
           </button>
         ) : null
