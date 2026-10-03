@@ -100,7 +100,7 @@ export const IDEAL_KEYS = [
   "save",    // 결과를 처음 저장했다
   "again",   // 다시 찾아 결과를 바꿨다 (ADR-125) — `save` 가 처음 찾은 수로 남게 따로 센다
   "chosen",  // 셋 중 하나가 진짜 이상형이었다 — 누구였는지는 안 담는다
-  "none",    // 없었어요
+  "none",    // 없음
 ] as const;
 export type IdealKey = (typeof IDEAL_KEYS)[number];
 

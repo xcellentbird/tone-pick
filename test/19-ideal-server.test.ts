@@ -344,7 +344,7 @@ describe("S-C4 ★ 정답을 한 번 묻는다", () => {
     expect((await me(a.cookie)).body.ideal).toEqual(first.body);
   });
 
-  it("★ '없었어요' 도 답이다 — 결과를 바꾸지 않는다. 가리키지 않은 저장도 그대로다", async () => {
+  it("★ '없음' 도 답이다 — 결과를 바꾸지 않는다. 가리키지 않은 저장도 그대로다", async () => {
     const { a, inp, made } = await saved();
     const res = await verdict(a.cookie, { none: true });
     expect(res.status).toBe(200);

@@ -943,7 +943,7 @@ describe("이상형 찾기 · 결과", () => {
     }
   });
 
-  it("★ '없었어요' 도 답이다 — 결과는 그대로이고, 풀 고르기가 저절로 서지 않는다 (S-C4)", async () => {
+  it("★ '없음' 도 답이다 — 결과는 그대로이고, 풀 고르기가 저절로 서지 않는다 (S-C4)", async () => {
     const s = stub(stateIn("prevote", SAVED));
     mount(`${BASE}/ideal`);
 
@@ -1311,7 +1311,7 @@ describe("이상형 찾기 · 포커스와 안내 (ADR-129)", () => {
     await screen.findByText(IDEAL.resultTitle);
     await waitFor(() => expect(document.activeElement?.tagName).toBe("H2"));
 
-    // `없었어요` 가 사라진다 → 그 답
+    // `없음` 이 사라진다 → 그 답
     fireEvent.click(await screen.findByRole("button", { name: IDEAL.verdictNone }));
     await screen.findByText(IDEAL.verdictNoneDone);
     await waitFor(() => expect(focused()).toBe(IDEAL.verdictNoneDone));
