@@ -2947,7 +2947,7 @@ describe("탭 역할 분담", () => {
   });
   const funTab = () => screen.getByText(FUN_TAB.label).closest("button")!;
 
-  const renderTab = (t: "home" | "me" | "people", over: Partial<ParticipantState> = {}) =>
+  const renderTab = (t: "home" | "me" | "people" | "fun", over: Partial<ParticipantState> = {}) =>
     render(
       <MemoryRouter>
         <ParticipantView
@@ -3200,6 +3200,24 @@ describe("탭 역할 분담", () => {
     // 결과를 볼 수 없는 탭에서는 그대로 뜬다 — 알림을 없앤 게 아니라 자리를 가린 것이다
     renderTab("me", { ...revealed, poke: matchedPoke });
     await screen.findByText(NOTICE.done.title);
+  });
+
+  it("★ 재미 탭에서는 배너가 뜨지 않는다 — 다른 탭에서는 그대로 뜬다 (ADR-129)", async () => {
+    /*
+     * 이상형 찾기의 라운드는 고르던 값이 메모리에만 있다 — 배너를 눌러 홈으로 가면 고른 얼굴이 사라진다.
+     * 그리고 프로필 투표 소식은 `이상형 찾기와 파티 운세 보기도 할 수 있게 됐어요` 라서, 그 말을 보고 들어온 3분 내내
+     * 라운드 위를 덮었다. 재미 탭은 라운드와 결과 · 운세 페이지까지 한 탭이다
+     */
+    const fresh = { event: { ...participantState().event, phase: "prevote" as const, fired: { reg: 1, prevote: Date.now() } } };
+    renderTab("fun", fresh);
+    await screen.findByText(FORTUNE.name);
+    expect(document.querySelector("button.banner"), "재미 탭에 배너가 떴다").toBeNull();
+    cleanup();
+
+    // 알림을 없앤 게 아니다 — 재미 탭 밖에서는 그대로 뜬다
+    renderTab("me", fresh);
+    await screen.findByText(NOTICE.prevote().title);
+    expect(document.querySelector("button.banner")).not.toBeNull();
   });
 
   /**

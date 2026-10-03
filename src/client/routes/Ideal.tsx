@@ -252,8 +252,12 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
   /** 라운드마다 `다른 얼굴 보기` 를 누른 횟수. 고르던 값과 같이 메모리에만 있다 — 저장하지 않는다 */
   const [flips, setFlips] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
-  /** `다른 얼굴 보기` 가 스스로를 지운 뒤 포커스가 설 자리 — 라운드 안내는 넘겨도 그대로 남는다 */
-  const hint = useRef<HTMLParagraphElement>(null);
+  /**
+   * 화면마다 포커스가 설 머리 — 시작 화면의 물음, 라운드의 머리(몇 번째 · 안내). 결과는 `Result` 가 스스로 옮긴다.
+   * `다른 얼굴 보기` 가 스스로를 지운 뒤에도 여기로 온다 — 라운드 머리는 넘겨도 그대로 남는다
+   */
+  const startHead = useRef<HTMLHeadingElement>(null);
+  const roundHead = useRef<HTMLDivElement>(null);
   const { toast } = useOverlay();
 
   /**
@@ -331,6 +335,18 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
     if (round === 0 && !again && redo) setRedo(null);
   }, [round, again, redo]);
 
+  /*
+   * **화면이 바뀌면 그 화면의 머리로 포커스를 옮긴다** (ADR-129). 누른 단추(풀 고르기 · `다음`)가 사라지면 포커스가 `body` 로
+   * 떨어져, 키보드와 화면 읽기 사용자는 자리를 잃고 새 라운드가 시작된 줄도 모른다. `다른 얼굴 보기` 가 이미 그렇게 하던 것을
+   * 단계마다 한다. 옮기는 곳은 입력칸이 아니라 문단이라 폰 키보드가 올라오지 않는다 (ADR-63 이 막은 것과 다르다) —
+   * 손가락으로 누른 뒤의 스크립트 포커스에는 테두리도 서지 않는다
+   */
+  const view = ideal && !redoing && !(round === 0 && again && againOk) ? "result" : round === 0 ? "start" : `round${round}`;
+  useEffect(() => {
+    if (view === "result") return;
+    (view === "start" ? startHead : roundHead).current?.focus();
+  }, [view]);
+
   // 다시 찾기의 풀 고르기 — 결과 대신 시작 화면이다
   if (ideal && round === 0 && again && againOk) return startScreen(true);
 
@@ -364,7 +380,9 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
     return (
       <div className="card stack idealFlow">
         <div className="kicker">{IDEAL.title}</div>
-        <h2 className="cardTitle">{IDEAL.poolAsk}</h2>
+        <h2 className="cardTitle" tabIndex={-1} ref={startHead}>
+          {IDEAL.poolAsk}
+        </h2>
         <p className="small dim">{redoStart ? IDEAL.againNote : IDEAL.firstNote}</p>
         {/*
           **같은 크기, 어느 쪽도 눌려 있지 않다** (S-B1). 누구에게 마음이 가는지는 앱이 정할 일이 아니다 (ADR-17) —
@@ -460,10 +478,15 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
   return (
     <div className="stack idealFlow">
       {/* 라운드 화면에는 이름도, '연예인' 이라는 말도 없다 (S-B5) — 이름을 알고 고르면 팬심으로 고른다 */}
-      <div className="kicker">{IDEAL.roundCount(round)}</div>
-      <p className="idealHint" tabIndex={-1} ref={hint}>
-        {IDEAL.roundHint}
-      </p>
+      {/*
+        라운드의 머리 — 포커스가 서는 자리다 (ADR-129). 몇 번째인지와 안내를 한 덩어리로 묶어, 화면 읽기가 새 라운드에서
+        `2 / 3` 부터 읽는다. 2 · 3라운드는 앞에서 고른 얼굴과 닮은 얼굴이라는 것을 먼저 말한다 — 얼굴이 왜 비슷해지는지
+      */}
+      <div className="stack idealHead" tabIndex={-1} ref={roundHead}>
+        <div className="kicker">{IDEAL.roundCount(round)}</div>
+        {round > 1 && <p className="small dim">{IDEAL.roundNarrow}</p>}
+        <p className="idealHint">{IDEAL.roundHint}</p>
+      </div>
       {failed ? (
         <LoadFail onRetry={retry} />
       ) : !data ? (
@@ -521,15 +544,15 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
       )}
       {/*
         주된 행동(`다음`) 아래의 옅은 버튼 — 주소는 그대로다. push 하면 뒤로 가기가 넘긴 쪽을 되살리는 칸이 된다.
-        누르면 이 버튼이 사라진다(라운드마다 한 번) — 포커스를 안내로 옮기지 않으면 `body` 로 떨어져 키보드·
-        화면 읽기 사용자가 자리를 잃는다. 아홉 칸은 이름표(1~9번)가 같아 바뀐 줄도 모른다 — 안내에서 다시 읽게 한다.
+        누르면 이 버튼이 사라진다(라운드마다 한 번) — 포커스를 라운드 머리로 옮기지 않으면 `body` 로 떨어져 키보드·
+        화면 읽기 사용자가 자리를 잃는다. 아홉 칸은 이름표(1~9번)가 같아 바뀐 줄도 모른다 — 머리에서 다시 읽게 한다.
       */}
       {canFlip && (
         <button
           className="btn ghost block"
           onClick={() => {
             edit([], (flips[round - 1] ?? 0) + 1);
-            hint.current?.focus();
+            roundHead.current?.focus();
           }}
         >
           {IDEAL.reroll}
@@ -549,7 +572,10 @@ function TraitsCard({ traits }: { traits: IdealTraits }) {
   return (
     <section className="card stack">
       <div className="kicker">{IDEAL.traitsKicker}</div>
-      <h2 className="cardTitle">{text.title}</h2>
+      {/* 결과가 그려질 때 포커스가 서는 첫 제목이다 (ADR-129, `Result`) */}
+      <h2 className="cardTitle" tabIndex={-1}>
+        {text.title}
+      </h2>
       {text.person && <p className="idealPerson">{text.person}</p>}
       {text.detail && <p className="idealDetail">{text.detail}</p>}
       <p className="idealNote">{text.note}</p>
@@ -599,6 +625,23 @@ function Result({
   /** 정답으로 누른 이름들 (ADR-127). 보내기 전까지 이 화면에만 있다 — 눌러 켜고 다시 눌러 끈다 */
   const [sel, setSel] = useState<string[]>([]);
   const pickedId = useId();
+  const verdict = ideal.verdict;
+  /*
+   * 포커스 (ADR-129) — 결과가 그려지면 **첫 제목**으로(끌린 얼굴, 아직 자료가 없으면 결과 셋의 제목), 답을 보내면 **그 답**으로.
+   * 누른 단추(`결과 보기` · `답 보내기` · `없었어요`)가 사라지는 자리라 그대로 두면 포커스가 `body` 로 떨어진다.
+   * 처음부터 답이 있던 결과를 열 때는 답으로 옮기지 않는다 — 방금 보낸 답만이다
+   */
+  const top = useRef<HTMLDivElement>(null);
+  const answerLine = useRef<HTMLParagraphElement>(null);
+  const answered = useRef(false);
+  useEffect(() => {
+    if (!failed) top.current?.querySelector<HTMLElement>("h2")?.focus();
+  }, [failed]);
+  useEffect(() => {
+    if (!verdict || !answered.current) return;
+    answered.current = false;
+    answerLine.current?.focus();
+  }, [verdict]);
   if (failed) {
     return (
       <div className="card stack idealFlow">
@@ -616,17 +659,18 @@ function Result({
   const answer = async (v: IdealVerdict) => {
     if (answering) return;
     setAnswering(true);
+    // 답이 그려지는 렌더보다 먼저 적는다 — 저장된 행이 그려지는 것이 이 함수가 돌아오기 전일 수 있다
+    answered.current = true;
     try {
       await onAnswer(v);
     } finally {
       setAnswering(false);
     }
   };
-  const verdict = ideal.verdict;
   const traits = pool ? traitsOf(pool, ideal.picks) : null;
 
   return (
-    <div className="stack idealFlow">
+    <div className="stack idealFlow" ref={top}>
       {/*
         끌린 얼굴의 특징 (ADR-127) — 결과 얼굴보다 **위**다. 문장이 먼저 `이런 얼굴` 을 말하고, 연예인 셋이 그 예가 된다.
         결과 화면에만 선다. 재미 탭 입구 카드에는 싣지 않는다 — 결과 얼굴과 같은 어깨너머다 (ADR-125)
@@ -635,7 +679,9 @@ function Result({
       <section className="card stack">
         {/* '연예인' 이라는 말이 처음 나오는 자리다 (S-B5) */}
         <div className="kicker">{IDEAL.resultKicker}</div>
-        <h2 className="cardTitle">{IDEAL.resultTitle}</h2>
+        <h2 className="cardTitle" tabIndex={-1}>
+          {IDEAL.resultTitle}
+        </h2>
         {/* 첫 사람이 답이라 크게. 낯설면 둘째가 구해준다 */}
         <ol className="idealResult" aria-busy={!pool || undefined}>
           {ideal.result.map((id, i) => (
@@ -654,7 +700,7 @@ function Result({
       {pool && (
         <section className="card stack">
           {verdict ? (
-            <p className="idealAnswer">
+            <p className="idealAnswer" tabIndex={-1} ref={answerLine}>
               {"chosen" in verdict ? IDEAL.verdictChosen(verdict.chosen.map((id) => name(id) ?? "")) : IDEAL.verdictNoneDone}
             </p>
           ) : (
@@ -664,7 +710,10 @@ function Result({
                 **여럿을 고를 수 있다** (ADR-127) — 이름은 켜고 끄는 단추이고, 보내기는 따로다. `없었어요` 는 그 자체로 답이라
                 바로 보낸다. 켠 것은 색만이 아니라 ✓ 로도 말한다 (S-B6 과 같은 이유).
                 **이름 셋은 같은 폭의 세 칸이다** — 이름 길이로 폭이 갈리면 단추가 들쭉날쭉하고, 켤 때 ✓ 가 글자 앞에 붙으면
-                눌린 단추가 커져 옆 단추를 민다. ✓ 는 모서리에 얹는다
+                눌린 단추가 커져 옆 단추를 민다. ✓ 는 모서리에 얹는다.
+                **단추마다 그 사람의 얼굴이 함께 선다** (ADR-129). 이 물음을 읽을 때쯤 첫 사진은 이미 화면 위로 지나가 있어서,
+                이름만으로는 덜 알려진 사람의 얼굴을 떠올려 답해야 했다 — 결과를 재는 유일한 신호가 기억력을 재고 있었다.
+                사진은 결과에 이미 받아 둔 그 주소라 새로 받지 않는다. 이름표는 그대로 이름이다(`alt=""`)
               */}
               <div className="idealVerdicts">
                 {ideal.result.map((id) => {
@@ -683,7 +732,8 @@ function Result({
                           ✓
                         </span>
                       )}
-                      {name(id)}
+                      <img src={photo(ideal.v, id)} width={W} height={H} alt="" />
+                      <span>{name(id)}</span>
                     </button>
                   );
                 })}

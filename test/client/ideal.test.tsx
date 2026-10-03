@@ -558,8 +558,10 @@ describe("이상형 찾기 · 고르기", () => {
       rerollBtn()!.focus();
       fireEvent.click(rerollBtn()!);
       // 버튼이 사라져도 포커스는 화면 안에 선다 — `body` 로 떨어지면 키보드·화면 읽기 사용자가 자리를 잃는다
+      // 서는 곳은 라운드 머리다 — 몇 번째인지와 안내를 함께 읽는다 (ADR-129)
       expect(document.activeElement).not.toBe(document.body);
-      expect(document.activeElement?.textContent).toBe(IDEAL.roundHint);
+      expect(document.activeElement?.textContent).toContain(IDEAL.roundCount(1));
+      expect(document.activeElement?.textContent).toContain(IDEAL.roundHint);
       const second = shownIds();
       expect(second).toHaveLength(9);
       for (const id of second) expect(first).not.toContain(id);
@@ -925,6 +927,22 @@ describe("이상형 찾기 · 결과", () => {
     expect(s.asked.find((x) => x.url === "/api/ideal/verdict")!.body).toEqual({ chosen: [c, a] });
   });
 
+  it("★ 정답 단추마다 그 사람의 얼굴이 함께 있다 — 이름만 보고 답하지 않게 (ADR-129)", async () => {
+    // 물음을 읽을 때쯤 첫 사진은 화면 위로 지나가 있다 — 답하는 자리에 얼굴이 있어야 기억이 아니라 알아보기로 답한다
+    stub(stateIn("prevote", SAVED));
+    mount(`${BASE}/ideal`);
+    await screen.findByText(IDEAL.verdictAsk);
+
+    for (const id of SAVED.result) {
+      const img = verdictBtn(id).querySelector("img");
+      expect(img, `n${id} 단추에 얼굴이 없다`).not.toBeNull();
+      // 결과에 그린 그 사진이다 — 저장된 행의 판으로 부른다
+      expect(img!.getAttribute("src")).toBe(`/faces/v${SAVED.v}/${id}.webp`);
+      // 이름표는 그대로 이름이다 — 사진에는 대체 글이 없다 (S-B5 와 같은 결)
+      expect(img!.getAttribute("alt")).toBe("");
+    }
+  });
+
   it("★ '없었어요' 도 답이다 — 결과는 그대로이고, 풀 고르기가 저절로 서지 않는다 (S-C4)", async () => {
     const s = stub(stateIn("prevote", SAVED));
     mount(`${BASE}/ideal`);
@@ -955,7 +973,8 @@ describe("이상형 찾기 · 결과", () => {
     // 이름은 v1 풀에만 있다 — 이름이 섰다면 v1 자료로 그렸다
     await screen.findAllByText(`n${SAVED.result[0]}`);
     const srcs = Array.from(document.querySelectorAll(".body img")).map((i) => i.getAttribute("src")!);
-    expect(srcs).toHaveLength(SAVED.result.length + SAVED.picks.flat().length);
+    // 결과 셋 · 정답 단추의 얼굴 셋 (ADR-129 — 아직 답하지 않았다) · 고른 얼굴
+    expect(srcs).toHaveLength(SAVED.result.length * 2 + SAVED.picks.flat().length);
     for (const src of srcs) expect(src).toMatch(/^\/faces\/v1\//);
     expect(s.asked.some((a) => a.url.startsWith(`/faces/v${IDEAL_ASSET_V}/`))).toBe(false);
   });
@@ -1257,6 +1276,87 @@ describe("끌린 얼굴의 글 (ADR-128)", () => {
 
   it("같은 특징이면 같은 글이다 — 난수가 없다", () => {
     for (const t of shapes()) expect(IDEAL.traits(t)).toEqual(IDEAL.traits(t));
+  });
+});
+
+describe("이상형 찾기 · 포커스와 안내 (ADR-129)", () => {
+  /** 지금 포커스가 선 자리의 글 — `body` 면 자리를 잃은 것이다 */
+  const focused = () => (document.activeElement === document.body ? "(body)" : (document.activeElement?.textContent ?? ""));
+
+  it("★ 단계마다 포커스가 그 화면의 머리로 간다 — 누른 단추가 사라져도 body 로 떨어지지 않는다", async () => {
+    stub(stateIn("prevote"));
+    const router = mount(`${BASE}/fun`);
+
+    // 카드의 `시작` 이 사라진다 → 시작 화면의 물음
+    fireEvent.click(await idealStart());
+    await waitFor(() => expect(focused()).toBe(IDEAL.poolAsk));
+
+    // 풀 단추가 사라진다 → 1라운드 머리 (몇 번째부터 읽는다)
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.pool.F }));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/1`));
+    await waitFor(() => expect(focused()).toContain(IDEAL.roundCount(1)));
+    expect(focused()).toContain(IDEAL.roundHint);
+
+    // `다음` 은 남지만 라운드가 바뀐다 → 새 라운드 머리
+    for (const r of [2, 3]) {
+      fireEvent.click((await screen.findAllByRole("button", { name: IDEAL.face(1) }))[0]);
+      fireEvent.click(nextBtn());
+      await screen.findByText(IDEAL.roundCount(r));
+      await waitFor(() => expect(focused()).toContain(IDEAL.roundCount(r)));
+    }
+
+    // `결과 보기` 가 사라진다 → 결과의 첫 제목
+    fireEvent.click((await screen.findAllByRole("button", { name: IDEAL.face(1) }))[0]);
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
+    await screen.findByText(IDEAL.resultTitle);
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("H2"));
+
+    // `없었어요` 가 사라진다 → 그 답
+    fireEvent.click(await screen.findByRole("button", { name: IDEAL.verdictNone }));
+    await screen.findByText(IDEAL.verdictNoneDone);
+    await waitFor(() => expect(focused()).toBe(IDEAL.verdictNoneDone));
+  });
+
+  it("★ 저장된 결과를 열 때는 첫 제목에 서고, 답으로 옮기지 않는다 — 방금 보낸 답만이다", async () => {
+    stub(stateIn("prevote", { ...SAVED, verdict: { none: true } }));
+    mount(`${BASE}/ideal`);
+    await screen.findByText(IDEAL.verdictNoneDone);
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("H2"));
+    expect(focused()).toBe(IDEAL.resultTitle);
+  });
+
+  it("★ 2 · 3라운드는 앞에서 고른 얼굴과 닮은 얼굴이라고 먼저 말한다 — 1라운드는 모두에게 같아 말하지 않는다", async () => {
+    stub(stateIn("prevote"));
+    const router = mount(`${BASE}/fun`);
+    await startRun(router);
+    await screen.findByRole("button", { name: IDEAL.face(1) });
+    expect(screen.queryByText(IDEAL.roundNarrow)).toBeNull();
+
+    for (const r of [2, 3]) {
+      fireEvent.click(tiles()[0]);
+      fireEvent.click(nextBtn());
+      await screen.findByText(IDEAL.roundCount(r));
+      // 안내보다 먼저 — 왜 비슷한 얼굴인지 알고 고른다
+      const narrow = screen.getByText(IDEAL.roundNarrow);
+      expect(narrow.compareDocumentPosition(screen.getByText(IDEAL.roundHint)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      await screen.findByRole("button", { name: IDEAL.face(1) });
+    }
+  });
+
+  it("★ 재미 탭 카드의 단추는 카드 제목으로 설명된다 — 둘 다 `시작` 이어도 무엇의 시작인지 들린다", async () => {
+    stub(stateIn("prevote"));
+    mount(`${BASE}/fun`);
+    const starts = await screen.findAllByRole("button", { name: FUN.start });
+    const about = (b: HTMLElement) => document.getElementById(b.getAttribute("aria-describedby") ?? "")?.textContent;
+    expect(starts.map(about)).toEqual([IDEAL.title, FORTUNE.name]);
+    cleanup();
+
+    // 결과가 있으면 `결과 보기` 와 `다시 찾기` 도 같다
+    stub(stateIn("prevote", SAVED));
+    mount(`${BASE}/fun`);
+    for (const name of [IDEAL.cardResult, IDEAL.again]) {
+      expect(about(await screen.findByRole("button", { name }))).toBe(IDEAL.title);
+    }
   });
 });
 

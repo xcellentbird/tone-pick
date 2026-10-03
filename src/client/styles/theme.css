@@ -2312,11 +2312,26 @@ button.fact.cond .name { font-size: 15px; }
 .idealVerdicts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-sm); }
 .idealVerdicts .btn {
   position: relative;
+  /* 얼굴 위, 이름 아래 (ADR-129). 이름이 두 줄이 돼도 얼굴은 같은 높이에 선다 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--gap-sm);
   min-height: var(--tap);
   padding: var(--gap-sm);
   font-size: 15px;
   word-break: keep-all;
   overflow-wrap: anywhere;
+}
+/* 알아볼 만큼만 — 4:5 를 `<img width height>` 가 지키고, 좁은 폭(320px)에서는 칸 안으로 줄어든다 */
+.idealVerdicts .btn img {
+  display: block;
+  width: 64px;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
 }
 .verdictCheck {
   position: absolute;
