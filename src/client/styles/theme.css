@@ -902,13 +902,13 @@ h1,
  * ⚠️ **색으로만 말하지 않는다** (ADR-30). 왼쪽에 `남성`·`여성` 글자가 서고 색은 거들 뿐이다.
  * 색은 아바타와 같은 뜻이라 운영자가 새로 익힐 것이 없다 — 파랑=남 · 분홍=여.
  */
-.ageBand { display: flex; flex-direction: column; gap: var(--gap-sm); }
-.ageRow { display: flex; align-items: center; gap: var(--gap-sm); }
+.ageBand, .shareBand { display: flex; flex-direction: column; gap: var(--gap-sm); }
+.ageRow, .shareRow { display: flex; align-items: center; gap: var(--gap-sm); }
 /* 줄바꿈이 없는 자리다 (ADR-62) */
-.ageRow .sex { width: 30px; flex: none; font-size: 13px; font-weight: 700; line-height: 1.3; }
-.ageRow.m .sex { color: var(--male); }
-.ageRow.f .sex { color: var(--female); }
-.ageRow .bar {
+.ageRow .sex, .shareRow .sex { width: 30px; flex: none; font-size: 13px; font-weight: 700; line-height: 1.3; }
+.ageRow.m .sex, .shareRow.m .sex { color: var(--male); }
+.ageRow.f .sex, .shareRow.f .sex { color: var(--female); }
+.ageRow .bar, .shareRow .bar {
   position: relative;
   flex: 1;
   min-width: 0;
@@ -916,11 +916,18 @@ h1,
   border-radius: var(--radius-pill);
   background: var(--card-2);
 }
-.ageRow .bar i { position: absolute; top: 0; height: 100%; border-radius: var(--radius-pill); }
-.ageRow.m .bar i { background: var(--male); }
-.ageRow.f .bar i { background: var(--female); }
+.ageRow .bar i, .shareRow .bar i { position: absolute; top: 0; height: 100%; border-radius: var(--radius-pill); }
+.ageRow.m .bar i, .shareRow.m .bar i { background: var(--male); }
+.ageRow.f .bar i, .shareRow.f .bar i { background: var(--female); }
 /* 숫자가 흔들리면 두 줄을 견주기 어렵다 */
-.ageRow .small { flex: none; font-variant-numeric: tabular-nums; line-height: 1.3; }
+.ageRow .small, .shareRow .small { flex: none; font-variant-numeric: tabular-nums; line-height: 1.3; }
+/*
+ * 참여율 두 카드 (현황 탭, ADR-131 — 콕 · 익명 쪽지) — 나이 띠와 같은 생김새를 빌린다. 다른 것은 막대 하나다:
+ * 띠는 **구간**이라 `left` 로 움직이고, 여기는 0 에서 차오르는 **비율**이다
+ */
+.shareRow .bar i { left: 0; }
+/* 두 줄의 막대가 **같은 길이**여야 남녀를 견준다 — 숫자 폭(`4/10명` · `2/8명`)이 달라 막대 끝이 어긋났다 */
+.shareRow .small { min-width: 7.5em; text-align: right; }
 
 /* 필터 버튼 안의 인원 수. 라벨보다 한 톤 죽여 라벨을 먼저 읽게 한다 */
 .choice .filterCount {
