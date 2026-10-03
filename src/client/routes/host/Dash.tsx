@@ -8,7 +8,7 @@
  *
  *   파티 전 — ✨ 매력 투표 TOP 5 하나뿐. 매칭도 파티 콕도 아직 **있을 수가 없다** (ADR-34),
  *             그 자리에 `아직 없어요` 를 두면 운영자가 뭔가 잘못됐나 하고 한 번 더 본다
- *   파티 후 — 💘 매칭 · 🔥 받은 콕 TOP 5 · ✨ 매력 투표 TOP 5.
+ *   파티 후 — 💘 매칭 · 👉 콕을 찌른 참가자 비율 · ✉️ 익명 쪽지를 보낸 참가자 비율 · 🔥 받은 콕 TOP 5 · ✨ 매력 투표 TOP 5.
  *             매칭이 맨 위다 — 자리를 붙일지 판단하는 게 그 시점의 일이라서.
  *             매력 투표는 끝난 라운드라 기록으로 맨 아래에 남는다
  *
@@ -17,11 +17,13 @@
  *
  * 성비는 참가자 탭 명단에 있고, '콕을 못 받은 사람'은 일부러 두지 않는다 —
  * 알면 그 사람을 다르게 대하게 되고, 그건 이 앱이 없애려던 경험이다.
+ * 같은 까닭으로 참여율 카드(콕 · 익명 쪽지)는 **남녀별 비율뿐**이다 (ADR-131) — 누가 안 보냈는지 이름은 두지 않는다.
+ * 쪽지 카드는 쪽지를 쓰는 회차에만, 프로필 투표부터 선다 — 그때는 프로필 투표 TOP 위에 하나 더다.
  *
  * 순위 줄을 누르면 그 사람의 **참가자 상세 시트**가 열린다 — 설문 상세의 카드와 같은 길이다.
  */
 import { useNavigate } from "react-router";
-import { HOST_UI, phaseAction, schedDiff, type ActionCopy } from "../../../shared/copy.ts";
+import { GENDER, HOST_UI, phaseAction, schedDiff, type ActionCopy } from "../../../shared/copy.ts";
 import type { Phase } from "../../../shared/types.ts";
 import { PHASE_ORDER, dueAt } from "../../../shared/phase.ts";
 import { topVoters } from "../../../shared/poke.ts";
@@ -62,6 +64,21 @@ export default function Dash() {
    */
   const bonus = !!meta.config.topVoteBonus;
   const top = !bonus ? [] : meta.topVoters ?? (started ? [] : topVoters(players, received.pre));
+
+  /**
+   * ✉️ 익명 쪽지를 보낸 참가자 비율 (ADR-131). **쪽지를 쓰는 회차에만** — 장 수가 있거나 이미 오간 것이 있으면
+   * (참가자 탭의 상세 시트 · 내보내기 확인창과 같은 판정). 쪽지는 프로필 투표부터 쓰므로(ADR-111) 그때부터 선다 —
+   * 파티 전에는 프로필 투표 TOP 위에, 파티가 열리면 콕 카드 바로 아래에. 셈은 보낸 장 수(`noteSent`)뿐이다 —
+   * 받은 장 수는 운영자 응답에 아예 없다 (ADR-98 후기 2).
+   */
+  const notesOn = (meta.config.maxNotes ?? 0) > 0 || state.noteUsedMax > 0;
+  const noteOpen = PHASE_ORDER.indexOf(meta.phase) >= PHASE_ORDER.indexOf("prevote");
+  const noteShare = notesOn && noteOpen && (
+    <>
+      <div className="kicker">{HOST_UI.dash.noteShareTitle}</div>
+      <ShareCard players={players} sent={state.noteSent} />
+    </>
+  );
 
   /**
    * 이 버튼이 하는 일은 **예약을 앞당기는 것**이다. 그래서 무엇을 앞당기는지와,
@@ -148,7 +165,7 @@ export default function Dash() {
         </button>
       )}
       {/*
-        **파티가 시작돼야 나오는 둘.** 매칭도 파티 콕도 그전에는 있을 수가 없다 (ADR-34) —
+        **파티가 시작돼야 나오는 셋.** 매칭도 파티 콕도 그전에는 있을 수가 없다 (ADR-34) —
         빈 카드를 미리 세워두면 자리만 차지하고, 운영자는 매번 그게 정상인지 확인하게 된다.
       */}
       {started && (
@@ -189,6 +206,14 @@ export default function Dash() {
           </div>
 
           {/*
+            👉 콕을 찌른 참가자 비율 — 남녀 따로 (ADR-131). 운영자가 **참여율**을 보는 자리라 받은 콕 TOP 바로 위다.
+            세는 것은 **파티 콕**뿐이다 — 프로필 투표 표를 섞으면 투표만 하고 콕은 안 찌른 사람이 참여한 것으로 적힌다 (ADR-34).
+          */}
+          <div className="kicker">{HOST_UI.dash.pokeShareTitle}</div>
+          <ShareCard players={players} sent={state.sent.party} />
+          {noteShare}
+
+          {/*
             순위는 **현황 탭에서만** 본다 (ADR-30) —
             참가자 탭의 개인 행에는 넣지 않는다. 명단을 훑으며 한 사람씩 볼 숫자가 아니다.
           */}
@@ -202,7 +227,10 @@ export default function Dash() {
         </>
       )}
 
-      {/* ✨ 매력 투표 — 파티 전에는 이것 하나, 파티가 시작되면 기록으로 맨 아래에 남는다 */}
+      {/* 프로필 투표 중에는 쪽지 카드만 먼저 선다 — 쪽지는 이때부터 쓴다 (ADR-111). 파티가 열리면 콕 카드 아래로 간다 */}
+      {!started && noteShare}
+
+      {/* ✨ 매력 투표 — 파티 전에는 이것 하나(쪽지를 쓰는 회차면 쪽지 카드와 둘), 파티가 시작되면 기록으로 맨 아래에 남는다 */}
       <Ranking
         players={players}
         received={received.pre}
@@ -215,6 +243,36 @@ export default function Dash() {
       {/* 파티 전에는 보너스가 있다는 것만 말한다. 누가 받을지는 파티 시작 확인창이 이름으로 말한다 */}
       {bonus && !started && <p className="tiny dim">{HOST_UI.dash.topVoteHint}</p>}
       {/* 자리 이동 확인은 운영자 화면 어디에도 두지 않는다 (ADR-110) — 여기도, 자리 탭에도 */}
+    </div>
+  );
+}
+
+/**
+ * 참여율 카드 하나 — 한 번 이상 보낸 사람을 남녀 따로 (ADR-131). 콕(`sent.party`)과 익명 쪽지(`noteSent`)가 같이 쓴다.
+ * 줄마다 `사람 수 / 등록한 사람 수` 와 비율이고, 막대는 그 비율이다. 생김새는 참가자 탭의 나이 띠(`AgeRow`)와 같다 —
+ * 왼쪽 글자가 성별을 말하고 색은 거든다 (ADR-30).
+ *
+ * 콕의 `sent` 는 **지금 남아 있는** 콕이다 — 되돌린 콕은 서버가 이미 뺐다. 다 되돌린 사람은 안 찌른 사람으로 센다.
+ * ⚠️ **누가 안 보냈는지 이름을 두지 마라** — 비율뿐이다. 현황 탭이 `콕을 못 받은 사람` 을 두지 않는 것과 같은 까닭이다.
+ */
+function ShareCard({ players, sent }: { players: ConsoleState["players"]; sent: Record<string, number> }) {
+  return (
+    <div className="card shareBand">
+      {(["M", "F"] as const).map((g) => {
+        const group = players.filter((p) => p.gender === g);
+        const used = group.filter((p) => (sent[p.id] ?? 0) > 0).length;
+        return (
+          <div className={`shareRow ${g === "M" ? "m" : "f"}`} key={g}>
+            <span className="sex">{GENDER[g]}</span>
+            <span className="bar">
+              <i style={{ width: `${group.length ? (used / group.length) * 100 : 0}%` }} />
+            </span>
+            <span className="small dim">
+              {group.length ? HOST_UI.dash.share(used, group.length) : HOST_UI.dash.shareNone}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
