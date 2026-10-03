@@ -48,7 +48,7 @@ import type {
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
 import type { Ideal } from "../shared/ideal.ts";
-import { readIdealInput, readIdealReplaces, readIdealVerdict } from "../shared/ideal.ts";
+import { normalizeIdeal, readIdealInput, readIdealReplaces, readIdealVerdict } from "../shared/ideal.ts";
 import { isStageKey, rosterOpen, toMe, toPublic } from "../shared/types.ts";
 import { apartClashes, apartFrom, autoTable, autoTableCount, isApart, pairKey, sortPair } from "../shared/seats.ts";
 import { appendPokeLog, pokeLogLine, type PokeLogEntry } from "./poke-log.ts";
@@ -1233,7 +1233,7 @@ export class EventDO extends DurableObject {
       // 이미 연 사람에게만. 안 열었으면 없는 채로 내려가고, 화면은 뒷면 카드를 그린다
       ...(saved ? { fortune: readFortune(JSON.parse(saved.json)) } : {}),
       // 운세와 같다 — 찾은 사람에게만, **본인에게만** (S-D1). 명단·운영자 응답에는 이 칸이 없다
-      ...(ideal ? { ideal: JSON.parse(ideal.json) as Ideal } : {}),
+      ...(ideal ? { ideal: normalizeIdeal(JSON.parse(ideal.json) as Ideal) } : {}),
       announcements: this.publicAnnouncements(playerId),
     });
   }
@@ -1594,7 +1594,7 @@ export class EventDO extends DurableObject {
 
     const row = this.rows<{ json: string }>("SELECT json FROM ideals WHERE player_id = ?", playerId)[0];
     if (row) {
-      const saved = JSON.parse(row.json) as Ideal;
+      const saved = normalizeIdeal(JSON.parse(row.json) as Ideal);
       if (replaces !== saved.at) return ok({ ideal: saved, first: false, again: false });
       /*
        * 새 결과의 시각은 **지난 값과 달라야 한다** — 화면이 "새 결과가 섰나" 를 이 값으로 가린다(다시 찾는 중이던 결과와
@@ -1616,13 +1616,13 @@ export class EventDO extends DurableObject {
     const first = cur.rowsWritten > 0;
     // 방금 보낸 것이 아니라 **저장된 것**을 돌려준다 — 화면은 이 응답을 그대로 그린다
     const stored = this.rows<{ json: string }>("SELECT json FROM ideals WHERE player_id = ?", playerId)[0];
-    return ok({ ideal: JSON.parse(stored.json) as Ideal, first, again: false });
+    return ok({ ideal: normalizeIdeal(JSON.parse(stored.json) as Ideal), first, again: false });
   }
 
   /**
    * 정답 확인 (S-C4). **결과마다 한 번 채운다** — 이미 답했으면 무엇이 오든 저장된 행을 그대로 돌려준다
    * (같은 답을 두 번 보낸 기기를 400 으로 혼내지 않는다). 결과·고른 얼굴은 건드리지 않는다 —
-   * '없었어요' 가 결과를 바꾸면 S-C3 이 무너진다. 결과를 바꾸는 길은 다시 찾기 하나다 (ADR-125).
+   * '없음' 이 결과를 바꾸면 S-C3 이 무너진다. 결과를 바꾸는 길은 다시 찾기 하나다 (ADR-125).
    * **문(`canOpenFun`)을 보지 않는다** — 이미 찾은 결과를 보는 일의 한 칸이다. 단계가 되돌아가도 답할 수 있다.
    *
    * 읽기와 쓰기 사이에 await 가 없다 — `saveMission` 과 같은 원자성이다.
@@ -1637,7 +1637,7 @@ export class EventDO extends DurableObject {
     const row = this.rows<{ json: string }>("SELECT json FROM ideals WHERE player_id = ?", playerId)[0];
     // 결과가 없으면 답할 것이 없다
     if (!row) return fail("not_found");
-    const saved = JSON.parse(row.json) as Ideal;
+    const saved = normalizeIdeal(JSON.parse(row.json) as Ideal);
     if (saved.verdict) return ok({ ideal: saved, first: false });
 
     const verdict = readIdealVerdict(raw, saved.result);

@@ -22,7 +22,11 @@ export default function FunCard({
   title: string;
   /** 열기 전이고 결과도 없다 — 단추 없이 무엇이 오는지만 말한다 */
   locked?: boolean;
-  actions?: ReactNode;
+  /**
+   * 단추 줄. **카드 제목의 id 를 받아 단추마다 `aria-describedby` 로 단다** (ADR-129) — 두 카드의 단추가 모두 `시작`
+   * (또는 `결과 보기`)이라, 화면 읽기에서는 무엇을 시작하는지 들리지 않았다. 보이는 이름은 그대로 두고 제목이 설명으로 붙는다
+   */
+  actions?: (titleId: string) => ReactNode;
   children: ReactNode;
 }) {
   const id = useId();
@@ -39,7 +43,7 @@ export default function FunCard({
           {children}
         </div>
       </div>
-      {actions}
+      {actions?.(id)}
     </section>
   );
 }

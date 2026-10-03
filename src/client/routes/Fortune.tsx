@@ -35,13 +35,13 @@ export function FortuneCard({ state, open, onOpen }: { state: ParticipantState; 
       visual="🔮"
       title={FORTUNE.name}
       locked={!open && !card}
-      actions={
+      actions={(of) =>
         card ? (
-          <button className="btn ghost block" onClick={onOpen}>
+          <button className="btn ghost block" aria-describedby={of} onClick={onOpen}>
             {FUN.result}
           </button>
         ) : open ? (
-          <button className="btn primary block" onClick={onOpen}>
+          <button className="btn primary block" aria-describedby={of} onClick={onOpen}>
             {FUN.start}
           </button>
         ) : null

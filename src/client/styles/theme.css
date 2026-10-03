@@ -2273,6 +2273,22 @@ button.fact.cond .name { font-size: 15px; }
 /* 다섯을 골랐으면 나머지는 물러난다 — 눌러도 아무 일이 없다는 것을 먼저 보여준다 */
 .faceTile[aria-disabled="true"] { opacity: 0.45; }
 
+/*
+ * 끌린 얼굴의 글 (ADR-128) — 미션 카드(`.missionLead` · `.missionLine`)와 같은 생각이다: 무게는 크기가 아니라 **차이**로 준다.
+ * 그 얼굴에서 읽히는 사람(`.idealPerson`)이 본문이라 가장 진하고, 고른 얼굴의 특징(`.idealDetail`)은 흐리게 그 근거로 깔고,
+ * 연구 한 줄(`.idealNote`)은 선 아래 가장 작게 둔다. 셋 다 여러 줄로 감싸지는 글이라 손잡이 묶음(1.3)에 넣지 않는다 (ADR-62) —
+ * 줄 간격은 미션 글과 같은 1.6 이다
+ */
+.idealPerson { font-size: 16px; line-height: 1.6; font-weight: 700; }
+.idealDetail { font-size: 14px; line-height: 1.6; color: var(--dim); }
+.idealNote {
+  padding-top: var(--gap);
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+
 /* 결과 셋 — 첫 사람이 답이라 크게, 둘은 그 아래 나란히. **순위 숫자는 없다** (S-C1) */
 .idealResult {
   display: grid;
@@ -2288,7 +2304,54 @@ button.fact.cond .name { font-size: 15px; }
 .idealResult li.top .name { font-size: 18px; }
 .idealPicked li { display: flex; flex-direction: column; align-items: center; gap: var(--gap-sm); min-width: 0; }
 .faceName { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.idealVerdicts { display: flex; flex-wrap: wrap; gap: var(--gap-sm); }
+/*
+ * 정답의 이름 셋 (ADR-127) — **같은 폭의 세 칸**이다. 이름 길이(두 글자 ~ `올리비아 혜`)로 폭이 갈리지 않고,
+ * 긴 이름은 낱말 단위로 두 줄이 된다. 한 줄의 칸들은 높이가 같다(그리드가 늘인다).
+ * 켜도 크기가 그대로다 — ✓ 는 글자 앞이 아니라 모서리에 얹는다
+ */
+.idealVerdicts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-sm); }
+.idealVerdicts .btn {
+  position: relative;
+  /* 얼굴 위, 이름 아래 (ADR-129). 이름이 두 줄이 돼도 얼굴은 같은 높이에 선다 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--gap-sm);
+  min-height: var(--tap);
+  padding: var(--gap-sm);
+  font-size: 15px;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+/* 알아볼 만큼만 — 4:5 를 `<img width height>` 가 지키고, 좁은 폭(320px)에서는 칸 안으로 줄어든다 */
+.idealVerdicts .btn img {
+  display: block;
+  width: 64px;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+}
+.verdictCheck {
+  position: absolute;
+  /* 모서리 **바깥**에 반쯤 걸친다 — 안쪽에 두면 긴 이름(`올리비아 혜`)의 끝 글자를 덮는다 */
+  top: calc(var(--gap-sm) * -1);
+  right: calc(var(--gap-sm) * -1);
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--card);
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  font-size: 11px;
+  /* 기호 하나짜리 알약이다 — 줄 간격을 받으면 동그라미가 찌그러진다 */
+  line-height: 1;
+}
+.idealVerdictActions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-sm); }
+.idealVerdictActions .btn { min-height: var(--tap); }
 
 /* 움직임을 원치 않는 사람에게는 돌지 않고 그대로 나온다 */
 @media (prefers-reduced-motion: reduce) {
