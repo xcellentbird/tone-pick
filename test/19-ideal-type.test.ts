@@ -356,7 +356,7 @@ describe("tasteCenters — 멀리 갈린 두 무리만 둘로 본다", () => {
     expect(out[0].weight).toBe(4);
   });
 
-  it("문턱은 splitCos(−0.2) — 95° 벌어진 두 무리는 하나, 110° 는 둘", () => {
+  it("문턱은 splitCos(−0.3) — 95° 벌어진 두 무리는 하나, 110° 는 둘", () => {
     // 평균이 5° · 100° (95° 차, cos ≈ −0.09) → 하나
     expect(tasteCenters([0, 10, 95, 105].map(fvec))).toHaveLength(1);
     // 평균이 5° · 115° (110° 차, cos ≈ −0.34) → 둘

@@ -57,17 +57,17 @@ export const IDEAL_SHAPE = {
   level1: 18,
   /** 2라운드 후보(군집 대표). 아홉 × 두 쪽을 넉넉히 덮는다 */
   level2: 36,
-  /** 3라운드 닮은꼴 문턱(코사인). 임시값 — 실제 풀에서 종이 검증과 함께 조정한다 */
+  /** 3라운드 닮은꼴 문턱(코사인). 임시값 — 실제 풀에서 종이 검증과 함께 조정한다. v4 공간에서는 걸리지 않는다 (ADR-132) */
   dupCos: 0.9,
-  /** 두 무리의 평균끼리 코사인이 이보다 작으면 두 갈래 — 종이 검증 전에 v1 세션으로 정했다 (ADR-123) */
-  splitCos: -0.2,
+  /** 두 무리의 평균끼리 코사인이 이보다 작으면 두 갈래 — **공간에 매인 값**이다. v1~v3 −0.2 (ADR-123) · v4 −0.3 (ADR-132) */
+  splitCos: -0.3,
   /** 작은 무리가 이만큼은 돼야 두 갈래 — 한 장짜리는 잘못 누른 것일 수 있다 */
   splitMin: 2,
   id: /^[a-z0-9]{4,16}$/,        // copy-ok
 } as const;
 
 /** 지금 기기가 새로 찾을 때 쓰는 판 — `/faces/v{n}/` 의 n. 저장된 결과는 이 값이 아니라 자기 `v` 로 그린다 */
-export const IDEAL_ASSET_V = 2;
+export const IDEAL_ASSET_V = 4;
 
 /** 모양 검사 둘 (아래 API). 맞지 않으면 null */
 export function readIdealInput(raw: unknown): IdealInput | null;
@@ -78,6 +78,9 @@ export function readIdealReplaces(raw: unknown): number | undefined | null;
 
 > **고쳤다 (2026-09-28, ADR-123)** — v1 은 `faces: 6 · pickMax: 3` 이고 `rerolls`·`level1`·`level2`·`splitCos`·`splitMin` 이 없었으며
 > `IDEAL_ASSET_V = 1` 이었다. v1 결과는 자기 `v` 로 `/faces/v1/` 에서 그대로 그린다 — 그 경로는 지우지 않는다.
+>
+> **다시 고쳤다 (2026-10-03, ADR-132)** — 판은 v3(ADR-127)을 거쳐 **v4** 다. 벡터가 얼굴 모델의 것으로 바뀌어 공간에 매인 `splitCos` 를
+> −0.2 에서 −0.3 으로 다시 쟀다. 모양(칸 · 수)은 그대로다.
 
 **모양 검사는 요청 본문을 펼치지 않는다 — 고른 칸으로 새 객체를 짓는다.** 펼쳐 담으면 기기가 보낸
 모르는 키가 저장돼 `ParticipantState.ideal` 로 매번 되돌아 나간다 (S-D1). `verdict`·`at` 을 저장 요청에
@@ -90,8 +93,9 @@ export function readIdealReplaces(raw: unknown): number | undefined | null;
 
 사진은 **실사**다 — 고르는 것도 결과도 (S-C5). 출처 확보가 파이프라인의 첫 일이고,
 그 전에는 **화면을 열지 않는다** — 문은 빌드가 연다. 지금 판(`IDEAL_ASSET_V`)의 풀 JSON 둘이 빌드에 없으면
-카드도 `/ideal` 주소도 없다 (`src/client/lib/faces.ts`, `vite.config.ts`, 아래 `출시의 문`). 출처 순서와 벡터를 만드는 법(정해진 낱말 열다섯 가지 → 속성마다 중심을 뺀 68차원)은
-ADR-122 에 있다 — 앱은 `dim` 을 파일에서 읽을 뿐 그 값을 들고 있지 않다.
+카드도 `/ideal` 주소도 없다 (`src/client/lib/faces.ts`, `vite.config.ts`, 아래 `출시의 문`). 출처 순서와 벡터를 만드는 법은
+ADR-122 · ADR-132 에 있다 — v1~v3 은 정해진 낱말 열다섯 가지를 속성마다 중심을 뺀 68차원, **v4 부터는 얼굴 인식(SFace) 128 + 얼굴 메시 16 = 144차원**이다.
+앱은 `dim` 을 파일에서 읽을 뿐 그 값을 들고 있지 않다.
 
 ```
 /faces/v{n}/f.json · m.json     풀 하나에 파일 하나 (Gender 소문자)
