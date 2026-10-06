@@ -676,6 +676,9 @@ describe("이상형 찾기 · 고르기", () => {
     await waitFor(() => expect(path(router)).toBe(`${BASE}/help`));
     await router.navigate(-1);
     await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/2`));
+    // 주소는 라우터가 먼저 바꾸고 화면은 전환(startTransition)으로 뒤따른다 — 시트가 닫혀야 아래 타일이 읽힌다.
+    // 주소만 기다리면 시트의 aria-hidden 이 남은 채로 타일을 찾아서, 느린 CI 에서만 빨개졌다
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: HELP.title })).toBeNull());
 
     await screen.findByText(IDEAL.roundCount(2));
     expect(shownIds()).toEqual(ids);
