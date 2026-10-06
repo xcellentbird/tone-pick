@@ -102,9 +102,17 @@ describe("★ 꺼진 곳(프로덕션의 기본)에서는 길이 없다 (ADR-134
     expect(calls).toHaveLength(0);
   });
 
-  it("★ 켜진 곳에서는 `/me` 가 그렇다고 말한다", async () => {
+  it("★ 켜진 곳에서는 `/me` 도 등록 응답도 그렇다고 말한다 — 화면은 등록 응답을 첫 화면으로 쓴다", async () => {
     const a = await someone();
     expect((await me(a.cookie)).body.idealStory).toBe(true);
+    // 등록 응답에 빠뜨렸더니 등록하자마자 찾은 결과에는 글을 청하지 않았다 (QA 에서 운영자가 찾았다)
+    expect(a.state.idealStory).toBe(true);
+  });
+
+  it("★ 꺼진 곳의 등록 응답에도 그 칸이 없다", async () => {
+    delete cfg.IDEAL_STORY;
+    const a = await someone();
+    expect(a.state).not.toHaveProperty("idealStory");
   });
 });
 
