@@ -16,14 +16,22 @@
 //      같은 사람이 같은 아홉 앞에서 한 선택이다. 화면이 그 판의 공간으로 골라졌다는 치우침은 모든 공간이 함께 진다
 //   4. 정답과의 거리 — `진짜 이상형` 으로 고른 연예인이 공간마다 몇 등에 서는가 (본 얼굴을 뺀 후보 중 백분위).
 //      그 판의 공간은 그 사람을 이미 1~3위에 세웠으니 견주지 않는다 — 다른 공간이 그 답에 얼마나 동의하나만 본다
+//   5. 1라운드 — 모두에게 같은 아홉이라 얼굴마다 고른 비율을 견줄 수 있다
+//   6. 직업 · 출생 연도 — 화면에 보였을 때 골린 비율, 결과에 선 횟수와 정답 (roles.json · v{n}-sources.json)
+//   7. 인기로 맞히기 — 다른 세션에서 그 얼굴이 골린 비율로 맞히는 AUC. 3 과 견준다 — 닮음이 인기를 못 넘으면
+//      사람들은 앞에서 고른 얼굴을 닮은 얼굴보다 모두가 고르는 얼굴을 고른 것이다
+//   8. 결과 쏠림 — 한 사람이 몇 세션의 결과에 서나. 같은 고른 얼굴로 공간마다 다시 낸 결과와 함께
 //
-// 읽는 것: 결과 파일, public/faces/v{n}/{f,m}.json
-// 쓰는 것: 표준 출력에 집계만 — 사람마다의 줄은 찍지 않는다
+// **정답 확인(2)은 인기에 섞인다** (ADR-133) — 모두가 끌리는 사람이 결과에 서면 `셋 중에 있었다` 가 는다.
+// 판끼리 견줄 때 그 비만 보지 말고 결과 쏠림(8)을 함께 본다
+//
+// 읽는 것: 결과 파일, public/faces/v{n}/{f,m}.json, scripts/faces/roles.json · v{n}-sources.json (연예인의 이름 · 출생 연도 · 직업)
+// 쓰는 것: 표준 출력에 집계만 — 참가자마다의 줄은 찍지 않는다
 // 순서: 판을 내고 실전을 치른 뒤. 다음 판의 벡터 · 규칙을 고르는 재료다
 import fs from "node:fs";
 import path from "node:path";
 import { decodeVec, IDEAL_SHAPE, nearestCelebs, pickRound, tasteCenters } from "../../src/shared/ideal.ts";
-import { DEFAULT_FACES } from "./work.mjs";
+import { DEFAULT_FACES, HERE } from "./work.mjs";
 
 /**
  * 판마다 그때의 규칙 — 다시 세우려면 그 판이 돌던 규칙 그대로여야 한다 (ADR-122 · 123 · 127 · 132).
@@ -230,6 +238,51 @@ export function bootstrap(groups, { seed = 7, n = 2000 } = {}) {
   return { mean: mean(all), lo: ms[Math.floor(0.025 * ms.length)], hi: ms[Math.floor(0.975 * ms.length)], n: all.length };
 }
 
+/**
+ * 사람의 이름 · 출생 연도 · 직업 — 판마다의 출처 목록(`v{n}-sources.json`)과 `roles.json` 에서. id 는 판끼리 같다
+ */
+export function peopleMeta(root = HERE) {
+  const rolesPath = path.join(root, "roles.json");
+  const roles = fs.existsSync(rolesPath) ? JSON.parse(fs.readFileSync(rolesPath, "utf8")) : {};
+  const meta = new Map();
+  for (const f of fs.readdirSync(root).filter((f) => /^v\d+-sources\.json$/.test(f)).sort())
+    for (const s of JSON.parse(fs.readFileSync(path.join(root, f), "utf8")))
+      if (!meta.has(s.id)) meta.set(s.id, { name: s.name, born: s.born, role: roles[`${s.name}|${s.born}`] ?? "?" });
+  return meta;
+}
+
+/**
+ * 인기로 맞히기 — 같은 풀의 **다른 세션들**에서 그 얼굴이 보였을 때 골린 비율을 점수로 준다 (자기 세션은 뺀다).
+ * 닮음(3)이 인기보다 못 맞히면, 사람들은 앞에서 고른 얼굴을 닮은 얼굴보다 **모두가 고르는 얼굴**을 고른 것이다.
+ * 1라운드는 모두에게 같은 화면이라 넘기지 않은 세션만 센다
+ */
+export function popularityAuc(xs) {
+  const r1 = [];
+  const r23 = [];
+  for (const x of xs) {
+    const shown = new Map();
+    const picked = new Map();
+    for (const y of xs) {
+      if (y === x) continue;
+      y.rec.rounds.forEach((rd, k) => {
+        for (const id of rd.page) {
+          shown.set(id, (shown.get(id) ?? 0) + 1);
+          if (y.row.picks[k].includes(id)) picked.set(id, (picked.get(id) ?? 0) + 1);
+        }
+      });
+    }
+    const prior = (id) => ((picked.get(id) ?? 0) + 0.2) / ((shown.get(id) ?? 0) + 1);
+    const one = (k) => {
+      const page = x.rec.rounds[k].page;
+      const pk = new Set(x.row.picks[k]);
+      return auc(page.filter((id) => pk.has(id)).map(prior), page.filter((id) => !pk.has(id)).map(prior));
+    };
+    if (x.rec.rounds[0].flips === 0) r1.push([one(0)].filter((a) => a != null));
+    r23.push([one(1), one(2)].filter((a) => a != null));
+  }
+  return { r1, r23 };
+}
+
 const pct = (x, d = 0) => `${(100 * x).toFixed(d)}%`;
 const fmt = (b) => (b ? `${b.mean.toFixed(3)} [${b.lo.toFixed(3)}, ${b.hi.toFixed(3)}] (n=${b.n})` : "—");
 
@@ -328,6 +381,62 @@ if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1])))
       const page = xs[0].rec.rounds[0].page;
       const rate = page.map((id) => [name.get(id), xs.filter((x) => x.row.picks[0].includes(id)).length / xs.length]).sort((a, b) => b[1] - a[1]);
       console.log(`  ${g} v${v} (${xs.length}명): ${rate.map(([n, r]) => `${n} ${pct(r)}`).join(" · ")}`);
+    }
+  }
+
+  // ── 6. 직업 · 나이 — 화면에 보였을 때 골린 비율, 결과에 선 횟수와 정답
+  const meta = peopleMeta();
+  const bucket = (y) => (!y ? "?" : y < 1985 ? "~1984" : y < 1995 ? "1985~1994" : "1995~");
+  console.log("\n== 직업 · 출생 연도 — 화면에 보였을 때 골린 비율 · 결과에 선 횟수");
+  for (const [label, keyOf] of [["직업", (id) => meta.get(id)?.role ?? "?"], ["출생", (id) => bucket(meta.get(id)?.born)]]) {
+    const t = {};
+    const bump = (k, f) => ((t[k] ??= { shown: 0, picked: 0, result: 0, chosen: 0, passed: 0 })[f]++);
+    for (const x of usable) {
+      x.rec.rounds.forEach((rd, k) => rd.page.forEach((id) => (bump(keyOf(id), "shown"), x.row.picks[k].includes(id) && bump(keyOf(id), "picked"))));
+      const vd = verdictOf(x.row);
+      for (const id of x.row.result) {
+        bump(keyOf(id), "result");
+        if (vd?.chosen?.includes(id)) bump(keyOf(id), "chosen");
+        else if (vd) bump(keyOf(id), "passed");
+      }
+    }
+    for (const [k, s] of Object.entries(t).sort((a, b) => b[1].shown - a[1].shown))
+      console.log(`  ${label} ${k.padEnd(11)} 보임 ${String(s.shown).padStart(4)} · 골림 ${pct(s.picked / Math.max(1, s.shown)).padStart(4)}` +
+        ` · 결과 ${s.result} (정답 ${s.chosen} · 답했는데 안 고름 ${s.passed})`);
+  }
+
+  // ── 7. 인기 대 닮음 — 남들이 고른 얼굴인가로 맞히기. 3 의 AUC 와 견준다
+  console.log("\n== 인기로 맞히기 (AUC) — 다른 세션에서 그 얼굴이 골린 비율. 3 의 닮음보다 높으면 고르는 동기는 인기다");
+  for (const g of ["f", "m"]) {
+    const xs = usable.filter((x) => x.g === g);
+    if (xs.length < 2) continue;
+    const { r1, r23 } = popularityAuc(xs);
+    console.log(`  ${g} 1라운드 ${fmt(bootstrap(r1, { seed }))} · 2 · 3라운드 ${fmt(bootstrap(r23, { seed }))}`);
+  }
+
+  // ── 8. 결과 쏠림 — 한 사람이 몇 세션의 결과에 서나. 같은 고른 얼굴로 공간마다 다시 낸 것과 함께 (후보는 모든 공간에 있는 사람)
+  console.log("\n== 결과 쏠림 — 결과 칸 수 · 다른 사람 수 · 가장 많이 선 사람");
+  const spread = (lists) => {
+    const n = new Map();
+    for (const ids of lists) for (const id of ids) n.set(id, (n.get(id) ?? 0) + 1);
+    const top = [...n].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id, k]) => `${meta.get(id)?.name ?? id} ×${k}`);
+    return `${lists.length * 3}칸 중 ${n.size}명 · ${top.join(" · ")}`;
+  };
+  for (const g of ["f", "m"]) {
+    const xs = usable.filter((x) => x.g === g);
+    if (!xs.length) continue;
+    console.log(`  ${g} 저장된 결과 ${spread(xs.map((x) => x.row.result))}`);
+    const spaces = specs.map((spec) => spaceOf(spec, g, poolOf));
+    const common = [...spaces[0].vec.keys()].filter((id) => spaces.every((s) => s.vec.has(id)));
+    for (const s of spaces) {
+      const celebs = common.map((id) => ({ id, name: id, vec: s.vec.get(id) }));
+      const lists = xs.flatMap((x) => {
+        const picked = x.row.picks.flat().filter((id) => s.vec.has(id));
+        if (!picked.length) return [];
+        const centers = withSplit(s.split, () => tasteCenters(picked.map((id) => s.vec.get(id))));
+        return [nearestCelebs(celebs, centers, new Set(x.row.picks.flat())).map((c) => c.id)];
+      });
+      console.log(`  ${g} ${s.name.padEnd(12)} 같은 고른 얼굴 · 후보 ${common.length}명: ${spread(lists)}`);
     }
   }
 }
