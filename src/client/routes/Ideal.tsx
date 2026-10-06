@@ -32,6 +32,7 @@ import {
   idealTraits,
   nearestCelebs,
   pickRound,
+  shownPages,
   tasteCenters,
   type DecodedCeleb,
   type DecodedFace,
@@ -239,9 +240,11 @@ interface Props {
   onAgain: () => void;
   /** 서버가 돌려준 행 하나만 갈아끼운다 (`setFortune` 과 같은 좁은 통로) */
   onSaved: (ideal: Ideal) => void;
+  /** 설명글(ADR-134)이 켜진 곳인가 — QA 에서만 (`ParticipantState.idealStory`) */
+  story?: boolean;
 }
 
-export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, onAgain, onSaved }: Props) {
+export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, onAgain, onSaved, story }: Props) {
   const [pool, setPool] = useState<Gender | null>(null);
   /**
    * 다시 찾는 중이면 **무엇을 대신하는지** — 지난 결과의 `at` (ADR-125). 다시 찾기의 풀을 고를 때 적는다.
@@ -359,6 +362,8 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
         onRetry={retry}
         // 다시 찾기는 열려 있는 동안만이다 — 단계가 되돌아가도 결과는 본다 (ADR-125)
         onAgain={funOpen ? onAgain : undefined}
+        storyOn={story}
+        onStory={onSaved}
         onAnswer={async (v) => {
           try {
             // 서버가 준 행을 그대로 그린다 — 이미 답했으면 그 답이 온다 (한 번만)
@@ -566,19 +571,34 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
  * 끌린 얼굴의 특징 한 장 (ADR-127 · ADR-128). 점수 · % · 순위는 없다 — 글뿐이다.
  * 무게는 크기가 아니라 차이로 준다 — 제목, 그 얼굴에서 읽히는 사람(본문), 고른 얼굴의 특징(흐리게), 연구 한 줄(가장 작게).
  * 두드러진 것이 없었다는 것도 답이다 — 카드를 감추지 않고 그렇다고 말한다 (`IDEAL.traits` 가 정한다)
+ *
+ * **설명글(ADR-134)이 있으면 제목 아래가 그 글이다** — 같은 화면에서 고르지 않은 얼굴과 견줘 쓴 두 문장과, 무엇과 견줬는지 한 줄.
+ * 기다리는 동안에는 그 자리에 한 줄을 세운다. 제목은 그대로다 — 고른 얼굴의 짧은 이름표다.
+ * 한 카드가 세 모양을 다 그린다 — 글이 와도 제목(포커스가 선 자리)이 그대로 남는다
  */
-function TraitsCard({ traits }: { traits: IdealTraits }) {
+function TraitsCard({ traits, story, waiting }: { traits: IdealTraits; story?: string; waiting?: boolean }) {
   const text = IDEAL.traits(traits);
   return (
-    <section className="card stack">
+    <section className="card stack" aria-busy={waiting || undefined}>
       <div className="kicker">{IDEAL.traitsKicker}</div>
       {/* 결과가 그려질 때 포커스가 서는 첫 제목이다 (ADR-129, `Result`) */}
       <h2 className="cardTitle" tabIndex={-1}>
         {text.title}
       </h2>
-      {text.person && <p className="idealPerson">{text.person}</p>}
-      {text.detail && <p className="idealDetail">{text.detail}</p>}
-      <p className="idealNote">{text.note}</p>
+      {story ? (
+        <>
+          <p className="idealPerson">{story}</p>
+          <p className="idealNote">{IDEAL.storyNote}</p>
+        </>
+      ) : waiting ? (
+        <p className="idealDetail">{IDEAL.storyWaiting}</p>
+      ) : (
+        <>
+          {text.person && <p className="idealPerson">{text.person}</p>}
+          {text.detail && <p className="idealDetail">{text.detail}</p>}
+          <p className="idealNote">{text.note}</p>
+        </>
+      )}
     </section>
   );
 }
@@ -612,6 +632,8 @@ function Result({
   onRetry,
   onAnswer,
   onAgain,
+  storyOn,
+  onStory,
 }: {
   ideal: Ideal;
   pool?: Pool;
@@ -620,8 +642,32 @@ function Result({
   onAnswer: (v: IdealVerdict) => Promise<void>;
   /** 다시 찾기 (ADR-125). 재미가 닫혔으면 없다 */
   onAgain?: () => void;
+  /** 설명글(ADR-134)이 켜진 곳인가 */
+  storyOn?: boolean;
+  /** 설명글이 붙은 행을 받았다 — 서버가 준 행을 그대로 갈아끼운다 */
+  onStory: (ideal: Ideal) => void;
 }) {
   const [answering, setAnswering] = useState(false);
+  /**
+   * 설명글 (ADR-134) — 켜진 곳에서, **지금 판의 결과에 글이 아직 없으면** 한 번 청한다. 화면은 고른 얼굴로 다시 세운다
+   * (`shownPages` — 서버는 벡터를 모른다). 결과마다 한 번만 묻는다(`asked`) — StrictMode 가 효과를 두 번 돌려도 같다.
+   * 실패하면 그 결과에는 낱말로 쓴 글(ADR-128)을 그린다 — 다음에 결과를 열면 다시 청한다
+   */
+  const wantStory = !!storyOn && ideal.v === IDEAL_ASSET_V && !ideal.story;
+  const [storyFailed, setStoryFailed] = useState<number | null>(null);
+  const asked = useRef<number | null>(null);
+  useEffect(() => {
+    if (!wantStory || !pool || asked.current === ideal.at) return;
+    asked.current = ideal.at;
+    const at = ideal.at;
+    const pages = shownPages(pool.faces, pool.vecs, ideal.picks).slice(1);
+    post<Ideal>("/ideal/story", { pages }).then(
+      (row) => (row.story ? onStory(row) : setStoryFailed(at)),
+      () => setStoryFailed(at),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantStory, pool, ideal.at]);
+  const storyWaiting = wantStory && storyFailed !== ideal.at;
   /** 정답으로 누른 이름들 (ADR-127). 보내기 전까지 이 화면에만 있다 — 눌러 켜고 다시 눌러 끈다 */
   const [sel, setSel] = useState<string[]>([]);
   const pickedId = useId();
@@ -675,7 +721,7 @@ function Result({
         끌린 얼굴의 특징 (ADR-127) — 결과 얼굴보다 **위**다. 문장이 먼저 `이런 얼굴` 을 말하고, 연예인 셋이 그 예가 된다.
         결과 화면에만 선다. 재미 탭 입구 카드에는 싣지 않는다 — 결과 얼굴과 같은 어깨너머다 (ADR-125)
       */}
-      {traits && <TraitsCard traits={traits} />}
+      {traits && <TraitsCard traits={traits} story={ideal.story} waiting={storyWaiting} />}
       <section className="card stack">
         {/* '연예인' 이라는 말이 처음 나오는 자리다 (S-B5) */}
         <div className="kicker">{IDEAL.resultKicker}</div>

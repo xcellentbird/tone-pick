@@ -115,7 +115,7 @@ const json = (b: unknown, status = 200) =>
  *
  * `html` 은 **SPA 폴백** — 없는 파일에 index.html 이 200 으로 온다. `404` 는 개발 서버·다른 호스트의 모양이다.
  */
-function stub(state: ParticipantState, over: { saved?: Ideal; faces?: Faces } = {}): Stub {
+function stub(state: ParticipantState, over: { saved?: Ideal; faces?: Faces; story?: string | null } = {}): Stub {
   const s: Stub = { asked: [], faces: over.faces ?? "ok" };
   let row: Ideal | undefined = state.ideal;
   vi.stubGlobal("WebSocket", class { close() {} });
@@ -139,6 +139,12 @@ function stub(state: ParticipantState, over: { saved?: Ideal; faces?: Faces } = 
       }
       if (url === "/api/ideal/verdict") {
         row = { ...row!, verdict: body };
+        return json(row);
+      }
+      if (url === "/api/ideal/story") {
+        // 설명글 (ADR-134) — 꺼진 서버는 없는 길이고, LLM 이 실패하면 글 없이 저장된 행이 온다
+        if (over.story === undefined) return json({ error: "not_found" }, 404);
+        if (over.story !== null) row = { ...row!, story: over.story };
         return json(row);
       }
       return json(state);
@@ -1436,5 +1442,93 @@ describe("다음에 보일 사진은 미리 받는다", () => {
     const centers = tasteCenters(picked.flat().map(vecOf));
     const result = nearestCelebs(SYN_CELEBS, centers, new Set(shown.flat()));
     await waitFor(() => expect(warmed).toEqual(expect.arrayContaining(result.map((c) => url(c.id)))));
+  });
+});
+
+describe("설명글 (ADR-134)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const STORY = "같은 화면의 다른 얼굴보다 입꼬리가 살짝 올라간 얼굴을 더 골랐어요. 사람들은 이런 얼굴에서 친근한 인상을 먼저 받아요.";
+
+  /**
+   * 화면이 세우는 그대로 세 라운드를 돌며 쪽마다 둘째 · 다섯째를 고른 한 벌 — 그 사람이 본 화면과 함께.
+   * 설명글은 2 · 3라운드의 화면을 다시 세워 보낸다 — 여기서 센 화면과 같아야 한다
+   */
+  function played(): { ideal: Ideal; pages: string[][] } {
+    const shown = new Set<string>();
+    const picks: string[][] = [];
+    const pages: string[][] = [];
+    for (let r = 1; r <= IDEAL_SHAPE.rounds; r++) {
+      const centers = r === 1 ? null : tasteCenters(picks.flat().map(vecOf));
+      const page = ids(pickRound(SYN_FACES, r as 1 | 2 | 3, centers, shown));
+      for (const id of page) shown.add(id);
+      pages.push(page);
+      picks.push([page[1], page[4]]);
+    }
+    const result = ids(nearestCelebs(SYN_CELEBS, tasteCenters(picks.flat().map(vecOf)), shown));
+    return { ideal: { v: IDEAL_ASSET_V, pool: "F", picks, result, at: 7 }, pages };
+  }
+  const traitsText = (ideal: Ideal) =>
+    IDEAL.traits(
+      idealTraits(
+        ideal.picks.flat().map((id) => synTraits(SYN_DEGS.find((d) => d.id === id)!.deg)),
+        SYN_DEGS.map((d) => synTraits(d.deg)),
+      ),
+    );
+  const storyAsks = (s: Stub) => s.asked.filter((a) => a.url === "/api/ideal/story");
+
+  it("★ 켜진 곳에서 글이 없으면 한 번 청한다 — 2 · 3라운드 화면을 다시 세워 보내고, 온 글과 무엇과 견줬는지가 선다", async () => {
+    const { ideal, pages } = played();
+    const s = stub({ ...stateIn("prevote", ideal), idealStory: true }, { story: STORY });
+    mount(`${BASE}/ideal`);
+
+    await screen.findByText(STORY);
+    expect(document.body.textContent).toContain(IDEAL.storyNote);
+    // 제목은 고른 얼굴의 이름표 그대로, 그 아래 낱말로 쓴 글과 연구 한 줄은 서지 않는다
+    const { title, person, note } = traitsText(ideal);
+    expect(document.body.textContent).toContain(title);
+    if (person) expect(document.body.textContent).not.toContain(person);
+    expect(document.body.textContent).not.toContain(note);
+
+    expect(storyAsks(s)).toHaveLength(1);
+    expect(storyAsks(s)[0].body).toEqual({ pages: [pages[1], pages[2]] });
+    expect(document.body.textContent).not.toMatch(/%/);
+  });
+
+  it("★ 꺼진 곳에서는 청하지 않는다 — 고른 얼굴의 낱말로 쓴 글 그대로 (ADR-128)", async () => {
+    const { ideal } = played();
+    const s = stub(stateIn("prevote", ideal), { story: STORY });
+    mount(`${BASE}/ideal`);
+    await screen.findAllByText(`n${ideal.result[0]}`);
+    expect(document.body.textContent).toContain(traitsText(ideal).note);
+    expect(storyAsks(s)).toHaveLength(0);
+  });
+
+  it("★ 이미 글이 있으면 다시 청하지 않고 그 글을 그린다", async () => {
+    const { ideal } = played();
+    const s = stub({ ...stateIn("prevote", { ...ideal, story: STORY }), idealStory: true }, { story: "다른 글이 오면 안 된다" });
+    mount(`${BASE}/ideal`);
+    await screen.findByText(STORY);
+    expect(storyAsks(s)).toHaveLength(0);
+  });
+
+  it("★ 실패하면 기다리던 한 줄이 낱말로 쓴 글로 바뀐다 — 빈 카드로 남지 않는다", async () => {
+    const { ideal } = played();
+    const s = stub({ ...stateIn("prevote", ideal), idealStory: true }, { story: null });
+    mount(`${BASE}/ideal`);
+    // 연구 한 줄에는 줄바꿈 없는 공백이 들어 있어 글자 그대로 본다 (`findByText` 는 공백을 고쳐 읽는다)
+    await waitFor(() => expect(document.body.textContent).toContain(traitsText(ideal).note));
+    expect(document.body.textContent).not.toContain(IDEAL.storyWaiting);
+    expect(storyAsks(s)).toHaveLength(1);
+  });
+
+  it("★ 옛 판의 결과에는 청하지 않는다", async () => {
+    const s = stub({ ...stateIn("prevote", SAVED), idealStory: true }, { story: STORY });
+    mount(`${BASE}/ideal`);
+    await screen.findAllByText(`n${SAVED.result[0]}`);
+    expect(storyAsks(s)).toHaveLength(0);
   });
 });
