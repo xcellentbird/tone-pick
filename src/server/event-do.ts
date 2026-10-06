@@ -1485,20 +1485,30 @@ export class EventDO extends DurableObject {
     return ok(true);
   }
 
-  /** 한 표. 다시 부르면 **옮겨간다** — 마음을 바꾸는 건 실패가 아니다 */
-  vote(playerId: string, id: string, choice: PollChoice): Result<PublicAnnouncement> {
+  /**
+   * 한 표. 다시 부르면 **옮겨간다** — 마음을 바꾸는 건 실패가 아니다.
+   *
+   * `null` 이면 **답을 거둔다** — 미응답으로 돌아간다 (ADR-88 후기). 뒤집기가 아니라 **맞추기**다:
+   * 화면이 바라는 상태를 보내고 여기서는 그 상태로 둔다. 여기서 뒤집으면 다시 보낸 요청 하나가
+   * 거둔 답을 되살린다. 마감된 설문은 거둘 수도 없다 — 운영자가 그 명단을 보고 연락하는 중이다.
+   */
+  vote(playerId: string, id: string, choice: PollChoice | null): Result<PublicAnnouncement> {
     if (!this.player(playerId)) return fail("not_found");
     const row = this.announcementRows().find((r) => r.id === id);
     if (!row || row.poll_a === null) return fail("not_found");
     if (row.closed_at !== null) return fail("closed");
 
-    this.ctx.storage.sql.exec(
-      "INSERT INTO votes (ann_id, player_id, choice) VALUES (?, ?, ?)" +
-        " ON CONFLICT(ann_id, player_id) DO UPDATE SET choice = excluded.choice",
-      id,
-      playerId,
-      choice,
-    );
+    if (choice === null) {
+      this.ctx.storage.sql.exec("DELETE FROM votes WHERE ann_id = ? AND player_id = ?", id, playerId);
+    } else {
+      this.ctx.storage.sql.exec(
+        "INSERT INTO votes (ann_id, player_id, choice) VALUES (?, ?, ?)" +
+          " ON CONFLICT(ann_id, player_id) DO UPDATE SET choice = excluded.choice",
+        id,
+        playerId,
+        choice,
+      );
+    }
     /*
      * **운영자와 본인에게만** 알린다. 참가자 응답에는 남의 답도 숫자도 없어서(ADR-88) 한 사람의 답으로
      * 달라지는 남의 화면이 없다 — 전원에게 보내면 답 하나가 인원수만큼의 재조회가 되고, 50명이 답하면
