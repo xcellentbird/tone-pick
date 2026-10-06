@@ -28,8 +28,10 @@ import {
   meanOf,
   normalizeIdeal,
   nearestCelebs,
+  parseIdealStory,
   pickRound,
   readIdealInput,
+  shownPages,
   tasteCenters,
   type DecodedCeleb,
   type DecodedFace,
@@ -641,5 +643,69 @@ describe("normalizeIdeal — v2 까지의 한 명짜리 정답을 배열로 편�
       const row = { ...base, ...(v ? { verdict: v } : {}) } as Ideal;
       expect(normalizeIdeal(row)).toEqual(row);
     }
+  });
+});
+
+// ─────────────────────────────────────────── 설명글 (ADR-134)
+
+describe("shownPages — 고른 얼굴만으로 그 사람이 본 화면을 다시 세운다 (ADR-134)", () => {
+  /*
+   * 지금 판의 모양(한 화면 아홉 · 1단계 두 쪽 · 결과 몫)으로 돌아야 한다 — 픽스처 풀은 여섯(v1)으로 셈해 둬서 넘긴 쪽이 비어 버린다.
+   * 그래서 인라인 풀이다: 1단계 18 · 2단계 36 · 3단계 72 가 원 위에 고루 선다
+   */
+  const POOL9: DecodedFace[] = [
+    ...Array.from({ length: 18 }, (_, i) => face("a", i * 20, 1)),
+    ...Array.from({ length: 36 }, (_, i) => face("b", i * 10 + 5, 2)),
+    ...Array.from({ length: 72 }, (_, i) => face("c", i * 5 + 1, 3)),
+  ];
+  const vecs = new Map(POOL9.map((f) => [f.id, f.vec]));
+
+  /** 화면이 라운드를 세우는 그대로(`roundsOf`) — 라운드마다 `다른 얼굴 보기` 를 flips[r] 번 누르고, 그 쪽에서 고른다 */
+  function play(flips: readonly number[], pick: (page: string[]) => string[]) {
+    const shown = new Set<string>();
+    const picks: string[][] = [];
+    const pages: string[][] = [];
+    for (let r = 1; r <= IDEAL_SHAPE.rounds; r++) {
+      const centers = r === 1 ? null : tasteCenters(picks.flat().map((id) => vecs.get(id)!));
+      let page: DecodedFace[] = [];
+      for (let k = 0; k <= flips[r - 1]; k++) {
+        page = pickRound(POOL9, r as 1 | 2 | 3, centers, shown);
+        for (const f of page) shown.add(f.id);
+      }
+      pages.push(ids(page));
+      picks.push(pick(ids(page)));
+    }
+    return { picks, pages };
+  }
+
+  it("★ 넘긴 쪽까지 — 고른 얼굴이 첫 쪽에 없으면 둘째 쪽을 본 것이다. 저장된 것(고른 얼굴)만으로 화면이 그대로 선다", () => {
+    for (const flips of [
+      [0, 0, 0],
+      [1, 0, 0],
+      [0, 1, 1],
+      [1, 1, 1],
+    ]) {
+      for (const pick of [(p: string[]) => [p[1], p[4]], (p: string[]) => [p[8]], (p: string[]) => p.slice(0, 5)]) {
+        const { picks, pages } = play(flips, pick);
+        expect(pages.every((p) => p.length === IDEAL_SHAPE.faces)).toBe(true);
+        expect(shownPages(POOL9, vecs, picks), `넘김 ${flips.join(",")}`).toEqual(pages);
+      }
+    }
+  });
+});
+
+describe("parseIdealStory — LLM 의 답에서 글을 꺼낸다 (ADR-134)", () => {
+  const text = "같은 화면의 다른 얼굴보다 눈꼬리가 살짝 올라간 얼굴을 더 골랐어요. 사람들은 이런 얼굴에서 또렷한 인상을 먼저 받아요.";
+
+  it("JSON 이면 글을 꺼낸다 — 코드 울타리를 벗기고, 공백을 한 칸으로 모은다", () => {
+    expect(parseIdealStory(JSON.stringify({ text }))).toBe(text);
+    expect(parseIdealStory("```json\n" + JSON.stringify({ text: text.replace(". ", ".\n\n  ") }) + "\n```")).toBe(text);
+  });
+
+  it("형식이 어긋나거나 길이가 밖이면 버린다 — 화면에 올리지 않는다", () => {
+    expect(parseIdealStory("그냥 문장")).toBeNull();
+    expect(parseIdealStory(JSON.stringify({ story: text }))).toBeNull();
+    expect(parseIdealStory(JSON.stringify({ text: "짧다" }))).toBeNull();
+    expect(parseIdealStory(JSON.stringify({ text: text.repeat(4) }))).toBeNull();
   });
 });

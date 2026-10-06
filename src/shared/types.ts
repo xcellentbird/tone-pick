@@ -784,6 +784,12 @@ export interface ParticipantState {
    * 정답 확인(`verdict`)도 이 안이다
    */
   ideal?: Ideal;
+  /**
+   * 이상형 찾기의 설명글(ADR-134)이 켜진 곳이다 — **QA 에서만** (`IDEAL_STORY`). 켜져 있으면 결과 화면이 글을 청하고
+   * 기다리는 한 줄을 세운다. 꺼진 곳에서는 이 칸이 없고 결과 화면은 고른 얼굴의 낱말로 쓴 글(ADR-128)을 그린다.
+   * `GET /api/me` 가 붙인다 — 회차 DO 는 모른다
+   */
+  idealStory?: true;
   /** 운영자가 보낸 알림. 최신순 (슬라이스 14) */
   announcements: PublicAnnouncement[];
 }

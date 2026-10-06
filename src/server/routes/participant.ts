@@ -15,6 +15,8 @@ import { validPin } from "../../shared/constants.ts";
 import { canOpenFun, canOpenMission } from "../../shared/phase.ts";
 import { fortuneInput, missionInput, validBirth } from "../../shared/fortune.ts";
 import { makeFortune, makeMission } from "../fortune.ts";
+import { idealStoryInput, makeIdealStory } from "../ideal-story.ts";
+import { IDEAL_ASSET_V, readIdealStoryPages } from "../../shared/ideal.ts";
 import { count, pulse } from "../metrics.ts";
 import { todayIn } from "../../shared/time.ts";
 import { PULSE_MAX, allowedKey, stayBucket, type PulseEvent } from "../../shared/pulse.ts";
@@ -235,7 +237,8 @@ participantRoutes.get("/me", async (c) => {
     return apiError(c, "unauthorized", ENTRY.notFound);
   }
   if (askedId && askedId !== value!.event.id) return apiError(c, "unauthorized", ENTRY.notFound);
-  return c.json(value);
+  // 이상형 찾기의 설명글이 켜진 곳인가 (ADR-134) — 설정은 Worker 가 읽는다. 결과 화면이 기다리는 한 줄을 세울지 이것으로 안다
+  return c.json(c.env.IDEAL_STORY === "1" ? { ...value!, idealStory: true } : value);
 });
 
 participantRoutes.post("/poke", async (c) => {
@@ -442,6 +445,39 @@ participantRoutes.post("/ideal/verdict", async (c) => {
     pulse(c.env, { kind: "ideal", key: "chosen" in ideal.verdict ? "chosen" : "none", v: ideal.v });
   }
   return c.json(ideal);
+});
+
+/**
+ * 이상형 찾기의 설명글 (ADR-134). **QA 에서만 켠다** (`IDEAL_STORY`) — 꺼진 곳에서는 없는 길(404)이다.
+ *
+ * 결과마다 한 번 만든다 — 이미 있으면 저장된 행을 그대로 돌려준다 (운세와 같다, ADR-20). LLM 호출은 **Worker 에서** 한다.
+ * 기기가 2 · 3라운드의 화면을 다시 세워 보낸다(`shownPages`) — 서버는 벡터를 모르니 **모양만** 본다(고른 얼굴이 그 화면에 있나).
+ * 기기가 화면을 지어 보내도 바뀌는 것은 그 사람 자신의 글뿐이다.
+ *
+ * LLM 이 실패하면 **글 없이** 저장된 행을 돌려준다 — 화면은 고른 얼굴의 낱말로 쓴 글(ADR-128)을 그린다.
+ * 실패는 적지 않는다 — 다음에 결과를 열면 다시 청한다. 문(`canOpenFun`)은 보지 않는다 — 이미 찾은 결과를 보는 일의 한 칸이다
+ */
+participantRoutes.post("/ideal/story", async (c) => {
+  if (c.env.IDEAL_STORY !== "1") return apiError(c, "not_found");
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const ctx = await seat.stub.idealStoryContext(seat.playerId, serverNow());
+  if (!ctx.ok || !ctx.value.ideal) return apiError(c, "not_found");
+  const ideal = ctx.value.ideal;
+  if (ideal.story) return c.json(ideal);
+  // 화면은 지금 판의 규칙으로만 다시 세울 수 있다 — 옛 판의 결과에는 쓰지 않는다
+  if (ideal.v !== IDEAL_ASSET_V) return apiError(c, "closed");
+
+  const body: unknown = await c.req.json().catch(() => ({}));
+  const pages = readIdealStoryPages(body, ideal.picks);
+  if (!pages) return apiError(c, "bad_request");
+
+  const story = await makeIdealStory(c.env, idealStoryInput(ideal, pages), new URL(c.req.url).origin);
+  // 실패해도 화면은 멀쩡히 뜬다 (ADR-128 의 글). 그래서 세지 않으면 아무도 모른다
+  count(c.env, seat.eventId, { kind: "ideal_story", outcome: story ? "llm" : "fallback" });
+  if (!story) return c.json(ideal);
+  const { value, response } = unwrap(c, await seat.stub.saveIdealStory(seat.playerId, ideal.at, story, serverNow()));
+  return response ?? c.json(value);
 });
 
 /**

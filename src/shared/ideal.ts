@@ -30,6 +30,11 @@ export interface Ideal {
   result: string[];
   /** 결과 확정 (S-C4). 한 번 채워지면 그대로 — 없으면 아직 무응답이다 */
   verdict?: IdealVerdict;
+  /**
+   * 설명글 (ADR-134) — 같은 화면에서 고르지 않은 얼굴과 견줘 LLM 이 쓴 두 문장. **결과마다 한 번** 만들고 그대로다 —
+   * 다시 찾으면 새 결과와 함께 없어진다. 서버만 적는다 — 저장 요청에 실어 보내도 `readIdealInput` 이 버린다
+   */
+  story?: string;
   at: number;
 }
 
@@ -40,8 +45,8 @@ export interface Ideal {
  */
 export type IdealVerdict = { chosen: string[] } | { none: true };
 
-/** 기기가 보내는 것. verdict 는 따로 온다 — 결과를 본 뒤에야 생기는 값이다 (S-C4) */
-export type IdealInput = Omit<Ideal, "verdict" | "at">;
+/** 기기가 보내는 것. verdict 는 따로 온다 — 결과를 본 뒤에야 생기는 값이다 (S-C4). 설명글은 서버가 만든다 (ADR-134) */
+export type IdealInput = Omit<Ideal, "verdict" | "story" | "at">;
 
 export const IDEAL_SHAPE = {
   rounds: 3,
@@ -160,6 +165,84 @@ export function normalizeIdeal(ideal: Ideal): Ideal {
   const v = ideal.verdict as { chosen?: unknown } | undefined;
   if (v && typeof v.chosen === "string") return { ...ideal, verdict: { chosen: [v.chosen] } };
   return ideal;
+}
+
+// ─────────────────────────────────────────── 설명글 (ADR-134)
+
+/**
+ * 설명글이 견주는 라운드 — 2 · 3라운드. **1라운드는 뺀다** — 모두에게 같은 아홉이라 누구나 가장 눈에 띄는 얼굴을 고르고
+ * (114회차: 남들이 고른 비율로 AUC 0.83 · 0.85, ADR-133), 그 차이를 물으면 `더 눈에 띄는 얼굴` 이라는 뻔한 답만 나온다.
+ * 2 · 3라운드는 이미 비슷한 얼굴끼리라 고른 것과 안 고른 것의 차이가 그 사람의 몫이다
+ */
+export const STORY_ROUNDS = [2, 3] as const;
+
+/** 설명글의 길이(자). 프롬프트가 두 문장 70~110자를 청한다 — 이 밖이면 형식이 어긋난 것이라 버린다 */
+export const STORY_LEN = { min: 20, max: 240 } as const;
+
+/**
+ * 고른 얼굴만으로 그 사람이 본 화면을 다시 세운다 — 라운드마다 아홉 (ADR-133 의 `reconstruct` 와 같은 규칙).
+ * `다른 얼굴 보기` 는 저장되지 않는다 — **고른 얼굴이 첫 쪽에 없으면 둘째 쪽을 본 것이다.** 넘긴 쪽과 다음 쪽은 겹치지 않아서
+ * 둘이 갈린다. **지금 판의 규칙**(`IDEAL_SHAPE`)으로 센다 — 옛 판의 결과에는 쓰지 않는다. 같은 입력이면 같은 출력
+ */
+export function shownPages(
+  faces: readonly DecodedFace[],
+  vecs: ReadonlyMap<string, Float32Array>,
+  picks: readonly (readonly string[])[],
+): string[][] {
+  const shown = new Set<string>();
+  const pages: string[][] = [];
+  for (let r = 1; r <= IDEAL_SHAPE.rounds; r++) {
+    const picked = picks[r - 1] ?? [];
+    const before = picks.slice(0, r - 1).flat().map((id) => vecs.get(id)).filter((v): v is Float32Array => !!v);
+    const centers = r === 1 ? null : tasteCenters(before);
+    const round = r as 1 | 2 | 3;
+    let page = pickRound(faces, round, centers, shown);
+    for (let k = 0; k < IDEAL_SHAPE.rerolls && !picked.every((id) => page.some((f) => f.id === id)); k++) {
+      for (const f of page) shown.add(f.id);
+      page = pickRound(faces, round, centers, shown);
+    }
+    for (const f of page) shown.add(f.id);
+    pages.push(page.map((f) => f.id));
+  }
+  return pages;
+}
+
+/**
+ * 설명글에 쓸 화면 — `STORY_ROUNDS` 의 화면을 하나씩. 기기가 `shownPages` 로 다시 세워 보낸다 (서버는 벡터를 모른다, S-D3).
+ * **모양만 본다** — 화면마다 서로 다른 id 1~9개, 그 라운드에 고른 얼굴이 모두 그 화면에 있고, 고르지 않은 얼굴이 하나는 있다
+ * (견줄 것이 있어야 한다). 새 배열을 짓는다 — 본문을 펼치지 않는다 (`readIdealInput` 과 같은 이유). 어긋나면 null
+ */
+export function readIdealStoryPages(raw: unknown, picks: readonly (readonly string[])[]): string[][] | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const pages = (raw as Record<string, unknown>).pages;
+  if (!Array.isArray(pages) || pages.length !== STORY_ROUNDS.length) return null;
+  const out: string[][] = [];
+  for (const [i, r] of STORY_ROUNDS.entries()) {
+    const page: unknown = pages[i];
+    if (!idList(page, 1, IDEAL_SHAPE.faces)) return null;
+    const picked = picks[r - 1] ?? [];
+    if (!picked.length || !picked.every((id) => page.includes(id)) || page.length <= picked.length) return null;
+    out.push([...page]);
+  }
+  return out;
+}
+
+/**
+ * LLM 의 답에서 설명글을 꺼낸다 — `{"text": "…"}`. 첫 `{` 부터 끝 `}` 까지만 읽는다 — 코드 울타리나 앞뒤 말이 붙어 와도 된다.
+ * 공백을 한 칸으로 모은다. 길이가 `STORY_LEN` 밖이면 버린다 — 형식이 어긋난 것을 화면에 올리지 않는다
+ */
+export function parseIdealStory(raw: string): string | null {
+  const a = raw.indexOf("{");
+  const b = raw.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  try {
+    const t = (JSON.parse(raw.slice(a, b + 1)) as { text?: unknown }).text;
+    if (typeof t !== "string") return null;
+    const text = t.replace(/\s+/g, " ").trim();
+    return text.length >= STORY_LEN.min && text.length <= STORY_LEN.max ? text : null;
+  } catch {
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────── 끌리는 얼굴의 특징 (ADR-127)

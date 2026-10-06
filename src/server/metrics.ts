@@ -23,7 +23,9 @@ export type Metric =
   /** 입장 시도의 끝. 명단 문제가 조용히 쌓이는 걸 여기서 본다 */
   | { kind: "enter"; outcome: "ok" | "not_invited" | "too_many" | "pin_wrong" | "pin_locked" }
   /** 운세·미션이 규칙 문구로 떨어졌나. LLM 이 조용히 죽어도 화면은 멀쩡히 뜬다 */
-  | { kind: "fortune"; outcome: "llm" | "fallback" };
+  | { kind: "fortune"; outcome: "llm" | "fallback" }
+  /** 이상형 찾기의 설명글(ADR-134)이 나왔나, 고른 얼굴의 낱말로 쓴 글로 떨어졌나. 운세와 같은 까닭으로 센다 — 글도 연예인도 담지 않는다 */
+  | { kind: "ideal_story"; outcome: "llm" | "fallback" };
 
 /**
  * 한 건 센다. **던지지 않는다** — 지표를 쓰다 실패해서 참가자 요청이 깨지면 본말이 뒤바뀐다.

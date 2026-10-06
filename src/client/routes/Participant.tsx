@@ -795,6 +795,7 @@ function Loaded({
                     onGo={(to, opts) => onIdeal?.(to, opts)}
                     onAgain={() => onIdealAgain?.({ replace: true })}
                     onSaved={setIdeal}
+                    story={!!state.idealStory}
                   />
                 </Suspense>
               </IdealBoundary>

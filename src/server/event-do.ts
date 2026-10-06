@@ -1657,6 +1657,35 @@ export class EventDO extends DurableObject {
     return ok({ ideal: next, first: true });
   }
 
+  /**
+   * 설명글(ADR-134)의 재료 — 내 결과 한 줄. 라우트가 LLM 을 부르고 `saveIdealStory` 로 적는다 (운세와 같은 두 걸음 —
+   * LLM 을 기다리는 동안 이 DO 를 붙들지 않는다). 결과가 없으면 빈 채로 돌려준다
+   */
+  async idealStoryContext(playerId: string, now: number): Promise<Result<{ ideal?: Ideal }>> {
+    if (!(await this.touch(now))) return fail("not_found");
+    if (!this.player(playerId)) return fail("not_found");
+    const row = this.rows<{ json: string }>("SELECT json FROM ideals WHERE player_id = ?", playerId)[0];
+    return ok(row ? { ideal: normalizeIdeal(JSON.parse(row.json) as Ideal) } : {});
+  }
+
+  /**
+   * 설명글을 적는다 (ADR-134). **그 글을 만든 결과에만** — LLM 을 기다리는 동안 다시 찾았으면(`at` 이 다르면) 적지 않고
+   * 지금 행을 돌려준다. 이미 글이 있으면 그대로다 — 먼저 온 하나가 남는다 (운세와 같다, ADR-20).
+   * 정답 확인(`saveIdealVerdict`)은 행을 펼쳐 쓰므로 글이 남고, 다시 찾기(`saveIdeal`)는 새 행이라 글이 없다.
+   * 읽기와 쓰기 사이에 await 가 없다 — `saveMission` 과 같은 원자성이다
+   */
+  async saveIdealStory(playerId: string, at: number, story: string, now: number): Promise<Result<Ideal>> {
+    if (!(await this.touch(now))) return fail("not_found");
+    if (!this.player(playerId)) return fail("not_found");
+    const row = this.rows<{ json: string }>("SELECT json FROM ideals WHERE player_id = ?", playerId)[0];
+    if (!row) return fail("not_found");
+    const saved = normalizeIdeal(JSON.parse(row.json) as Ideal);
+    if (saved.at !== at || saved.story) return ok(saved);
+    const next: Ideal = { ...saved, story };
+    this.ctx.storage.sql.exec("UPDATE ideals SET json = ? WHERE player_id = ?", JSON.stringify(next), playerId);
+    return ok(next);
+  }
+
   // ─────────────────────────── 자리
 
   /** 초안 생성. 참가자에게는 보이지 않으므로 확인 없이 몇 번이든 다시 만든다 (ADR-6) */
