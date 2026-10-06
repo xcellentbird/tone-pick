@@ -735,7 +735,7 @@ export interface PublicAnnouncement {
   poll?: {
     a: string;
     b: string;
-    /** 아직 안 골랐으면 없다 */
+    /** 아직 안 골랐거나 거뒀으면 없다 (ADR-88 후기) */
     mine?: PollChoice;
     closed: boolean;
   };

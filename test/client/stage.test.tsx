@@ -86,7 +86,7 @@ function sourceOf(state: ParticipantState) {
     markStage: async (s) => {
       seen.push(s);
     },
-    vote: async (id, choice) => ({ id, at: 1, text: "", poll: { a: "A", b: "B", mine: choice, closed: false } }),
+    vote: async (id, choice) => ({ id, at: 1, text: "", poll: { a: "A", b: "B", ...(choice ? { mine: choice } : {}), closed: false } }),
     saveProfile: async (input) => ({ ...state.me, ...input }),
   };
   return src;

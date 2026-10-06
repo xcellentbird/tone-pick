@@ -29,8 +29,11 @@ export interface ParticipantSource {
   ackSeat(round: number): Promise<void>;
   /** 단계 안내를 봤다 (ADR-96). 어느 단계를 봤는지 보낸다 — 서버가 지금 단계를 대신 적지 않는다 */
   markStage(stage: StageKey): Promise<void>;
-  /** 설문에 답한다 (슬라이스 27). 다시 부르면 옮겨간다. 돌려주는 건 갱신된 그 설문 하나다 */
-  vote(id: string, choice: PollChoice): Promise<PublicAnnouncement>;
+  /**
+   * 설문에 답한다 (슬라이스 27). 다시 부르면 옮겨가고, `null` 이면 답을 거둔다 (ADR-88 후기).
+   * 돌려주는 건 갱신된 그 설문 하나다
+   */
+  vote(id: string, choice: PollChoice | null): Promise<PublicAnnouncement>;
   /** 내 정보 고치기. 등록과 같은 입력이라 **전화번호는 여기 없다** (ADR-31) */
   saveProfile(input: RegisterInput): Promise<MyProfile>;
 }

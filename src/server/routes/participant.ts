@@ -301,16 +301,21 @@ participantRoutes.post("/note/seen", async (c) => {
 });
 
 /**
- * A/B 투표에 한 표 (슬라이스 14).
+ * A/B 투표에 한 표 (슬라이스 14). `choice: null` 이면 **답을 거둔다** — 미응답으로 돌아간다 (ADR-88 후기).
  *
  * **갱신된 알림 하나를 돌려준다.** 화면은 이 값을 그대로 쓰고 다시 읽지 않는다 —
  * 서버가 방금 준 답을 버리고 또 묻지 않는 게 슬라이스 17 에서 배운 것이다.
+ *
+ * 거두기는 **`null` 을 적어 보낸 것만**이다. `choice` 가 빠진 요청은 여전히 400 이다 —
+ * 값을 빠뜨린 요청 하나가 운영자의 뒤풀이 명단에서 사람을 조용히 지우면 안 된다.
  */
 participantRoutes.post("/vote", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");
-  const body = (await c.req.json().catch(() => ({}))) as { id?: string; choice?: string };
-  if (!body.id || (body.choice !== "a" && body.choice !== "b")) return apiError(c, "bad_request");
+  const body = (await c.req.json().catch(() => ({}))) as { id?: string; choice?: string | null };
+  if (!body.id || (body.choice !== "a" && body.choice !== "b" && body.choice !== null)) {
+    return apiError(c, "bad_request");
+  }
   const { value, response } = unwrap(c, await seat.stub.vote(seat.playerId, body.id, body.choice));
   return response ?? c.json(value);
 });
