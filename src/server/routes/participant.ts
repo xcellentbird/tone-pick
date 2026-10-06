@@ -9,7 +9,7 @@
  *    새 화면이 필요해도 여기서 자료를 조립하지 말고 그쪽을 넓혀라.
  */
 import { Hono } from "hono";
-import type { EnterProbe, EnterResult, RegisterInput } from "../../shared/types.ts";
+import type { EnterProbe, EnterResult, ParticipantState, RegisterInput } from "../../shared/types.ts";
 import { ENTRY, FORTUNE, FUN, ME } from "../../shared/copy.ts";
 import { validPin } from "../../shared/constants.ts";
 import { canOpenFun, canOpenMission } from "../../shared/phase.ts";
@@ -188,7 +188,8 @@ participantRoutes.post("/register", async (c) => {
   // 뒤따르는 쿠키는 **덧붙여야** 한다. 그냥 쓰면 앞의 참가자 세션을 덮어써서 로그인이 날아간다
   c.header("set-cookie", clearCookie(cookieName(INVITE_COOKIE, ref), isSecure(c)), { append: true });
   if (ref) c.header("set-cookie", clearCookie(INVITE_COOKIE, isSecure(c)), { append: true });
-  return c.json(value);
+  // 화면은 이 상태를 그대로 첫 화면으로 쓴다(`seedParticipant`) — `/me` 와 같은 표시를 붙여야 등록하자마자 찾은 결과에도 글이 선다
+  return c.json({ ...value!, state: withIdealStory(c, value!.state) });
 });
 
 /**
@@ -237,9 +238,17 @@ participantRoutes.get("/me", async (c) => {
     return apiError(c, "unauthorized", ENTRY.notFound);
   }
   if (askedId && askedId !== value!.event.id) return apiError(c, "unauthorized", ENTRY.notFound);
-  // 이상형 찾기의 설명글이 켜진 곳인가 (ADR-134) — 설정은 Worker 가 읽는다. 결과 화면이 기다리는 한 줄을 세울지 이것으로 안다
-  return c.json(c.env.IDEAL_STORY === "1" ? { ...value!, idealStory: true } : value);
+  return c.json(withIdealStory(c, value!));
 });
+
+/**
+ * 이상형 찾기의 설명글이 켜진 곳이면 그렇다고 붙인다 (ADR-134) — 설정은 Worker 가 읽는다(회차 DO 는 모른다).
+ * 결과 화면이 글을 청할지, 기다리는 한 줄을 세울지 이것으로 안다. **참가자 상태를 내주는 길마다** 붙인다 —
+ * `/me` 와 등록 응답. 등록 응답에 빠뜨렸더니 등록하자마자 찾은 결과에는 글을 청하지 않았다(화면은 그 상태를 첫 화면으로 쓴다)
+ */
+function withIdealStory<T extends object>(c: Ctx, state: T): T & Pick<ParticipantState, "idealStory"> {
+  return c.env.IDEAL_STORY === "1" ? { ...state, idealStory: true } : state;
+}
 
 participantRoutes.post("/poke", async (c) => {
   const seat = await seatOf(c);
