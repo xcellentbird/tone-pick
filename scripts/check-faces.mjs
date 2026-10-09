@@ -106,7 +106,9 @@ const NEED_CELEBS = SEEN_MAX + RESULTS;
  * 같은 모양으로 만들어 재면 gzip 91 KiB 쯤이다. 풀이 두 배가 되거나 dim 을 올리면 여기서 걸린다 —
  * 그때 그 값을 다시 묻게 하려는 값이다. **자산이 오면 실측으로 다시 적는다.**
  */
-const POOL_BUDGET = 120 * 1024;
+// v5(ADR-135, 2026-10-10) 실측: 여 536명 gzip 165.0 KiB · 남 580명 179.4 KiB — 사람당 약 310바이트. 판에 실을 사람을 늘려 올렸다.
+// 받는 쪽은 이상형 찾기를 처음 여는 한 번이다(사진 · JSON 은 판 경로라 오래 캐시된다). 풀이 600명을 넘으면 다시 묻는다
+const POOL_BUDGET = 192 * 1024;
 const POOLS = ["f", "m"]; // Gender 소문자 — 풀 하나에 파일 하나
 
 const problems = [];

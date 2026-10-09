@@ -94,7 +94,7 @@ export const IDEAL_SHAPE = {
  * **저장된 결과는 이 값이 아니라 자기 `v` 로 그린다.** 판이 올라가도 옛 결과는 옛 경로에서
  * 그대로 그려져야 한다 (옛 버전 경로는 지우지 않는다 — 19-surface).
  */
-export const IDEAL_ASSET_V = 4;
+export const IDEAL_ASSET_V = 5;
 
 /**
  * `v` 의 윗끝. 기기가 보낸 값이 그대로 지표 blob 으로 흘러가서(`pulse` 의 ideal) 막아둔다 —
