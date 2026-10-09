@@ -6,7 +6,9 @@
  *   /ideal/1..3   라운드. 한 칸씩 push — 뒤로 가기가 곧 이전 라운드다 (S-B4, 등록 스텝과 같다).
  *                 `다른 얼굴 보기` 는 칸을 쌓지 않는다 — 같은 라운드의 다른 쪽일 뿐이다 (v2)
  *
- * **다시 찾기는 다시 뽑기가 아니라 다시 고르기다** (ADR-125) — 이 기능에는 난수가 없어서 같은 얼굴을 고르면 같은 결과다.
+ * **다시 찾기는 다시 뽑기가 아니라 다시 고르기다** (ADR-125) — 결과에는 난수가 없어서 같은 화면에서 같은 얼굴을 고르면 같은 결과다.
+ * 난수는 하나, **찾기를 시작할 때 집는 첫 화면 묶음**(`start`, ADR-136)뿐이다 — 1라운드에 어느 대표들이 서는지만 정하고,
+ * 결과와 함께 저장된다. 다시 찾으면 새로 집는다.
  * 지난 결과는 **새 결과가 저장될 때만** 바뀐다. 다시 찾다가 나가면 그대로다 — 무엇을 대신하는지는 이 화면의 메모리
  * (`redo.from` — 지난 결과의 `at`)에만 있고, 저장할 때 서버에 그 값을 가리켜 보낸다.
  *
@@ -29,6 +31,7 @@ import {
   IDEAL_ASSET_V,
   IDEAL_SHAPE,
   decodeVec,
+  facesForStart,
   idealTraits,
   nearestCelebs,
   pickRound,
@@ -37,6 +40,7 @@ import {
   type DecodedCeleb,
   type DecodedFace,
   type FacePoolFile,
+  type FaceStart,
   type Ideal,
   type IdealInput,
   type IdealTraits,
@@ -57,6 +61,8 @@ interface Pool {
   names: Map<string, string>;
   /** 사람마다의 특징 부호 (ADR-127). 그 판에 없으면(v1 · v2) 비어 있고, 결과 화면은 특징 카드를 그리지 않는다 */
   traits: Map<string, string[]>;
+  /** 첫 화면 묶음 (ADR-136). 그 판에 없으면(v5 까지) 어느 번호든 자산 그대로다 */
+  starts?: FaceStart[];
 }
 
 /**
@@ -74,6 +80,10 @@ function readPool(raw: unknown, v: number): FacePoolFile | null {
     !!x && typeof x.id === "string" && IDEAL_SHAPE.id.test(x.id) && typeof x.v === "string";
   const okT = (t: unknown) => t === undefined || (Array.isArray(t) && t.every((x) => typeof x === "string"));
   if (!f.faces.every(ok) || !f.celebs.every((c) => ok(c) && typeof c.name === "string" && okT(c.t))) return null;
+  // 묶음 하나하나의 모양(모르는 id · 겹침 · 수)은 `facesForStart` 가 본다 — 어긋난 묶음은 자산 그대로 선다
+  const okS = (s: Partial<FaceStart> | null) =>
+    !!s && [s.l1, s.l2].every((l) => Array.isArray(l) && l.every((x) => typeof x === "string"));
+  if (f.starts !== undefined && !(Array.isArray(f.starts) && f.starts.every(okS))) return null;
   return f as FacePoolFile;
 }
 
@@ -104,6 +114,7 @@ async function fetchPool(v: number, pool: Gender): Promise<Pool> {
     vecs: new Map(faces.map((f) => [f.id, f.vec])),
     names: new Map(celebs.map((c) => [c.id, c.name])),
     traits: new Map(celebs.filter((c) => c.t).map((c) => [c.id, c.t!])),
+    ...(file.starts ? { starts: file.starts } : {}),
   };
 }
 
@@ -201,9 +212,10 @@ function traitsOf(pool: Pool, picks: readonly string[][]): IdealTraits | null {
  * **고르던 값에서 매번 다시 센다** — 앞 라운드를 고쳐 고르면 뒤 라운드의 후보도 달라져야 한다
  * (앞의 선택이 뒤의 후보를 정한다). `다른 얼굴 보기` 도 값(`flips` — 라운드마다 넘긴 횟수)으로만 들고
  * 같은 규칙으로 다시 센다 — 같은 입력이면 같은 아홉이라, 뒤로 갔다 와도 넘긴 쪽이 그대로 선다.
- * 앞 라운드를 아직 안 골랐으면 거기서 멈춘다.
+ * 앞 라운드를 아직 안 골랐으면 거기서 멈춘다. 얼굴의 단계는 첫 화면 묶음(`start`)으로 붙인다 (ADR-136).
  */
-function roundsOf(pool: Pool, picks: readonly string[][], flips: readonly number[]) {
+function roundsOf(pool: Pool, start: number, picks: readonly string[][], flips: readonly number[]) {
+  const all = facesForStart(pool.faces, pool.starts, start);
   const shown = new Set<string>();
   const rounds: DecodedFace[][] = [];
   for (let r = 1; r <= IDEAL_SHAPE.rounds; r++) {
@@ -212,13 +224,19 @@ function roundsOf(pool: Pool, picks: readonly string[][], flips: readonly number
     const centers = r === 1 ? null : centersOf(pool, picks.slice(0, r - 1).flat());
     let faces: DecodedFace[] = [];
     for (let k = 0; k <= (flips[r - 1] ?? 0); k++) {
-      faces = pickRound(pool.faces, r as 1 | 2 | 3, centers, shown);
+      faces = pickRound(all, r as 1 | 2 | 3, centers, shown);
       for (const f of faces) shown.add(f.id);
     }
     rounds.push(faces);
   }
   return { rounds, shown };
 }
+
+/**
+ * 첫 화면 묶음을 집는다 (ADR-136) — **찾기를 시작할 때 한 번.** 이 기능의 하나뿐인 난수다. 풀을 고르기 전에 집는다 —
+ * 시작 화면이 두 풀의 1라운드 첫 쪽을 미리 받으려면 번호가 먼저 있어야 한다 (두 풀의 묶음 수는 같다 — check:faces)
+ */
+const drawStart = () => Math.floor(Math.random() * IDEAL_SHAPE.starts);
 
 // ─────────────────────────────────────────── 화면
 
@@ -254,6 +272,11 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
   const [picks, setPicks] = useState<string[][]>([]);
   /** 라운드마다 `다른 얼굴 보기` 를 누른 횟수. 고르던 값과 같이 메모리에만 있다 — 저장하지 않는다 */
   const [flips, setFlips] = useState<number[]>([]);
+  /**
+   * 첫 화면 묶음 (ADR-136). 이 화면이 서면 집고, **다시 찾기를 누르면 새로 집는다** — 한 번 찾는 동안은 그대로다
+   * (뒤로 갔다 같은 쪽을 다시 골라도 고르던 얼굴이 그 화면 그대로 선다). 결과와 함께 저장한다
+   */
+  const [start, setStart] = useState(drawStart);
   const [saving, setSaving] = useState(false);
   /**
    * 화면마다 포커스가 설 머리 — 시작 화면의 물음, 라운드의 머리(몇 번째 · 안내). 결과는 `Result` 가 스스로 옮긴다.
@@ -276,21 +299,22 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
   const src = drafting ? { v: IDEAL_ASSET_V, pool } : { v: ideal!.v, pool: ideal!.pool };
   const { data, failed, retry } = usePool(src.v, src.pool);
   const { rounds, shown } = useMemo(
-    () => (data && drafting ? roundsOf(data, picks, flips) : { rounds: [], shown: new Set<string>() }),
-    [data, drafting, picks, flips],
+    () => (data && drafting ? roundsOf(data, start, picks, flips) : { rounds: [], shown: new Set<string>() }),
+    [data, drafting, start, picks, flips],
   );
 
-  // 시작 화면 — 어느 쪽을 고를지 모르니 두 풀의 자료와 1라운드 첫 쪽을. 1라운드는 모두에게 같다
+  // 시작 화면 — 어느 쪽을 고를지 모르니 두 풀의 자료와 1라운드 첫 쪽을. 첫 쪽은 이번에 집은 묶음의 것이다
   const atStart = drafting && round === 0 && funOpen;
   useEffect(() => {
     if (!atStart) return;
     for (const g of ["F", "M"] as const) {
       loadPool(IDEAL_ASSET_V, g).then(
-        (p) => warm(pickRound(p.faces, 1, null, new Set()).map((f) => photo(IDEAL_ASSET_V, f.id))),
+        (p) =>
+          warm(pickRound(facesForStart(p.faces, p.starts, start), 1, null, new Set()).map((f) => photo(IDEAL_ASSET_V, f.id))),
         () => {}, // 실패는 풀을 고른 뒤 그 화면이 말한다 — 실패한 약속은 캐시에 남지 않는다
       );
     }
-  }, [atStart]);
+  }, [atStart, start]);
 
   // 라운드 — 다음 라운드의 아홉(고르는 대로 다시 센 값), 이 라운드의 `다른 얼굴 보기`, 마지막이면 결과 셋
   useEffect(() => {
@@ -301,14 +325,14 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
     if (!picks[round - 1]?.length && (flips[round - 1] ?? 0) < IDEAL_SHAPE.rerolls) {
       const f = flips.slice(0, round);
       f[round - 1] = (f[round - 1] ?? 0) + 1;
-      const alt = roundsOf(data, picks, f).rounds[round - 1] ?? [];
+      const alt = roundsOf(data, start, picks, f).rounds[round - 1] ?? [];
       urls.push(...alt.map((x) => photo(IDEAL_ASSET_V, x.id)));
     }
     if (round === IDEAL_SHAPE.rounds && picks[round - 1]?.length) {
       urls.push(...nearestCelebs(data.celebs, centersOf(data, picks.flat()), shown).map((c) => photo(IDEAL_ASSET_V, c.id)));
     }
     warm(urls);
-  }, [data, drafting, round, rounds, picks, flips, shown]);
+  }, [data, drafting, round, rounds, start, picks, flips, shown]);
 
   /*
    * 라운드 주소의 문. **결과가 있으면 열리지 않고**(S-C3), 고르던 값이 없으면(주소를 바로 열었거나 새로고침,
@@ -360,8 +384,19 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
         pool={data}
         failed={failed}
         onRetry={retry}
-        // 다시 찾기는 열려 있는 동안만이다 — 단계가 되돌아가도 결과는 본다 (ADR-125)
-        onAgain={funOpen ? onAgain : undefined}
+        /*
+         * 다시 찾기는 열려 있는 동안만이다 — 단계가 되돌아가도 결과는 본다 (ADR-125).
+         * 첫 화면 묶음을 **누른 그 자리에서** 새로 집는다 (ADR-136) — 다시 찾기의 시작 화면이 서자마자 그 묶음의 첫 쪽을 미리 받는다.
+         * 재미 탭 카드의 다시 찾기는 이 화면을 새로 세우니 서면서 집는다
+         */
+        onAgain={
+          funOpen
+            ? () => {
+                setStart(drawStart());
+                onAgain();
+              }
+            : undefined
+        }
         storyOn={story}
         onStory={onSaved}
         onAnswer={async (v) => {
@@ -456,7 +491,7 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
     // 답은 **안 본 사람 중에서** — 방금 본 얼굴(넘긴 쪽까지)을 돌려주는 건 답이 아니다 (S-C2).
     // 두 갈래 취향이면 두 중심을 번갈아 따른다 — 첫 사람은 큰 무리의 것이다
     const result = nearestCelebs(data.celebs, centersOf(data, picks.flat()), shown).map((c) => c.id);
-    const input: IdealInput = { v: IDEAL_ASSET_V, pool, picks, result };
+    const input: IdealInput = { v: IDEAL_ASSET_V, pool, picks, result, start };
     // 다시 찾기면 지금 결과를 가리킨다 — 그 사이 다른 기기가 바꿨으면 서버가 먼저 온 것을 남긴다 (ADR-125 · S-E2)
     const body = redoing && redo ? { ...input, replaces: redo.from } : input;
     setSaving(true);
@@ -649,8 +684,9 @@ function Result({
 }) {
   const [answering, setAnswering] = useState(false);
   /**
-   * 설명글 (ADR-134) — 켜진 곳에서, **지금 판의 결과에 글이 아직 없으면** 한 번 청한다. 화면은 고른 얼굴로 다시 세운다
-   * (`shownPages` — 서버는 벡터를 모른다). 결과마다 한 번만 묻는다(`asked`) — StrictMode 가 효과를 두 번 돌려도 같다.
+   * 설명글 (ADR-134) — 켜진 곳에서, **지금 판의 결과에 글이 아직 없으면** 한 번 청한다. 화면은 고른 얼굴과 그 결과의
+   * 첫 화면 묶음으로 다시 세운다 (`shownPages` — 서버는 벡터를 모른다, ADR-136). 결과마다 한 번만 묻는다(`asked`) —
+   * StrictMode 가 효과를 두 번 돌려도 같다.
    * 실패하면 그 결과에는 낱말로 쓴 글(ADR-128)을 그린다 — 다음에 결과를 열면 다시 청한다
    */
   const wantStory = !!storyOn && ideal.v === IDEAL_ASSET_V && !ideal.story;
@@ -660,7 +696,7 @@ function Result({
     if (!wantStory || !pool || asked.current === ideal.at) return;
     asked.current = ideal.at;
     const at = ideal.at;
-    const pages = shownPages(pool.faces, pool.vecs, ideal.picks).slice(1);
+    const pages = shownPages(facesForStart(pool.faces, pool.starts, ideal.start), pool.vecs, ideal.picks).slice(1);
     post<Ideal>("/ideal/story", { pages }).then(
       (row) => (row.story ? onStory(row) : setStoryFailed(at)),
       () => setStoryFailed(at),

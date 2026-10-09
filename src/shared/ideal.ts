@@ -16,6 +16,10 @@
  * **v4 — 벡터가 얼굴 모델의 특징이 됐다** (ADR-132). v1~v3 은 LLM 이 사진마다 정해진 낱말을 고른 속성 벡터였다.
  * v4 는 얼굴 인식(SFace)과 얼굴 메시(MediaPipe)의 특징이다 — 고른 얼굴의 평균에 가장 가까운 연예인을 고르는 것은 그대로다.
  * 함수는 바뀌지 않았다. 바뀐 것은 공간이고, 공간에 매인 문턱(`splitCos` · `dupCos`)의 뜻이다 — 아래 각 칸에 적었다.
+ *
+ * **v6 — 첫 화면이 찾을 때마다 다르다** (ADR-136). 무리의 대표(1 · 2단계)를 자산이 여러 벌(`starts`) 실어 두고,
+ * 찾기를 시작할 때 기기가 그중 하나를 무작위로 집는다. 고르는 함수는 그대로다 — `facesForStart` 가 그 벌로 단계를 다시 붙인
+ * 얼굴을 넘길 뿐이다. 집은 번호(`start`)는 결과와 함께 저장한다 — 설명글 · 평가가 그 사람이 본 화면을 그 번호로 다시 세운다.
  */
 import type { Gender } from "./types.ts";
 
@@ -28,6 +32,11 @@ export interface Ideal {
   picks: string[][];
   /** 가까운 순서의 연예인 id 셋 (S-C1) */
   result: string[];
+  /**
+   * 첫 화면 묶음 (ADR-136) — 찾기를 시작할 때 기기가 무작위로 집은 번호. 0 은 자산의 1 · 2단계 그대로, k 는 자산의 `starts[k - 1]`.
+   * **그 사람이 본 화면을 다시 세우는 열쇠다** (`facesForStart` → `shownPages`). 없으면 0 과 같다 — v5 까지의 결과다
+   */
+  start?: number;
   /** 결과 확정 (S-C4). 한 번 채워지면 그대로 — 없으면 아직 무응답이다 */
   verdict?: IdealVerdict;
   /**
@@ -58,10 +67,16 @@ export const IDEAL_SHAPE = {
   results: 3,
   /** 라운드마다 `다른 얼굴 보기` 횟수 — 억지로 고른 '덜 싫은 얼굴' 이 평균을 흐리지 않게 */
   rerolls: 1,
-  /** 1단계 수 = 한 화면 × (1 + rerolls). 1라운드는 모두에게 같은 두 쪽(아홉 + 아홉)이다 */
+  /** 1단계 수 = 한 화면 × (1 + rerolls). 1라운드는 두 쪽(아홉 + 아홉)이다 — 어느 얼굴인지는 첫 화면 묶음이 정한다 */
   level1: 18,
   /** 2라운드 후보(군집 대표) 수. 아홉 × 두 쪽을 넉넉히 덮는다 — check:faces 가 자산과 맞춰 본다 */
   level2: 36,
+  /**
+   * 첫 화면 묶음 수 (ADR-136) — 번호 0 은 자산의 1 · 2단계 그대로, 1 이상은 자산의 `starts` 에서 하나. 찾기를 시작할 때
+   * 기기가 무작위로 집는다. 1라운드가 모두에게 같으면 모두가 가장 눈에 띄는 얼굴로 모였다 (ADR-133 — 남자 아홉 중 일곱이 한 사람).
+   * 서버는 번호의 범위만 본다 — check:faces 가 지금 판의 묶음 수를 이 값과 맞춰 본다
+   */
+  starts: 16,
   /**
    * 3라운드 닮은꼴 문턱(코사인). 임시값 — 실제 풀에서 종이 검증과 함께 조정한다.
    * v1~v3 의 속성 벡터는 낱말이 같으면 벡터도 같아서(코사인 1.00) 이 문턱이 판박이를 밀었다. v4 의 얼굴 벡터에서는
@@ -94,7 +109,7 @@ export const IDEAL_SHAPE = {
  * **저장된 결과는 이 값이 아니라 자기 `v` 로 그린다.** 판이 올라가도 옛 결과는 옛 경로에서
  * 그대로 그려져야 한다 (옛 버전 경로는 지우지 않는다 — 19-surface).
  */
-export const IDEAL_ASSET_V = 5;
+export const IDEAL_ASSET_V = 6;
 
 /**
  * `v` 의 윗끝. 기기가 보낸 값이 그대로 지표 blob 으로 흘러가서(`pulse` 의 ideal) 막아둔다 —
@@ -103,6 +118,9 @@ export const IDEAL_ASSET_V = 5;
 const V_MAX = 9999;
 
 const isId = (x: unknown): x is string => typeof x === "string" && IDEAL_SHAPE.id.test(x);
+/** 첫 화면 묶음 번호 (ADR-136) — 0 ~ 묶음 수 − 1 의 정수 */
+const isStart = (x: unknown): x is number =>
+  typeof x === "number" && Number.isSafeInteger(x) && x >= 0 && x < IDEAL_SHAPE.starts;
 
 /** 서로 다른 id 가 lo~hi 개 든 배열인가 */
 function idList(x: unknown, lo: number, hi: number): x is string[] {
@@ -118,14 +136,22 @@ function idList(x: unknown, lo: number, hi: number): x is string[] {
  */
 export function readIdealInput(raw: unknown): IdealInput | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const { v, pool, picks, result } = raw as Record<string, unknown>;
+  const { v, pool, picks, result, start } = raw as Record<string, unknown>;
   if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 1 || v > V_MAX) return null;
   if (pool !== "M" && pool !== "F") return null;
   // 라운드 수는 고정이다 — 저장 모양과 화면이 셋 묶음을 들고 있다 (시나리오 '숫자')
   if (!Array.isArray(picks) || picks.length !== IDEAL_SHAPE.rounds) return null;
   if (!picks.every((p) => idList(p, IDEAL_SHAPE.pickMin, IDEAL_SHAPE.pickMax))) return null;
   if (!idList(result, IDEAL_SHAPE.results, IDEAL_SHAPE.results)) return null;
-  return { v, pool, picks: (picks as string[][]).map((p) => [...p]), result: [...result] };
+  // 첫 화면 묶음 번호 (ADR-136) — 없어도 된다(v5 까지 · 배포 전에 열어 둔 탭). 있으면 범위 안의 정수뿐이다
+  if (start !== undefined && !isStart(start)) return null;
+  return {
+    v,
+    pool,
+    picks: (picks as string[][]).map((p) => [...p]),
+    result: [...result],
+    ...(isStart(start) ? { start } : {}),
+  };
 }
 
 /**
@@ -170,9 +196,9 @@ export function normalizeIdeal(ideal: Ideal): Ideal {
 // ─────────────────────────────────────────── 설명글 (ADR-134)
 
 /**
- * 설명글이 견주는 라운드 — 2 · 3라운드. **1라운드는 뺀다** — 모두에게 같은 아홉이라 누구나 가장 눈에 띄는 얼굴을 고르고
- * (114회차: 남들이 고른 비율로 AUC 0.83 · 0.85, ADR-133), 그 차이를 물으면 `더 눈에 띄는 얼굴` 이라는 뻔한 답만 나온다.
- * 2 · 3라운드는 이미 비슷한 얼굴끼리라 고른 것과 안 고른 것의 차이가 그 사람의 몫이다
+ * 설명글이 견주는 라운드 — 2 · 3라운드. **1라운드는 뺀다** — 무리마다 하나씩 서로 다른 얼굴이라 누구나 가장 눈에 띄는 얼굴을
+ * 고르고(114회차: 남들이 고른 비율로 AUC 0.83 · 0.85, ADR-133 — 그때는 모두에게 같은 아홉이었다), 그 차이를 물으면
+ * `더 눈에 띄는 얼굴` 이라는 뻔한 답만 나온다. 2 · 3라운드는 이미 비슷한 얼굴끼리라 고른 것과 안 고른 것의 차이가 그 사람의 몫이다
  */
 export const STORY_ROUNDS = [2, 3] as const;
 
@@ -182,7 +208,9 @@ export const STORY_LEN = { min: 20, max: 240 } as const;
 /**
  * 고른 얼굴만으로 그 사람이 본 화면을 다시 세운다 — 라운드마다 아홉 (ADR-133 의 `reconstruct` 와 같은 규칙).
  * `다른 얼굴 보기` 는 저장되지 않는다 — **고른 얼굴이 첫 쪽에 없으면 둘째 쪽을 본 것이다.** 넘긴 쪽과 다음 쪽은 겹치지 않아서
- * 둘이 갈린다. **지금 판의 규칙**(`IDEAL_SHAPE`)으로 센다 — 옛 판의 결과에는 쓰지 않는다. 같은 입력이면 같은 출력
+ * 둘이 갈린다. **지금 판의 규칙**(`IDEAL_SHAPE`)으로 센다 — 옛 판의 결과에는 쓰지 않는다. 같은 입력이면 같은 출력.
+ * `faces` 는 **그 결과의 묶음으로 단계를 붙인 얼굴**이다 — `facesForStart(…, ideal.start)` (ADR-136). 자산 그대로 넘기면
+ * 묶음을 집은 사람의 1 · 2라운드가 다른 화면으로 선다
  */
 export function shownPages(
   faces: readonly DecodedFace[],
@@ -315,6 +343,15 @@ export function idealTraits(picked: readonly (readonly string[])[], pool: readon
   return out;
 }
 
+/**
+ * 첫 화면 묶음 하나 (ADR-136) — 1단계(1라운드의 두 쪽, **순서대로**)와 2단계(2라운드의 후보)의 id.
+ * 자산의 1 · 2단계와 같은 무리에서 같은 수를 다른 얼굴로 든 벌이다. 나머지 얼굴은 모두 3단계가 된다
+ */
+export interface FaceStart {
+  l1: string[];
+  l2: string[];
+}
+
 /** 자산 JSON 의 모양. base64 int8×dim — decodeVec() 으로 복원하면 단위 길이다 */
 export interface FacePoolFile {
   version: number; // 경로의 v{n} 과 같아야 한다
@@ -323,6 +360,8 @@ export interface FacePoolFile {
   /** `t` — 그 사람의 특징 부호(`animal.cat` 꼴, v3 부터). 없으면 그 판은 특징을 말하지 않는다 */
   celebs: { id: string; name: string; v: string; retired?: true; t?: string[] }[];
   faces: { id: string; v: string; level: 1 | 2 | 3 }[];
+  /** 첫 화면 묶음의 1번부터 (v6 부터, ADR-136). 0번은 `faces` 의 단계 그대로라 싣지 않는다. 없으면 그 판은 모두에게 같은 첫 화면이다 */
+  starts?: FaceStart[];
 }
 
 /** 복원된 런타임 모양 */
@@ -447,10 +486,43 @@ export function tasteCenters(picked: readonly Float32Array[]): TasteCenter[] {
 }
 
 /**
+ * 첫 화면 묶음으로 단계를 다시 붙인 얼굴들 (ADR-136). `start` 0 은 자산 그대로, k 는 `starts[k - 1]` — 그 1단계가
+ * **그 순서대로** 1단계, 그 2단계가 2단계, 나머지는 모두 3단계다. 사람도 벡터도 그대로고 자리만 바뀐다.
+ * 1라운드는 1단계를 순서대로 자르므로 묶음의 1단계 순서가 곧 첫 쪽과 둘째 쪽이다. 라운드를 세우는 곳(화면 · 설명글 ·
+ * 평가)은 모두 이것을 거친 얼굴을 `pickRound` · `shownPages` 에 넘긴다.
+ *
+ * 묶음이 없거나(v5 까지) 번호가 범위 밖이거나 묶음의 모양이 어긋나면 **자산 그대로**다 — 빈 칸을 만들지 않는다.
+ * 모양은 모르는 id 가 없고, 겹치지 않고, 1 · 2단계 수가 **그 자산의 수**와 같은 것이다. 지금 규칙의 수(`level1`)와는
+ * 견주지 않는다 — 판의 모양이 바뀐 뒤에도 옛 판의 결과는 그 판의 묶음으로 다시 서야 한다. 같은 입력이면 같은 출력.
+ */
+export function facesForStart(
+  faces: readonly DecodedFace[],
+  starts: readonly FaceStart[] | undefined,
+  start: number | undefined,
+): readonly DecodedFace[] {
+  const alt = start !== undefined && Number.isSafeInteger(start) && start >= 1 ? starts?.[start - 1] : undefined;
+  if (!alt) return faces;
+  const byId = new Map(faces.map((f) => [f.id, f]));
+  const seat = new Set<string>();
+  for (const id of [...alt.l1, ...alt.l2]) {
+    if (!byId.has(id) || seat.has(id)) return faces;
+    seat.add(id);
+  }
+  const count = (level: 1 | 2) => faces.filter((f) => f.level === level).length;
+  if (alt.l1.length !== count(1) || alt.l2.length !== count(2)) return faces;
+  const as = (f: DecodedFace, level: 1 | 2 | 3): DecodedFace => (f.level === level ? f : { ...f, level });
+  return [
+    ...alt.l1.map((id) => as(byId.get(id)!, 1)),
+    ...alt.l2.map((id) => as(byId.get(id)!, 2)),
+    ...faces.filter((f) => !seat.has(f.id)).map((f) => as(f, 3)),
+  ];
+}
+
+/**
  * 한 라운드의 얼굴들. `centers` 는 `tasteCenters` 의 결과(1라운드는 null).
  *
- * 1라운드는 중심을 보지 않는다 — 자산 순서 그대로 앞에서 n. 1단계는 두 쪽(`level1`)이고
- * 둘째 쪽은 `shown` 이 첫 쪽을 품을 때(다른 얼굴 보기) 나온다.
+ * 1라운드는 중심을 보지 않는다 — 1단계를 순서 그대로 앞에서 n. 1단계는 두 쪽(`level1`)이고
+ * 둘째 쪽은 `shown` 이 첫 쪽을 품을 때(다른 얼굴 보기) 나온다. 어느 얼굴이 1단계인지는 첫 화면 묶음이 정한다 (`facesForStart`).
  * 2·3라운드는 중심마다 코사인 내림차순 목록을 세우고, 중심이 둘이면 자리를 무게로 나눠
  * **번갈아** 놓는다 (A, B, A, B …). 작은 쪽도 적어도 한 칸, 많아야 절반(내림) —
  * 두 갈래라도 큰 무리가 그 사람의 주된 취향이다.
@@ -466,7 +538,7 @@ export function pickRound(
   n: number = IDEAL_SHAPE.faces,
   reserve: number = IDEAL_SHAPE.reserve,
 ): DecodedFace[] {
-  // 1라운드는 자산 순서 그대로 — 모두에게 같아야 "첫 화면에서 누구 골랐어?" 가 된다
+  // 1라운드는 1단계를 순서 그대로 — 무리마다 대표가 서도록 파이프라인(cluster.mjs)이 순서를 지어 둔다
   if (round === 1) return faces.filter((f) => f.level === 1 && !shown.has(f.id)).slice(0, n);
 
   const pool = faces.filter((f) => (round === 2 ? f.level === 2 : true) && !shown.has(f.id));

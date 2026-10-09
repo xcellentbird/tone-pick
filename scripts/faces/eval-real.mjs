@@ -8,15 +8,15 @@
 //
 // 재는 것
 //   1. 검수 — 모양 · 판 · id 가 그 판의 자산에 있는가 · 라운드를 그대로 다시 세울 수 있는가 · 저장된 결과가 다시 센 결과와 같은가.
-//      라운드는 결정적이라(난수가 없다) 고른 얼굴만으로 그 사람이 본 아홉을 다시 세운다. `다른 얼굴 보기` 는 저장되지 않아
-//      고른 얼굴이 첫 쪽에 없으면 둘째 쪽을 본 것으로 읽는다
+//      라운드는 결정적이라 첫 화면 묶음 번호(`start`, v6 부터 — ADR-136)와 고른 얼굴만으로 그 사람이 본 아홉을 다시 세운다.
+//      `다른 얼굴 보기` 는 저장되지 않아 고른 얼굴이 첫 쪽에 없으면 둘째 쪽을 본 것으로 읽는다
 //   2. 정답 확인 — 답한 비율 · 셋 중에 있었다 · 없음 · 자리(1 · 2 · 3위)마다 골린 비율. 그 판(대개 v3)의 만족도다
 //   3. 다음 라운드 맞히기 — 2 · 3라운드의 화면 아홉에서 그 사람이 실제로 고른 얼굴을, 앞 라운드에 고른 얼굴로 맞히는가.
 //      공간(v3 낱말 · v4 얼굴 …)마다 같은 화면을 다시 줄 세워 AUC 를 낸다 (0.5 가 무작위). **공간끼리 견주는 공정한 자리다** —
 //      같은 사람이 같은 아홉 앞에서 한 선택이다. 화면이 그 판의 공간으로 골라졌다는 치우침은 모든 공간이 함께 진다
 //   4. 정답과의 거리 — `진짜 이상형` 으로 고른 연예인이 공간마다 몇 등에 서는가 (본 얼굴을 뺀 후보 중 백분위).
 //      그 판의 공간은 그 사람을 이미 1~3위에 세웠으니 견주지 않는다 — 다른 공간이 그 답에 얼마나 동의하나만 본다
-//   5. 1라운드 — 모두에게 같은 아홉이라 얼굴마다 고른 비율을 견줄 수 있다
+//   5. 1라운드 — 얼굴마다 첫 쪽에 보인 수와 골린 비율. v5 까지는 모두에게 같은 아홉이었고, v6 부터는 묶음마다 다르다 (ADR-136)
 //   6. 직업 · 출생 연도 — 화면에 보였을 때 골린 비율, 결과에 선 횟수와 정답 (roles.json · v{n}-sources.json)
 //   7. 인기로 맞히기 — 다른 세션에서 그 얼굴이 골린 비율로 맞히는 AUC. 3 과 견준다 — 닮음이 인기를 못 넘으면
 //      사람들은 앞에서 고른 얼굴을 닮은 얼굴보다 모두가 고르는 얼굴을 고른 것이다
@@ -30,7 +30,7 @@
 // 순서: 판을 내고 실전을 치른 뒤. 다음 판의 벡터 · 규칙을 고르는 재료다
 import fs from "node:fs";
 import path from "node:path";
-import { decodeVec, IDEAL_SHAPE, nearestCelebs, pickRound, tasteCenters } from "../../src/shared/ideal.ts";
+import { decodeVec, facesForStart, IDEAL_SHAPE, nearestCelebs, pickRound, tasteCenters } from "../../src/shared/ideal.ts";
 import { DEFAULT_FACES, HERE } from "./work.mjs";
 
 /**
@@ -43,6 +43,7 @@ export const RULES = {
   3: { n: 9, pickMax: 5, rerolls: 1, reserve: 6, split: -0.2 },
   4: { n: 9, pickMax: 5, rerolls: 1, reserve: 6, split: -0.3 },
   5: { n: 9, pickMax: 5, rerolls: 1, reserve: 6, split: -0.3 }, // v4 와 같은 규칙에 사람만 늘었다 (ADR-135)
+  6: { n: 9, pickMax: 5, rerolls: 1, reserve: 6, split: -0.3 }, // v5 에 첫 화면 묶음만 더했다 — 묶음은 자산의 starts (ADR-136)
 };
 
 /** 그 판의 문턱으로 잠깐 바꿔 부른다. 동기 호출 안에서만 바뀐다 */
@@ -61,7 +62,7 @@ export function loadPool(v, g, root = DEFAULT_FACES) {
   const f = JSON.parse(fs.readFileSync(path.join(root, `v${v}`, `${g}.json`), "utf8"));
   const faces = f.faces.map((x) => ({ id: x.id, level: x.level, vec: decodeVec(x.v, f.dim, f.scale) }));
   const celebs = f.celebs.map((c) => ({ id: c.id, name: c.name, vec: decodeVec(c.v, f.dim, f.scale), ...(c.retired ? { retired: true } : {}) }));
-  return { v, g, faces, celebs, vec: new Map(celebs.map((c) => [c.id, c.vec])) };
+  return { v, g, faces, celebs, starts: f.starts, vec: new Map(celebs.map((c) => [c.id, c.vec])) };
 }
 
 /**
@@ -91,7 +92,8 @@ export function spaceOf(spec, g, poolOf) {
 
 /**
  * 붙여 넣은 글에서 Ideal 을 찾는다. JSON 배열 · 줄마다 JSON · CSV(`""` 로 감싼 따옴표) · 표 복사 모두 받는다.
- * 고르는 칸만 새로 짓는다 — 모르는 키는 버린다
+ * 고르는 칸만 새로 짓는다 — 모르는 키는 버린다. 첫 화면 묶음 번호(`start`, v6 부터)는 고르는 칸이다 — 버리면 묶음을 집은
+ * 사람의 화면을 자산 그대로 다시 세워 거의 모든 줄이 `다시 세우지 못했다` 로 걸린다 (ADR-136)
  */
 export function readRows(text) {
   const t = text.replace(/""/g, '"');
@@ -111,7 +113,14 @@ export function readRows(text) {
         try {
           const o = JSON.parse(t.slice(i, j + 1));
           if (o && Array.isArray(o.picks) && Array.isArray(o.result)) {
-            rows.push({ v: o.v, pool: o.pool, picks: o.picks, result: o.result, ...(o.verdict ? { verdict: o.verdict } : {}) });
+            rows.push({
+              v: o.v,
+              pool: o.pool,
+              picks: o.picks,
+              result: o.result,
+              ...(Number.isInteger(o.start) ? { start: o.start } : {}),
+              ...(o.verdict ? { verdict: o.verdict } : {}),
+            });
             i = j;
           }
         } catch {
@@ -128,21 +137,23 @@ const subset = (xs, page) => xs.every((id) => page.some((f) => f.id === id));
 
 /**
  * 그 사람이 본 화면을 다시 세운다. 라운드마다 고른 얼굴이 첫 쪽에 없으면 `다른 얼굴 보기` 로 둘째 쪽을 본 것이다.
+ * 1 · 2단계는 그 결과의 첫 화면 묶음(`start`)으로 붙인다 (ADR-136) — 번호가 없으면(v5 까지) 자산 그대로다.
  * 돌려주는 것: 라운드마다 고른 화면(page) · 넘긴 횟수 · 본 얼굴 전부 · 다시 센 결과 · 세울 수 있었나
  */
 export function reconstruct(row, P) {
   const rule = RULES[row.v];
+  const faces = facesForStart(P.faces, P.starts, row.start);
   return withSplit(rule.split, () => {
     const shown = new Set();
     const rounds = [];
     let ok = true;
     for (let r = 1; r <= 3; r++) {
       const centers = r === 1 ? null : tasteCenters(row.picks.slice(0, r - 1).flat().map((id) => P.vec.get(id)));
-      let page = pickRound(P.faces, r, centers, shown, rule.n, rule.reserve);
+      let page = pickRound(faces, r, centers, shown, rule.n, rule.reserve);
       let flips = 0;
       while (!subset(row.picks[r - 1], page) && flips < rule.rerolls) {
         for (const f of page) shown.add(f.id);
-        page = pickRound(P.faces, r, centers, shown, rule.n, rule.reserve);
+        page = pickRound(faces, r, centers, shown, rule.n, rule.reserve);
         flips++;
       }
       if (!subset(row.picks[r - 1], page)) ok = false;
@@ -255,7 +266,7 @@ export function peopleMeta(root = HERE) {
 /**
  * 인기로 맞히기 — 같은 풀의 **다른 세션들**에서 그 얼굴이 보였을 때 골린 비율을 점수로 준다 (자기 세션은 뺀다).
  * 닮음(3)이 인기보다 못 맞히면, 사람들은 앞에서 고른 얼굴을 닮은 얼굴보다 **모두가 고르는 얼굴**을 고른 것이다.
- * 1라운드는 모두에게 같은 화면이라 넘기지 않은 세션만 센다
+ * 1라운드는 넘기지 않은 세션만 센다 — 첫 쪽끼리 견준다. 비율은 얼굴마다 **보인 수**로 나누니 묶음마다 첫 쪽이 달라도(v6, ADR-136) 그대로 선다
  */
 export function popularityAuc(xs) {
   const r1 = [];
@@ -371,17 +382,30 @@ if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1])))
     }
   }
 
-  // ── 5. 1라운드 — 모두에게 같은 화면이라 얼굴마다 고른 비율을 견줄 수 있다
-  console.log("\n== 1라운드 첫 쪽 — 얼굴마다 고른 비율 (모두에게 같은 아홉)");
+  // ── 5. 1라운드 첫 쪽 — 얼굴마다 보인 수와 골린 수. v5 까지는 모두에게 같은 아홉, v6 부터는 묶음마다 다르다 (ADR-136)
+  console.log("\n== 1라운드 첫 쪽 — 얼굴마다 골린 수 / 보인 수 (골린 비율 순 열둘)");
   for (const g of ["f", "m"]) {
     for (const v of [...new Set(usable.filter((x) => x.g === g).map((x) => x.row.v))]) {
       const xs = usable.filter((x) => x.g === g && x.row.v === v && x.rec.rounds[0].flips === 0);
       if (!xs.length) continue;
-      const P = poolOf(v, g);
-      const name = new Map(P.celebs.map((c) => [c.id, c.name]));
-      const page = xs[0].rec.rounds[0].page;
-      const rate = page.map((id) => [name.get(id), xs.filter((x) => x.row.picks[0].includes(id)).length / xs.length]).sort((a, b) => b[1] - a[1]);
-      console.log(`  ${g} v${v} (${xs.length}명): ${rate.map(([n, r]) => `${n} ${pct(r)}`).join(" · ")}`);
+      const name = new Map(poolOf(v, g).celebs.map((c) => [c.id, c.name]));
+      const seen = new Map();
+      for (const x of xs) {
+        for (const id of x.rec.rounds[0].page) {
+          const s = seen.get(id) ?? { shown: 0, picked: 0 };
+          s.shown++;
+          if (x.row.picks[0].includes(id)) s.picked++;
+          seen.set(id, s);
+        }
+      }
+      const rate = [...seen]
+        .sort((a, b) => b[1].picked / b[1].shown - a[1].picked / a[1].shown || b[1].shown - a[1].shown)
+        .slice(0, 12);
+      const starts = new Set(xs.map((x) => x.row.start ?? 0)).size;
+      console.log(
+        `  ${g} v${v} (${xs.length}명 · 묶음 ${starts}가지 · 얼굴 ${seen.size}): ` +
+          rate.map(([id, s]) => `${name.get(id)} ${s.picked}/${s.shown}`).join(" · "),
+      );
     }
   }
 
