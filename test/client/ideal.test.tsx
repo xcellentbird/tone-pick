@@ -1129,7 +1129,8 @@ describe("이상형 찾기 · 얼굴 자료를 못 받았을 때", () => {
    * 실패는 화면 안에서 말한다 — 토스트가 아니다 (ADR-65). 다시 불러오면 그 자리에서 이어진다.
    */
   it("★ HTML 이 200 으로 오면 실패다 — 다시 불러오면 이어진다", async () => {
-    const s = stub(stateIn("prevote", { ...SAVED, v: 5 }), { faces: "html" });
+    // 지금 판이 아닌 판 — 없는 판 경로라 SPA 폴백이 index.html 을 준다 (v5 가 지금 판이 되면서 숫자로 박은 5 가 겹쳤다, ADR-135)
+    const s = stub(stateIn("prevote", { ...SAVED, v: IDEAL_ASSET_V + 1 }), { faces: "html" });
     mount(`${BASE}/ideal`);
 
     expect(await screen.findByText(IDEAL.loadFail)).toBeTruthy();

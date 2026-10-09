@@ -42,6 +42,7 @@ export const RULES = {
   2: { n: 9, pickMax: 5, rerolls: 1, reserve: 0, split: -0.2 },
   3: { n: 9, pickMax: 5, rerolls: 1, reserve: 6, split: -0.2 },
   4: { n: 9, pickMax: 5, rerolls: 1, reserve: 6, split: -0.3 },
+  5: { n: 9, pickMax: 5, rerolls: 1, reserve: 6, split: -0.3 }, // v4 와 같은 규칙에 사람만 늘었다 (ADR-135)
 };
 
 /** 그 판의 문턱으로 잠깐 바꿔 부른다. 동기 호출 안에서만 바뀐다 */

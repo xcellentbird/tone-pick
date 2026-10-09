@@ -67,7 +67,7 @@ export const IDEAL_SHAPE = {
 } as const;
 
 /** 지금 기기가 새로 찾을 때 쓰는 판 — `/faces/v{n}/` 의 n. 저장된 결과는 이 값이 아니라 자기 `v` 로 그린다 */
-export const IDEAL_ASSET_V = 4;
+export const IDEAL_ASSET_V = 5;
 
 /** 모양 검사 둘 (아래 API). 맞지 않으면 null */
 export function readIdealInput(raw: unknown): IdealInput | null;
@@ -81,6 +81,8 @@ export function readIdealReplaces(raw: unknown): number | undefined | null;
 >
 > **다시 고쳤다 (2026-10-03, ADR-132)** — 판은 v3(ADR-127)을 거쳐 **v4** 다. 벡터가 얼굴 모델의 것으로 바뀌어 공간에 매인 `splitCos` 를
 > −0.2 에서 −0.3 으로 다시 쟀다. 모양(칸 · 수)은 그대로다.
+>
+> **또 고쳤다 (2026-10-10, ADR-135)** — **v5** 는 v4 에 사람만 더한 판이다(여 536 · 남 580). 모양 · 규칙은 그대로다.
 
 **모양 검사는 요청 본문을 펼치지 않는다 — 고른 칸으로 새 객체를 짓는다.** 펼쳐 담으면 기기가 보낸
 모르는 키가 저장돼 `ParticipantState.ideal` 로 매번 되돌아 나간다 (S-D1). `verdict`·`at` 을 저장 요청에
