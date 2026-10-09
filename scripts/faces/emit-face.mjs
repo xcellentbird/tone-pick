@@ -21,7 +21,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { gzipSync } from "node:zlib";
-import { levels } from "./cluster.mjs";
+import { IDEAL_SHAPE } from "../../src/shared/ideal.ts";
+import { dot, levels } from "./cluster.mjs";
 import { traitTokens } from "./traits.mjs";
 import { DEFAULT_FACES, EXCLUDE, FACE, HERE, MODELS, OUT, PY, REGISTRY, inWork } from "./work.mjs";
 
@@ -33,6 +34,11 @@ import { DEFAULT_FACES, EXCLUDE, FACE, HERE, MODELS, OUT, PY, REGISTRY, inWork }
 export const KEEP_ROLES = new Set(["actor", "idol", "singer", "trot", "model"]);
 /** 정면으로 치는 고개 돌림 — face.py detect 의 yaw(코가 두 눈 가운데에서 비킨 정도, 눈 사이 거리 대비). 1단계 대표를 고를 때 쓴다 */
 const FRONT_YAW = 0.15;
+/**
+ * 첫 화면 묶음(`starts`)을 싣기 시작한 판 (ADR-136). 그 앞 판을 다시 내도 같은 파일이 나오게 판 번호로 가른다 —
+ * 묶음 수는 앱의 `IDEAL_SHAPE.starts` 에서 0번(자산의 단계 그대로)을 뺀 것이다
+ */
+const STARTS_FROM = 6;
 
 const [fromArg, toArg, outArg] = process.argv.slice(2);
 const FROM = Number(fromArg);
@@ -148,7 +154,7 @@ for (const g of ["f", "m"]) {
     front: (det[i]?.main?.yaw ?? 1) <= FRONT_YAW,
     attrs: { animal: [(p.t ?? []).find((x) => x.startsWith("animal.")) ?? `#${i}`] },
   }));
-  const { lv, l1, l2, sizes1 } = levels(lp, {});
+  const { lv, l1, l2, sizes1, starts } = levels(lp, { starts: TO >= STARTS_FROM ? IDEAL_SHAPE.starts - 1 : 0 });
   const { scale, enc } = quantize(vecs);
   const order = [...l1, ...l2, ...lp.map((_, i) => i).filter((i) => lv[i] === 3)];
   const pool = {
@@ -157,7 +163,21 @@ for (const g of ["f", "m"]) {
     scale,
     celebs: lp.map((p, i) => ({ id: p.id, name: p.name, v: enc(vecs[i]), ...(p.t ? { t: p.t } : {}) })),
     faces: order.map((i) => ({ id: lp[i].id, v: enc(vecs[i]), level: lv[i] })),
+    ...(starts.length ? { starts: starts.map((s) => ({ l1: s.l1.map((i) => lp[i].id), l2: s.l2.map((i) => lp[i].id) })) } : {}),
   };
+  if (starts.length) {
+    // 묶음이 0번만큼 고른가 — 쪽마다 첫째 동물상 수 · 쪽 안에서 가장 닮은 쌍 · 정면 수, 그리고 묶음 전체로 1 · 2단계에 선 얼굴 수
+    const all = [{ l1, l2 }, ...starts];
+    const page = (s, p) => s.l1.slice(p * IDEAL_SHAPE.faces, (p + 1) * IDEAL_SHAPE.faces);
+    const pages = [...Array(IDEAL_SHAPE.level1 / IDEAL_SHAPE.faces).keys()];
+    const worst = (xs) => Math.max(...xs.flatMap((a, k) => xs.slice(k + 1).map((b) => dot(vecs[a], vecs[b]))));
+    const row = (f) => all.map((s) => pages.map((p) => f(page(s, p))).join("/")).join(" ");
+    console.log(g, "묶음", all.length, "· 1단계에 선 얼굴", new Set(all.flatMap((s) => s.l1)).size,
+      "· 2단계", new Set(all.flatMap((s) => s.l2)).size, "/", lp.length);
+    console.log(g, "  쪽마다 동물상 수", row((xs) => new Set(xs.map((i) => lp[i].attrs.animal[0])).size));
+    console.log(g, "  쪽마다 가장 닮은 쌍", row((xs) => worst(xs).toFixed(2)));
+    console.log(g, "  쪽마다 정면", row((xs) => xs.filter((i) => lp[i].front).length));
+  }
   const raw = JSON.stringify(pool);
   fs.writeFileSync(path.join(dir, `${g}.json`), raw);
   for (const p of people) fs.copyFileSync(p.photo, path.join(dir, `${p.id}.webp`));

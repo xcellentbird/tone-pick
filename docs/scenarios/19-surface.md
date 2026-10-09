@@ -26,6 +26,8 @@ export interface Ideal {
   picks: string[][];
   /** 가까운 순서의 연예인 id 셋 (S-C1) */
   result: string[];
+  /** 첫 화면 묶음 번호 (ADR-136) — 찾기를 시작할 때 기기가 집는다. 그 사람이 본 화면을 다시 세우는 열쇠. 없으면 0 (v5 까지) */
+  start?: number;
   /** 결과 확정 (S-C4). 한 번 채워지면 그대로 — 없으면 아직 무응답이다 */
   verdict?: IdealVerdict;
   at: number;
@@ -53,10 +55,12 @@ export const IDEAL_SHAPE = {
   rounds: 3, faces: 9, pickMin: 1, pickMax: 5, results: 3,
   /** 라운드마다 `다른 얼굴 보기` 횟수 (S-B7) */
   rerolls: 1,
-  /** faces × (1 + rerolls) — 1라운드는 모두에게 같은 두 쪽(아홉 + 아홉) */
+  /** faces × (1 + rerolls) — 1라운드는 두 쪽(아홉 + 아홉). 어느 얼굴인지는 첫 화면 묶음이 정한다 */
   level1: 18,
   /** 2라운드 후보(군집 대표). 아홉 × 두 쪽을 넉넉히 덮는다 */
   level2: 36,
+  /** 첫 화면 묶음 수 (ADR-136) — 번호 0 은 자산의 단계 그대로, 1 이상은 자산의 `starts`. 찾기를 시작할 때 하나를 무작위로 집는다 */
+  starts: 16,
   /** 3라운드 닮은꼴 문턱(코사인). 임시값 — 실제 풀에서 종이 검증과 함께 조정한다. v4 공간에서는 걸리지 않는다 (ADR-132) */
   dupCos: 0.9,
   /** 두 무리의 평균끼리 코사인이 이보다 작으면 두 갈래 — **공간에 매인 값**이다. v1~v3 −0.2 (ADR-123) · v4 −0.3 (ADR-132) */
@@ -67,7 +71,7 @@ export const IDEAL_SHAPE = {
 } as const;
 
 /** 지금 기기가 새로 찾을 때 쓰는 판 — `/faces/v{n}/` 의 n. 저장된 결과는 이 값이 아니라 자기 `v` 로 그린다 */
-export const IDEAL_ASSET_V = 5;
+export const IDEAL_ASSET_V = 6;
 
 /** 모양 검사 둘 (아래 API). 맞지 않으면 null */
 export function readIdealInput(raw: unknown): IdealInput | null;
@@ -83,10 +87,14 @@ export function readIdealReplaces(raw: unknown): number | undefined | null;
 > −0.2 에서 −0.3 으로 다시 쟀다. 모양(칸 · 수)은 그대로다.
 >
 > **또 고쳤다 (2026-10-10, ADR-135)** — **v5** 는 v4 에 사람만 더한 판이다(여 536 · 남 580). 모양 · 규칙은 그대로다.
+>
+> **또 고쳤다 (2026-10-10, ADR-136)** — **v6** 은 v5 에 **첫 화면 묶음**(`starts`)을 더한 판이다. 사람 · 사진 · 벡터 · 0번 묶음의 화면은 v5 그대로다.
+> 1라운드가 더는 모두에게 같지 않다 — 기기가 찾을 때마다 16벌 중 하나를 집고, 그 번호(`start`)를 결과와 함께 저장한다.
 
 **모양 검사는 요청 본문을 펼치지 않는다 — 고른 칸으로 새 객체를 짓는다.** 펼쳐 담으면 기기가 보낸
 모르는 키가 저장돼 `ParticipantState.ideal` 로 매번 되돌아 나간다 (S-D1). `verdict`·`at` 을 저장 요청에
 실어 미리 박는 길도 같은 구멍이다. `v` 는 1 이상 **9999 이하**의 정수다 — 지표 blob 으로 흘러간다.
+`start` 는 없거나 0 ~ `starts − 1` 의 정수다 — 없으면 없는 채로 저장한다(v5 까지 · 배포 전에 열어 둔 탭).
 `replaces`(다시 찾기, ADR-125)는 따로 읽고 **저장하지 않는다** — `IdealInput` 에 없는 칸이다.
 
 ---
@@ -112,6 +120,8 @@ export interface FacePoolFile {
   scale: number;
   celebs: { id: string; name: string; v: string; retired?: true }[];
   faces:  { id: string; v: string; level: 1 | 2 | 3 }[];
+  /** 첫 화면 묶음의 1번부터 (v6 부터, ADR-136). 0번은 faces 의 level 그대로라 싣지 않는다 */
+  starts?: { l1: string[]; l2: string[] }[];
 }
 ```
 
@@ -119,8 +129,9 @@ export interface FacePoolFile {
 |---|---|
 | **id 는 불투명하고 영원하다.** 빼려면 `retired` | 저장된 결과가 id 를 들고 있다. 파일명에 이름을 넣지 않는다 (S-B5) |
 | **옛 버전 경로는 지우지 않는다** | 옛 결과가 언제나 그려진다 (고정점) |
-| `level 1` 은 정확히 18(`IDEAL_SHAPE.level1`) · `level 2` 는 36(`level2`) | 1라운드는 모두에게 같다 — 두 쪽 다 |
+| `level 1` 은 정확히 18(`IDEAL_SHAPE.level1`) · `level 2` 는 36(`level2`) | 1라운드는 두 쪽이다. 0번 묶음의 화면이다 |
 | **level 1 의 자산 순서가 곧 쪽이다** — 앞 아홉이 첫 쪽(큰 군집부터), 뒤 아홉이 둘째 쪽(같은 순서) | `다른 얼굴 보기` 가 둘째 쪽을 연다 (S-B7). 순서를 섞으면 첫 화면이 바뀐다 |
+| **`starts` 는 지금 판에 `starts − 1` 벌** — 묶음마다 `l1`(순서가 곧 쪽) · `l2` 가 faces 의 id 이고, 겹치지 않고, 수가 level 1 · 2 와 같다 | 기기가 찾을 때마다 번호 하나를 집는다 (ADR-136). 어긋난 묶음은 앱이 말없이 자산 그대로 그린다(빈 칸을 만들지 않는다) — 그래서 `check:faces` 가 막는다 |
 | `celebs` 와 `faces` 는 **다른 목록**이다 | 계약을 출처 결정에서 떼어두는 자리다. 출처는 실사로 닫혀(S-C5) 두 목록의 id 가 온전히 겹친다 — 같은 사람이 고르는 얼굴이자 답이고, 그래서 S-C2 가 본 얼굴을 결과에서 뺀다 |
 
 **`npm run check:faces`** — `check:copy` 옆자리, `npm run check` 에 들어간다.
@@ -138,6 +149,8 @@ export interface FacePoolFile {
 지금 판(`IDEAL_ASSET_V`)에서만 — **새로 찾는 데 필요한 것**:
 
 - level 개수(18·36) — 숫자를 들고 있지 않고 `IDEAL_SHAPE.level1` · `level2` 를 글로 읽는다
+- 첫 화면 묶음(ADR-136) — `IDEAL_SHAPE.starts − 1` 벌, 묶음마다 faces 의 id · 겹침 없음 · level 1 · 2 와 같은 수.
+  옛 판은 묶음이 있을 때만 모양을 본다
 - retired 아닌 celebs 가 `라운드 × 얼굴 × (1 + rerolls) + 결과`(3×9×2+3 = 57)를 채울 만큼 있다 — 넘긴 얼굴까지 본 얼굴을 빼고도 결과가 남아야 한다
 - celebs 와 faces 의 id 겹침
 - 풀 JSON 하나가 **gzip 120 KiB** 이하 (`POOL_BUDGET`) — 여는 사람이 한 덩어리로 받는 것 중 가장 크다.
@@ -188,13 +201,21 @@ export function nearestCelebs(
   celebs: readonly DecodedCeleb[], centers: readonly TasteCenter[],
   exclude: ReadonlySet<string>, j?: number,                                        // j 기본 IDEAL_SHAPE.results
 ): DecodedCeleb[];
+
+/** 첫 화면 묶음으로 level 을 다시 붙인 얼굴 (ADR-136). 0 · 묶음 없음 · 범위 밖 · 어긋난 묶음은 faces 그대로 */
+export function facesForStart(
+  faces: readonly DecodedFace[], starts: readonly FaceStart[] | undefined, start: number | undefined,
+): readonly DecodedFace[];
 ```
 
 `DecodedFace = { id, vec, level }` · `DecodedCeleb = { id, name, vec, retired? }` — 복원된 런타임 모양.
+`FaceStart = { l1: string[]; l2: string[] }` — 자산의 `starts` 한 벌.
 
-화면은 이렇게 부른다 — 라운드 후보도 결과도 **같은 중심**이다.
+화면은 이렇게 부른다 — 라운드 후보도 결과도 **같은 중심**이다. 얼굴은 **그 찾기의 묶음으로** 단계를 붙인 것이다 —
+설명글(ADR-134)과 평가(`eval-real.mjs`)도 저장된 `start` 로 같은 얼굴을 세워 `shownPages` 에 넘긴다.
 
 ```ts
+const faces = facesForStart(pool.faces, pool.starts, start);    // start: 찾기를 시작할 때 집은 번호
 const centers = tasteCenters(지금까지 고른 벡터 전부);
 pickRound(faces, round, round === 1 ? null : centers, shown);   // shown 에는 넘긴 아홉도 든다
 nearestCelebs(celebs, centers, shown);
@@ -203,8 +224,11 @@ nearestCelebs(celebs, centers, shown);
 **불변식 (테스트가 고정한다)**
 
 - 한 번의 반환에 같은 id 가 없고, `shown`·`exclude` 가 절대 안 나온다 (S-B3 · S-C2)
-- 1라운드는 level 1 을 **자산 순서 그대로** 앞에서 n — 모두에게 같다 (`centers` 를 무시한다).
+- 1라운드는 level 1 을 **순서 그대로** 앞에서 n (`centers` 를 무시한다).
   두 번째 쪽은 `shown` 이 첫 쪽을 품을 때 나온다 (S-B7)
+- `facesForStart` — 번호 k(1 이상)는 `starts[k − 1]` 의 `l1` 이 **그 순서대로** level 1, `l2` 가 level 2, 나머지는 모두 level 3.
+  사람도 벡터도 그대로다. 0 · 묶음이 없는 판 · 범위 밖 · 어긋난 묶음(모르는 id · 겹침 · 수가 그 자산의 level 1 · 2 와 다름)은
+  faces 그대로 — 빈 칸을 만들지 않는다
 - 2라운드는 level 2 후보를 코사인 내림차순으로 n 개 — 대표라서 n 개가 서로 다른 군집이다
 - 3라운드는 풀 전체에서 코사인 내림차순으로 채우되, **이미 담은 것과 `dupCos` 이상 닮은
   후보는 뒤로 민다.** 문턱 때문에 n 개를 못 채울 때만 문턱을 풀고 채운다 — 빈 칸은 없다
@@ -239,7 +263,7 @@ POST /api/ideal/verdict    IdealVerdict → Ideal
   화면은 응답을 그대로 그린다 (S-E2: 다른 기기가 먼저 끝냈으면 그쪽이 남는다).
   서버가 방금 준 답을 버리고 다시 읽지 않는다 (14 의 `/vote` 와 같은 이유)
 - 검사는 **모양만** (`IDEAL_SHAPE`) — `pool` 이 Gender · `picks` 가 정확히 3묶음, 각 1~5개,
-  라운드 안 중복 없음 · `result` 가 서로 다른 id 셋 · `v` 가 1~9999 의 정수. 어긋나면 `400`.
+  라운드 안 중복 없음 · `result` 가 서로 다른 id 셋 · `v` 가 1~9999 의 정수 · `start` 가 없거나 0~15 의 정수. 어긋나면 `400`.
   내용(정말 가까운가)은 안 본다 — 벡터를 서버에 들이지 않는다 (S-D3)
 - **다시 찾기** (ADR-125) — 본문에 `replaces: number`(다시 찾기를 시작한 결과의 `at`)를 더한다. 저장된 결과의 `at` 과 같을 때만
   새 결과로 **갈아끼우고**(정답은 비운다), 다르거나 없으면 저장된 행을 그대로 돌려준다 — 먼저 닿은 쪽이 남는다 (S-E2).
@@ -310,6 +334,8 @@ push 되고 수는 그 칸에 적혀 있다 (ROUTES.md). 결과는 `POST /api/id
 - 뒤로 가서 앞 라운드를 고쳐 고르면 **그 뒤 라운드의 후보·고른 것은 버리고 다시 계산**한다 — 앞의 선택이 뒤의 후보를 정한다.
   넘긴 쪽(`다른 얼굴 보기`)도 함께 버린다
 - 라운드마다 **어느 쪽을 보여줬는지**(넘겼는지)를 고르던 값과 같은 메모리에 둔다 — 뒤로 갔다 오면 같은 아홉이 선다 (S-B7)
+- **첫 화면 묶음 번호도 같은 메모리에 둔다** (ADR-136). 이 화면이 서면 집고, `다시 찾기` 를 누르면 새로 집는다 — 한 번 찾는
+  동안은 그대로다(뒤로 가서 같은 쪽을 다시 골라도 같은 화면). 시작 화면이 두 풀의 1라운드 첫 쪽을 미리 받으므로 풀을 고르기 전에 집는다
 
 ---
 

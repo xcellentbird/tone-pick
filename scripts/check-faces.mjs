@@ -66,12 +66,14 @@ const FACES = shapeNum("faces");
 const RESULTS = shapeNum("results");
 const REROLLS = shapeNum("rerolls", 0);
 /**
- * 1단계 수 — 1라운드의 모든 쪽(한 화면 × (1 + rerolls)). 모두에게 같은 첫 화면과 `다른 얼굴 보기` 가 여는 둘째 화면이다.
+ * 1단계 수 — 1라운드의 모든 쪽(한 화면 × (1 + rerolls)). 첫 화면과 `다른 얼굴 보기` 가 여는 둘째 화면이다.
  * 2단계 수 — 2라운드가 중심 근처 아홉을 고르는 후보 집합이다. 모자라면 2라운드가 서로 다른 군집을 못 보여준다.
- * 둘 다 ideal.ts 가 들고 파이프라인(cluster.mjs)이 맞춰 낸다
+ * 첫 화면 묶음 수 — 기기가 찾을 때마다 집는 1 · 2단계의 벌 수다. 0번은 자산의 단계 그대로라 자산에는 하나 적게 싣는다 (ADR-136).
+ * 모두 ideal.ts 가 들고 파이프라인(cluster.mjs)이 맞춰 낸다
  */
 const LEVEL1 = shapeNum("level1");
 const LEVEL2 = shapeNum("level2");
+const STARTS = shapeNum("starts");
 const idSrc = SHAPE.match(/\bid:\s*\/((?:\\.|[^/\\\n])+)\/([a-z]*)/);
 if (!idSrc) lost.push("IDEAL_SHAPE.id");
 // g·y 는 뺀다 — test() 가 lastIndex 를 들고 다니면 같은 id 가 번갈아 맞고 틀린다
@@ -278,9 +280,38 @@ for (const ver of versions) {
       else say(`${file} ${at("faces", i, f)} 의 level 이 ${JSON.stringify(f.level)} — 1 · 2 · 3 만 된다`);
     });
     if (current && levels[1] !== LEVEL1) {
-      say(`${file} 의 level 1 이 ${levels[1]}개 — ${LEVEL1}개여야 한다 (1라운드 한 화면 ${FACES} × 쪽 ${1 + REROLLS} · 모두에게 같은 첫 화면)`);
+      say(`${file} 의 level 1 이 ${levels[1]}개 — ${LEVEL1}개여야 한다 (1라운드 한 화면 ${FACES} × 쪽 ${1 + REROLLS})`);
     }
     if (current && levels[2] !== LEVEL2) say(`${file} 의 level 2 가 ${levels[2]}개 — ${LEVEL2}개여야 한다`);
+
+    /*
+     * 첫 화면 묶음 (ADR-136). 묶음마다 1 · 2단계가 이 풀의 faces 에 있는 id 이고, 겹치지 않고, 수가 이 풀의 level 1 · 2 와 같다.
+     * **어긋난 묶음은 앱이 말없이 자산 그대로 그린다** (`facesForStart` — 빈 칸을 만들지 않으려고) — 그 번호를 집은 사람은
+     * 묶음 없이 찾고 아무도 모른다. 그래서 여기서 막는다. 지금 판에는 `starts − 1` 벌이 있어야 한다 — 기기는 번호를
+     * 0 ~ starts − 1 에서 집고, 모자라면 뒤 번호를 집은 사람이 모두 0번으로 모인다
+     */
+    if (pool.starts !== undefined || current) {
+      const st = pool.starts;
+      if (!Array.isArray(st)) {
+        say(`${file} 에 starts(첫 화면 묶음) 배열이 없다 — 앱이 ${STARTS}벌에서 하나를 집는다 (cluster.mjs 의 levels 가 낸다)`);
+      } else {
+        if (current && st.length !== STARTS - 1) {
+          say(`${file} 의 starts 가 ${st.length}벌 — ${STARTS - 1}벌이어야 한다 (첫 화면 묶음 ${STARTS} 중 0번은 자산의 단계 그대로)`);
+        }
+        const faceIds = new Set(pool.faces.map((f) => f?.id));
+        st.forEach((s, k) => {
+          const where = `${file} starts[${k}](묶음 ${k + 1})`;
+          if (!s || !Array.isArray(s.l1) || !Array.isArray(s.l2)) return say(`${where} 에 l1 · l2 배열이 없다`);
+          const ids = [...s.l1, ...s.l2];
+          const stray = ids.filter((id) => !faceIds.has(id));
+          if (stray.length) say(`${where} 에 faces 에 없는 id 가 있다 — ${stray.slice(0, 3).map((x) => JSON.stringify(x)).join(", ")}`);
+          if (new Set(ids).size !== ids.length) say(`${where} 에 같은 id 가 두 번 있다 — 한 사람이 두 자리에 선다`);
+          if (s.l1.length !== levels[1] || s.l2.length !== levels[2]) {
+            say(`${where} 의 1 · 2단계가 ${s.l1.length} · ${s.l2.length}개 — 이 풀의 level 1 · 2(${levels[1]} · ${levels[2]})와 같아야 한다`);
+          }
+        });
+      }
+    }
 
     /*
      * 두 목록의 id 가 온전히 겹친다 (19-surface 「자산」). S-C2 는 본 얼굴을 **id 로** 결과에서 뺀다 —

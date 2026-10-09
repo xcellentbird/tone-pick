@@ -19,12 +19,15 @@ import {
   IDEAL_SHAPE,
   IDEAL_TRAITS,
   decodeVec,
+  facesForStart,
   idealTraits,
   meanOf,
   nearestCelebs,
   pickRound,
+  shownPages,
   tasteCenters,
   type FacePoolFile,
+  type FaceStart,
   type Ideal,
   type IdealTraits,
 } from "../../src/shared/ideal.ts";
@@ -69,6 +72,8 @@ function stateIn(phase: Phase, ideal?: Ideal): ParticipantState {
  * 벡터는 단위원 위 각도라 두 갈래를 손으로 만들 수 있다. 어느 각도도 겹치지 않는다:
  *   1단계 0°~340° 20° 간격 (첫 쪽 0°~160°, 둘째 쪽 180°~340°) · 2단계 5°~355° 10° 간격 · 3단계 2°~350° 12° 간격
  * 기대값은 화면이 쓰는 순수 함수로 센다 — 여기서 재는 것은 **화면이 그 함수에 무엇을 넘기나**다.
+ * 첫 화면 묶음(`starts`, ADR-136)은 싣지 않는다 — 몇 번 묶음을 집든 자산 그대로라 1라운드가 늘 같은 아홉이다.
+ * 묶음은 `SYN_WITH_STARTS` 로 따로 본다.
  */
 const SYN_DEGS = [
   ...Array.from({ length: 18 }, (_, k) => ["a", 20 * k, 1] as const),
@@ -89,6 +94,16 @@ const SYN_CELEBS = SYN.celebs.map((c) => ({ id: c.id, name: c.name, vec: decodeV
 const vecOf = (id: string) => SYN_FACES.find((f) => f.id === id)!.vec;
 const LEVEL1 = SYN.faces.filter((f) => f.level === 1).map((f) => f.id);
 const ids = (fs: readonly { id: string }[]) => fs.map((f) => f.id);
+/**
+ * 첫 화면 묶음 (ADR-136) — 자산이 실어 두는 1 · 2단계의 다른 벌들. 묶음 k 는 사람 목록을 5k 칸 돌려 앞의 18 을 1단계,
+ * 다음 36 을 2단계로 든다 — 자리 수가 자산과 같고 서로 겹치지 않는다
+ */
+const SYN_STARTS: FaceStart[] = Array.from({ length: IDEAL_SHAPE.starts - 1 }, (_, k) => {
+  const all = SYN_DEGS.map((d) => d.id);
+  const rot = [...all.slice(5 * (k + 1)), ...all.slice(0, 5 * (k + 1))];
+  return { l1: rot.slice(0, IDEAL_SHAPE.level1), l2: rot.slice(IDEAL_SHAPE.level1, IDEAL_SHAPE.level1 + IDEAL_SHAPE.level2) };
+});
+const SYN_WITH_STARTS: FacePoolFile = { ...SYN, starts: SYN_STARTS };
 
 /** 저장된 한 벌 (v1 — 픽스처 풀의 사람들). 결과 셋은 고른 얼굴과 겹치지 않는다 (S-C2) */
 const SAVED: Ideal = {
@@ -115,7 +130,10 @@ const json = (b: unknown, status = 200) =>
  *
  * `html` 은 **SPA 폴백** — 없는 파일에 index.html 이 200 으로 온다. `404` 는 개발 서버·다른 호스트의 모양이다.
  */
-function stub(state: ParticipantState, over: { saved?: Ideal; faces?: Faces; story?: string | null } = {}): Stub {
+function stub(
+  state: ParticipantState,
+  over: { saved?: Ideal; faces?: Faces; story?: string | null; pool?: FacePoolFile } = {},
+): Stub {
   const s: Stub = { asked: [], faces: over.faces ?? "ok" };
   let row: Ideal | undefined = state.ideal;
   vi.stubGlobal("WebSocket", class { close() {} });
@@ -129,7 +147,7 @@ function stub(state: ParticipantState, over: { saved?: Ideal; faces?: Faces; sto
       if (face) {
         if (s.faces === "html") return new Response("<!doctype html><title>app</title>", { headers: { "content-type": "text/html" } });
         if (s.faces === "404") return new Response("", { status: 404 });
-        return json(Number(face[1]) === IDEAL_ASSET_V ? SYN : { ...POOL, version: Number(face[1]) });
+        return json(Number(face[1]) === IDEAL_ASSET_V ? (over.pool ?? SYN) : { ...POOL, version: Number(face[1]) });
       }
       if (url === "/api/ideal") {
         // 서버처럼 — 가리킨 값(`replaces`)은 저장하지 않고, 새 행에는 지난 행과 다른 시각이 붙는다 (다시 찾기, ADR-125)
@@ -362,7 +380,7 @@ describe("이상형 찾기 · 고르기", () => {
 
     expect(tiles()).toHaveLength(9);
     expect(screen.queryByRole("button", { name: IDEAL.face(10) })).toBeNull();
-    // 1라운드는 모두에게 같은 첫 쪽 — 자산 순서 그대로
+    // 1라운드는 1단계의 첫 쪽 — 묶음이 없는 풀이라 자산 순서 그대로 (묶음은 아래 `첫 화면 묶음`)
     expect(shownIds()).toEqual(LEVEL1.slice(0, 9));
     expect(screen.getByText(IDEAL.roundCount(1))).toBeTruthy();
     expect(nextBtn().disabled).toBe(true);
@@ -571,7 +589,7 @@ describe("이상형 찾기 · 고르기", () => {
       const second = shownIds();
       expect(second).toHaveLength(9);
       for (const id of second) expect(first).not.toContain(id);
-      // 1라운드의 둘째 쪽도 모두에게 같다 — 자산 순서의 다음 아홉
+      // 1라운드의 둘째 쪽 — 1단계의 다음 아홉
       expect(second).toEqual(LEVEL1.slice(9, 18));
       // 칸을 쌓지 않는다 — 같은 주소, 같은 칸
       expect(path(router)).toBe(`${BASE}/ideal/1`);
@@ -1006,7 +1024,8 @@ describe("이상형 찾기 · 결과", () => {
 
 describe("이상형 찾기 · 다시 찾기 (ADR-125)", () => {
   /**
-   * **다시 뽑기가 아니라 다시 고르기다.** 이 기능에는 난수가 없어서 같은 얼굴을 고르면 같은 결과다.
+   * **다시 뽑기가 아니라 다시 고르기다.** 결과에는 난수가 없어서 같은 화면에서 같은 얼굴을 고르면 같은 결과다
+   * (찾을 때마다 새로 집는 것은 첫 화면 묶음뿐이다 — 아래 `첫 화면 묶음`, ADR-136).
    * 지난 결과는 **새 결과가 저장될 때만** 바뀐다 — 다시 찾다가 나가면 그대로다. 확인창은 없다: 시작 화면과
    * 마지막 `결과 보기` 위에서 미리 말한다 (S-C3 이 처음부터 그렇게 해 왔다).
    */
@@ -1335,7 +1354,7 @@ describe("이상형 찾기 · 포커스와 안내 (ADR-129)", () => {
     expect(focused()).toBe(IDEAL.resultTitle);
   });
 
-  it("★ 2 · 3라운드는 앞에서 고른 얼굴과 닮은 얼굴이라고 먼저 말한다 — 1라운드는 모두에게 같아 말하지 않는다", async () => {
+  it("★ 2 · 3라운드는 앞에서 고른 얼굴과 닮은 얼굴이라고 먼저 말한다 — 1라운드는 고른 얼굴을 따르지 않아 말하지 않는다", async () => {
     stub(stateIn("prevote"));
     const router = mount(`${BASE}/fun`);
     await startRun(router);
@@ -1531,5 +1550,163 @@ describe("설명글 (ADR-134)", () => {
     mount(`${BASE}/ideal`);
     await screen.findAllByText(`n${SAVED.result[0]}`);
     expect(storyAsks(s)).toHaveLength(0);
+  });
+});
+
+describe("첫 화면 묶음 (ADR-136)", () => {
+  /**
+   * 1라운드가 모두에게 같으면 모두가 가장 눈에 띄는 얼굴로 모인다 (ADR-133 — 남자 아홉 중 일곱이 한 사람을 골랐다).
+   * 그래서 **찾기를 시작할 때** 자산이 실어 둔 묶음 하나를 무작위로 집는다 — 같은 무리의 다른 대표들이다.
+   * 한 번 찾는 동안은 그대로고, 집은 번호는 결과와 함께 저장된다 — 설명글 · 평가가 그 사람이 본 화면을 다시 세운다.
+   */
+  // 묶음을 실은 풀은 모듈 캐시에 남는다 — 다른 테스트가 받아 두지 않게, 그리고 이 풀을 남기지 않게 앞뒤로 비운다
+  beforeEach(forgetPools);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    forgetPools();
+  });
+
+  /** `Math.random` 이 x 를 내면 묶음 floor(x × 묶음 수) 를 집는다 */
+  const draw = (x: number) => vi.spyOn(Math, "random").mockReturnValue(x);
+  const startOf = (x: number) => Math.floor(x * IDEAL_SHAPE.starts);
+  const facesAt = (start: number) => facesForStart(SYN_FACES, SYN_STARTS, start);
+  const VECS = new Map(SYN_FACES.map((f) => [f.id, f.vec]));
+
+  it("★ 찾기를 시작할 때 묶음 하나를 무작위로 집는다 — 1라운드는 그 묶음의 첫 쪽이고, 저장에 그 번호가 실린다", async () => {
+    draw(0.5);
+    const start = startOf(0.5);
+    const s = stub(stateIn("prevote"), { pool: SYN_WITH_STARTS });
+    const router = mount(`${BASE}/fun`);
+    await startRun(router);
+    await screen.findByRole("button", { name: IDEAL.face(1) });
+    expect(shownIds()).toEqual(SYN_STARTS[start - 1].l1.slice(0, IDEAL_SHAPE.faces));
+
+    const { shown, picked } = await playRounds(router);
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
+    await screen.findByText(IDEAL.resultTitle);
+
+    const sent = s.asked.find((a) => a.url === "/api/ideal")!.body as Ideal;
+    expect(sent.start).toBe(start);
+    // 라운드도 결과도 그 묶음으로 센 그대로다
+    expect(shown).toEqual(shownPages(facesAt(start), VECS, picked));
+    expect(sent.result).toEqual(ids(nearestCelebs(SYN_CELEBS, tasteCenters(picked.flat().map(vecOf)), new Set(shown.flat()))));
+  });
+
+  it("★ 0 번은 자산 그대로다 — 0 도 번호로 실린다", async () => {
+    draw(0);
+    const s = stub(stateIn("prevote"), { pool: SYN_WITH_STARTS });
+    const router = mount(`${BASE}/fun`);
+    await startRun(router);
+    await screen.findByRole("button", { name: IDEAL.face(1) });
+    expect(shownIds()).toEqual(LEVEL1.slice(0, IDEAL_SHAPE.faces));
+
+    await playRounds(router);
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
+    await screen.findByText(IDEAL.resultTitle);
+    expect((s.asked.find((a) => a.url === "/api/ideal")!.body as Ideal).start).toBe(0);
+  });
+
+  it("★ 시작 화면이 미리 받는 1라운드 첫 쪽도 그 묶음의 것이다", async () => {
+    draw(0.5);
+    const start = startOf(0.5);
+    const warmed: string[] = [];
+    stub(stateIn("prevote"), { pool: SYN_WITH_STARTS });
+    vi.stubGlobal(
+      "Image",
+      class {
+        decoding = "";
+        set src(v: string) {
+          warmed.push(v);
+        }
+      },
+    );
+    const router = mount(`${BASE}/fun`);
+    fireEvent.click(await idealStart());
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
+    const url = (id: string) => `/faces/v${IDEAL_ASSET_V}/${id}.webp`;
+    await waitFor(() =>
+      expect(warmed).toEqual(expect.arrayContaining(SYN_STARTS[start - 1].l1.slice(0, IDEAL_SHAPE.faces).map(url))),
+    );
+  });
+
+  it("★ 한 번 찾는 동안은 같은 묶음이다 — 뒤로 가서 같은 쪽을 다시 골라도 고르던 얼굴이 그대로 선다", async () => {
+    const rnd = draw(0.5);
+    stub(stateIn("prevote"), { pool: SYN_WITH_STARTS });
+    const router = mount(`${BASE}/fun`);
+    await startRun(router);
+    await screen.findByRole("button", { name: IDEAL.face(1) });
+    const first = shownIds();
+    fireEvent.click(tiles()[2]);
+
+    // 다시 집으면 다른 묶음이 나온다 — 집지 않았어야 같은 화면이다
+    rnd.mockReturnValue(0.9);
+    await router.navigate(-1);
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal`));
+    fireEvent.click(await screen.findByRole("button", { name: IDEAL.pool.F }));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/1`));
+    await screen.findByText(IDEAL.roundCount(1));
+    expect(shownIds()).toEqual(first);
+    expect(pressed().map(idOf)).toEqual([first[2]]);
+  });
+
+  it("★ 다시 찾으면 묶음을 새로 집는다 — 지난 결과의 번호를 이어 받지 않는다", async () => {
+    const before: Ideal = {
+      v: IDEAL_ASSET_V,
+      pool: "F",
+      picks: [["a000"], ["b005"], ["c002"]],
+      result: ["c014", "c026", "c038"],
+      start: 3,
+      verdict: { none: true },
+      at: 5,
+    };
+    const s = stub(stateIn("prevote", before), { pool: SYN_WITH_STARTS });
+    const router = mount(`${BASE}/fun`);
+    fireEvent.click(await screen.findByRole("button", { name: FUN.result }));
+    await screen.findByText(IDEAL.verdictNoneDone);
+
+    draw(0.75);
+    const start = startOf(0.75);
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.again }));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/again`));
+    fireEvent.click(await screen.findByRole("button", { name: IDEAL.pool.F }));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/1`));
+    await screen.findByRole("button", { name: IDEAL.face(1) });
+    expect(shownIds()).toEqual(SYN_STARTS[start - 1].l1.slice(0, IDEAL_SHAPE.faces));
+
+    await playRounds(router);
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
+    await waitFor(() => expect(s.asked.some((a) => a.url === "/api/ideal")).toBe(true));
+    const sent = s.asked.find((a) => a.url === "/api/ideal")!.body as Ideal & { replaces?: number };
+    expect(sent.start).toBe(start);
+    expect(sent.replaces).toBe(before.at);
+  });
+
+  it("★ 설명글이 다시 세우는 화면도 저장된 묶음으로 선다 — 번호를 버리면 견준 얼굴이 틀린다", async () => {
+    const start = 5;
+    const faces = facesAt(start);
+    const shown = new Set<string>();
+    const picks: string[][] = [];
+    const pages: string[][] = [];
+    for (let r = 1; r <= IDEAL_SHAPE.rounds; r++) {
+      const centers = r === 1 ? null : tasteCenters(picks.flat().map(vecOf));
+      const page = ids(pickRound(faces, r as 1 | 2 | 3, centers, shown));
+      for (const id of page) shown.add(id);
+      pages.push(page);
+      picks.push([page[1], page[4]]);
+    }
+    const result = ids(nearestCelebs(SYN_CELEBS, tasteCenters(picks.flat().map(vecOf)), shown));
+    const ideal: Ideal = { v: IDEAL_ASSET_V, pool: "F", picks, result, start, at: 7 };
+    const STORY = "같은 화면의 다른 얼굴보다 눈매가 또렷한 얼굴을 더 골랐어요. 사람들은 이런 얼굴에서 분명한 인상을 먼저 받아요.";
+    const s = stub({ ...stateIn("prevote", ideal), idealStory: true }, { story: STORY, pool: SYN_WITH_STARTS });
+    mount(`${BASE}/ideal`);
+
+    await screen.findByText(STORY);
+    const ask = s.asked.find((a) => a.url === "/api/ideal/story")!;
+    expect(ask.body).toEqual({ pages: [pages[1], pages[2]] });
+    expect(pages[0]).toEqual(SYN_STARTS[start - 1].l1.slice(0, IDEAL_SHAPE.faces));
+    // 자산 그대로 다시 세운 화면과는 다르다 — 이 테스트가 번호를 재는 자리다
+    expect(shownPages(SYN_FACES, VECS, picks).slice(1)).not.toEqual([pages[1], pages[2]]);
   });
 });

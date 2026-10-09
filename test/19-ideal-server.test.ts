@@ -19,7 +19,7 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { FUN } from "../src/shared/copy.ts";
-import type { Ideal, IdealInput } from "../src/shared/ideal.ts";
+import { IDEAL_SHAPE, type Ideal, type IdealInput } from "../src/shared/ideal.ts";
 import type { EventMeta, ParticipantState } from "../src/shared/types.ts";
 import { api, enter, freshEvent, join, listen, master, setPhase, settle, signInMaster } from "./helpers/party.ts";
 
@@ -224,6 +224,26 @@ describe("S-C3 ★ 다시 찾기 전에는 그대로 남는다 (ADR-125)", () =>
     const state = await me(a.cookie);
     expect(state.status).toBe(200);
     expect(state.body).not.toHaveProperty("ideal");
+  });
+
+  it("★ 첫 화면 묶음 번호도 결과와 함께 남는다 — 설명글 · 평가가 그 사람이 본 화면을 그 번호로 다시 세운다 (ADR-136)", async () => {
+    const ev = await openEvent();
+    const a = await join(ev);
+    const b = await join(ev);
+
+    const made = await save(a.cookie, input({ v: 6, start: 7 }));
+    expect(made.status).toBe(200);
+    expect(made.body.start).toBe(7);
+    expect((await me(a.cookie)).body.ideal?.start).toBe(7);
+    // 다시 찾으면 새 번호다 — 찾을 때마다 새로 집는다
+    const again = await redo(a.cookie, input({ v: 6, start: 0 }), made.body.at);
+    expect(again.status).toBe(200);
+    expect(again.body.start).toBe(0);
+
+    // 번호 없이 온 결과(v5 까지 · 배포 전에 열어 둔 탭)는 없는 채로 남는다
+    const old = await save(b.cookie, input({ v: 5 }));
+    expect(old.status).toBe(200);
+    expect(old.body).not.toHaveProperty("start");
   });
 });
 
@@ -435,6 +455,12 @@ describe("모양만 본다 — 어긋나면 400 (S-D3)", () => {
       ["replaces 음수", { ...base, replaces: -1 }],
       ["replaces 소수", { ...base, replaces: 1.5 }],
       ["replaces 묶음", { ...base, replaces: [1] }],
+      // 첫 화면 묶음 번호 (ADR-136) — 0 ~ 묶음 수 − 1 의 정수뿐이다
+      ["start 음수", { ...base, start: -1 }],
+      ["start 소수", { ...base, start: 1.5 }],
+      ["start 문자열", { ...base, start: "1" }],
+      ["start null", { ...base, start: null }],
+      ["start 너무 큼", { ...base, start: IDEAL_SHAPE.starts }],
     ];
     for (const [why, body] of bad) {
       const res = await save(a.cookie, body);
