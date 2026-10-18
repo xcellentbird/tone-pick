@@ -24,11 +24,13 @@ import {
   meanOf,
   nearestCelebs,
   pickRound,
+  readIdealPages,
   shownPages,
   tasteCenters,
   type FacePoolFile,
   type FaceStart,
   type Ideal,
+  type IdealPages,
   type IdealTraits,
 } from "../../src/shared/ideal.ts";
 import { PARTICIPANT_ROUTES } from "../../src/client/router.tsx";
@@ -674,12 +676,15 @@ describe("이상형 찾기 · 고르기", () => {
 
       fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
       await screen.findByText(IDEAL.resultTitle);
-      const sent = s.asked.find((a) => a.url === "/api/ideal")!.body as Ideal;
+      const sent = s.asked.find((a) => a.url === "/api/ideal")!.body as Ideal & { pages?: IdealPages };
       for (const id of sent.result) expect(seen).not.toContain(id);
-      // 넘긴 아홉은 저장하지 않는다 — 고른 것만 간다
+      // 넘긴 아홉은 고른 것(picks)에도 결과 행에도 없다 — 본 화면(`pages`)으로만 가서 평가 기록에 남는다 (ADR-137, S-D5)
       for (const id of sent.picks.flat()) expect(skipped.flat()).not.toContain(id);
       const centers = tasteCenters(sent.picks.flat().map(vecOf));
       expect(sent.result).toEqual(ids(nearestCelebs(SYN_CELEBS, centers, new Set(seen))));
+      // ★ 보낸 화면은 그려진 화면 그대로다 — 라운드마다 넘긴 쪽이 먼저, 쪽마다 화면 순서. 서버의 모양 검사도 통과한다
+      expect(sent.pages).toEqual([0, 1, 2].map((r) => [skipped[r], shown[r]]));
+      expect(readIdealPages(sent, sent.picks)).toEqual(sent.pages);
     });
   });
 
@@ -771,12 +776,14 @@ describe("이상형 찾기 · 결과", () => {
     fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
     await screen.findByText(IDEAL.resultTitle);
 
-    const sent = s.asked.find((a) => a.url === "/api/ideal")!.body as Ideal;
+    const sent = s.asked.find((a) => a.url === "/api/ideal")!.body as Ideal & { pages?: IdealPages };
     // 처음 찾을 때는 가리키는 것이 없다
     expect(sent).not.toHaveProperty("replaces");
     expect(sent.v).toBe(IDEAL_ASSET_V);
     expect(sent.pool).toBe("F");
     expect(sent.picks).toEqual(picked);
+    // 본 화면 — 넘기지 않았으면 라운드마다 한 쪽, 그려진 순서 그대로 (ADR-137)
+    expect(sent.pages).toEqual(shown.map((p) => [p]));
     expect(sent.result).toHaveLength(3);
     expect(new Set(sent.result).size).toBe(3);
     for (const id of sent.result) expect(shown.flat()).not.toContain(id);

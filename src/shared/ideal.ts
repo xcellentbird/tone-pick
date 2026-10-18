@@ -57,6 +57,65 @@ export type IdealVerdict = { chosen: string[] } | { none: true };
 /** 기기가 보내는 것. verdict 는 따로 온다 — 결과를 본 뒤에야 생기는 값이다 (S-C4). 설명글은 서버가 만든다 (ADR-134) */
 export type IdealInput = Omit<Ideal, "verdict" | "story" | "at">;
 
+/**
+ * 그 찾기에서 본 화면 (ADR-137) — 라운드 셋, 라운드마다 본 쪽을 **본 차례대로**(넘긴 쪽이 먼저, 고른 쪽이 마지막),
+ * 쪽마다 얼굴을 **화면 순서대로**(3열 격자의 왼쪽 위부터 한 줄씩). **결과를 낸 길**의 화면이다 — 앞 라운드로 돌아가 고쳐 고르면
+ * 그 뒤 라운드에서 봤던 쪽은 버려진다(고르던 값과 함께, S-B4). 기기가 저장 요청에 함께 실어 보내고(`pages`),
+ * 서버는 평가 기록에만 남긴다 — 결과 행(`Ideal`)에는 없어서 참가자 응답으로 나가지 않는다 (S-D1)
+ */
+export type IdealPages = string[][][];
+
+/**
+ * 평가 기록 한 줄 (ADR-137) — **결과가 된 찾기** 한 번. 회차 DO 에만 있고 읽는 API 가 없다 — 운영자가 `IDEAL_RUNS_SQL` 로 꺼낸다.
+ * **시각도 사람도 없다** — 같은 사람의 찾기는 그 쿼리가 한 줄로 묶는다. 얼굴 사진은 `v` 와 id 가 정한다 —
+ * `/faces/v{v}/{id}.webp`, 나간 판의 파일은 바뀌지 않는다 (19-surface)
+ */
+export interface IdealRun {
+  /** 그 사람의 몇 번째로 **기록된** 찾기인가 — 1부터. 다시 찾을 때마다 하나씩 (`IDEAL_SHAPE.runs` 까지) */
+  n: number;
+  v: number;
+  pool: Gender;
+  start?: number;
+  /** 라운드마다 고른 얼굴 — 누른 차례대로다. 풀었다 다시 누르면 뒤로 간다 */
+  picks: string[][];
+  /** 본 화면. 없으면 기기가 보내지 않았거나(배포 전에 열어 둔 탭) 모양이 어긋난 것이다 — 그때는 고른 얼굴로 다시 세운다 (ADR-133) */
+  pages?: IdealPages;
+  result: string[];
+  verdict?: IdealVerdict;
+  /**
+   * **이 기록이 생기기 전에 찾은 결과**다 — 배포를 걸친 회차에서 그 사람의 결과 행에만 있던 것. 화면이 없고, 그 앞에 몇 번 찾았는지
+   * 모른다(첫 찾기가 아닐 수 있다). 다시 찾을 때 먼저 적히거나(`EventDO.logIdealRun`), 다시 찾지 않았으면 꺼내는 쿼리가 결과 행에서 지어 싣는다
+   */
+  prior?: true;
+}
+
+/** 결과 한 벌을 기록의 모양으로 (ADR-137) — 시각 · 설명글 · 사람은 싣지 않는다. 화면은 따로 받는다 */
+export function idealRunOf(ideal: Ideal, n: number, pages?: IdealPages): IdealRun {
+  return {
+    n,
+    v: ideal.v,
+    pool: ideal.pool,
+    ...(ideal.start !== undefined ? { start: ideal.start } : {}),
+    picks: ideal.picks,
+    ...(pages ? { pages } : {}),
+    result: ideal.result,
+    ...(ideal.verdict ? { verdict: ideal.verdict } : {}),
+  };
+}
+
+/**
+ * 평가 기록을 꺼내는 쿼리 (ADR-137) — 운영자가 Cloudflare 대시보드의 Data Studio 에서 그 회차의 DO 를 열고 돌린다.
+ * **앱에는 꺼내는 길이 없다** (ADR-133). 줄마다 한 사람(`{"runs":[…]}`)이고 줄 순서는 섞인다. 참가자 id · 시각은 실리지 않는다 —
+ * 기록의 json 에 없고, 쿼리가 그 칸을 고르지 않는다. 찾은 차례는 `n` 이 말한다.
+ * **기록이 생기기 전에 찾고 다시 찾지 않은 사람**(배포를 걸친 회차)은 결과 행에서 지어 싣는다 — 시각 · 설명글을 빼고 `n` 1 · `prior`.
+ * 테스트(19-ideal-log)가 이 문장을 그대로 돌린다 — 고치면 ADR-137 의 쿼리도 함께 고친다
+ */
+export const IDEAL_RUNS_SQL =
+  "SELECT json_object('runs', json_group_array(json(run))) AS person FROM (" +
+  "SELECT player_id, at, json AS run FROM ideal_runs UNION ALL " +
+  "SELECT player_id, 0, json_set(json_remove(json, '$.at', '$.story'), '$.n', 1, '$.prior', json('true')) FROM ideals " +
+  "WHERE player_id NOT IN (SELECT player_id FROM ideal_runs)) GROUP BY player_id ORDER BY random();";
+
 export const IDEAL_SHAPE = {
   rounds: 3,
   /** 한 화면 3×3. 360px 에서 한 칸 100px 이상은 3열이 한계라 여덟이 아니라 아홉이다 */
@@ -101,6 +160,11 @@ export const IDEAL_SHAPE = {
   splitCos: -0.3,
   /** 작은 무리가 이만큼은 돼야 두 갈래로 친다 — 한 장짜리는 잘못 누른 것일 수 있다 */
   splitMin: 2,
+  /**
+   * 평가 기록(ADR-137)에 남기는 찾기 수 — 사람마다. 그 뒤의 다시 찾기는 결과만 바꾸고 기록하지 않는다.
+   * **먼저 찾은 것을 남긴다** — 결과를 여러 번 본 뒤의 찾기는 앞의 결과에 끌린다. 저장소가 끝없이 자라지 않게 막는 칸이기도 하다
+   */
+  runs: 20,
   id: /^[a-z0-9]{4,16}$/, // copy-ok
 } as const;
 
@@ -152,6 +216,32 @@ export function readIdealInput(raw: unknown): IdealInput | null {
     result: [...result],
     ...(isStart(start) ? { start } : {}),
   };
+}
+
+/**
+ * 저장 요청에 실려 온 화면(`pages`, ADR-137)의 **모양만** 본다 — 라운드 셋, 라운드마다 쪽 1 ~ 1 + `rerolls`, 쪽마다 서로 다른
+ * id 1~9, **한 찾기 안에서 같은 얼굴이 두 번 서지 않는다**(본 얼굴은 다시 안 나온다), 그 라운드에 고른 얼굴은 모두 **마지막 쪽**에 있다
+ * (넘김은 아무것도 안 골랐을 때만이다, S-B7). 어긋나거나 없으면 `undefined` — **결과 저장은 막지 않는다.** 화면은 평가 자료일 뿐이라
+ * 그 때문에 파티장에서 결과를 못 보는 사람이 생기면 안 된다. 그 찾기는 화면 없이 기록되고, 평가는 고른 얼굴로 다시 세운다 (ADR-133).
+ * 새 배열을 짓는다 — 본문을 펼치지 않는다 (`readIdealInput` 과 같은 이유)
+ */
+export function readIdealPages(raw: unknown, picks: readonly (readonly string[])[]): IdealPages | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const pages = (raw as Record<string, unknown>).pages;
+  if (!Array.isArray(pages) || pages.length !== IDEAL_SHAPE.rounds) return undefined;
+  const seen = new Set<string>();
+  const out: IdealPages = [];
+  for (const [r, round] of pages.entries()) {
+    if (!Array.isArray(round) || round.length < 1 || round.length > 1 + IDEAL_SHAPE.rerolls) return undefined;
+    if (!round.every((p: unknown) => idList(p, 1, IDEAL_SHAPE.faces))) return undefined;
+    const ids = (round as string[][]).flat();
+    if (ids.some((id) => seen.has(id)) || new Set(ids).size !== ids.length) return undefined;
+    for (const id of ids) seen.add(id);
+    const last = (round as string[][])[round.length - 1];
+    if (!(picks[r] ?? []).every((id) => last.includes(id))) return undefined;
+    out.push((round as string[][]).map((p) => [...p]));
+  }
+  return out;
 }
 
 /**
@@ -207,7 +297,7 @@ export const STORY_LEN = { min: 20, max: 240 } as const;
 
 /**
  * 고른 얼굴만으로 그 사람이 본 화면을 다시 세운다 — 라운드마다 아홉 (ADR-133 의 `reconstruct` 와 같은 규칙).
- * `다른 얼굴 보기` 는 저장되지 않는다 — **고른 얼굴이 첫 쪽에 없으면 둘째 쪽을 본 것이다.** 넘긴 쪽과 다음 쪽은 겹치지 않아서
+ * 결과 행에는 `다른 얼굴 보기` 가 없다(본 쪽은 평가 기록에만 있다, ADR-137) — **고른 얼굴이 첫 쪽에 없으면 둘째 쪽을 본 것이다.** 넘긴 쪽과 다음 쪽은 겹치지 않아서
  * 둘이 갈린다. **지금 판의 규칙**(`IDEAL_SHAPE`)으로 센다 — 옛 판의 결과에는 쓰지 않는다. 같은 입력이면 같은 출력.
  * `faces` 는 **그 결과의 묶음으로 단계를 붙인 얼굴**이다 — `facesForStart(…, ideal.start)` (ADR-136). 자산 그대로 넘기면
  * 묶음을 집은 사람의 1 · 2라운드가 다른 화면으로 선다

@@ -1,19 +1,29 @@
 // 실제 참가자의 이상형 찾기 결과로 판을 잰다 — 검수 · 정답 확인 · 다음 라운드 맞히기 (ADR-133)
-// node eval-real.mjs <결과 파일> [--space 3,4,3*0.5+4*0.5] [--seed 7]
+// node eval-real.mjs <결과 파일> [--space 3,4,3*0.5+4*0.5] [--seed 7] [--runs last|first|all]
 //
-// 결과 파일은 회차 저장소(EventDO)의 `ideals` 표를 Cloudflare 대시보드의 Data Studio 로 꺼낸 것이다 —
-//   SELECT json_remove(json, '$.at') AS ideal FROM ideals ORDER BY random();
-// JSON 배열이든, CSV 든, 표를 복사한 글이든 안에 든 Ideal JSON(`{"v":…,"picks":…}`)을 찾아 읽는다.
+// 결과 파일은 회차 저장소(EventDO)를 Cloudflare 대시보드의 Data Studio 로 꺼낸 것이다. 두 모양을 다 읽는다 —
+//   평가 기록 (ADR-137 부터, 찾기마다 본 화면째 · 사람마다 한 줄 `{"runs":[…]}`) — src/shared/ideal.ts 의 IDEAL_RUNS_SQL 그대로 돌린다
+//   (기록이 생기기 전에 찾고 다시 찾지 않은 사람도 결과 행에서 지어 `prior` 로 싣는다)
+//   그 전의 회차 (ADR-133, 사람마다 마지막 결과 하나):
+//     SELECT json_remove(json, '$.at') AS ideal FROM ideals ORDER BY random();
+// `--runs` — 사람마다 어느 찾기를 쓰나. 기본 `last`(마지막 하나)는 ADR-133 의 꺼낸 것과 같은 모양이라 114 와 견줄 수 있다.
+// `first` 는 결과를 보기 전의 찾기, `all` 은 전부다 — `all` 에서 2 · 6 · 8 은 찾기마다 센다(다시 찾은 사람이 여러 번 든다)
+// JSON 배열이든, CSV 든, 표를 복사한 글이든 안에 든 JSON 을 찾아 읽는다.
 // **참가자 id · 시각은 꺼내지 않는다** — 그 쿼리가 이미 뺀다. 파일은 저장소에 넣지 않는다 (tmp/ 는 .gitignore 다)
 //
 // 재는 것
 //   1. 검수 — 모양 · 판 · id 가 그 판의 자산에 있는가 · 라운드를 그대로 다시 세울 수 있는가 · 저장된 결과가 다시 센 결과와 같은가.
-//      라운드는 결정적이라 첫 화면 묶음 번호(`start`, v6 부터 — ADR-136)와 고른 얼굴만으로 그 사람이 본 아홉을 다시 세운다.
-//      `다른 얼굴 보기` 는 저장되지 않아 고른 얼굴이 첫 쪽에 없으면 둘째 쪽을 본 것으로 읽는다
+//      평가 기록에는 그 사람이 **본 화면**(넘긴 쪽 · 화면 순서까지)이 있다 — 있으면 그것을 쓰고, 다시 세운 화면과 다르면 센다.
+//      없으면(ADR-133 의 모양 · 화면을 보내지 않은 탭) 라운드가 결정적이라 첫 화면 묶음 번호(`start`, v6 부터 — ADR-136)와 고른 얼굴만으로
+//      다시 세운다 — 고른 얼굴이 첫 쪽에 없으면 `다른 얼굴 보기` 로 둘째 쪽을 본 것으로 읽는다.
+//      **구간은 사람 단위로 다시 뽑는다** — 같은 사람의 여러 찾기를 여러 사람으로 세지 않는다
 //   2. 정답 확인 — 답한 비율 · 셋 중에 있었다 · 없음 · 자리(1 · 2 · 3위)마다 골린 비율. 그 판(대개 v3)의 만족도다
 //   3. 다음 라운드 맞히기 — 2 · 3라운드의 화면 아홉에서 그 사람이 실제로 고른 얼굴을, 앞 라운드에 고른 얼굴로 맞히는가.
 //      공간(v3 낱말 · v4 얼굴 …)마다 같은 화면을 다시 줄 세워 AUC 를 낸다 (0.5 가 무작위). **공간끼리 견주는 공정한 자리다** —
-//      같은 사람이 같은 아홉 앞에서 한 선택이다. 화면이 그 판의 공간으로 골라졌다는 치우침은 모든 공간이 함께 진다
+//      같은 사람이 같은 아홉 앞에서 한 선택이다. 화면이 그 판의 공간으로 골라졌다는 치우침은 모든 공간이 함께 진다.
+//      ⚠️ 하나는 함께 지지 않는다 — 2 · 3라운드는 그 판의 공간에서 **가까운 순으로 왼쪽 위부터** 서고 섞지 않는다. 윗줄을 더 고르는
+//      버릇이 있으면 화면을 짠 공간 쪽으로 기운다(`center` 가 더). 기록된 자리로도 그 버릇은 못 가른다 — 자리가 곧 그 공간의 닮음 순위다
+//      (1라운드는 자리가 곧 무리다). v3 낱말로 짠 114 는 얼굴 공간끼리에는 이 치우침이 없다 (ADR-137 남은 일)
 //   4. 정답과의 거리 — `진짜 이상형` 으로 고른 연예인이 공간마다 몇 등에 서는가 (본 얼굴을 뺀 후보 중 백분위).
 //      그 판의 공간은 그 사람을 이미 1~3위에 세웠으니 견주지 않는다 — 다른 공간이 그 답에 얼마나 동의하나만 본다
 //   5. 1라운드 — 얼굴마다 첫 쪽에 보인 수와 골린 비율. v5 까지는 모두에게 같은 아홉이었고, v6 부터는 묶음마다 다르다 (ADR-136)
@@ -90,14 +100,57 @@ export function spaceOf(spec, g, poolOf) {
   return { name: spec, vec, split: RULES[4].split };
 }
 
+/** 찾기 한 벌의 고르는 칸만 새로 짓는다. who 는 같은 사람의 찾기를 묶는 열쇠 — 평가 기록의 한 줄이 한 사람이다 (ADR-137) */
+function rowOf(o, who) {
+  if (!o || !Array.isArray(o.picks) || !Array.isArray(o.result)) return null;
+  return {
+    v: o.v,
+    pool: o.pool,
+    picks: o.picks,
+    result: o.result,
+    ...(Number.isInteger(o.start) ? { start: o.start } : {}),
+    ...(o.verdict ? { verdict: o.verdict } : {}),
+    ...(Array.isArray(o.pages) ? { pages: o.pages } : {}),
+    ...(Number.isInteger(o.n) ? { n: o.n } : {}),
+    ...(o.prior === true ? { prior: true } : {}),
+    ...(who ? { who } : {}),
+  };
+}
+
 /**
- * 붙여 넣은 글에서 Ideal 을 찾는다. JSON 배열 · 줄마다 JSON · CSV(`""` 로 감싼 따옴표) · 표 복사 모두 받는다.
+ * 사람마다 어느 찾기를 쓰나 (ADR-137) — `last`: 마지막 하나(ADR-133 의 꺼낸 모양, 결과 행 하나와 같다 — 114 와 견줄 때) ·
+ * `first`: 처음 하나(결과를 보기 전 — `prior` 면 그 앞이 기록에 없다) · `all`: 전부(구간은 사람 단위로 다시 뽑는다).
+ * 옛 모양(사람 열쇠가 없다)은 줄마다 한 사람이라 셋이 같다
+ */
+export function pickRuns(rows, mode) {
+  if (mode === "all") return rows;
+  const best = new Map();
+  const out = [];
+  for (const row of rows) {
+    if (!row.who) {
+      out.push(row);
+      continue;
+    }
+    const cur = best.get(row.who);
+    const better = !cur || (mode === "first" ? (row.n ?? 0) < (cur.n ?? 0) : (row.n ?? 0) > (cur.n ?? 0));
+    if (better) best.set(row.who, row);
+  }
+  return [...out, ...best.values()];
+}
+
+/** 찾기 묶음에 든 사람 수 — 옛 모양은 줄마다 한 사람 */
+const peopleIn = (xs) => new Set(xs.map((x, i) => x.row.who ?? `s${i}`)).size;
+
+/**
+ * 붙여 넣은 글에서 찾기를 찾는다. JSON 배열 · 줄마다 JSON · CSV(`""` 로 감싼 따옴표) · 표 복사 모두 받는다.
+ * 평가 기록(`{"runs":[…]}`, ADR-137)은 찾기마다 한 줄로 펴고 사람 열쇠(`who`)를 붙인다 — 옛 모양(ADR-133)은 줄마다 한 사람이다.
  * 고르는 칸만 새로 짓는다 — 모르는 키는 버린다. 첫 화면 묶음 번호(`start`, v6 부터)는 고르는 칸이다 — 버리면 묶음을 집은
  * 사람의 화면을 자산 그대로 다시 세워 거의 모든 줄이 `다시 세우지 못했다` 로 걸린다 (ADR-136)
  */
 export function readRows(text) {
   const t = text.replace(/""/g, '"');
   const rows = [];
+  let people = 0;
   for (let i = 0; i < t.length; i++) {
     if (t[i] !== "{") continue;
     let depth = 0;
@@ -112,16 +165,19 @@ export function readRows(text) {
       else if (c === "}" && --depth === 0) {
         try {
           const o = JSON.parse(t.slice(i, j + 1));
-          if (o && Array.isArray(o.picks) && Array.isArray(o.result)) {
-            rows.push({
-              v: o.v,
-              pool: o.pool,
-              picks: o.picks,
-              result: o.result,
-              ...(Number.isInteger(o.start) ? { start: o.start } : {}),
-              ...(o.verdict ? { verdict: o.verdict } : {}),
-            });
+          if (o && Array.isArray(o.runs)) {
+            const who = `p${++people}`;
+            for (const r of o.runs) {
+              const row = rowOf(r, who);
+              if (row) rows.push(row);
+            }
             i = j;
+          } else {
+            const row = rowOf(o);
+            if (row) {
+              rows.push(row);
+              i = j;
+            }
           }
         } catch {
           /* 이 괄호는 Ideal 이 아니다 — 다음 `{` 부터 본다 */
@@ -138,30 +194,43 @@ const subset = (xs, page) => xs.every((id) => page.some((f) => f.id === id));
 /**
  * 그 사람이 본 화면을 다시 세운다. 라운드마다 고른 얼굴이 첫 쪽에 없으면 `다른 얼굴 보기` 로 둘째 쪽을 본 것이다.
  * 1 · 2단계는 그 결과의 첫 화면 묶음(`start`)으로 붙인다 (ADR-136) — 번호가 없으면(v5 까지) 자산 그대로다.
- * 돌려주는 것: 라운드마다 고른 화면(page) · 넘긴 횟수 · 본 얼굴 전부 · 다시 센 결과 · 세울 수 있었나
+ * **기록에 본 화면(`pages`, ADR-137)이 있으면 그것이 그 사람이 본 화면이다** — 다시 세운 화면과 견주기만 하고(`pagesSame`) 그것을 쓴다.
+ * 돌려주는 것: 라운드마다 고른 화면(page) · 넘긴 횟수 · 본 쪽 전부(pages) · 본 얼굴 전부 · 다시 센 결과 · 세울 수 있었나 ·
+ * 기록된 화면인가(stored) · 그 화면이 다시 세운 화면과 같은가(pagesSame)
  */
 export function reconstruct(row, P) {
   const rule = RULES[row.v];
   const faces = facesForStart(P.faces, P.starts, row.start);
   return withSplit(rule.split, () => {
-    const shown = new Set();
-    const rounds = [];
+    let shown = new Set();
+    let rounds = [];
     let ok = true;
     for (let r = 1; r <= 3; r++) {
       const centers = r === 1 ? null : tasteCenters(row.picks.slice(0, r - 1).flat().map((id) => P.vec.get(id)));
       let page = pickRound(faces, r, centers, shown, rule.n, rule.reserve);
+      const pages = [];
       let flips = 0;
       while (!subset(row.picks[r - 1], page) && flips < rule.rerolls) {
         for (const f of page) shown.add(f.id);
+        pages.push(page.map((f) => f.id));
         page = pickRound(faces, r, centers, shown, rule.n, rule.reserve);
         flips++;
       }
       if (!subset(row.picks[r - 1], page)) ok = false;
       for (const f of page) shown.add(f.id);
-      rounds.push({ page: page.map((f) => f.id), flips });
+      pages.push(page.map((f) => f.id));
+      rounds.push({ page: page.map((f) => f.id), flips, pages });
+    }
+    const stored = Array.isArray(row.pages);
+    let pagesSame = null;
+    if (stored) {
+      pagesSame = JSON.stringify(rounds.map((rd) => rd.pages)) === JSON.stringify(row.pages);
+      rounds = row.pages.map((ps) => ({ page: ps[ps.length - 1], flips: ps.length - 1, pages: ps }));
+      shown = new Set(row.pages.flat(2));
+      ok = rounds.every((rd, k) => row.picks[k].every((id) => rd.page.includes(id)));
     }
     const result = nearestCelebs(P.celebs, tasteCenters(row.picks.flat().map((id) => P.vec.get(id))), shown).map((c) => c.id);
-    return { ok, rounds, shown, result, same: result.join() === row.result.join() };
+    return { ok, rounds, shown, result, same: result.join() === row.result.join(), stored, pagesSame };
   });
 }
 
@@ -232,6 +301,19 @@ export function answerPercentile(row, rec, space, ids, { split = -0.2 } = {}) {
   return v.chosen.filter((id) => rank.has(id)).map((id) => rank.get(id) / Math.max(1, scored.length - 1));
 }
 
+/**
+ * 찾기마다의 값을 **사람마다** 한 묶음으로 — 같은 사람의 여러 찾기(ADR-137)를 여러 사람으로 세지 않는다.
+ * 옛 모양(ADR-133)은 줄마다 한 사람이라 찾기 하나가 한 묶음이다
+ */
+export function byPerson(xs, f) {
+  const m = new Map();
+  xs.forEach((x, i) => {
+    const k = x.row.who ?? `s${i}`;
+    m.set(k, [...(m.get(k) ?? []), ...f(x)]);
+  });
+  return [...m.values()];
+}
+
 /** 사람(세션) 단위로 다시 뽑아 평균의 95% 구간 — 씨앗이 같으면 같다 */
 export function bootstrap(groups, { seed = 7, n = 2000 } = {}) {
   const flat = (gs) => gs.flat();
@@ -266,16 +348,18 @@ export function peopleMeta(root = HERE) {
 /**
  * 인기로 맞히기 — 같은 풀의 **다른 세션들**에서 그 얼굴이 보였을 때 골린 비율을 점수로 준다 (자기 세션은 뺀다).
  * 닮음(3)이 인기보다 못 맞히면, 사람들은 앞에서 고른 얼굴을 닮은 얼굴보다 **모두가 고르는 얼굴**을 고른 것이다.
- * 1라운드는 넘기지 않은 세션만 센다 — 첫 쪽끼리 견준다. 비율은 얼굴마다 **보인 수**로 나누니 묶음마다 첫 쪽이 달라도(v6, ADR-136) 그대로 선다
+ * 1라운드는 넘기지 않은 세션만 센다 — 첫 쪽끼리 견준다. 비율은 얼굴마다 **보인 수**로 나누니 묶음마다 첫 쪽이 달라도(v6, ADR-136) 그대로 선다.
+ * **같은 사람의 다른 찾기도 뺀다** (ADR-137) — 다시 찾은 사람의 선택이 제 인기로 세지면 인기가 부푼다. 돌려주는 묶음은 사람마다다
  */
 export function popularityAuc(xs) {
-  const r1 = [];
-  const r23 = [];
-  for (const x of xs) {
+  const r1 = new Map();
+  const r23 = new Map();
+  const add = (m, k, vs) => m.set(k, [...(m.get(k) ?? []), ...vs]);
+  for (const [i, x] of xs.entries()) {
     const shown = new Map();
     const picked = new Map();
     for (const y of xs) {
-      if (y === x) continue;
+      if (y === x || (x.row.who && y.row.who === x.row.who)) continue;
       y.rec.rounds.forEach((rd, k) => {
         for (const id of rd.page) {
           shown.set(id, (shown.get(id) ?? 0) + 1);
@@ -289,10 +373,11 @@ export function popularityAuc(xs) {
       const pk = new Set(x.row.picks[k]);
       return auc(page.filter((id) => pk.has(id)).map(prior), page.filter((id) => !pk.has(id)).map(prior));
     };
-    if (x.rec.rounds[0].flips === 0) r1.push([one(0)].filter((a) => a != null));
-    r23.push([one(1), one(2)].filter((a) => a != null));
+    const k = x.row.who ?? `s${i}`;
+    if (x.rec.rounds[0].flips === 0) add(r1, k, [one(0)].filter((a) => a != null));
+    add(r23, k, [one(1), one(2)].filter((a) => a != null));
   }
-  return { r1, r23 };
+  return { r1: [...r1.values()], r23: [...r23.values()] };
 }
 
 const pct = (x, d = 0) => `${(100 * x).toFixed(d)}%`;
@@ -305,10 +390,14 @@ if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1])))
   for (let i = 0; i < args.length; i++) args[i].startsWith("--") ? (flags[args[i].slice(2)] = args[++i]) : pos.push(args[i]);
   const file = pos[0];
   const opt = (k, d) => flags[k] ?? d;
-  if (!file) throw new Error("usage: node eval-real.mjs <결과 파일> [--space 3,4,3*0.5+4*0.5] [--seed 7]");
+  if (!file) throw new Error("usage: node eval-real.mjs <결과 파일> [--space 3,4,3*0.5+4*0.5] [--seed 7] [--runs last|first|all]");
   const seed = Number(opt("seed", 7));
   const specs = opt("space", "3,4").split(",");
-  const rows = readRows(fs.readFileSync(file, "utf8"));
+  // 사람마다 어느 찾기를 쓰나 (ADR-137) — 기본은 마지막 하나다. ADR-133 의 꺼낸 것(사람마다 결과 행 하나)과 같은 모양이라 114 와 견줄 수 있다
+  const mode = opt("runs", "last");
+  if (!["last", "first", "all"].includes(mode)) throw new Error("--runs 는 last · first · all 중 하나");
+  const read = readRows(fs.readFileSync(file, "utf8"));
+  const rows = pickRuns(read, mode);
   const pools = new Map();
   const poolOf = (v, g) => {
     const k = `${v}/${g}`;
@@ -331,12 +420,21 @@ if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1])))
     const rec = reconstruct(row, P);
     if (!rec.ok) bad("라운드를 다시 세우지 못했다(고른 얼굴이 그 화면에 없다)");
     if (!rec.same) bad("다시 센 결과가 저장된 결과와 다르다");
+    // 기록된 화면은 그 사람이 본 것이라 그대로 쓴다 — 다시 세운 화면과 다르면 기기의 잘못이거나 지어낸 요청이다 (ADR-137)
+    if (rec.stored && !rec.pagesSame) bad("기록된 화면이 다시 세운 화면과 다르다");
     good.push({ row, g, P, rec });
   }
   const byV = {};
   for (const x of good) byV[`v${x.row.v} ${x.row.pool}`] = (byV[`v${x.row.v} ${x.row.pool}`] ?? 0) + 1;
   console.log("  판 · 풀:", JSON.stringify(byV));
   console.log("  걸린 것:", Object.keys(why).length ? JSON.stringify(why) : "없음");
+  const whoOf = (r, i) => r.who ?? `s${i}`;
+  const readPeople = new Set(read.map(whoOf)).size;
+  const again = [...read.reduce((m, r, i) => m.set(whoOf(r, i), (m.get(whoOf(r, i)) ?? 0) + 1), new Map()).values()].filter((k) => k > 1).length;
+  console.log(`  읽은 찾기 ${read.length} · 사람 ${readPeople} · 다시 찾은 사람 ${again} · 기록 전 결과(prior) ${read.filter((r) => r.prior).length}` +
+    ` — 쓰는 것: ${mode === "all" ? "찾기 전부" : `사람마다 ${mode === "last" ? "마지막" : "처음"} 하나`} (--runs ${mode})`);
+  const stored = good.filter((x) => x.rec.stored).length;
+  console.log(`  사람 ${peopleIn(good)} · 찾기 ${good.length} · 본 화면이 기록된 찾기 ${stored} (나머지는 고른 얼굴로 다시 세웠다)`);
   const usable = good.filter((x) => x.rec.ok);
   const flips = [0, 1, 2].map((r) => usable.filter((x) => x.rec.rounds[r].flips > 0).length);
   const perRound = [0, 1, 2].map((r) => (usable.reduce((a, x) => a + x.row.picks[r].length, 0) / Math.max(1, usable.length)).toFixed(1));
@@ -344,7 +442,7 @@ if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1])))
   console.log(`  라운드마다 고른 수 평균 ${perRound.join(" · ")} · '다른 얼굴 보기' 를 쓴 라운드 ${flips.join(" · ")}`);
 
   // ── 2. 정답 확인
-  console.log("\n== 정답 확인 (그 판의 만족도)");
+  console.log("\n== 정답 확인 (그 판의 만족도)" + (mode === "all" ? " — 찾기마다 센다 (--runs all)" : ""));
   for (const v of [...new Set(good.map((x) => x.row.v))].sort()) {
     const xs = good.filter((x) => x.row.v === v);
     const vs = xs.map((x) => verdictOf(x.row));
@@ -364,7 +462,7 @@ if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1])))
     const spaces = specs.map((spec) => spaceOf(spec, g, poolOf));
     const keep = new Set([...spaces[0].vec.keys()].filter((id) => spaces.every((s) => s.vec.has(id))));
     for (const s of spaces) for (const scorer of ["center", "knn"]) {
-      const groups = xs.map((x) => nextPickAuc(x.row, x.rec, s.vec, { scorer, split: s.split, keep }).map((o) => o.auc));
+      const groups = byPerson(xs, (x) => nextPickAuc(x.row, x.rec, s.vec, { scorer, split: s.split, keep }).map((o) => o.auc));
       console.log(`  ${g} ${s.name.padEnd(12)} ${scorer.padEnd(6)} ${fmt(bootstrap(groups, { seed }))}`);
     }
   }
@@ -376,7 +474,7 @@ if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1])))
     if (!xs.length) continue;
     for (const spec of specs) {
       const s = spaceOf(spec, g, poolOf);
-      const groups = xs.map((x) => answerPercentile(x.row, x.rec, s.vec, [...s.vec.keys()], { split: s.split }));
+      const groups = byPerson(xs, (x) => answerPercentile(x.row, x.rec, s.vec, [...s.vec.keys()], { split: s.split }));
       const note = xs.every((x) => `v${x.row.v}` === s.name) ? " ← 그 판의 공간이라 1~3위가 당연하다" : "";
       console.log(`  ${g} ${s.name.padEnd(12)} ${fmt(bootstrap(groups, { seed }))}${note}`);
     }
@@ -402,8 +500,9 @@ if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1])))
         .sort((a, b) => b[1].picked / b[1].shown - a[1].picked / a[1].shown || b[1].shown - a[1].shown)
         .slice(0, 12);
       const starts = new Set(xs.map((x) => x.row.start ?? 0)).size;
+      const who = peopleIn(xs) === xs.length ? `${xs.length}명` : `${peopleIn(xs)}명 · 찾기 ${xs.length}`;
       console.log(
-        `  ${g} v${v} (${xs.length}명 · 묶음 ${starts}가지 · 얼굴 ${seen.size}): ` +
+        `  ${g} v${v} (${who} · 묶음 ${starts}가지 · 얼굴 ${seen.size}): ` +
           rate.map(([id, s]) => `${name.get(id)} ${s.picked}/${s.shown}`).join(" · "),
       );
     }
@@ -434,13 +533,17 @@ if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1])))
   console.log("\n== 인기로 맞히기 (AUC) — 다른 세션에서 그 얼굴이 골린 비율. 3 의 닮음보다 높으면 고르는 동기는 인기다");
   for (const g of ["f", "m"]) {
     const xs = usable.filter((x) => x.g === g);
-    if (xs.length < 2) continue;
+    // 다른 사람이 있어야 센다 — 한 사람의 찾기끼리는 서로를 빼므로 인기가 없다
+    if (peopleIn(xs) < 2) continue;
     const { r1, r23 } = popularityAuc(xs);
     console.log(`  ${g} 1라운드 ${fmt(bootstrap(r1, { seed }))} · 2 · 3라운드 ${fmt(bootstrap(r23, { seed }))}`);
   }
 
   // ── 8. 결과 쏠림 — 한 사람이 몇 세션의 결과에 서나. 같은 고른 얼굴로 공간마다 다시 낸 것과 함께 (후보는 모든 공간에 있는 사람)
-  console.log("\n== 결과 쏠림 — 결과 칸 수 · 다른 사람 수 · 가장 많이 선 사람");
+  console.log(
+    "\n== 결과 쏠림 — 결과 칸 수 · 다른 사람 수 · 가장 많이 선 사람" +
+      (mode === "all" ? " (찾기마다 센다 — 다시 찾은 사람이 여러 번 든다. 사람마다 하나로 보려면 --runs last)" : ""),
+  );
   const spread = (lists) => {
     const n = new Map();
     for (const ids of lists) for (const id of ids) n.set(id, (n.get(id) ?? 0) + 1);

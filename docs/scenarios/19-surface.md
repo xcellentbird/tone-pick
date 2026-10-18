@@ -37,6 +37,29 @@ export type IdealVerdict = { chosen: string[] } | { none: true };   // 1~3명, �
 
 /** 기기가 보내는 것. verdict 는 따로 온다 — 결과를 본 뒤에야 생기는 값이다 (S-C4) */
 export type IdealInput = Omit<Ideal, "verdict" | "at">;
+
+/** 그 찾기에서 본 화면 (ADR-137) — 결과를 낸 길에서 라운드마다 본 쪽을 본 차례대로(넘긴 쪽이 먼저), 쪽마다 화면 순서대로. 저장 요청의 `pages` */
+export type IdealPages = string[][][];
+
+/** 평가 기록 한 줄 (ADR-137, S-D5) — 결과가 된 찾기 한 번. 회차 DO 에만 있고 읽는 API 가 없다. 시각도 사람도 없다 */
+export interface IdealRun {
+  n: number;                     // 그 사람의 몇 번째로 기록된 찾기 (1부터, IDEAL_SHAPE.runs 까지)
+  v: number; pool: Gender; start?: number;
+  picks: string[][];             // 누른 차례대로
+  pages?: IdealPages;            // 없으면 기기가 보내지 않았거나 모양이 어긋난 것
+  result: string[];
+  verdict?: IdealVerdict;        // 답하면 그 찾기에 붙는다
+  prior?: true;                  // 이 기록이 생기기 전에 찾은 결과 — 화면이 없고, 그 앞에 몇 번 찾았는지 모른다
+}
+
+/** 결과 한 벌을 기록의 모양으로 — 시각 · 설명글 · 사람은 싣지 않는다 */
+export function idealRunOf(ideal: Ideal, n: number, pages?: IdealPages): IdealRun;
+
+/**
+ * 운영자가 Data Studio 에서 돌리는 쿼리 — 줄마다 한 사람 `{"runs":[…]}`, 순서는 섞인다.
+ * 기록이 생기기 전에 찾고 다시 찾지 않은 사람은 결과 행에서 지어 싣는다 (`n` 1 · `prior`, 시각 · 설명글 없이)
+ */
+export const IDEAL_RUNS_SQL: string;
 ```
 
 상태에 실리는 자리는 한 칸이다.
@@ -67,6 +90,8 @@ export const IDEAL_SHAPE = {
   splitCos: -0.3,
   /** 작은 무리가 이만큼은 돼야 두 갈래 — 한 장짜리는 잘못 누른 것일 수 있다 */
   splitMin: 2,
+  /** 평가 기록에 남기는 찾기 수 — 사람마다 (ADR-137). 먼저 찾은 것을 남긴다 */
+  runs: 20,
   id: /^[a-z0-9]{4,16}$/,        // copy-ok
 } as const;
 
@@ -78,6 +103,8 @@ export function readIdealInput(raw: unknown): IdealInput | null;
 export function readIdealVerdict(raw: unknown, result: readonly string[]): IdealVerdict | null;
 /** 다시 찾기가 가리킨 결과의 `at` (ADR-125). 없으면 undefined(처음 찾기), 모양이 틀리면 null(400) */
 export function readIdealReplaces(raw: unknown): number | undefined | null;
+/** 본 화면의 모양 (ADR-137). 없거나 어긋나면 undefined — 400 이 아니다. 결과는 저장하고 기록에서 화면만 뺀다 */
+export function readIdealPages(raw: unknown, picks: readonly (readonly string[])[]): IdealPages | undefined;
 ```
 
 > **고쳤다 (2026-09-28, ADR-123)** — v1 은 `faces: 6 · pickMax: 3` 이고 `rerolls`·`level1`·`level2`·`splitCos`·`splitMin` 이 없었으며
@@ -90,12 +117,16 @@ export function readIdealReplaces(raw: unknown): number | undefined | null;
 >
 > **또 고쳤다 (2026-10-10, ADR-136)** — **v6** 은 v5 에 **첫 화면 묶음**(`starts`)을 더한 판이다. 사람 · 사진 · 벡터 · 0번 묶음의 화면은 v5 그대로다.
 > 1라운드가 더는 모두에게 같지 않다 — 기기가 찾을 때마다 16벌 중 하나를 집고, 그 번호(`start`)를 결과와 함께 저장한다.
+>
+> **또 고쳤다 (2026-10-19, ADR-137)** — 저장 요청이 **본 화면**(`pages`)을 함께 싣는다. 결과 행(`Ideal`)과 응답은 그대로다 —
+> 화면은 회차 DO 의 평가 기록(`IdealRun`)에만 남는다. 판도 규칙도 바뀌지 않아 `v` 는 6 그대로다.
 
 **모양 검사는 요청 본문을 펼치지 않는다 — 고른 칸으로 새 객체를 짓는다.** 펼쳐 담으면 기기가 보낸
 모르는 키가 저장돼 `ParticipantState.ideal` 로 매번 되돌아 나간다 (S-D1). `verdict`·`at` 을 저장 요청에
 실어 미리 박는 길도 같은 구멍이다. `v` 는 1 이상 **9999 이하**의 정수다 — 지표 blob 으로 흘러간다.
 `start` 는 없거나 0 ~ `starts − 1` 의 정수다 — 없으면 없는 채로 저장한다(v5 까지 · 배포 전에 열어 둔 탭).
 `replaces`(다시 찾기, ADR-125)는 따로 읽고 **저장하지 않는다** — `IdealInput` 에 없는 칸이다.
+`pages`(본 화면, ADR-137)도 따로 읽는다 — 결과 행에 담지 않고 평가 기록에만 남긴다. 어긋나도 `400` 이 아니다.
 
 ---
 
@@ -277,6 +308,10 @@ POST /api/ideal/verdict    IdealVerdict → Ideal
   세션이 없으면 `401`, **지워진 참가자면 `404`** (`/fortune` 과 같은 길 — 화면은 404 를 `빠졌다` 로 읽는다).
   행 없는 `verdict` 도 `404` 라 상태 번호로는 갈리지 않는다 — 화면은 결과를 그린 뒤에만 답을 보내므로 받아들인다
 - **방송하지 않는다.** 내 행은 나만 본다 — 남의 화면이 다시 읽을 이유가 없다
+- **본 화면** (ADR-137) — 본문에 `pages: IdealPages` 를 더한다. 저장이 **결과가 되면**(처음 저장 · 받아들여진 다시 찾기) 평가 기록에
+  한 줄이 선다 — 늦게 닿은 기기의 저장은 적지 않는다. 모양이 어긋나거나 없으면 화면 없이 적는다 — **결과 저장은 막지 않는다**.
+  사람마다 `IDEAL_SHAPE.runs` 줄까지. 정답은 그 찾기의 줄에 붙는다. 참가자를 지우면 그 사람의 줄도 지운다 (S-D2).
+  다시 찾기인데 그 사람의 줄이 없으면(이 기록이 생기기 전의 결과) 지난 결과를 먼저 `prior` 로 적는다
 
 **지표 — `pulse()` 의 닫힌 키** (ADR-56 · ADR-122). 첫 저장·첫 확정에서만 센다. 다시 찾아 바꾼 것은 `again` 으로 따로 센다 (ADR-125) —
 `save` 가 처음 찾은 수로 남고, `chosen`·`none` 은 결과 한 벌마다다.
@@ -301,7 +336,7 @@ blob 은 `[kind, key, String(v)]` 뿐이다. **인덱스도 회차 id 도 연예
 |---|---|
 | `/e/:code/fun` | **재미 탭** (개명은 끝났다 — ADR-20 후기 2). 이 슬라이스는 label·이모지·경로를 건드리지 않고 **꺼진 탭 상태(`funOpen`)를 걷어낸다** — 탭은 등록부터 켜져 있다. **입구 카드 둘** — 이상형 찾기 위, 파티 운세 보기 아래 (ADR-124 · ADR-125). 프로필 투표 전에는 맨 위 한 줄이 언제 볼 수 있는지 말하고 카드에 단추가 없다 (S-A2) |
 | `/e/:code/ideal` | 시작(풀 고르기). **결과가 있으면 결과** — 같은 주소가 상태를 따라간다 |
-| `/e/:code/ideal/again` | **다시 찾기의 시작** (ADR-125) — 풀 고르기와 같은 화면에 `새로 찾으면 지금 결과 대신 새 결과가 남아요`. 결과가 없거나 문이 닫혀 있으면 `/ideal` 로 갈아끼운다 |
+| `/e/:code/ideal/again` | **다시 찾기의 시작** (ADR-125) — 풀 고르기와 같은 화면에 `새로 찾으면 내 결과가 새 결과로 바뀌어요` (ADR-137 에서 고쳤다). 결과가 없거나 문이 닫혀 있으면 `/ideal` 로 갈아끼운다 |
 | `/e/:code/ideal/1..3` | 라운드 |
 | `/e/:code/fortune` | **파티 운세 보기** (ADR-125) — 이상형 찾기와 같은 자리의 페이지. 문이 닫혀 있고 연 운세도 없으면 재미 탭으로 물러난다 |
 
@@ -345,6 +380,7 @@ push 되고 수는 그 칸에 적혀 있다 (ROUTES.md). 결과는 `POST /api/id
 - `DELETE`·`PUT /api/ideal` — 다시 찾기는 `POST /api/ideal` 의 `replaces` 로 한다 (ADR-125). 결과를 지우는 길은 없다.
   '없음'(S-C4)이 저절로 다시 찾기를 열지도 않는다
 - 운영자 라우트·`HostState` 필드 — 운영자 화면이 없다 (S-D1)
+- 평가 기록을 읽는 API — 운영자가 Data Studio 에서 `IDEAL_RUNS_SQL` 로 꺼낸다 (ADR-133 · ADR-137, S-D5)
 - 자산을 주는 API — 정적 파일이다. Worker 를 거치면 캐시만 잃는다
 - `picks` 를 서버가 재계산해 검증하는 것 — S-D3 의 "그래서 뭐"
 - 방송 · 읽음 표시 (단계 검사는 ADR-125 에서 들어왔다 — 저장만, `canOpenFun`)
