@@ -43,6 +43,7 @@ import {
   type FaceStart,
   type Ideal,
   type IdealInput,
+  type IdealPages,
   type IdealTraits,
   type IdealVerdict,
 } from "../../shared/ideal.ts";
@@ -213,23 +214,28 @@ function traitsOf(pool: Pool, picks: readonly string[][]): IdealTraits | null {
  * (앞의 선택이 뒤의 후보를 정한다). `다른 얼굴 보기` 도 값(`flips` — 라운드마다 넘긴 횟수)으로만 들고
  * 같은 규칙으로 다시 센다 — 같은 입력이면 같은 아홉이라, 뒤로 갔다 와도 넘긴 쪽이 그대로 선다.
  * 앞 라운드를 아직 안 골랐으면 거기서 멈춘다. 얼굴의 단계는 첫 화면 묶음(`start`)으로 붙인다 (ADR-136).
+ * `pages` 는 라운드마다 **본 쪽 전부**(넘긴 쪽이 먼저)를 화면 순서대로 — 결과와 함께 보내 평가 기록에 남는다 (ADR-137)
  */
 function roundsOf(pool: Pool, start: number, picks: readonly string[][], flips: readonly number[]) {
   const all = facesForStart(pool.faces, pool.starts, start);
   const shown = new Set<string>();
   const rounds: DecodedFace[][] = [];
+  const pages: IdealPages = [];
   for (let r = 1; r <= IDEAL_SHAPE.rounds; r++) {
     if (r > 1 && !picks[r - 2]?.length) break;
     // 중심은 지금까지 고른 얼굴 전부로 — 라운드 가중치가 없다. 1라운드는 중심을 보지 않는다
     const centers = r === 1 ? null : centersOf(pool, picks.slice(0, r - 1).flat());
     let faces: DecodedFace[] = [];
+    const seen: string[][] = [];
     for (let k = 0; k <= (flips[r - 1] ?? 0); k++) {
       faces = pickRound(all, r as 1 | 2 | 3, centers, shown);
       for (const f of faces) shown.add(f.id);
+      seen.push(faces.map((f) => f.id));
     }
     rounds.push(faces);
+    pages.push(seen);
   }
-  return { rounds, shown };
+  return { rounds, shown, pages };
 }
 
 /**
@@ -270,7 +276,10 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
    */
   const [redo, setRedo] = useState<{ from: number } | null>(null);
   const [picks, setPicks] = useState<string[][]>([]);
-  /** 라운드마다 `다른 얼굴 보기` 를 누른 횟수. 고르던 값과 같이 메모리에만 있다 — 저장하지 않는다 */
+  /**
+   * 라운드마다 `다른 얼굴 보기` 를 누른 횟수. 고르던 값과 같이 메모리에만 있다 — 횟수 자체는 저장하지 않는다.
+   * 넘긴 쪽은 결과를 저장할 때 본 화면(`pages`)으로 함께 가서 평가 기록에만 남는다 (ADR-137)
+   */
   const [flips, setFlips] = useState<number[]>([]);
   /**
    * 첫 화면 묶음 (ADR-136). 이 화면이 서면 집고, **다시 찾기를 누르면 새로 집는다** — 한 번 찾는 동안은 그대로다
@@ -298,8 +307,9 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
 
   const src = drafting ? { v: IDEAL_ASSET_V, pool } : { v: ideal!.v, pool: ideal!.pool };
   const { data, failed, retry } = usePool(src.v, src.pool);
-  const { rounds, shown } = useMemo(
-    () => (data && drafting ? roundsOf(data, start, picks, flips) : { rounds: [], shown: new Set<string>() }),
+  const { rounds, shown, pages } = useMemo(
+    () =>
+      data && drafting ? roundsOf(data, start, picks, flips) : { rounds: [], shown: new Set<string>(), pages: [] as IdealPages },
     [data, drafting, start, picks, flips],
   );
 
@@ -492,8 +502,9 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
     // 두 갈래 취향이면 두 중심을 번갈아 따른다 — 첫 사람은 큰 무리의 것이다
     const result = nearestCelebs(data.celebs, centersOf(data, picks.flat()), shown).map((c) => c.id);
     const input: IdealInput = { v: IDEAL_ASSET_V, pool, picks, result, start };
+    // 본 화면은 평가 기록에만 남는다 — 결과 행에는 없다 (ADR-137).
     // 다시 찾기면 지금 결과를 가리킨다 — 그 사이 다른 기기가 바꿨으면 서버가 먼저 온 것을 남긴다 (ADR-125 · S-E2)
-    const body = redoing && redo ? { ...input, replaces: redo.from } : input;
+    const body = { ...input, pages, ...(redoing && redo ? { replaces: redo.from } : {}) };
     setSaving(true);
     try {
       /*

@@ -47,8 +47,16 @@ import type {
 } from "../shared/types.ts";
 import type { Fortune } from "../shared/fortune.ts";
 import { readFortune } from "../shared/fortune.ts";
-import type { Ideal } from "../shared/ideal.ts";
-import { normalizeIdeal, readIdealInput, readIdealReplaces, readIdealVerdict } from "../shared/ideal.ts";
+import type { Ideal, IdealPages, IdealRun, IdealVerdict } from "../shared/ideal.ts";
+import {
+  IDEAL_SHAPE,
+  idealRunOf,
+  normalizeIdeal,
+  readIdealInput,
+  readIdealPages,
+  readIdealReplaces,
+  readIdealVerdict,
+} from "../shared/ideal.ts";
 import { isStageKey, rosterOpen, toMe, toPublic } from "../shared/types.ts";
 import { apartClashes, apartFrom, autoTable, autoTableCount, isApart, pairKey, sortPair } from "../shared/seats.ts";
 import { appendPokeLog, pokeLogLine, type PokeLogEntry } from "./poke-log.ts";
@@ -138,6 +146,14 @@ CREATE TABLE IF NOT EXISTS fortunes (
 CREATE TABLE IF NOT EXISTS ideals (
   player_id TEXT PRIMARY KEY,   -- 1인 1행. 다시 찾으면 이 행을 갈아끼운다 (S-C3, ADR-125)
   json      TEXT NOT NULL       -- Ideal. 연예인·얼굴은 불투명 id 뿐 — 이름도 벡터도 여기 없다 (S-D3)
+);
+-- 이상형 찾기의 평가 기록 (ADR-137). 결과가 된 찾기마다 한 줄 — 다시 찾아도 지난 줄은 남는다(참가자의 결과는 위 한 줄 그대로).
+-- 읽는 API 가 없다. 운영자가 Data Studio 에서 IDEAL_RUNS_SQL 로 꺼낸다 (ADR-133). 새 표라 여기 둔다 — 기본 키가 곧 인덱스다
+CREATE TABLE IF NOT EXISTS ideal_runs (
+  player_id TEXT NOT NULL,      -- 사람을 지우면 그 사람의 줄도 지운다 (S-D2). 꺼내는 쿼리에는 실리지 않는다
+  at        INTEGER NOT NULL,   -- 그 결과(ideals.json)의 at — 정답을 그 찾기에 붙이는 열쇠일 뿐이다. 꺼내는 쿼리에는 실리지 않는다
+  json      TEXT NOT NULL,      -- IdealRun. 본 화면 · 고른 얼굴 · 결과 · 정답. 시각도 사람도 없다
+  PRIMARY KEY (player_id, at)
 );
 CREATE TABLE IF NOT EXISTS announcements (
   id         TEXT PRIMARY KEY,
@@ -937,8 +953,10 @@ export class EventDO extends DurableObject {
     );
     // 운세 문장에는 닉네임이 들어 있다. 사람을 지웠는데 그 문장이 남으면 지운 게 아니다
     this.ctx.storage.sql.exec("DELETE FROM fortunes WHERE player_id = ?", playerId);
-    // 이상형 찾기 결과도 그 사람과 함께 간다 (슬라이스 19, S-D2) — 같은 번호로 다시 온 새 사람이 물려받지 않는다
+    // 이상형 찾기 결과도 그 사람과 함께 간다 (슬라이스 19, S-D2) — 같은 번호로 다시 온 새 사람이 물려받지 않는다.
+    // 평가 기록(ADR-137)도 그 사람의 것이다 — 꺼낼 때 이름이 없어도 지운 사람의 취향이 남으면 지운 게 아니다
     this.ctx.storage.sql.exec("DELETE FROM ideals WHERE player_id = ?", playerId);
+    this.ctx.storage.sql.exec("DELETE FROM ideal_runs WHERE player_id = ?", playerId);
     // 없는 사람을 가리키는 쌍은 아무것도 지키지 않는다 (ADR-90)
     this.ctx.storage.sql.exec("DELETE FROM apart WHERE a = ? OR b = ?", playerId, playerId);
     // 이미 발행한 자리에서도 빠진다
@@ -1612,6 +1630,8 @@ export class EventDO extends DurableObject {
        */
       const next: Ideal = { ...input, at: Math.max(now, saved.at + 1) };
       this.ctx.storage.sql.exec("UPDATE ideals SET json = ? WHERE player_id = ?", JSON.stringify(next), playerId);
+      // 지난 결과(`saved`)를 함께 넘긴다 — 기록이 생기기 전에 찾은 결과면 그것을 먼저 적는다 (ADR-137)
+      this.logIdealRun(playerId, next, readIdealPages(raw, next.picks), saved);
       return ok({ ideal: next, first: false, again: true });
     }
 
@@ -1624,6 +1644,8 @@ export class EventDO extends DurableObject {
     );
     // 첫 저장인지는 다음 쿼리 전에 읽어 둔다 — 지표가 이 한 번만 센다
     const first = cur.rowsWritten > 0;
+    // 결과가 된 찾기만 기록한다 — 늦게 닿은 기기의 찾기는 결과가 아니다 (S-E2)
+    if (first) this.logIdealRun(playerId, ideal, readIdealPages(raw, ideal.picks));
     // 방금 보낸 것이 아니라 **저장된 것**을 돌려준다 — 화면은 이 응답을 그대로 그린다
     const stored = this.rows<{ json: string }>("SELECT json FROM ideals WHERE player_id = ?", playerId)[0];
     return ok({ ideal: normalizeIdeal(JSON.parse(stored.json) as Ideal), first, again: false });
@@ -1654,7 +1676,65 @@ export class EventDO extends DurableObject {
     if (!verdict) return fail("bad_request");
     const next: Ideal = { ...saved, verdict };
     this.ctx.storage.sql.exec("UPDATE ideals SET json = ? WHERE player_id = ?", JSON.stringify(next), playerId);
+    this.attachIdealVerdict(playerId, saved.at, verdict);
     return ok({ ideal: next, first: true });
+  }
+
+  /**
+   * 평가 기록 한 줄 (ADR-137) — **결과가 된 찾기**마다. 다시 찾아도 지난 줄은 남는다 (참가자의 결과는 `ideals` 한 줄 그대로다).
+   * 사람마다 `IDEAL_SHAPE.runs` 줄까지 — 그 뒤는 적지 않는다. json 에는 시각도 사람도 넣지 않는다 — 두 칸은 표의 열쇠일 뿐이고
+   * 꺼내는 쿼리(`IDEAL_RUNS_SQL`)가 고르지 않는다. 화면(`pages`)이 없거나 어긋났으면 화면 없이 적는다.
+   *
+   * **다시 찾기인데 그 사람의 줄이 하나도 없으면** 지난 결과(`before`)는 이 표가 생기기 전에 찾은 것이다 — 그것을 먼저 적는다
+   * (`prior`, 화면 없이, 답했으면 정답과 함께). 안 적으면 그 결과는 사라지고, 결과를 본 뒤의 다시 찾기가 첫 찾기(`n` 1)로 읽힌다.
+   * 배포는 회차 한가운데 떨어질 수 있다 — 114회차가 그랬다 (ADR-133 ①).
+   *
+   * **던지지 않는다** — 기록이 실패해서 결과 저장이 깨지면 본말이 뒤바뀐다 (콕 로그와 같은 약속, ADR-84).
+   * 부르는 쪽과 같은 동기 구간이다 — 결과 행을 쓴 것과 사이에 await 가 없다
+   */
+  private logIdealRun(playerId: string, ideal: Ideal, pages: IdealPages | undefined, before?: Ideal): void {
+    try {
+      let logged = this.rows<{ n: number }>("SELECT COUNT(*) AS n FROM ideal_runs WHERE player_id = ?", playerId)[0]?.n ?? 0;
+      if (before && logged === 0) {
+        this.insertIdealRun(playerId, before.at, { ...idealRunOf(before, 1), prior: true });
+        logged = 1;
+      }
+      const n = logged + 1;
+      if (n > IDEAL_SHAPE.runs) return;
+      this.insertIdealRun(playerId, ideal.at, idealRunOf(ideal, n, pages));
+    } catch (e) {
+      console.error("ideal run log failed", e);
+    }
+  }
+
+  private insertIdealRun(playerId: string, at: number, run: IdealRun): void {
+    this.ctx.storage.sql.exec(
+      "INSERT INTO ideal_runs (player_id, at, json) VALUES (?,?,?) ON CONFLICT(player_id, at) DO NOTHING",
+      playerId,
+      at,
+      JSON.stringify(run),
+    );
+  }
+
+  /**
+   * 정답을 그 찾기의 기록에 붙인다 (ADR-137). 기록이 없으면(이 표가 생기기 전의 결과 · 상한을 넘긴 찾기) 그대로 둔다.
+   * 결과 행처럼 한 번만 — 이미 있으면 건드리지 않는다. 던지지 않는다 (위와 같다)
+   */
+  private attachIdealVerdict(playerId: string, at: number, verdict: IdealVerdict): void {
+    try {
+      const row = this.rows<{ json: string }>("SELECT json FROM ideal_runs WHERE player_id = ? AND at = ?", playerId, at)[0];
+      if (!row) return;
+      const run = JSON.parse(row.json) as IdealRun;
+      if (run.verdict) return;
+      this.ctx.storage.sql.exec(
+        "UPDATE ideal_runs SET json = ? WHERE player_id = ? AND at = ?",
+        JSON.stringify({ ...run, verdict }),
+        playerId,
+        at,
+      );
+    } catch (e) {
+      console.error("ideal run verdict failed", e);
+    }
   }
 
   /**
