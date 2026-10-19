@@ -1,4 +1,5 @@
-// 얼굴 모델의 벡터로 새 판을 낸다 (v4 부터, ADR-132) — SFace(얼굴 인식) + 얼굴 메시(MediaPipe) → space.py → FacePoolFile
+// 얼굴 모델의 벡터로 새 판을 낸다 (v4 부터, ADR-132) — SFace(얼굴 인식) + 얼굴 메시(MediaPipe) → space.py → FacePoolFile.
+// v7 부터 메시는 좌우 대칭 · 무게 0.15 다 (ADR-138) — space.py 가 판 번호로 가른다
 // node emit-face.mjs <from> <to> [outDir|-]        예: node emit-face.mjs 3 4        outDir 가 - 이거나 없으면 public/faces
 //
 // 사람은 두 곳에서 온다.
@@ -142,7 +143,8 @@ for (const g of ["f", "m"]) {
   const inPath = `${OUT}space-${g}-in.json`;
   const outPath = `${OUT}space-${g}-out.json`;
   fs.writeFileSync(inPath, JSON.stringify({ ids: people.map((p) => p.id), sface: emb.map((r) => r.v), pts: mesh.map((r) => r.pts) }));
-  const info = execFileSync(PY, [path.join(HERE, "space.py"), inPath, outPath], { encoding: "utf8" }).trim();
+  // 판 번호를 넘긴다 — v7 부터 메시를 좌우 대칭으로 · 무게 0.15 로 (space.py `SYM_FROM`, ADR-138). 앞 판은 그대로 다시 나온다
+  const info = execFileSync(PY, [path.join(HERE, "space.py"), inPath, outPath, String(TO)], { encoding: "utf8" }).trim();
   const space = JSON.parse(fs.readFileSync(outPath, "utf8"));
   if (space.ids.join() !== people.map((p) => p.id).join()) throw new Error("space.py 가 순서를 바꿨다");
 
