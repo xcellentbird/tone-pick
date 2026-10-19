@@ -96,6 +96,8 @@ const SYN_CELEBS = SYN.celebs.map((c) => ({ id: c.id, name: c.name, vec: decodeV
 const vecOf = (id: string) => SYN_FACES.find((f) => f.id === id)!.vec;
 const LEVEL1 = SYN.faces.filter((f) => f.level === 1).map((f) => f.id);
 const ids = (fs: readonly { id: string }[]) => fs.map((f) => f.id);
+/** 어느 얼굴들인가만 견줄 때 — 화면의 칸은 찾기마다 섞인다 (아래 `화면의 칸`) */
+const sorted = (xs: readonly string[]) => [...xs].sort();
 /**
  * 첫 화면 묶음 (ADR-136) — 자산이 실어 두는 1 · 2단계의 다른 벌들. 묶음 k 는 사람 목록을 5k 칸 돌려 앞의 18 을 1단계,
  * 다음 36 을 2단계로 든다 — 자리 수가 자산과 같고 서로 겹치지 않는다
@@ -235,6 +237,8 @@ async function playRounds(
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // `Math.random` 을 정해 둔 테스트가 있다 — 다음 테스트로 넘기지 않는다
+  vi.restoreAllMocks();
 });
 
 // ─────────────────────────────────────────── A. 자리와 때
@@ -382,8 +386,8 @@ describe("이상형 찾기 · 고르기", () => {
 
     expect(tiles()).toHaveLength(9);
     expect(screen.queryByRole("button", { name: IDEAL.face(10) })).toBeNull();
-    // 1라운드는 1단계의 첫 쪽 — 묶음이 없는 풀이라 자산 순서 그대로 (묶음은 아래 `첫 화면 묶음`)
-    expect(shownIds()).toEqual(LEVEL1.slice(0, 9));
+    // 1라운드는 1단계의 첫 쪽 아홉 — 묶음이 없는 풀이라 자산의 앞 아홉이다 (묶음은 아래 `첫 화면 묶음`). 칸은 섞인다 (`화면의 칸`)
+    expect(sorted(shownIds())).toEqual(sorted(LEVEL1.slice(0, 9)));
     expect(screen.getByText(IDEAL.roundCount(1))).toBeTruthy();
     expect(nextBtn().disabled).toBe(true);
 
@@ -500,6 +504,8 @@ describe("이상형 찾기 · 고르기", () => {
   });
 
   it("★ 앞 라운드를 고쳐 고르면 뒤 라운드는 다시 센다 — 뒤에서 고른 것은 버린다 (S-B4)", async () => {
+    // 아래에서 처음부터 다시 찾는 사람과 견준다 — 씨앗이 같아야 1라운드의 같은 칸이 같은 얼굴이고, 같은 아홉이 같은 칸에 선다
+    vi.spyOn(Math, "random").mockReturnValue(0.42);
     stub(stateIn("prevote"));
     let router = mount(`${BASE}/fun`);
     await startRun(router);
@@ -550,14 +556,15 @@ describe("이상형 찾기 · 고르기", () => {
     for (const id of mine) fireEvent.click(tileOf(id));
     const centers = tasteCenters(mine.map(vecOf));
     expect(centers).toHaveLength(2);
-    const expected = ids(pickRound(SYN_FACES, 2, centers, new Set(r1)));
+    // 어느 아홉인가를 견준다 — 칸은 섞인다 (`화면의 칸`)
+    const expected = sorted(ids(pickRound(SYN_FACES, 2, centers, new Set(r1))));
     // 평균 하나로 셌다면 다른 아홉이다 — 아니면 이 검사는 헛돈다
-    expect(expected).not.toEqual(ids(pickRound(SYN_FACES, 2, [{ vec: meanOf(mine.map(vecOf)), weight: 4 }], new Set(r1))));
+    expect(expected).not.toEqual(sorted(ids(pickRound(SYN_FACES, 2, [{ vec: meanOf(mine.map(vecOf)), weight: 4 }], new Set(r1)))));
 
     fireEvent.click(nextBtn());
     await screen.findByText(IDEAL.roundCount(2));
     await screen.findByRole("button", { name: IDEAL.face(1) });
-    expect(shownIds()).toEqual(expected);
+    expect(sorted(shownIds())).toEqual(expected);
   });
 
   describe("다른 얼굴 보기", () => {
@@ -591,8 +598,8 @@ describe("이상형 찾기 · 고르기", () => {
       const second = shownIds();
       expect(second).toHaveLength(9);
       for (const id of second) expect(first).not.toContain(id);
-      // 1라운드의 둘째 쪽 — 1단계의 다음 아홉
-      expect(second).toEqual(LEVEL1.slice(9, 18));
+      // 1라운드의 둘째 쪽 — 1단계의 다음 아홉 (칸은 섞인다)
+      expect(sorted(second)).toEqual(sorted(LEVEL1.slice(9, 18)));
       // 칸을 쌓지 않는다 — 같은 주소, 같은 칸
       expect(path(router)).toBe(`${BASE}/ideal/1`);
       expect(router.state.location.key).toBe(key);
@@ -658,8 +665,8 @@ describe("이상형 찾기 · 고르기", () => {
       await screen.findByText(IDEAL.roundCount(2));
       await screen.findByRole("button", { name: IDEAL.face(1) });
 
-      // 새 선택의 첫 쪽이고, 넘기기도 다시 쓸 수 있다
-      expect(shownIds()).toEqual(ids(pickRound(SYN_FACES, 2, tasteCenters([vecOf(r1[4])]), new Set(r1))));
+      // 새 선택의 첫 쪽이고(칸은 섞인다), 넘기기도 다시 쓸 수 있다
+      expect(sorted(shownIds())).toEqual(sorted(ids(pickRound(SYN_FACES, 2, tasteCenters([vecOf(r1[4])]), new Set(r1)))));
       expect(rerollBtn()).toBeTruthy();
       expect(pressed()).toHaveLength(0);
     });
@@ -1032,7 +1039,7 @@ describe("이상형 찾기 · 결과", () => {
 describe("이상형 찾기 · 다시 찾기 (ADR-125)", () => {
   /**
    * **다시 뽑기가 아니라 다시 고르기다.** 결과에는 난수가 없어서 같은 화면에서 같은 얼굴을 고르면 같은 결과다
-   * (찾을 때마다 새로 집는 것은 첫 화면 묶음뿐이다 — 아래 `첫 화면 묶음`, ADR-136).
+   * (찾을 때마다 새로 집는 것은 첫 화면 묶음과 자리 씨앗뿐이다 — 아래 `첫 화면 묶음`(ADR-136) · `화면의 칸`).
    * 지난 결과는 **새 결과가 저장될 때만** 바뀐다 — 다시 찾다가 나가면 그대로다. 확인창은 없다: 시작 화면과
    * 마지막 `결과 보기` 위에서 미리 말한다 (S-C3 이 처음부터 그렇게 해 왔다).
    */
@@ -1588,7 +1595,7 @@ describe("첫 화면 묶음 (ADR-136)", () => {
     const router = mount(`${BASE}/fun`);
     await startRun(router);
     await screen.findByRole("button", { name: IDEAL.face(1) });
-    expect(shownIds()).toEqual(SYN_STARTS[start - 1].l1.slice(0, IDEAL_SHAPE.faces));
+    expect(sorted(shownIds())).toEqual(sorted(SYN_STARTS[start - 1].l1.slice(0, IDEAL_SHAPE.faces)));
 
     const { shown, picked } = await playRounds(router);
     fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
@@ -1596,8 +1603,8 @@ describe("첫 화면 묶음 (ADR-136)", () => {
 
     const sent = s.asked.find((a) => a.url === "/api/ideal")!.body as Ideal;
     expect(sent.start).toBe(start);
-    // 라운드도 결과도 그 묶음으로 센 그대로다
-    expect(shown).toEqual(shownPages(facesAt(start), VECS, picked));
+    // 라운드도 결과도 그 묶음으로 센 그대로다 — 쪽마다 같은 얼굴들 (칸은 섞인다)
+    expect(shown.map(sorted)).toEqual(shownPages(facesAt(start), VECS, picked).map(sorted));
     expect(sent.result).toEqual(ids(nearestCelebs(SYN_CELEBS, tasteCenters(picked.flat().map(vecOf)), new Set(shown.flat()))));
   });
 
@@ -1607,7 +1614,7 @@ describe("첫 화면 묶음 (ADR-136)", () => {
     const router = mount(`${BASE}/fun`);
     await startRun(router);
     await screen.findByRole("button", { name: IDEAL.face(1) });
-    expect(shownIds()).toEqual(LEVEL1.slice(0, IDEAL_SHAPE.faces));
+    expect(sorted(shownIds())).toEqual(sorted(LEVEL1.slice(0, IDEAL_SHAPE.faces)));
 
     await playRounds(router);
     fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
@@ -1680,7 +1687,7 @@ describe("첫 화면 묶음 (ADR-136)", () => {
     fireEvent.click(await screen.findByRole("button", { name: IDEAL.pool.F }));
     await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/1`));
     await screen.findByRole("button", { name: IDEAL.face(1) });
-    expect(shownIds()).toEqual(SYN_STARTS[start - 1].l1.slice(0, IDEAL_SHAPE.faces));
+    expect(sorted(shownIds())).toEqual(sorted(SYN_STARTS[start - 1].l1.slice(0, IDEAL_SHAPE.faces)));
 
     await playRounds(router);
     fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
@@ -1715,5 +1722,202 @@ describe("첫 화면 묶음 (ADR-136)", () => {
     expect(pages[0]).toEqual(SYN_STARTS[start - 1].l1.slice(0, IDEAL_SHAPE.faces));
     // 자산 그대로 다시 세운 화면과는 다르다 — 이 테스트가 번호를 재는 자리다
     expect(shownPages(SYN_FACES, VECS, picks).slice(1)).not.toEqual([pages[1], pages[2]]);
+  });
+});
+
+describe("화면의 칸 — 아홉은 찾기마다 섞여 선다 (ADR-139)", () => {
+  /**
+   * 고르는 함수는 가까운 순(1라운드는 무리 순)으로 아홉을 낸다. 그 순서로 왼쪽 위부터 세우면 **칸이 곧 닮음 순위**라,
+   * 윗줄을 더 누르는 버릇이 평가 기록(ADR-137)에서 닮음과 겹쳐 보인다. 그래서 기기가 **찾기마다 씨앗 하나**를 집어
+   * 쪽마다 칸을 섞는다. 어느 아홉인가는 그대로다. 한 번 찾는 동안은 같은 얼굴이 같은 칸이고, 다시 찾으면 새로 섞는다.
+   * 결과와 함께 보내는 본 화면은 섞인 그 칸 순서다.
+   *
+   * `Math.random` 을 정해 두고 잰다 — 씨앗이 정해지면 화면도 정해져서 판정이 늘 같다. 기대값은 고르는 함수로 센다.
+   */
+  const draw = (x: number) => vi.spyOn(Math, "random").mockReturnValue(x);
+  /**
+   * 부를 때마다 다른 값 — 황금비 걸음이라 되풀이되지 않는다. **씨앗을 다시 집는 실수**를 재는 자리에 쓴다 —
+   * `draw` 처럼 늘 같은 값이면 그릴 때마다 다시 집어도 같은 씨앗이 나와 칸이 그대로라서, 그 실수가 검사를 그냥 지나간다
+   */
+  const drawEach = (from: number) => {
+    let i = 0;
+    return vi.spyOn(Math, "random").mockImplementation(() => (from + i++ * 0.6180339887498949) % 1);
+  };
+
+  /** 고르는 함수가 그 라운드에 낼 쪽들(섞기 전) — 넘길 때마다 한 쪽 더. 본 얼굴은 `shown` 에 쌓는다 (화면이 세우는 그대로) */
+  function pagesAt(round: 1 | 2 | 3, picked: readonly string[], shown: Set<string>, count: number): string[][] {
+    const centers = round === 1 ? null : tasteCenters(picked.map(vecOf));
+    return Array.from({ length: count }, () => {
+      const page = ids(pickRound(SYN_FACES, round, centers, shown));
+      for (const id of page) shown.add(id);
+      return page;
+    });
+  }
+  /*
+   * 정해 둔 길 — 1라운드는 넘기지 않고 P1 을, 2 · 3라운드는 한 번 넘기고 넘긴 뒤의 쪽에서 고른다(3라운드는 아무거나).
+   * 얼굴로 누르니 고르는 함수가 낼 쪽은 씨앗과 상관없이 이것들이다 — 쪽 안의 자리가 곧 가까운 순위다
+   */
+  const seen = new Set<string>();
+  const [R1] = pagesAt(1, [], seen, 1);
+  const P1 = "a080";
+  const [R2A, R2B] = pagesAt(2, [P1], seen, 2);
+  const P2 = R2B[0];
+  const [R3A, R3B] = pagesAt(3, [P1, P2], seen, 2);
+
+  /** 그 라운드가 그려질 때까지 */
+  async function roundOn(router: ReturnType<typeof mount>, r: number) {
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/${r}`));
+    await screen.findByText(IDEAL.roundCount(r));
+    await screen.findByRole("button", { name: IDEAL.face(1) });
+  }
+
+  /** 정해 둔 길을 화면에서 밟는다 — 쪽마다 그려진 순서를 돌려준다. 3라운드는 넘긴 뒤의 쪽에 선 채로 끝난다 */
+  async function walk(router: ReturnType<typeof mount>) {
+    await roundOn(router, 1);
+    const r1 = shownIds();
+    fireEvent.click(tileOf(P1));
+    fireEvent.click(nextBtn());
+    await roundOn(router, 2);
+    const r2 = [shownIds()];
+    fireEvent.click(rerollBtn()!);
+    r2.push(shownIds());
+    fireEvent.click(tileOf(P2));
+    fireEvent.click(nextBtn());
+    await roundOn(router, 3);
+    const r3 = [shownIds()];
+    fireEvent.click(rerollBtn()!);
+    r3.push(shownIds());
+    return { r1, r2, r3 };
+  }
+
+  it("★ 쪽마다 고르는 함수가 낸 그 아홉이 서지만 그 순서로 서지 않는다 — 세 라운드, 넘긴 쪽까지", async () => {
+    draw(0.3);
+    stub(stateIn("prevote"));
+    const router = mount(`${BASE}/fun`);
+    await startRun(router);
+    const { r1, r2, r3 } = await walk(router);
+
+    const pairs = [
+      [r1, R1],
+      [r2[0], R2A],
+      [r2[1], R2B],
+      [r3[0], R3A],
+      [r3[1], R3B],
+    ] as const;
+    for (const [on, want] of pairs) {
+      expect(sorted(on)).toEqual(sorted(want));
+      expect(on).not.toEqual(want);
+    }
+  });
+
+  it("★ 한 번 찾는 동안은 같은 얼굴이 같은 칸이다 — 고르며 다시 그려도, 앞 라운드에 갔다 와도, 넘긴 뒤에도", async () => {
+    // 부를 때마다 다른 값이다 — 다시 그릴 때 씨앗을 새로 집으면 칸이 옮겨 가서 여기서 걸린다
+    drawEach(0.3);
+    stub(stateIn("prevote"));
+    const router = mount(`${BASE}/fun`);
+    await startRun(router);
+    await roundOn(router, 1);
+    const r1 = shownIds();
+    // 섞여 있어야 이 검사가 헛돌지 않는다 — 고르는 함수의 순서 그대로라면 같은 칸은 당연하다
+    expect(r1).not.toEqual(R1);
+    fireEvent.click(tileOf(P1));
+    expect(shownIds()).toEqual(r1);
+    fireEvent.click(nextBtn());
+    await roundOn(router, 2);
+    const r2 = shownIds();
+    expect(r2).not.toEqual(R2A);
+
+    await router.navigate(-1);
+    await screen.findByText(IDEAL.roundCount(1));
+    expect(shownIds()).toEqual(r1);
+    expect(pressed().map(idOf)).toEqual([P1]);
+    await router.navigate(1);
+    await screen.findByText(IDEAL.roundCount(2));
+    expect(shownIds()).toEqual(r2);
+
+    // 넘긴 쪽도 — 넘긴 채로 앞 라운드에 갔다 오면 그 쪽이 그 칸 그대로 선다
+    fireEvent.click(rerollBtn()!);
+    const r2b = shownIds();
+    expect(r2b).not.toEqual(R2B);
+    await router.navigate(-1);
+    await screen.findByText(IDEAL.roundCount(1));
+    expect(shownIds()).toEqual(r1);
+    await router.navigate(1);
+    await screen.findByText(IDEAL.roundCount(2));
+    expect(shownIds()).toEqual(r2b);
+  });
+
+  it("★ 다시 찾으면 새로 섞는다 — 같은 아홉이어도 다른 칸에 선다", async () => {
+    const rnd = draw(0.3);
+    stub(stateIn("prevote"));
+    const router = mount(`${BASE}/fun`);
+    await startRun(router);
+    await roundOn(router, 1);
+    const before = shownIds();
+    await playRounds(router);
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
+    await screen.findByText(IDEAL.resultTitle);
+
+    // 다시 집으면 다른 씨앗이 나온다 — 다시 찾기가 새로 집어야 다른 칸이다
+    rnd.mockReturnValue(0.7);
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.again }));
+    await waitFor(() => expect(path(router)).toBe(`${BASE}/ideal/again`));
+    fireEvent.click(await screen.findByRole("button", { name: IDEAL.pool.F }));
+    await roundOn(router, 1);
+    const after = shownIds();
+    // 묶음이 없는 풀이라 1라운드는 언제나 같은 아홉이다 — 달라진 것은 칸뿐이다
+    expect(sorted(after)).toEqual(sorted(before));
+    expect(after).not.toEqual(before);
+  });
+
+  it("★ 결과와 함께 보내는 본 화면은 섞인 그 칸 순서다 — 고르는 함수의 순서가 아니다 (ADR-137)", async () => {
+    draw(0.3);
+    const s = stub(stateIn("prevote"));
+    const router = mount(`${BASE}/fun`);
+    await startRun(router);
+    const { r1, r2, r3 } = await walk(router);
+    fireEvent.click(tiles()[0]);
+    fireEvent.click(screen.getByRole("button", { name: IDEAL.finish }));
+    await screen.findByText(IDEAL.resultTitle);
+
+    const sent = s.asked.find((a) => a.url === "/api/ideal")!.body as Ideal & { pages: IdealPages };
+    // 그려진 그대로 — 라운드마다 넘긴 쪽이 먼저, 쪽마다 칸 순서
+    expect(sent.pages).toEqual([[r1], r2, r3]);
+    // 고르는 함수가 낸 쪽과 같은 얼굴이되 다른 순서다 — 기록의 자리가 닮음 순위를 말하지 않는다
+    const want = [[R1], [R2A, R2B], [R3A, R3B]];
+    expect(sent.pages.map((round) => round.map(sorted))).toEqual(want.map((round) => round.map(sorted)));
+    want.forEach((round, r) => round.forEach((page, k) => expect(sent.pages[r][k]).not.toEqual(page)));
+    // 서버의 모양 검사는 순서를 보지 않는다 — 섞인 화면도 그대로 받는다
+    expect(readIdealPages(sent, sent.picks)).toEqual(sent.pages);
+    // 결과 셋은 섞지 않는다 — 1위가 1위다
+    expect(sent.result).toEqual(ids(nearestCelebs(SYN_CELEBS, tasteCenters(sent.picks.flat().map(vecOf)), new Set(sent.pages.flat(2)))));
+  });
+
+  it("★ 씨앗을 여럿 돌리면 가까운 순위마다 아홉 칸에 다 선다 — 칸이 닮음 순위를 말하지 않는다", async () => {
+    stub(stateIn("prevote"));
+    const rnd = vi.spyOn(Math, "random");
+    // 가까운 순위 → 그 순위의 얼굴이 선 칸들. 2 · 3라운드의 네 쪽(넘긴 쪽까지)을 센다 — 가까운 순으로 고른 쪽이다
+    const slots = Array.from({ length: IDEAL_SHAPE.faces }, () => new Set<number>());
+    // 스물네 번 × 네 쪽 — 순위마다 96번 선다. 칸이 고르게 섞이면 아홉 칸 중 하나라도 비는 일은 천에 하나 꼴이다
+    for (let i = 0; i < 24; i++) {
+      // 황금비 걸음 — 정해 둔 값들이 0~1 에 고르게 흩어진다. 난수를 쓰지 않으니 판정이 늘 같다
+      rnd.mockReturnValue((i * 0.6180339887498949) % 1);
+      const router = mount(`${BASE}/fun`);
+      await startRun(router);
+      const { r2, r3 } = await walk(router);
+      const pairs = [
+        [r2[0], R2A],
+        [r2[1], R2B],
+        [r3[0], R3A],
+        [r3[1], R3B],
+      ] as const;
+      for (const [on, want] of pairs) {
+        expect(sorted(on)).toEqual(sorted(want));
+        on.forEach((id, slot) => slots[want.indexOf(id)].add(slot));
+      }
+      cleanup();
+    }
+    const every = Array.from({ length: IDEAL_SHAPE.faces }, (_, k) => k);
+    slots.forEach((s, rank) => expect([...s].sort((a, b) => a - b), `가까운 순위 ${rank + 1}`).toEqual(every));
   });
 });
