@@ -90,7 +90,7 @@ for (const g of ["f", "m"]) {
   // 판마다 1단계 모양이 다르다 — 나간 판은 제 모양을 박아 둔다(PUBLISHED). 새 판은 지금 앱의 모양(cluster.mjs 의 기본값)
   const { lv, l1, l2, sizes1 } = levels(people, PUBLISHED[V] ?? {});
   const { scale, enc } = quantize(vecs);
-  // 1단계는 levels() 가 정한 순서(큰 군집부터)로 앞에 둔다 — 자산 순서가 곧 1라운드 순서다
+  // 1단계는 levels() 가 정한 순서(큰 군집부터)로 앞에 둔다 — 자산 순서가 곧 1라운드 순서다(쪽 구성 — 화면의 칸은 기기가 섞는다, ADR-139)
   const order = [...l1, ...l2, ...people.map((_, i) => i).filter((i) => lv[i] === 3)];
   const file = {
     version: V,

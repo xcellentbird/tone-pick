@@ -7,8 +7,9 @@
  *                 `다른 얼굴 보기` 는 칸을 쌓지 않는다 — 같은 라운드의 다른 쪽일 뿐이다 (v2)
  *
  * **다시 찾기는 다시 뽑기가 아니라 다시 고르기다** (ADR-125) — 결과에는 난수가 없어서 같은 화면에서 같은 얼굴을 고르면 같은 결과다.
- * 난수는 하나, **찾기를 시작할 때 집는 첫 화면 묶음**(`start`, ADR-136)뿐이다 — 1라운드에 어느 대표들이 서는지만 정하고,
- * 결과와 함께 저장된다. 다시 찾으면 새로 집는다.
+ * 난수는 둘이고, 둘 다 **찾기를 시작할 때 한 번** 집는다 (`drawSearch`). 첫 화면 묶음(`start`, ADR-136)은 1라운드에 어느
+ * 대표들이 서는지 정하고 결과와 함께 저장된다. 자리 씨앗(`seed`)은 쪽마다 아홉이 어느 칸에 서는지만 정하고 저장하지 않는다 —
+ * 본 화면(`pages`)이 그 칸 순서로 남는다. 다시 찾으면 둘 다 새로 집는다.
  * 지난 결과는 **새 결과가 저장될 때만** 바뀐다. 다시 찾다가 나가면 그대로다 — 무엇을 대신하는지는 이 화면의 메모리
  * (`redo.from` — 지난 결과의 `at`)에만 있고, 저장할 때 서버에 그 값을 가리켜 보낸다.
  *
@@ -213,11 +214,13 @@ function traitsOf(pool: Pool, picks: readonly string[][]): IdealTraits | null {
  * **고르던 값에서 매번 다시 센다** — 앞 라운드를 고쳐 고르면 뒤 라운드의 후보도 달라져야 한다
  * (앞의 선택이 뒤의 후보를 정한다). `다른 얼굴 보기` 도 값(`flips` — 라운드마다 넘긴 횟수)으로만 들고
  * 같은 규칙으로 다시 센다 — 같은 입력이면 같은 아홉이라, 뒤로 갔다 와도 넘긴 쪽이 그대로 선다.
- * 앞 라운드를 아직 안 골랐으면 거기서 멈춘다. 얼굴의 단계는 첫 화면 묶음(`start`)으로 붙인다 (ADR-136).
- * `pages` 는 라운드마다 **본 쪽 전부**(넘긴 쪽이 먼저)를 화면 순서대로 — 결과와 함께 보내 평가 기록에 남는다 (ADR-137)
+ * 앞 라운드를 아직 안 골랐으면 거기서 멈춘다. 얼굴의 단계는 첫 화면 묶음(`draw.start`)으로 붙인다 (ADR-136).
+ * **아홉이 서는 칸은 자리 씨앗(`draw.seed`)이 정한다** (`inSlots`) — 고르는 함수가 낸 순서(가까운 순 · 무리 순)가 아니다.
+ * 같은 씨앗에 같은 아홉이면 같은 칸이라, 다시 세어도 · 앞 라운드에 갔다 와도 · 넘긴 뒤에도 그 얼굴은 그 칸에 선다.
+ * `pages` 는 라운드마다 **본 쪽 전부**(넘긴 쪽이 먼저)를 화면 순서(섞인 칸)대로 — 결과와 함께 보내 평가 기록에 남는다 (ADR-137)
  */
-function roundsOf(pool: Pool, start: number, picks: readonly string[][], flips: readonly number[]) {
-  const all = facesForStart(pool.faces, pool.starts, start);
+function roundsOf(pool: Pool, draw: Draw, picks: readonly string[][], flips: readonly number[]) {
+  const all = facesForStart(pool.faces, pool.starts, draw.start);
   const shown = new Set<string>();
   const rounds: DecodedFace[][] = [];
   const pages: IdealPages = [];
@@ -228,7 +231,7 @@ function roundsOf(pool: Pool, start: number, picks: readonly string[][], flips: 
     let faces: DecodedFace[] = [];
     const seen: string[][] = [];
     for (let k = 0; k <= (flips[r - 1] ?? 0); k++) {
-      faces = pickRound(all, r as 1 | 2 | 3, centers, shown);
+      faces = inSlots(pickRound(all, r as 1 | 2 | 3, centers, shown), draw.seed);
       for (const f of faces) shown.add(f.id);
       seen.push(faces.map((f) => f.id));
     }
@@ -238,11 +241,57 @@ function roundsOf(pool: Pool, start: number, picks: readonly string[][], flips: 
   return { rounds, shown, pages };
 }
 
+/** 찾기 한 번이 집는 난수 둘 — 이 기능의 난수는 이것뿐이다 */
+interface Draw {
+  /** 첫 화면 묶음 번호 (ADR-136) — 1라운드에 어느 대표들이 서는지. 결과와 함께 저장한다 */
+  start: number;
+  /** 자리 씨앗 (32비트) — 쪽마다 아홉이 어느 칸에 서는지. 저장하지 않는다 — 본 화면(`pages`)이 그 칸 순서로 남는다 */
+  seed: number;
+}
+
 /**
- * 첫 화면 묶음을 집는다 (ADR-136) — **찾기를 시작할 때 한 번.** 이 기능의 하나뿐인 난수다. 풀을 고르기 전에 집는다 —
- * 시작 화면이 두 풀의 1라운드 첫 쪽을 미리 받으려면 번호가 먼저 있어야 한다 (두 풀의 묶음 수는 같다 — check:faces)
+ * 찾기 한 번의 난수를 집는다 — **찾기를 시작할 때 한 번에 둘 다.** 부르는 곳은 둘뿐이다 — 이 화면이 설 때(`useState` 의
+ * 초기값)와 다시 찾기를 누를 때. 다시 그릴 때 부르지 마라 — 그릴 때마다 집으면 얼굴이 칸을 옮겨 다닌다. 풀을 고르기 전에
+ * 집는다 — 시작 화면이 두 풀의 1라운드 첫 쪽을 미리 받으려면 묶음 번호가 먼저 있어야 한다 (두 풀의 묶음 수는 같다 — check:faces)
  */
-const drawStart = () => Math.floor(Math.random() * IDEAL_SHAPE.starts);
+const drawSearch = (): Draw => ({
+  start: Math.floor(Math.random() * IDEAL_SHAPE.starts),
+  seed: Math.floor(Math.random() * 2 ** 32),
+});
+
+/**
+ * 얼굴 하나의 자리 열쇠 — (씨앗, id) 를 32비트로 섞는다. murmur3 의 섞기를 한 글자씩 돌리고 끝손질(fmix32)로 마친다.
+ * 씨앗 한 비트나 id 한 글자만 달라도 열쇠가 통째로 바뀐다 — 씨앗이 고르게 퍼져 있으면 얼굴마다의 열쇠도 서로 상관없이
+ * 고르게 퍼진다 (씨앗 20만 개로 재면 순위마다 아홉 칸에 고르게 선다)
+ */
+function slotKey(seed: number, id: string): number {
+  let h = seed | 0;
+  for (let i = 0; i < id.length; i++) {
+    let k = Math.imul(id.charCodeAt(i), 0xcc9e2d51);
+    k = Math.imul((k << 15) | (k >>> 17), 0x1b873593);
+    h ^= k;
+    h = (Math.imul((h << 13) | (h >>> 19), 5) + 0xe6546b64) | 0;
+  }
+  h ^= id.length;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/**
+ * 한 쪽을 화면 칸 순서로 세운다 — 열쇠(`slotKey`)가 작은 얼굴이 왼쪽 위다. 열쇠가 같으면(거의 없다) id 순이다.
+ * **칸이 닮음 순위를 말하지 않게 섞는다** (ADR-139) — 가까운 순으로 왼쪽 위부터 세우면 윗줄을 더 누르는 버릇이
+ * 평가 기록에서 닮음과 겹쳐 보인다. 섞는 법은 **해시 열쇠로 줄 세우기**다 — 들어온 순서를 보지 않아서, 칸은 씨앗과 그 얼굴만으로
+ * 정해진다. 그래서 다시 세어 같은 아홉이 나오면 같은 칸이고, 순위가 몇이든 아홉 칸에 고르게 선다. 씨앗 있는 Fisher–Yates 는
+ * 들어온 순서(가까운 순)를 받아 자리를 바꾸므로, 한 씨앗을 모든 쪽에 쓰면 쪽마다 같은 자리바꿈이 돼서 한 찾기 안에서는 n 위가
+ * 늘 같은 칸에 선다 — 쪽마다 씨앗을 갈라 지어야 한다. 열쇠는 얼굴마다 달라서 그럴 일이 없다
+ */
+function inSlots<T extends { id: string }>(page: readonly T[], seed: number): T[] {
+  return page
+    .map((f) => ({ f, k: slotKey(seed, f.id) }))
+    .sort((a, b) => a.k - b.k || (a.f.id < b.f.id ? -1 : a.f.id > b.f.id ? 1 : 0))
+    .map(({ f }) => f);
+}
 
 // ─────────────────────────────────────────── 화면
 
@@ -282,10 +331,12 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
    */
   const [flips, setFlips] = useState<number[]>([]);
   /**
-   * 첫 화면 묶음 (ADR-136). 이 화면이 서면 집고, **다시 찾기를 누르면 새로 집는다** — 한 번 찾는 동안은 그대로다
-   * (뒤로 갔다 같은 쪽을 다시 골라도 고르던 얼굴이 그 화면 그대로 선다). 결과와 함께 저장한다
+   * 찾기 한 번의 난수 — 첫 화면 묶음(ADR-136)과 자리 씨앗. 이 화면이 서면 집고, **다시 찾기를 누르면 새로 집는다** —
+   * 한 번 찾는 동안은 그대로다 (뒤로 갔다 같은 쪽을 다시 골라도 고르던 얼굴이 그 화면 그대로, 같은 칸에 선다).
+   * 묶음 번호는 결과와 함께 저장한다. 씨앗은 이 메모리에만 있다
    */
-  const [start, setStart] = useState(drawStart);
+  const [draw, setDraw] = useState(drawSearch);
+  const { start } = draw;
   const [saving, setSaving] = useState(false);
   /**
    * 화면마다 포커스가 설 머리 — 시작 화면의 물음, 라운드의 머리(몇 번째 · 안내). 결과는 `Result` 가 스스로 옮긴다.
@@ -309,8 +360,8 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
   const { data, failed, retry } = usePool(src.v, src.pool);
   const { rounds, shown, pages } = useMemo(
     () =>
-      data && drafting ? roundsOf(data, start, picks, flips) : { rounds: [], shown: new Set<string>(), pages: [] as IdealPages },
-    [data, drafting, start, picks, flips],
+      data && drafting ? roundsOf(data, draw, picks, flips) : { rounds: [], shown: new Set<string>(), pages: [] as IdealPages },
+    [data, drafting, draw, picks, flips],
   );
 
   // 시작 화면 — 어느 쪽을 고를지 모르니 두 풀의 자료와 1라운드 첫 쪽을. 첫 쪽은 이번에 집은 묶음의 것이다
@@ -335,14 +386,14 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
     if (!picks[round - 1]?.length && (flips[round - 1] ?? 0) < IDEAL_SHAPE.rerolls) {
       const f = flips.slice(0, round);
       f[round - 1] = (f[round - 1] ?? 0) + 1;
-      const alt = roundsOf(data, start, picks, f).rounds[round - 1] ?? [];
+      const alt = roundsOf(data, draw, picks, f).rounds[round - 1] ?? [];
       urls.push(...alt.map((x) => photo(IDEAL_ASSET_V, x.id)));
     }
     if (round === IDEAL_SHAPE.rounds && picks[round - 1]?.length) {
       urls.push(...nearestCelebs(data.celebs, centersOf(data, picks.flat()), shown).map((c) => photo(IDEAL_ASSET_V, c.id)));
     }
     warm(urls);
-  }, [data, drafting, round, rounds, start, picks, flips, shown]);
+  }, [data, drafting, round, rounds, draw, picks, flips, shown]);
 
   /*
    * 라운드 주소의 문. **결과가 있으면 열리지 않고**(S-C3), 고르던 값이 없으면(주소를 바로 열었거나 새로고침,
@@ -396,13 +447,13 @@ export default function IdealFlow({ round, again, open: funOpen, ideal, onGo, on
         onRetry={retry}
         /*
          * 다시 찾기는 열려 있는 동안만이다 — 단계가 되돌아가도 결과는 본다 (ADR-125).
-         * 첫 화면 묶음을 **누른 그 자리에서** 새로 집는다 (ADR-136) — 다시 찾기의 시작 화면이 서자마자 그 묶음의 첫 쪽을 미리 받는다.
-         * 재미 탭 카드의 다시 찾기는 이 화면을 새로 세우니 서면서 집는다
+         * 찾기 한 번의 난수(첫 화면 묶음 · 자리 씨앗)를 **누른 그 자리에서** 새로 집는다 (ADR-136) — 다시 찾기의 시작 화면이
+         * 서자마자 그 묶음의 첫 쪽을 미리 받는다. 재미 탭 카드의 다시 찾기는 이 화면을 새로 세우니 서면서 집는다
          */
         onAgain={
           funOpen
             ? () => {
-                setStart(drawStart());
+                setDraw(drawSearch());
                 onAgain();
               }
             : undefined
