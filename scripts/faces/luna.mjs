@@ -2,7 +2,8 @@
 //
 // 읽는 것: 환경 변수 OPENAI_API_KEY (환경에서만 — 파일에 적지 않는다. 저장소 뿌리에서 `set -a; . ./.env; set +a`)
 // 쓰는 것: 없음
-// 순서: 공용 — candidates 를 뺀 LLM 을 부르는 모든 단계가 쓴다 (QC · 속성 고르기 · 임베딩 · 웹 검색 · 종이 검증)
+// 순서: 공용 — candidates 를 뺀 LLM 을 부르는 모든 단계가 쓴다 (QC · 속성 고르기 · 임베딩 · 웹 검색 · 종이 검증 · 직업)
+// 모델은 gpt-6-luna 가 기본이다. 다른 모델을 부르는 단계는 그 이유를 자기 머리에 적는다 (roles)
 import fs from "node:fs";
 import path from "node:path";
 
@@ -14,14 +15,14 @@ export function dataUrl(file) {
   return `data:${MIME[ext] || "image/jpeg"};base64,${fs.readFileSync(file).toString("base64")}`;
 }
 
-export async function luna({ text, images = [], schema, name = "out", effort = "low", tools }) {
+export async function luna({ text, images = [], schema, name = "out", effort = "low", tools, model = "gpt-6-luna" }) {
   const content = [{ type: "input_text", text }];
   for (const im of images) {
     if (typeof im === "string") content.push({ type: "input_image", image_url: dataUrl(im), detail: "high" });
     else content.push(im);
   }
   const body = {
-    model: "gpt-6-luna",
+    model,
     reasoning: { effort },
     input: [{ role: "user", content }],
   };

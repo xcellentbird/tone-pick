@@ -23,9 +23,12 @@ import { tabRef } from "./session.ts";
 const TIMEOUT_MS = 10_000;
 const SLOW_MS = 25_000;
 
-/** 이 경로로 시작하면 오래 기다린다. `/fortune` 과 `/fortune/mission` 이 함께 걸린다 */
+/**
+ * 이 경로면 오래 기다린다. `/fortune` 과 `/fortune/mission` 이 함께 걸린다.
+ * 이상형 찾기의 설명글(ADR-134)도 LLM 이다 — 서버가 20초에 포기하므로 그보다 길게 기다린다
+ */
 export function timeoutFor(path: string): number {
-  return path.startsWith("/fortune") ? SLOW_MS : TIMEOUT_MS;
+  return path.startsWith("/fortune") || path === "/ideal/story" ? SLOW_MS : TIMEOUT_MS;
 }
 
 export class ApiError extends Error {

@@ -5,7 +5,7 @@
  *
  *   · **누가 무엇을 골랐는지는 운영자만 본다.** 뒤풀이 인원을 세려면 이름이 필요하다 — 운영자의
  *     공개 범위는 원래 전체다(원칙 2). 참가자 응답에는 남의 답도, 몇 명인지도 없다
- *   · 한 사람은 한 표다 — 다시 고르면 옮겨간다
+ *   · 한 사람은 한 표다 — 다시 고르면 옮겨가고, 거두면 미응답으로 돌아간다
  *   · 설문 여러 개가 함께 열려 있을 수 있다. 닫는 건 운영자가 누른다
  */
 import { fetchApp } from "./helpers/app.ts";
@@ -124,7 +124,8 @@ const me = (cookie: string | null, ev: EventMeta) =>
 
 const hostState = (ev: EventMeta) => api<HostState>(`/api/host/events/${ev.id}/state`, { cookie: master });
 
-const vote = (cookie: string | null, id: string, choice: "a" | "b") =>
+/** `null` 은 답을 거두는 것이다 — 미응답으로 돌아간다 */
+const vote = (cookie: string | null, id: string, choice: "a" | "b" | null) =>
   api<PublicAnnouncement>("/api/vote", { method: "POST", cookie, body: { id, choice } });
 
 
@@ -235,6 +236,48 @@ describe("설문 — 두 선택지", () => {
     expect(host.choices).toEqual({ [p.id]: "b" });
   });
 
+  it("★ 답을 거두면 미응답으로 돌아간다 — 운영자 화면도 따라온다", async () => {
+    /*
+     * 고른 선택지를 한 번 더 누르면 답이 빠진다 (27 S-B4, ADR-88 후기). 화면은 **바라는 상태**를 보내고
+     * (`choice: null`) 서버는 그 상태로 맞춘다. 서버가 뒤집는 쪽이면, 파티장 와이파이에서 다시 보낸
+     * 요청 하나가 거둔 답을 되살린다 — 그래서 두 번 보내도 미응답이어야 한다.
+     */
+    const ev = await freshEvent();
+    const p = await join(ev);
+    const made = await send(ev, { text: "2차 갈래요?", poll: { a: "갈래요", b: "못 가요" } });
+    await vote(p.cookie, made.body.id, "a");
+    const host = await listen(ev, { cookie: master, host: true });
+    await settle();
+    const h0 = host.length;
+
+    const back = await vote(p.cookie, made.body.id, null);
+    expect(back.status).toBe(200);
+    expect(back.body.poll?.mine).toBeUndefined();
+    await settle();
+    // 운영자 콘솔이 다시 읽지 않으면 거둔 사람이 그대로 `갈래요` 칩에 남는다
+    expect(host.length, "운영자 콘솔에 신호가 안 갔다").toBeGreaterThan(h0);
+    expect((await hostState(ev)).body.announcements[0].choices).toEqual({});
+
+    expect((await vote(p.cookie, made.body.id, null)).status).toBe(200);
+    expect((await me(p.cookie, ev)).body.announcements[0].poll?.mine).toBeUndefined();
+
+    // 미응답은 끝이 아니다 — 다시 고를 수 있다
+    expect((await vote(p.cookie, made.body.id, "b")).body.poll?.mine).toBe("b");
+    expect((await hostState(ev)).body.announcements[0].choices).toEqual({ [p.id]: "b" });
+  });
+
+  it("답이 빠진 요청은 거두기가 아니다 — 거두는 건 null 로만", async () => {
+    // 화면이 값을 빠뜨린 요청 하나가 운영자의 뒤풀이 명단에서 사람을 조용히 지우면 안 된다 (ADR-8)
+    const ev = await freshEvent();
+    const p = await join(ev);
+    const made = await send(ev, { text: "2차 갈래요?", poll: { a: "갈래요", b: "못 가요" } });
+    await vote(p.cookie, made.body.id, "a");
+
+    const res = await api("/api/vote", { method: "POST", cookie: p.cookie, body: { id: made.body.id } });
+    expect(res.status).toBe(400);
+    expect((await hostState(ev)).body.announcements[0].choices).toEqual({ [p.id]: "a" });
+  });
+
   it("★ 닫으면 더 못 고른다. 답은 남는다", async () => {
     const ev = await freshEvent();
     const p = await join(ev);
@@ -250,6 +293,8 @@ describe("설문 — 두 선택지", () => {
 
     const late = await vote(p.cookie, made.body.id, "b");
     expect(late.status).toBe(409);
+    // 거두는 것도 고르는 것이다 — 운영자가 마감한 명단을 보고 연락하는 중에 사람이 빠지면 안 된다
+    expect((await vote(p.cookie, made.body.id, null)).status).toBe(409);
 
     const seen = (await me(p.cookie, ev)).body.announcements[0];
     expect(seen.poll?.closed).toBe(true);

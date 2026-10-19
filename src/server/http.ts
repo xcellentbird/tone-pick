@@ -62,6 +62,12 @@ export interface Env {
    * 숫자가 아니면 무시한다 — 오타 하나로 그 회차의 운세가 전부 규칙 문구가 되면 안 된다.
    */
   LLM_TEMPERATURE?: string;
+  /**
+   * 이상형 찾기의 설명글을 LLM 이 쓴다 (ADR-134). **`"1"` 일 때만** — QA 의 vars 에만 있다.
+   * 없으면 `POST /api/ideal/story` 가 없는 길(404)이고 결과 화면은 고른 얼굴의 낱말로 쓴 글(ADR-128)을 그린다.
+   * 프로덕션에 켜는 것은 운영자가 QA 에서 읽어 본 뒤 정한다 — 이 코드가 `qa → main` 으로 나가도 꺼진 채다
+   */
+  IDEAL_STORY?: string;
 }
 
 export type Ctx = Context<{ Bindings: Env }>;

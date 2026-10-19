@@ -12,6 +12,19 @@
  * 갈라 보는 문턱은 둘이다 — 두 평균이 반대쪽을 향할 것(`splitCos`), 작은 무리도 두 장 이상일 것(`splitMin`).
  * 한 무리를 억지로 쪼개면 한 취향이 반으로 줄어든 채 엉뚱한 쪽을 끌어온다 — 둘 중 그쪽이 더 나쁘다.
  * 중심이 하나면 모든 함수가 v1 과 **똑같이** 돈다 (불변식 테스트가 그 길로 부른다).
+ *
+ * **v4 — 벡터가 얼굴 모델의 특징이 됐다** (ADR-132). v1~v3 은 LLM 이 사진마다 정해진 낱말을 고른 속성 벡터였다.
+ * v4 는 얼굴 인식(SFace)과 얼굴 메시(MediaPipe)의 특징이다 — 고른 얼굴의 평균에 가장 가까운 연예인을 고르는 것은 그대로다.
+ * 함수는 바뀌지 않았다. 바뀐 것은 공간이고, 공간에 매인 문턱(`splitCos` · `dupCos`)의 뜻이다 — 아래 각 칸에 적었다.
+ *
+ * **v6 — 첫 화면이 찾을 때마다 다르다** (ADR-136). 무리의 대표(1 · 2단계)를 자산이 여러 벌(`starts`) 실어 두고,
+ * 찾기를 시작할 때 기기가 그중 하나를 무작위로 집는다. 고르는 함수는 그대로다 — `facesForStart` 가 그 벌로 단계를 다시 붙인
+ * 얼굴을 넘길 뿐이다. 집은 번호(`start`)는 결과와 함께 저장한다 — 설명글 · 평가가 그 사람이 본 화면을 그 번호로 다시 세운다.
+ *
+ * **v7 — 메시를 좌우 대칭으로 다듬고 무게를 0.15 로** (ADR-138). v4~v6 의 메시는 생김새보다 사진의 고개 각도를 따라가서,
+ * 결과가 고른 사진과 같은 쪽으로 고개를 돌린 얼굴로 기울었다. 함수는 그대로다 — 바뀐 것은 공간(scripts/faces/space.py)이다.
+ * **그리고 화면의 아홉이 무작위 자리에 선다** (ADR-139) — 고르는 함수의 순서(가까운 순)는 그대로고, 기기가 보여 줄 때 섞는다.
+ * 평가 기록(ADR-137)의 `v` 가 7 이상이면 화면 순서가 닮음과 무관하다는 뜻이다 — 규칙이 바뀌어 판을 올린 것이다
  */
 import type { Gender } from "./types.ts";
 
@@ -24,8 +37,18 @@ export interface Ideal {
   picks: string[][];
   /** 가까운 순서의 연예인 id 셋 (S-C1) */
   result: string[];
+  /**
+   * 첫 화면 묶음 (ADR-136) — 찾기를 시작할 때 기기가 무작위로 집은 번호. 0 은 자산의 1 · 2단계 그대로, k 는 자산의 `starts[k - 1]`.
+   * **그 사람이 본 화면을 다시 세우는 열쇠다** (`facesForStart` → `shownPages`). 없으면 0 과 같다 — v5 까지의 결과다
+   */
+  start?: number;
   /** 결과 확정 (S-C4). 한 번 채워지면 그대로 — 없으면 아직 무응답이다 */
   verdict?: IdealVerdict;
+  /**
+   * 설명글 (ADR-134) — 같은 화면에서 고르지 않은 얼굴과 견줘 LLM 이 쓴 두 문장. **결과마다 한 번** 만들고 그대로다 —
+   * 다시 찾으면 새 결과와 함께 없어진다. 서버만 적는다 — 저장 요청에 실어 보내도 `readIdealInput` 이 버린다
+   */
+  story?: string;
   at: number;
 }
 
@@ -36,8 +59,70 @@ export interface Ideal {
  */
 export type IdealVerdict = { chosen: string[] } | { none: true };
 
-/** 기기가 보내는 것. verdict 는 따로 온다 — 결과를 본 뒤에야 생기는 값이다 (S-C4) */
-export type IdealInput = Omit<Ideal, "verdict" | "at">;
+/** 기기가 보내는 것. verdict 는 따로 온다 — 결과를 본 뒤에야 생기는 값이다 (S-C4). 설명글은 서버가 만든다 (ADR-134) */
+export type IdealInput = Omit<Ideal, "verdict" | "story" | "at">;
+
+/**
+ * 그 찾기에서 본 화면 (ADR-137) — 라운드 셋, 라운드마다 본 쪽을 **본 차례대로**(넘긴 쪽이 먼저, 고른 쪽이 마지막),
+ * 쪽마다 얼굴을 **화면 순서대로**(3열 격자의 왼쪽 위부터 한 줄씩). **결과를 낸 길**의 화면이다 — 앞 라운드로 돌아가 고쳐 고르면
+ * 그 뒤 라운드에서 봤던 쪽은 버려진다(고르던 값과 함께, S-B4). 기기가 저장 요청에 함께 실어 보내고(`pages`),
+ * 서버는 평가 기록에만 남긴다 — 결과 행(`Ideal`)에는 없어서 참가자 응답으로 나가지 않는다 (S-D1)
+ */
+export type IdealPages = string[][][];
+
+/**
+ * 평가 기록 한 줄 (ADR-137) — **결과가 된 찾기** 한 번. 회차 DO 에만 있고 읽는 API 가 없다 — 운영자가 `IDEAL_RUNS_SQL` 로 꺼낸다.
+ * **시각도 사람도 없다** — 같은 사람의 찾기는 그 쿼리가 한 줄로 묶는다. 얼굴 사진은 `v` 와 id 가 정한다 —
+ * `/faces/v{v}/{id}.webp`, 나간 판의 파일은 바뀌지 않는다 (19-surface)
+ */
+export interface IdealRun {
+  /** 그 사람의 몇 번째로 **기록된** 찾기인가 — 1부터. 다시 찾을 때마다 하나씩 (`IDEAL_SHAPE.runs` 까지) */
+  n: number;
+  v: number;
+  pool: Gender;
+  start?: number;
+  /** 라운드마다 고른 얼굴 — 누른 차례대로다. 풀었다 다시 누르면 뒤로 간다 */
+  picks: string[][];
+  /**
+   * 본 화면. 없으면 기기가 보내지 않았거나(배포 전에 열어 둔 탭) 모양이 어긋난 것이다 — 그때는 고른 얼굴로 다시 세운다 (ADR-133).
+   * 다시 서는 것은 쪽마다 어느 얼굴이었나까지다 — 칸은 기기가 찾기마다 섞고 씨앗을 남기지 않는다 (`shownPages`, ADR-139)
+   */
+  pages?: IdealPages;
+  result: string[];
+  verdict?: IdealVerdict;
+  /**
+   * **이 기록이 생기기 전에 찾은 결과**다 — 배포를 걸친 회차에서 그 사람의 결과 행에만 있던 것. 화면이 없고, 그 앞에 몇 번 찾았는지
+   * 모른다(첫 찾기가 아닐 수 있다). 다시 찾을 때 먼저 적히거나(`EventDO.logIdealRun`), 다시 찾지 않았으면 꺼내는 쿼리가 결과 행에서 지어 싣는다
+   */
+  prior?: true;
+}
+
+/** 결과 한 벌을 기록의 모양으로 (ADR-137) — 시각 · 설명글 · 사람은 싣지 않는다. 화면은 따로 받는다 */
+export function idealRunOf(ideal: Ideal, n: number, pages?: IdealPages): IdealRun {
+  return {
+    n,
+    v: ideal.v,
+    pool: ideal.pool,
+    ...(ideal.start !== undefined ? { start: ideal.start } : {}),
+    picks: ideal.picks,
+    ...(pages ? { pages } : {}),
+    result: ideal.result,
+    ...(ideal.verdict ? { verdict: ideal.verdict } : {}),
+  };
+}
+
+/**
+ * 평가 기록을 꺼내는 쿼리 (ADR-137) — 운영자가 Cloudflare 대시보드의 Data Studio 에서 그 회차의 DO 를 열고 돌린다.
+ * **앱에는 꺼내는 길이 없다** (ADR-133). 줄마다 한 사람(`{"runs":[…]}`)이고 줄 순서는 섞인다. 참가자 id · 시각은 실리지 않는다 —
+ * 기록의 json 에 없고, 쿼리가 그 칸을 고르지 않는다. 찾은 차례는 `n` 이 말한다.
+ * **기록이 생기기 전에 찾고 다시 찾지 않은 사람**(배포를 걸친 회차)은 결과 행에서 지어 싣는다 — 시각 · 설명글을 빼고 `n` 1 · `prior`.
+ * 테스트(19-ideal-log)가 이 문장을 그대로 돌린다 — 고치면 ADR-137 의 쿼리도 함께 고친다
+ */
+export const IDEAL_RUNS_SQL =
+  "SELECT json_object('runs', json_group_array(json(run))) AS person FROM (" +
+  "SELECT player_id, at, json AS run FROM ideal_runs UNION ALL " +
+  "SELECT player_id, 0, json_set(json_remove(json, '$.at', '$.story'), '$.n', 1, '$.prior', json('true')) FROM ideals " +
+  "WHERE player_id NOT IN (SELECT player_id FROM ideal_runs)) GROUP BY player_id ORDER BY random();";
 
 export const IDEAL_SHAPE = {
   rounds: 3,
@@ -49,11 +134,22 @@ export const IDEAL_SHAPE = {
   results: 3,
   /** 라운드마다 `다른 얼굴 보기` 횟수 — 억지로 고른 '덜 싫은 얼굴' 이 평균을 흐리지 않게 */
   rerolls: 1,
-  /** 1단계 수 = 한 화면 × (1 + rerolls). 1라운드는 모두에게 같은 두 쪽(아홉 + 아홉)이다 */
+  /** 1단계 수 = 한 화면 × (1 + rerolls). 1라운드는 두 쪽(아홉 + 아홉)이다 — 어느 얼굴인지는 첫 화면 묶음이 정한다 */
   level1: 18,
   /** 2라운드 후보(군집 대표) 수. 아홉 × 두 쪽을 넉넉히 덮는다 — check:faces 가 자산과 맞춰 본다 */
   level2: 36,
-  /** 3라운드 닮은꼴 문턱(코사인). 임시값 — 실제 풀에서 종이 검증과 함께 조정한다 */
+  /**
+   * 첫 화면 묶음 수 (ADR-136) — 번호 0 은 자산의 1 · 2단계 그대로, 1 이상은 자산의 `starts` 에서 하나. 찾기를 시작할 때
+   * 기기가 무작위로 집는다. 1라운드가 모두에게 같으면 모두가 가장 눈에 띄는 얼굴로 모였다 (ADR-133 — 남자 아홉 중 일곱이 한 사람).
+   * 서버는 번호의 범위만 본다 — check:faces 가 지금 판의 묶음 수를 이 값과 맞춰 본다
+   */
+  starts: 16,
+  /**
+   * 3라운드 닮은꼴 문턱(코사인). 임시값 — 실제 풀에서 종이 검증과 함께 조정한다.
+   * v1~v3 의 속성 벡터는 낱말이 같으면 벡터도 같아서(코사인 1.00) 이 문턱이 판박이를 밀었다. v4 의 얼굴 벡터에서는
+   * 서로 다른 두 사람이 가장 닮아도 0.46 · 0.52 라 걸리지 않는다 — 같은 사람이 두 번 실린 자산을 막는 자리로 남는다 (ADR-132).
+   * v7(대칭 메시)에서도 0.48 · 0.54 다
+   */
   dupCos: 0.9,
   /**
    * 3라운드가 **보여주지 않고 결과 몫으로 남기는** 가장 가까운 얼굴 수 — 중심마다 (ADR-127).
@@ -63,13 +159,23 @@ export const IDEAL_SHAPE = {
    */
   reserve: 6,
   /**
-   * 두 무리의 평균끼리 코사인이 이보다 작으면 두 갈래다 — 반대쪽으로 **꽤** 벌어질 때만(약 102° 넘게) 가른다.
-   * 0 으로 두면 다섯씩 고르는 한 인상이 절반 가까이 쪼개졌다 — 다섯 중엔 목표에서 먼 얼굴이 섞여서다 (ADR-123 문턱 표).
-   * 한 인상을 쪼개는 것이 두 인상을 못 가르는 것보다 나쁘다. 종이 검증 **전에** 정했다
+   * 두 무리의 평균끼리 코사인이 이보다 작으면 두 갈래다 — 반대쪽으로 **꽤** 벌어질 때만 가른다.
+   * 한 인상을 쪼개는 것이 두 인상을 못 가르는 것보다 나쁘다. **공간에 매인 값이다** — 판을 바꾸면 다시 잰다.
+   * v1~v3(속성 벡터)은 −0.2 였다 — 다섯씩 고르는 한 인상을 11~15% 만 쪼갰다 (ADR-123 문턱 표).
+   * v4(얼굴 벡터)에서 −0.2 는 다섯씩 고르는 한 인상을 여 16% · 남 2% 쪼개면서 두 인상은 29% · 5% 만 가른다 — 서로 다른 얼굴이
+   * 반대쪽이 아니라 직각으로 흩어지는 공간이라(두 사람의 코사인 중앙값 −0.01) 갈림이 대개 잡음이다.
+   * −0.3 에서 한 인상 2% · 0%, 두 인상 7% · 0% — 거의 언제나 평균 하나다. 운영자가 말한 방식이 그것이다 (ADR-132).
+   * v7(대칭 메시)에서는 더 드물게 가른다 — 다섯씩 고르는 한 인상 1% · 2%, 두 인상 1% · 2% (v6 은 3% · 5%, 4% · 7%, recover 흉내).
+   * 두 공간 모두 한 인상과 두 인상을 가르지 못하는 것은 같아서 값은 그대로 둔다 (ADR-138)
    */
-  splitCos: -0.2,
+  splitCos: -0.3,
   /** 작은 무리가 이만큼은 돼야 두 갈래로 친다 — 한 장짜리는 잘못 누른 것일 수 있다 */
   splitMin: 2,
+  /**
+   * 평가 기록(ADR-137)에 남기는 찾기 수 — 사람마다. 그 뒤의 다시 찾기는 결과만 바꾸고 기록하지 않는다.
+   * **먼저 찾은 것을 남긴다** — 결과를 여러 번 본 뒤의 찾기는 앞의 결과에 끌린다. 저장소가 끝없이 자라지 않게 막는 칸이기도 하다
+   */
+  runs: 20,
   id: /^[a-z0-9]{4,16}$/, // copy-ok
 } as const;
 
@@ -78,7 +184,7 @@ export const IDEAL_SHAPE = {
  * **저장된 결과는 이 값이 아니라 자기 `v` 로 그린다.** 판이 올라가도 옛 결과는 옛 경로에서
  * 그대로 그려져야 한다 (옛 버전 경로는 지우지 않는다 — 19-surface).
  */
-export const IDEAL_ASSET_V = 3;
+export const IDEAL_ASSET_V = 7;
 
 /**
  * `v` 의 윗끝. 기기가 보낸 값이 그대로 지표 blob 으로 흘러가서(`pulse` 의 ideal) 막아둔다 —
@@ -87,6 +193,9 @@ export const IDEAL_ASSET_V = 3;
 const V_MAX = 9999;
 
 const isId = (x: unknown): x is string => typeof x === "string" && IDEAL_SHAPE.id.test(x);
+/** 첫 화면 묶음 번호 (ADR-136) — 0 ~ 묶음 수 − 1 의 정수 */
+const isStart = (x: unknown): x is number =>
+  typeof x === "number" && Number.isSafeInteger(x) && x >= 0 && x < IDEAL_SHAPE.starts;
 
 /** 서로 다른 id 가 lo~hi 개 든 배열인가 */
 function idList(x: unknown, lo: number, hi: number): x is string[] {
@@ -102,14 +211,48 @@ function idList(x: unknown, lo: number, hi: number): x is string[] {
  */
 export function readIdealInput(raw: unknown): IdealInput | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const { v, pool, picks, result } = raw as Record<string, unknown>;
+  const { v, pool, picks, result, start } = raw as Record<string, unknown>;
   if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 1 || v > V_MAX) return null;
   if (pool !== "M" && pool !== "F") return null;
   // 라운드 수는 고정이다 — 저장 모양과 화면이 셋 묶음을 들고 있다 (시나리오 '숫자')
   if (!Array.isArray(picks) || picks.length !== IDEAL_SHAPE.rounds) return null;
   if (!picks.every((p) => idList(p, IDEAL_SHAPE.pickMin, IDEAL_SHAPE.pickMax))) return null;
   if (!idList(result, IDEAL_SHAPE.results, IDEAL_SHAPE.results)) return null;
-  return { v, pool, picks: (picks as string[][]).map((p) => [...p]), result: [...result] };
+  // 첫 화면 묶음 번호 (ADR-136) — 없어도 된다(v5 까지 · 배포 전에 열어 둔 탭). 있으면 범위 안의 정수뿐이다
+  if (start !== undefined && !isStart(start)) return null;
+  return {
+    v,
+    pool,
+    picks: (picks as string[][]).map((p) => [...p]),
+    result: [...result],
+    ...(isStart(start) ? { start } : {}),
+  };
+}
+
+/**
+ * 저장 요청에 실려 온 화면(`pages`, ADR-137)의 **모양만** 본다 — 라운드 셋, 라운드마다 쪽 1 ~ 1 + `rerolls`, 쪽마다 서로 다른
+ * id 1~9, **한 찾기 안에서 같은 얼굴이 두 번 서지 않는다**(본 얼굴은 다시 안 나온다), 그 라운드에 고른 얼굴은 모두 **마지막 쪽**에 있다
+ * (넘김은 아무것도 안 골랐을 때만이다, S-B7). 어긋나거나 없으면 `undefined` — **결과 저장은 막지 않는다.** 화면은 평가 자료일 뿐이라
+ * 그 때문에 파티장에서 결과를 못 보는 사람이 생기면 안 된다. 그 찾기는 화면 없이 기록되고, 평가는 고른 얼굴로 다시 세운다 (ADR-133).
+ * 새 배열을 짓는다 — 본문을 펼치지 않는다 (`readIdealInput` 과 같은 이유)
+ */
+export function readIdealPages(raw: unknown, picks: readonly (readonly string[])[]): IdealPages | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const pages = (raw as Record<string, unknown>).pages;
+  if (!Array.isArray(pages) || pages.length !== IDEAL_SHAPE.rounds) return undefined;
+  const seen = new Set<string>();
+  const out: IdealPages = [];
+  for (const [r, round] of pages.entries()) {
+    if (!Array.isArray(round) || round.length < 1 || round.length > 1 + IDEAL_SHAPE.rerolls) return undefined;
+    if (!round.every((p: unknown) => idList(p, 1, IDEAL_SHAPE.faces))) return undefined;
+    const ids = (round as string[][]).flat();
+    if (ids.some((id) => seen.has(id)) || new Set(ids).size !== ids.length) return undefined;
+    for (const id of ids) seen.add(id);
+    const last = (round as string[][])[round.length - 1];
+    if (!(picks[r] ?? []).every((id) => last.includes(id))) return undefined;
+    out.push((round as string[][]).map((p) => [...p]));
+  }
+  return out;
 }
 
 /**
@@ -151,12 +294,95 @@ export function normalizeIdeal(ideal: Ideal): Ideal {
   return ideal;
 }
 
+// ─────────────────────────────────────────── 설명글 (ADR-134)
+
+/**
+ * 설명글이 견주는 라운드 — 2 · 3라운드. **1라운드는 뺀다** — 무리마다 하나씩 서로 다른 얼굴이라 누구나 가장 눈에 띄는 얼굴을
+ * 고르고(114회차: 남들이 고른 비율로 AUC 0.83 · 0.85, ADR-133 — 그때는 모두에게 같은 아홉이었다), 그 차이를 물으면
+ * `더 눈에 띄는 얼굴` 이라는 뻔한 답만 나온다. 2 · 3라운드는 이미 비슷한 얼굴끼리라 고른 것과 안 고른 것의 차이가 그 사람의 몫이다
+ */
+export const STORY_ROUNDS = [2, 3] as const;
+
+/** 설명글의 길이(자). 프롬프트가 두 문장 70~110자를 청한다 — 이 밖이면 형식이 어긋난 것이라 버린다 */
+export const STORY_LEN = { min: 20, max: 240 } as const;
+
+/**
+ * 고른 얼굴만으로 그 사람이 본 화면을 다시 세운다 — 라운드마다 아홉 (ADR-133 의 `reconstruct` 와 같은 규칙).
+ * 결과 행에는 `다른 얼굴 보기` 가 없다(본 쪽은 평가 기록에만 있다, ADR-137) — **고른 얼굴이 첫 쪽에 없으면 둘째 쪽을 본 것이다.** 넘긴 쪽과 다음 쪽은 겹치지 않아서
+ * 둘이 갈린다. **지금 판의 규칙**(`IDEAL_SHAPE`)으로 센다 — 옛 판의 결과에는 쓰지 않는다. 같은 입력이면 같은 출력.
+ * `faces` 는 **그 결과의 묶음으로 단계를 붙인 얼굴**이다 — `facesForStart(…, ideal.start)` (ADR-136). 자산 그대로 넘기면
+ * 묶음을 집은 사람의 1 · 2라운드가 다른 화면으로 선다.
+ * **다시 서는 것은 쪽마다 어느 얼굴이었나까지다** — 순서는 고르는 함수의 것이다. 화면의 칸은 기기가 찾기마다 섞고
+ * 그 씨앗은 저장하지 않는다 — 칸까지 필요하면 평가 기록의 본 화면(`IdealRun.pages`)을 쓴다
+ */
+export function shownPages(
+  faces: readonly DecodedFace[],
+  vecs: ReadonlyMap<string, Float32Array>,
+  picks: readonly (readonly string[])[],
+): string[][] {
+  const shown = new Set<string>();
+  const pages: string[][] = [];
+  for (let r = 1; r <= IDEAL_SHAPE.rounds; r++) {
+    const picked = picks[r - 1] ?? [];
+    const before = picks.slice(0, r - 1).flat().map((id) => vecs.get(id)).filter((v): v is Float32Array => !!v);
+    const centers = r === 1 ? null : tasteCenters(before);
+    const round = r as 1 | 2 | 3;
+    let page = pickRound(faces, round, centers, shown);
+    for (let k = 0; k < IDEAL_SHAPE.rerolls && !picked.every((id) => page.some((f) => f.id === id)); k++) {
+      for (const f of page) shown.add(f.id);
+      page = pickRound(faces, round, centers, shown);
+    }
+    for (const f of page) shown.add(f.id);
+    pages.push(page.map((f) => f.id));
+  }
+  return pages;
+}
+
+/**
+ * 설명글에 쓸 화면 — `STORY_ROUNDS` 의 화면을 하나씩. 기기가 `shownPages` 로 다시 세워 보낸다 (서버는 벡터를 모른다, S-D3).
+ * **모양만 본다** — 화면마다 서로 다른 id 1~9개, 그 라운드에 고른 얼굴이 모두 그 화면에 있고, 고르지 않은 얼굴이 하나는 있다
+ * (견줄 것이 있어야 한다). 새 배열을 짓는다 — 본문을 펼치지 않는다 (`readIdealInput` 과 같은 이유). 어긋나면 null
+ */
+export function readIdealStoryPages(raw: unknown, picks: readonly (readonly string[])[]): string[][] | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const pages = (raw as Record<string, unknown>).pages;
+  if (!Array.isArray(pages) || pages.length !== STORY_ROUNDS.length) return null;
+  const out: string[][] = [];
+  for (const [i, r] of STORY_ROUNDS.entries()) {
+    const page: unknown = pages[i];
+    if (!idList(page, 1, IDEAL_SHAPE.faces)) return null;
+    const picked = picks[r - 1] ?? [];
+    if (!picked.length || !picked.every((id) => page.includes(id)) || page.length <= picked.length) return null;
+    out.push([...page]);
+  }
+  return out;
+}
+
+/**
+ * LLM 의 답에서 설명글을 꺼낸다 — `{"text": "…"}`. 첫 `{` 부터 끝 `}` 까지만 읽는다 — 코드 울타리나 앞뒤 말이 붙어 와도 된다.
+ * 공백을 한 칸으로 모은다. 길이가 `STORY_LEN` 밖이면 버린다 — 형식이 어긋난 것을 화면에 올리지 않는다
+ */
+export function parseIdealStory(raw: string): string | null {
+  const a = raw.indexOf("{");
+  const b = raw.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  try {
+    const t = (JSON.parse(raw.slice(a, b + 1)) as { text?: unknown }).text;
+    if (typeof t !== "string") return null;
+    const text = t.replace(/\s+/g, " ").trim();
+    return text.length >= STORY_LEN.min && text.length <= STORY_LEN.max ? text : null;
+  } catch {
+    return null;
+  }
+}
+
 // ─────────────────────────────────────────── 끌리는 얼굴의 특징 (ADR-127)
 
 /**
  * 결과 화면에 한 줄로 쓰는 얼굴 특징의 어휘 — 자산 파이프라인(`scripts/faces/attrs.mjs`)이 사진마다
- * 고른 낱말의 **부분집합**이다. 벡터가 이 낱말들로 만들어져서, 고른 얼굴의 낱말을 세면 그 사람이
- * 끌린 쪽을 벡터와 같은 말로 설명한다. 화면 글은 `copy.ts` 의 `IDEAL.traits` 에 있다 — 여기는 부호뿐이다.
+ * 고른 낱말의 **부분집합**이다. v3 까지는 벡터가 이 낱말들로 만들어져서 고른 얼굴의 낱말이 곧 벡터의 말이었다.
+ * v4 부터 벡터는 얼굴 모델의 것이고(ADR-132) 낱말은 **고른 얼굴을 설명하는 데만** 쓴다 — 고른 얼굴을 세니 여전히 맞는 말이다.
+ * 화면 글은 `copy.ts` 의 `IDEAL.traits` 에 있다 — 여기는 부호뿐이다.
  *
  * **빼둔 칸** — 피부 톤 · 광대 · 코 · 나이 느낌 · 쌍꺼풀 · 눈썹 · 입술 · 얼굴형 · 눈 크기.
  * 파티에서 화면을 나란히 본다. 몸의 한 부분을 집는 말은 평가처럼 읽히고, 테이블의 누군가를 가리킨다.
@@ -220,6 +446,15 @@ export function idealTraits(picked: readonly (readonly string[])[], pool: readon
   return out;
 }
 
+/**
+ * 첫 화면 묶음 하나 (ADR-136) — 1단계(1라운드의 두 쪽, **순서대로**)와 2단계(2라운드의 후보)의 id.
+ * 자산의 1 · 2단계와 같은 무리에서 같은 수를 다른 얼굴로 든 벌이다. 나머지 얼굴은 모두 3단계가 된다
+ */
+export interface FaceStart {
+  l1: string[];
+  l2: string[];
+}
+
 /** 자산 JSON 의 모양. base64 int8×dim — decodeVec() 으로 복원하면 단위 길이다 */
 export interface FacePoolFile {
   version: number; // 경로의 v{n} 과 같아야 한다
@@ -228,6 +463,8 @@ export interface FacePoolFile {
   /** `t` — 그 사람의 특징 부호(`animal.cat` 꼴, v3 부터). 없으면 그 판은 특징을 말하지 않는다 */
   celebs: { id: string; name: string; v: string; retired?: true; t?: string[] }[];
   faces: { id: string; v: string; level: 1 | 2 | 3 }[];
+  /** 첫 화면 묶음의 1번부터 (v6 부터, ADR-136). 0번은 `faces` 의 단계 그대로라 싣지 않는다. 없으면 그 판은 모두에게 같은 첫 화면이다 */
+  starts?: FaceStart[];
 }
 
 /** 복원된 런타임 모양 */
@@ -352,10 +589,43 @@ export function tasteCenters(picked: readonly Float32Array[]): TasteCenter[] {
 }
 
 /**
+ * 첫 화면 묶음으로 단계를 다시 붙인 얼굴들 (ADR-136). `start` 0 은 자산 그대로, k 는 `starts[k - 1]` — 그 1단계가
+ * **그 순서대로** 1단계, 그 2단계가 2단계, 나머지는 모두 3단계다. 사람도 벡터도 그대로고 자리만 바뀐다.
+ * 1라운드는 1단계를 순서대로 자르므로 묶음의 1단계 순서가 곧 첫 쪽과 둘째 쪽이다. 라운드를 세우는 곳(화면 · 설명글 ·
+ * 평가)은 모두 이것을 거친 얼굴을 `pickRound` · `shownPages` 에 넘긴다.
+ *
+ * 묶음이 없거나(v5 까지) 번호가 범위 밖이거나 묶음의 모양이 어긋나면 **자산 그대로**다 — 빈 칸을 만들지 않는다.
+ * 모양은 모르는 id 가 없고, 겹치지 않고, 1 · 2단계 수가 **그 자산의 수**와 같은 것이다. 지금 규칙의 수(`level1`)와는
+ * 견주지 않는다 — 판의 모양이 바뀐 뒤에도 옛 판의 결과는 그 판의 묶음으로 다시 서야 한다. 같은 입력이면 같은 출력.
+ */
+export function facesForStart(
+  faces: readonly DecodedFace[],
+  starts: readonly FaceStart[] | undefined,
+  start: number | undefined,
+): readonly DecodedFace[] {
+  const alt = start !== undefined && Number.isSafeInteger(start) && start >= 1 ? starts?.[start - 1] : undefined;
+  if (!alt) return faces;
+  const byId = new Map(faces.map((f) => [f.id, f]));
+  const seat = new Set<string>();
+  for (const id of [...alt.l1, ...alt.l2]) {
+    if (!byId.has(id) || seat.has(id)) return faces;
+    seat.add(id);
+  }
+  const count = (level: 1 | 2) => faces.filter((f) => f.level === level).length;
+  if (alt.l1.length !== count(1) || alt.l2.length !== count(2)) return faces;
+  const as = (f: DecodedFace, level: 1 | 2 | 3): DecodedFace => (f.level === level ? f : { ...f, level });
+  return [
+    ...alt.l1.map((id) => as(byId.get(id)!, 1)),
+    ...alt.l2.map((id) => as(byId.get(id)!, 2)),
+    ...faces.filter((f) => !seat.has(f.id)).map((f) => as(f, 3)),
+  ];
+}
+
+/**
  * 한 라운드의 얼굴들. `centers` 는 `tasteCenters` 의 결과(1라운드는 null).
  *
- * 1라운드는 중심을 보지 않는다 — 자산 순서 그대로 앞에서 n. 1단계는 두 쪽(`level1`)이고
- * 둘째 쪽은 `shown` 이 첫 쪽을 품을 때(다른 얼굴 보기) 나온다.
+ * 1라운드는 중심을 보지 않는다 — 1단계를 순서 그대로 앞에서 n. 1단계는 두 쪽(`level1`)이고
+ * 둘째 쪽은 `shown` 이 첫 쪽을 품을 때(다른 얼굴 보기) 나온다. 어느 얼굴이 1단계인지는 첫 화면 묶음이 정한다 (`facesForStart`).
  * 2·3라운드는 중심마다 코사인 내림차순 목록을 세우고, 중심이 둘이면 자리를 무게로 나눠
  * **번갈아** 놓는다 (A, B, A, B …). 작은 쪽도 적어도 한 칸, 많아야 절반(내림) —
  * 두 갈래라도 큰 무리가 그 사람의 주된 취향이다.
@@ -371,7 +641,7 @@ export function pickRound(
   n: number = IDEAL_SHAPE.faces,
   reserve: number = IDEAL_SHAPE.reserve,
 ): DecodedFace[] {
-  // 1라운드는 자산 순서 그대로 — 모두에게 같아야 "첫 화면에서 누구 골랐어?" 가 된다
+  // 1라운드는 1단계를 순서 그대로 — 무리마다 대표가 서도록 파이프라인(cluster.mjs)이 순서를 지어 둔다
   if (round === 1) return faces.filter((f) => f.level === 1 && !shown.has(f.id)).slice(0, n);
 
   const pool = faces.filter((f) => (round === 2 ? f.level === 2 : true) && !shown.has(f.id));
@@ -416,7 +686,7 @@ export function pickRound(
       for (let s = 0; s < lists.length; s++) if (got[s].length < quota[s] && step(s, strict)) moved = true;
     }
   }
-  // 목록마다 제 순위대로 두고 번갈아 놓는다 — 한 쪽 얼굴이 화면 위에 몰리지 않게
+  // 목록마다 제 순위대로 두고 번갈아 놓는다. 화면의 칸은 이 순서가 아니다 — 기기가 찾기마다 섞어 세운다 (`Ideal.tsx` 의 `inSlots`)
   if (got.length === 1) return got[0];
   const out: DecodedFace[] = [];
   for (let i = 0; i < Math.max(got[0].length, got[1].length); i++) {

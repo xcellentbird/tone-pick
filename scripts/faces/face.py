@@ -1,27 +1,36 @@
-"""얼굴 도구 — YuNet(검출) + SFace(동일인 확인). 사진 한 장에 대해 JSON 한 줄.
+"""얼굴 도구 — YuNet(검출) + SFace(얼굴 인식) + MediaPipe(얼굴 메시). 사진 한 장에 대해 JSON 한 줄.
 
 python face.py detect  <img>...            검출·정면도·크기
-python face.py ident   <img>...            SFace 128차원 (동일인 비교용, 자산에는 안 쓴다)
+python face.py ident   <img>...            SFace 128차원 (동일인 비교용 — 나무위키 사진과 같은 사람인가)
+python face.py embed   <크롭>...           SFace 128차원 — 자산 벡터의 재료 (v4 부터, ADR-132). 좌우를 뒤집은 것과 평균한다
+python face.py mesh    <크롭>...           얼굴 메시 478점 (x · y · z, 픽셀) — 자산 벡터의 재료 (v4 부터, ADR-132)
 python face.py crop    <img> <out.webp>    눈 수평·눈 사이 거리 고정의 4:5 크롭 (240x300)
 
-읽는 것: 주어진 사진, 모델 폴더의 yunet.onnx · sface.onnx
+읽는 것: 주어진 사진, 모델 폴더의 yunet.onnx · sface.onnx · face_landmarker.task
 쓰는 것: crop 만 — 주어진 자리에 webp. 나머지는 표준 출력에 JSON 한 줄씩
-순서: 공용 — fallback.mjs 의 py() 가 부른다 (select · recolor · build-attrs · recrop · emit 의 sface 팔)
+순서: 공용 — fallback.mjs 의 py() 가 부른다 (select · recolor · build-attrs · recrop · emit 의 sface 팔 · emit-face)
 
 모델 폴더: 환경 변수 FACES_MODELS → 없으면 $FACES_WORK/models → 없으면 <저장소>/.faces-work/models.
 py() 는 FACES_MODELS 를 늘 넘긴다.
 
-준비 (저장소 뿌리에서, 한 번):
-    python3 -m venv .faces-work/venv
-    .faces-work/venv/bin/pip install -r scripts/faces/requirements.txt
+준비 (저장소 뿌리에서, 한 번). 파이썬은 3.12 이상이다 — numpy 2.5 가 3.11 을 받지 않는다.
+MediaPipe 는 `--no-deps` 로 받는다 — 제 의존성으로 opencv-contrib-python 을 끌고 와서, 크롭이 타는 OpenCV 판을 바꾼다.
+requirements.txt 가 필요한 것을 전부 판까지 적어 둔다. MediaPipe 는 EGL 을 열어 두므로 `libegl1` 이 있어야 한다:
+    sudo apt-get install -y libegl1 libgles2
+    python3.12 -m venv .faces-work/venv
+    .faces-work/venv/bin/pip install --no-deps -r scripts/faces/requirements.txt
     mkdir -p .faces-work/models
     curl -L -o .faces-work/models/yunet.onnx \
-      https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+      https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
     curl -L -o .faces-work/models/sface.onnx \
-      https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx
-v1 을 만든 모델의 sha256 — 다른 파일이면 크롭 · 동일인 판정이 달라진다:
-    yunet.onnx  8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
-    sface.onnx  0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79
+      https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx
+    curl -L -o .faces-work/models/face_landmarker.task \
+      https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+자산을 만든 모델의 sha256 — 다른 파일이면 크롭 · 동일인 판정 · 벡터가 달라진다:
+    yunet.onnx            8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+    sface.onnx            0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79
+    face_landmarker.task  64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff   (v4 부터)
+라이선스 — YuNet MIT · SFace Apache-2.0 (OpenCV Zoo) · MediaPipe Face Landmarker Apache-2.0. 자산에는 모델이 아니라 벡터만 실린다.
 """
 import json
 import os
@@ -112,6 +121,63 @@ def cmd_ident(paths):
         print(json.dumps({"path": p, "v": [round(float(x), 5) for x in feat]}))
 
 
+def cmd_embed(paths):
+    """자산 벡터의 SFace 쪽 (ADR-132). 크롭(240x300)을 두 배로 키워 다시 검출한다 — 작은 크롭에서는 YuNet 의 눈·코 점이 거칠어
+    SFace 의 정렬(alignCrop)이 흔들린다. 정렬한 얼굴과 그 좌우를 뒤집은 것을 각각 재어 평균한다 — 고개가 조금 돈 사진이
+    한쪽으로 쏠리지 않게. flip 은 두 벡터의 코사인 — 낮으면 사진이 얼굴을 덜 보여주는 것이다 (459장에서 0.84 ~ 0.99)"""
+    rec = cv2.FaceRecognizerSF.create(os.path.join(MODELS, "sface.onnx"), "")
+    for p in paths:
+        img = load(p)
+        if img is None:
+            print(json.dumps({"path": p, "err": "unreadable"}))
+            continue
+        h, w = img.shape[:2]
+        big = cv2.resize(img, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
+        faces = sorted(detector(big), key=lambda f: -f[2] * f[3])
+        if not len(faces):
+            print(json.dumps({"path": p, "err": "noface"}))
+            continue
+        crop = rec.alignCrop(big, faces[0])
+        a = rec.feature(crop).flatten()
+        b = rec.feature(cv2.flip(crop, 1)).flatten()
+        a = a / np.linalg.norm(a)
+        b = b / np.linalg.norm(b)
+        v = (a + b) / np.linalg.norm(a + b)
+        print(json.dumps({"path": p, "v": [round(float(x), 6) for x in v], "flip": round(float(a @ b), 4)}))
+
+
+def cmd_mesh(paths):
+    """자산 벡터의 얼굴 메시 쪽 (ADR-132) — MediaPipe Face Landmarker 의 478점. 크롭은 얼굴이 꽉 차 있어 가장자리를 60px 늘려
+    둘레를 주고, 두 배로 키워 잰다. 점은 그 그림의 픽셀 단위다 — 크기·자리·기울기는 space.py 가 맞춰 지운다.
+    MediaPipe 는 이 명령에서만 읽는다 — 다른 명령은 MediaPipe 없이 돈다"""
+    from mediapipe import Image, ImageFormat
+    from mediapipe.tasks.python import BaseOptions
+    from mediapipe.tasks.python.vision import FaceLandmarker, FaceLandmarkerOptions, RunningMode
+
+    opts = FaceLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=os.path.join(MODELS, "face_landmarker.task")),
+        running_mode=RunningMode.IMAGE,
+        num_faces=1,
+        min_face_detection_confidence=0.3,
+        min_face_presence_confidence=0.3,
+    )
+    with FaceLandmarker.create_from_options(opts) as lm:
+        for p in paths:
+            img = load(p)
+            if img is None:
+                print(json.dumps({"path": p, "err": "unreadable"}))
+                continue
+            img = cv2.copyMakeBorder(img, 60, 60, 60, 60, cv2.BORDER_REPLICATE)
+            big = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+            h, w = big.shape[:2]
+            r = lm.detect(Image(image_format=ImageFormat.SRGB, data=cv2.cvtColor(big, cv2.COLOR_BGR2RGB)))
+            if not r.face_landmarks:
+                print(json.dumps({"path": p, "err": "noface"}))
+                continue
+            pts = [[round(q.x * w, 2), round(q.y * h, 2), round(q.z * w, 2)] for q in r.face_landmarks[0]]
+            print(json.dumps({"path": p, "pts": pts}))
+
+
 def cmd_crop(src, dst):
     img = load(src)
     faces = sorted(detector(img), key=lambda f: -f[2] * f[3])
@@ -148,5 +214,9 @@ if __name__ == "__main__":
         cmd_detect(args)
     elif cmd == "ident":
         cmd_ident(args)
+    elif cmd == "embed":
+        cmd_embed(args)
+    elif cmd == "mesh":
+        cmd_mesh(args)
     elif cmd == "crop":
         cmd_crop(*args)

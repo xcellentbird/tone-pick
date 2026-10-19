@@ -9,12 +9,14 @@
  *    새 화면이 필요해도 여기서 자료를 조립하지 말고 그쪽을 넓혀라.
  */
 import { Hono } from "hono";
-import type { EnterProbe, EnterResult, RegisterInput } from "../../shared/types.ts";
+import type { EnterProbe, EnterResult, ParticipantState, RegisterInput } from "../../shared/types.ts";
 import { ENTRY, FORTUNE, FUN, ME } from "../../shared/copy.ts";
 import { validPin } from "../../shared/constants.ts";
 import { canOpenFun, canOpenMission } from "../../shared/phase.ts";
 import { fortuneInput, missionInput, validBirth } from "../../shared/fortune.ts";
 import { makeFortune, makeMission } from "../fortune.ts";
+import { idealStoryInput, makeIdealStory } from "../ideal-story.ts";
+import { IDEAL_ASSET_V, readIdealStoryPages } from "../../shared/ideal.ts";
 import { count, pulse } from "../metrics.ts";
 import { todayIn } from "../../shared/time.ts";
 import { PULSE_MAX, allowedKey, stayBucket, type PulseEvent } from "../../shared/pulse.ts";
@@ -186,7 +188,8 @@ participantRoutes.post("/register", async (c) => {
   // 뒤따르는 쿠키는 **덧붙여야** 한다. 그냥 쓰면 앞의 참가자 세션을 덮어써서 로그인이 날아간다
   c.header("set-cookie", clearCookie(cookieName(INVITE_COOKIE, ref), isSecure(c)), { append: true });
   if (ref) c.header("set-cookie", clearCookie(INVITE_COOKIE, isSecure(c)), { append: true });
-  return c.json(value);
+  // 화면은 이 상태를 그대로 첫 화면으로 쓴다(`seedParticipant`) — `/me` 와 같은 표시를 붙여야 등록하자마자 찾은 결과에도 글이 선다
+  return c.json({ ...value!, state: withIdealStory(c, value!.state) });
 });
 
 /**
@@ -235,8 +238,17 @@ participantRoutes.get("/me", async (c) => {
     return apiError(c, "unauthorized", ENTRY.notFound);
   }
   if (askedId && askedId !== value!.event.id) return apiError(c, "unauthorized", ENTRY.notFound);
-  return c.json(value);
+  return c.json(withIdealStory(c, value!));
 });
+
+/**
+ * 이상형 찾기의 설명글이 켜진 곳이면 그렇다고 붙인다 (ADR-134) — 설정은 Worker 가 읽는다(회차 DO 는 모른다).
+ * 결과 화면이 글을 청할지, 기다리는 한 줄을 세울지 이것으로 안다. **참가자 상태를 내주는 길마다** 붙인다 —
+ * `/me` 와 등록 응답. 등록 응답에 빠뜨렸더니 등록하자마자 찾은 결과에는 글을 청하지 않았다(화면은 그 상태를 첫 화면으로 쓴다)
+ */
+function withIdealStory<T extends object>(c: Ctx, state: T): T & Pick<ParticipantState, "idealStory"> {
+  return c.env.IDEAL_STORY === "1" ? { ...state, idealStory: true } : state;
+}
 
 participantRoutes.post("/poke", async (c) => {
   const seat = await seatOf(c);
@@ -301,16 +313,21 @@ participantRoutes.post("/note/seen", async (c) => {
 });
 
 /**
- * A/B 투표에 한 표 (슬라이스 14).
+ * A/B 투표에 한 표 (슬라이스 14). `choice: null` 이면 **답을 거둔다** — 미응답으로 돌아간다 (ADR-88 후기).
  *
  * **갱신된 알림 하나를 돌려준다.** 화면은 이 값을 그대로 쓰고 다시 읽지 않는다 —
  * 서버가 방금 준 답을 버리고 또 묻지 않는 게 슬라이스 17 에서 배운 것이다.
+ *
+ * 거두기는 **`null` 을 적어 보낸 것만**이다. `choice` 가 빠진 요청은 여전히 400 이다 —
+ * 값을 빠뜨린 요청 하나가 운영자의 뒤풀이 명단에서 사람을 조용히 지우면 안 된다.
  */
 participantRoutes.post("/vote", async (c) => {
   const seat = await seatOf(c);
   if (!seat) return apiError(c, "unauthorized");
-  const body = (await c.req.json().catch(() => ({}))) as { id?: string; choice?: string };
-  if (!body.id || (body.choice !== "a" && body.choice !== "b")) return apiError(c, "bad_request");
+  const body = (await c.req.json().catch(() => ({}))) as { id?: string; choice?: string | null };
+  if (!body.id || (body.choice !== "a" && body.choice !== "b" && body.choice !== null)) {
+    return apiError(c, "bad_request");
+  }
   const { value, response } = unwrap(c, await seat.stub.vote(seat.playerId, body.id, body.choice));
   return response ?? c.json(value);
 });
@@ -437,6 +454,39 @@ participantRoutes.post("/ideal/verdict", async (c) => {
     pulse(c.env, { kind: "ideal", key: "chosen" in ideal.verdict ? "chosen" : "none", v: ideal.v });
   }
   return c.json(ideal);
+});
+
+/**
+ * 이상형 찾기의 설명글 (ADR-134). **QA 에서만 켠다** (`IDEAL_STORY`) — 꺼진 곳에서는 없는 길(404)이다.
+ *
+ * 결과마다 한 번 만든다 — 이미 있으면 저장된 행을 그대로 돌려준다 (운세와 같다, ADR-20). LLM 호출은 **Worker 에서** 한다.
+ * 기기가 2 · 3라운드의 화면을 다시 세워 보낸다(`shownPages`) — 서버는 벡터를 모르니 **모양만** 본다(고른 얼굴이 그 화면에 있나).
+ * 기기가 화면을 지어 보내도 바뀌는 것은 그 사람 자신의 글뿐이다.
+ *
+ * LLM 이 실패하면 **글 없이** 저장된 행을 돌려준다 — 화면은 고른 얼굴의 낱말로 쓴 글(ADR-128)을 그린다.
+ * 실패는 적지 않는다 — 다음에 결과를 열면 다시 청한다. 문(`canOpenFun`)은 보지 않는다 — 이미 찾은 결과를 보는 일의 한 칸이다
+ */
+participantRoutes.post("/ideal/story", async (c) => {
+  if (c.env.IDEAL_STORY !== "1") return apiError(c, "not_found");
+  const seat = await seatOf(c);
+  if (!seat) return apiError(c, "unauthorized");
+  const ctx = await seat.stub.idealStoryContext(seat.playerId, serverNow());
+  if (!ctx.ok || !ctx.value.ideal) return apiError(c, "not_found");
+  const ideal = ctx.value.ideal;
+  if (ideal.story) return c.json(ideal);
+  // 화면은 지금 판의 규칙으로만 다시 세울 수 있다 — 옛 판의 결과에는 쓰지 않는다
+  if (ideal.v !== IDEAL_ASSET_V) return apiError(c, "closed");
+
+  const body: unknown = await c.req.json().catch(() => ({}));
+  const pages = readIdealStoryPages(body, ideal.picks);
+  if (!pages) return apiError(c, "bad_request");
+
+  const story = await makeIdealStory(c.env, idealStoryInput(ideal, pages), new URL(c.req.url).origin);
+  // 실패해도 화면은 멀쩡히 뜬다 (ADR-128 의 글). 그래서 세지 않으면 아무도 모른다
+  count(c.env, seat.eventId, { kind: "ideal_story", outcome: story ? "llm" : "fallback" });
+  if (!story) return c.json(ideal);
+  const { value, response } = unwrap(c, await seat.stub.saveIdealStory(seat.playerId, ideal.at, story, serverNow()));
+  return response ?? c.json(value);
 });
 
 /**

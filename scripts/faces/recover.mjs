@@ -14,7 +14,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_FACES } from "./work.mjs";
-import { IDEAL_ASSET_V, decodeVec, meanOf, nearestCelebs, pickRound, tasteCenters } from "../../src/shared/ideal.ts";
+import {
+  IDEAL_ASSET_V,
+  IDEAL_SHAPE,
+  decodeVec,
+  facesForStart,
+  meanOf,
+  nearestCelebs,
+  pickRound,
+  tasteCenters,
+} from "../../src/shared/ideal.ts";
 
 const SIGMA = Number(process.argv[2] ?? 0.15);
 let seed = Number(process.argv[3] ?? 7);
@@ -32,27 +41,32 @@ function load(v, g) {
   const f = JSON.parse(fs.readFileSync(path.join(DEFAULT_FACES, `v${v}`, `${g}.json`), "utf8"));
   const faces = f.faces.map((x) => ({ id: x.id, level: x.level, vec: decodeVec(x.v, f.dim, f.scale) }));
   const celebs = f.celebs.map((c) => ({ id: c.id, name: c.name, vec: decodeVec(c.v, f.dim, f.scale) }));
-  return { faces, celebs, vec: new Map(faces.map((x) => [x.id, x.vec])) };
+  return { faces, celebs, starts: f.starts, vec: new Map(faces.map((x) => [x.id, x.vec])) };
 }
 
-/** 고르는 방식 — 판(자산) · 한 화면 · 고를 수 · 넘기기 · 평균 하나로만 볼지 · 3라운드 결과 몫 */
+/**
+ * 고르는 방식 — 판(자산) · 한 화면 · 고를 수 · 넘기기 · 평균 하나로만 볼지 · 3라운드 결과 몫 · 첫 화면 묶음.
+ * `starts` 면 사람마다 묶음 번호를 무작위로 집는다 (ADR-136) — 없으면 모두 0번(자산의 단계 그대로)이다
+ */
 const ARMS = {
   v1: { v: 1, n: 6, pickMax: 3, rerolls: 0, single: true, reserve: 0 },
   v2: { v: IDEAL_ASSET_V, n: 9, pickMax: 5, rerolls: 1, reserve: 0 },
   "v2+남기기3": { v: IDEAL_ASSET_V, n: 9, pickMax: 5, rerolls: 1, reserve: 3 },
   "v2+남기기6": { v: IDEAL_ASSET_V, n: 9, pickMax: 5, rerolls: 1, reserve: 6 },
   "v2+남기기9": { v: IDEAL_ASSET_V, n: 9, pickMax: 5, rerolls: 1, reserve: 9 },
+  "v2+남기기6+묶음": { v: IDEAL_ASSET_V, n: 9, pickMax: 5, rerolls: 1, reserve: 6, starts: true },
 };
 
 function run(P, arm, targets) {
   return targets.map((ts) => {
     const like = (vec) => Math.max(...ts.map((t) => cos(vec, t.vec)));
+    const faces = arm.starts ? facesForStart(P.faces, P.starts, Math.floor(rnd() * IDEAL_SHAPE.starts)) : P.faces;
     const shown = new Set();
     const picks = [];
     for (let r = 1; r <= 3; r++) {
       const centers = r === 1 ? null : tasteCenters(picks.flat().map((id) => P.vec.get(id)));
       for (let flips = 0; ; ) {
-        const page = pickRound(P.faces, r, centers, shown, arm.n, arm.reserve);
+        const page = pickRound(faces, r, centers, shown, arm.n, arm.reserve);
         for (const f of page) shown.add(f.id);
         const sc = page.map((f) => ({ f, s: like(f.vec) + SIGMA * gauss() })).sort((a, b) => b.s - a.s);
         if (flips < arm.rerolls && sc[0].s < 0.2) {

@@ -135,7 +135,13 @@
          * 없으면 파라미터 자체를 안 보내 제공자 기본값으로 돈다. 그게 지금 참가자가 받는 것이다.
          * 다 재고 값이 정해지면 그때 옮긴다. 정할 게 없으면 **이 줄을 지운다.**
          */
-        "LLM_TEMPERATURE": "1.5"
+        "LLM_TEMPERATURE": "1.5",
+        /*
+         * 이상형 찾기의 설명글을 LLM 이 쓴다 (ADR-134) — **QA 에서 먼저 읽어 보려고 켠 것이다.**
+         * 같은 화면에서 고른 얼굴과 고르지 않은 얼굴을 보여 주고 차이를 받는다. 모델은 위의 `LLM_MODEL` 을 함께 쓴다.
+         * ⚠️ 프로덕션 vars 에는 없다 — `qa → main` 이 이 코드를 실어 나가도 꺼진 채다. 켜는 것은 운영자가 정한다
+         */
+        "IDEAL_STORY": "1"
       },
       "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "tone_pick_ops_qa" }],
       "r2_buckets": [{ "binding": "LOGS", "bucket_name": "tone-pick-qa-logs" }],

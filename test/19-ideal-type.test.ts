@@ -5,7 +5,8 @@
  * ideal.ts 가 내보내는 함수와 픽스처 풀만 쓴다.
  *
  *   같은 id 없음 · shown/exclude 절대 안 나옴 (S-B3 · S-C2)
- *   1라운드는 1단계를 자산 순서 그대로, 중심 무시 — 모두에게 같다. 두 번째 쪽은 shown 이 첫 쪽을 품을 때
+ *   1라운드는 1단계를 순서 그대로, 중심 무시. 두 번째 쪽은 shown 이 첫 쪽을 품을 때
+ *   어느 얼굴이 1 · 2단계인지는 첫 화면 묶음이 정한다 — 0 은 자산 그대로, 그 밖은 자산의 `starts` (ADR-136)
  *   2라운드는 2단계 후보를 코사인 내림차순
  *   3라운드는 전체에서 코사인 내림차순 + dupCos 닮은꼴 밀어내기. 빈 칸 금지
  *   meanOf 는 고른 벡터 전체의 단순 평균 — 라운드 가중 없음
@@ -24,15 +25,19 @@ import {
   IDEAL_SHAPE,
   TRAIT_SHAPE,
   decodeVec,
+  facesForStart,
   idealTraits,
   meanOf,
   normalizeIdeal,
   nearestCelebs,
+  parseIdealStory,
   pickRound,
   readIdealInput,
+  shownPages,
   tasteCenters,
   type DecodedCeleb,
   type DecodedFace,
+  type FaceStart,
   type Ideal,
   type TasteCenter,
 } from "../src/shared/ideal.ts";
@@ -132,7 +137,7 @@ describe("meanOf — 단순 평균", () => {
 
 // ─────────────────────────────────────────── pickRound
 
-describe("pickRound 1라운드 — 모두에게 같다", () => {
+describe("pickRound 1라운드 — 1단계를 순서 그대로, 중심은 보지 않는다", () => {
   it("1단계 여섯을 자산 순서 그대로 준다", () => {
     const r1 = pickRound(FACES, 1, null, new Set(), N6);
     expect(ids(r1)).toEqual(L1);
@@ -356,7 +361,7 @@ describe("tasteCenters — 멀리 갈린 두 무리만 둘로 본다", () => {
     expect(out[0].weight).toBe(4);
   });
 
-  it("문턱은 splitCos(−0.2) — 95° 벌어진 두 무리는 하나, 110° 는 둘", () => {
+  it("문턱은 splitCos(−0.3) — 95° 벌어진 두 무리는 하나, 110° 는 둘", () => {
     // 평균이 5° · 100° (95° 차, cos ≈ −0.09) → 하나
     expect(tasteCenters([0, 10, 95, 105].map(fvec))).toHaveLength(1);
     // 평균이 5° · 115° (110° 차, cos ≈ −0.34) → 둘
@@ -396,7 +401,7 @@ describe("tasteCenters — 멀리 갈린 두 무리만 둘로 본다", () => {
   });
 });
 
-describe("pickRound 1라운드 — 모두에게 같은 두 쪽 (아홉 + 아홉)", () => {
+describe("pickRound 1라운드 — 두 쪽 (아홉 + 아홉)", () => {
   /** 1단계 열여덟 — 자산 순서가 각도 순서가 아니다 (정렬하지 않는다는 것을 보려고) */
   const PAGES: DecodedFace[] = [
     ...Array.from({ length: IDEAL_SHAPE.level1 }, (_, i): DecodedFace => ({
@@ -426,6 +431,84 @@ describe("pickRound 1라운드 — 모두에게 같은 두 쪽 (아홉 + 아홉)
 
   it("두 쪽을 다 봤으면 1단계는 더 없다 — 2단계로 넘치지 않는다", () => {
     expect(pickRound(PAGES, 1, null, new Set([...PAGE1, ...PAGE2]))).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────── 첫 화면 묶음 (ADR-136)
+
+describe("facesForStart — 첫 화면 묶음: 무리의 대표를 찾을 때마다 바꿔 든다 (ADR-136)", () => {
+  /*
+   * 지금 판의 모양 — 1단계 18 · 2단계 36 · 3단계 30. 묶음은 자산이 미리 실어 둔다: 0 은 자산의 1 · 2단계 그대로,
+   * k(1~) 는 `starts[k - 1]`. 아래 묶음은 일부러 자리를 뒤섞는다 — 3단계에서 1단계를, 1단계에서 2단계를 든다
+   */
+  const L1F = Array.from({ length: 18 }, (_, i) => face("a", i * 20, 1));
+  const L2F = Array.from({ length: 36 }, (_, i) => face("b", i * 10 + 5, 2));
+  const L3F = Array.from({ length: 30 }, (_, i) => face("c", i * 12 + 2, 3));
+  const ASSET = [...L1F, ...L2F, ...L3F];
+  const ALT: FaceStart = {
+    l1: [...ids(L3F.slice(0, 9)).reverse(), ...ids(L2F.slice(0, 9))],
+    l2: [...ids(L1F), ...ids(L3F.slice(9, 27))],
+  };
+  const STARTS = [ALT];
+  const vecs = new Map(ASSET.map((f) => [f.id, f.vec]));
+  const lv = (fs: readonly DecodedFace[]) => fs.map((f) => `${f.id}:${f.level}`);
+  const at = (fs: readonly DecodedFace[], level: 1 | 2 | 3) => ids(fs.filter((f) => f.level === level));
+
+  it("★ 0 은 자산 그대로 — 순서도 단계도", () => {
+    expect(lv(facesForStart(ASSET, STARTS, 0))).toEqual(lv(ASSET));
+  });
+
+  it("★ 묶음을 고르면 그 1단계가 그 순서대로 1단계, 그 2단계가 2단계, 나머지는 모두 3단계다 — 빠지거나 겹치는 얼굴이 없다", () => {
+    const got = facesForStart(ASSET, STARTS, 1);
+    expect(at(got, 1)).toEqual(ALT.l1);
+    expect(new Set(at(got, 2))).toEqual(new Set(ALT.l2));
+    expect(at(got, 3)).toHaveLength(ASSET.length - ALT.l1.length - ALT.l2.length);
+    expect(got).toHaveLength(ASSET.length);
+    expect(new Set(ids(got))).toEqual(new Set(ids(ASSET)));
+    // 벡터는 그 사람 것 그대로 — 자리만 바뀐다
+    for (const f of got) expect(f.vec).toEqual(vecs.get(f.id));
+  });
+
+  it("★ 1라운드는 그 묶음의 첫 쪽 아홉, 넘기면 둘째 쪽 아홉 · 2라운드는 그 묶음의 2단계에서만 고른다", () => {
+    const faces = facesForStart(ASSET, STARTS, 1);
+    expect(ids(pickRound(faces, 1, null, new Set()))).toEqual(ALT.l1.slice(0, 9));
+    expect(ids(pickRound(faces, 1, null, new Set(ALT.l1.slice(0, 9))))).toEqual(ALT.l1.slice(9, 18));
+    const r2 = pickRound(faces, 2, one(fvec(100)), new Set(ALT.l1));
+    expect(r2).toHaveLength(IDEAL_SHAPE.faces);
+    expect(ids(r2).every((id) => ALT.l2.includes(id))).toBe(true);
+  });
+
+  it("★ 그 사람이 본 화면은 묶음째 다시 선다 — 묶음 번호가 없으면 다른 화면이 선다 (shownPages)", () => {
+    const faces = facesForStart(ASSET, STARTS, 1);
+    // 1라운드는 넘긴 쪽(둘째 쪽)에서 하나를 골랐다
+    const page1 = ALT.l1.slice(9, 18);
+    const page2 = ids(pickRound(faces, 2, tasteCenters([vecs.get(page1[0])!]), new Set(ALT.l1)));
+    const page3 = ids(
+      pickRound(faces, 3, tasteCenters([page1[0], page2[0]].map((id) => vecs.get(id)!)), new Set([...ALT.l1, ...page2])),
+    );
+    const picks = [[page1[0]], [page2[0]], [page3[0]]];
+    expect(shownPages(faces, vecs, picks)).toEqual([page1, page2, page3]);
+    expect(shownPages(ASSET, vecs, picks)[0]).not.toEqual(page1);
+  });
+
+  it("★ 묶음이 없는 판(v5 까지) · 범위 밖 · 모양이 어긋난 묶음은 자산 그대로다 — 빈 칸을 만들지 않는다", () => {
+    const cases: Array<[string, readonly FaceStart[] | undefined, number | undefined]> = [
+      ["묶음이 없는 판", undefined, 1],
+      ["범위 밖", STARTS, 2],
+      ["음수", STARTS, -1],
+      ["소수", STARTS, 0.5],
+      ["번호 없음", STARTS, undefined],
+      ["없는 id", [{ ...ALT, l1: [...ALT.l1.slice(0, 17), "zz999"] }], 1],
+      ["1단계 수가 자산과 다르다", [{ ...ALT, l1: ALT.l1.slice(0, 17) }], 1],
+      ["2단계 수가 자산과 다르다", [{ ...ALT, l2: ALT.l2.slice(0, 35) }], 1],
+      ["1 · 2단계가 겹친다", [{ ...ALT, l2: [ALT.l1[0], ...ALT.l2.slice(1)] }], 1],
+      ["한 단계 안에서 겹친다", [{ ...ALT, l1: [ALT.l1[0], ...ALT.l1.slice(0, 17)] }], 1],
+    ];
+    for (const [why, starts, start] of cases) expect(lv(facesForStart(ASSET, starts, start)), why).toEqual(lv(ASSET));
+  });
+
+  it("같은 입력이면 같은 출력", () => {
+    expect(lv(facesForStart(ASSET, STARTS, 1))).toEqual(lv(facesForStart(ASSET, STARTS, 1)));
   });
 });
 
@@ -570,6 +653,31 @@ describe("readIdealInput — 라운드마다 1~5", () => {
   });
 });
 
+describe("readIdealInput — 첫 화면 묶음 번호 (ADR-136)", () => {
+  const base = {
+    v: 6,
+    pool: "M",
+    picks: [["zz0001"], ["zz0002"], ["zz0003"]],
+    result: ["zz0101", "zz0102", "zz0103"],
+  };
+
+  it("★ 0 ~ (묶음 수 − 1) 의 정수를 받아 담는다", () => {
+    for (const start of [0, 1, IDEAL_SHAPE.starts - 1]) expect(readIdealInput({ ...base, start })?.start).toBe(start);
+  });
+
+  it("★ 없으면 없는 채로 받는다 — v5 까지의 결과, 배포 전에 열어 둔 탭이다", () => {
+    const got = readIdealInput(base);
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("start");
+  });
+
+  it("★ 그 밖은 막는다", () => {
+    for (const start of [-1, IDEAL_SHAPE.starts, 1.5, "1", null, [1], true]) {
+      expect(readIdealInput({ ...base, start }), JSON.stringify(start)).toBeNull();
+    }
+  });
+});
+
 // ─────────────────────────────────────────── 끌린 얼굴의 특징 (ADR-127)
 
 describe("idealTraits — 고른 얼굴의 절반 이상이 가졌고, 풀보다 두드러진 낱말만", () => {
@@ -641,5 +749,69 @@ describe("normalizeIdeal — v2 까지의 한 명짜리 정답을 배열로 편�
       const row = { ...base, ...(v ? { verdict: v } : {}) } as Ideal;
       expect(normalizeIdeal(row)).toEqual(row);
     }
+  });
+});
+
+// ─────────────────────────────────────────── 설명글 (ADR-134)
+
+describe("shownPages — 고른 얼굴만으로 그 사람이 본 화면을 다시 세운다 (ADR-134)", () => {
+  /*
+   * 지금 판의 모양(한 화면 아홉 · 1단계 두 쪽 · 결과 몫)으로 돌아야 한다 — 픽스처 풀은 여섯(v1)으로 셈해 둬서 넘긴 쪽이 비어 버린다.
+   * 그래서 인라인 풀이다: 1단계 18 · 2단계 36 · 3단계 72 가 원 위에 고루 선다
+   */
+  const POOL9: DecodedFace[] = [
+    ...Array.from({ length: 18 }, (_, i) => face("a", i * 20, 1)),
+    ...Array.from({ length: 36 }, (_, i) => face("b", i * 10 + 5, 2)),
+    ...Array.from({ length: 72 }, (_, i) => face("c", i * 5 + 1, 3)),
+  ];
+  const vecs = new Map(POOL9.map((f) => [f.id, f.vec]));
+
+  /** 화면이 라운드를 세우는 그대로(`roundsOf`) — 라운드마다 `다른 얼굴 보기` 를 flips[r] 번 누르고, 그 쪽에서 고른다 */
+  function play(flips: readonly number[], pick: (page: string[]) => string[]) {
+    const shown = new Set<string>();
+    const picks: string[][] = [];
+    const pages: string[][] = [];
+    for (let r = 1; r <= IDEAL_SHAPE.rounds; r++) {
+      const centers = r === 1 ? null : tasteCenters(picks.flat().map((id) => vecs.get(id)!));
+      let page: DecodedFace[] = [];
+      for (let k = 0; k <= flips[r - 1]; k++) {
+        page = pickRound(POOL9, r as 1 | 2 | 3, centers, shown);
+        for (const f of page) shown.add(f.id);
+      }
+      pages.push(ids(page));
+      picks.push(pick(ids(page)));
+    }
+    return { picks, pages };
+  }
+
+  it("★ 넘긴 쪽까지 — 고른 얼굴이 첫 쪽에 없으면 둘째 쪽을 본 것이다. 저장된 것(고른 얼굴)만으로 화면이 그대로 선다", () => {
+    for (const flips of [
+      [0, 0, 0],
+      [1, 0, 0],
+      [0, 1, 1],
+      [1, 1, 1],
+    ]) {
+      for (const pick of [(p: string[]) => [p[1], p[4]], (p: string[]) => [p[8]], (p: string[]) => p.slice(0, 5)]) {
+        const { picks, pages } = play(flips, pick);
+        expect(pages.every((p) => p.length === IDEAL_SHAPE.faces)).toBe(true);
+        expect(shownPages(POOL9, vecs, picks), `넘김 ${flips.join(",")}`).toEqual(pages);
+      }
+    }
+  });
+});
+
+describe("parseIdealStory — LLM 의 답에서 글을 꺼낸다 (ADR-134)", () => {
+  const text = "같은 화면의 다른 얼굴보다 눈꼬리가 살짝 올라간 얼굴을 더 골랐어요. 사람들은 이런 얼굴에서 또렷한 인상을 먼저 받아요.";
+
+  it("JSON 이면 글을 꺼낸다 — 코드 울타리를 벗기고, 공백을 한 칸으로 모은다", () => {
+    expect(parseIdealStory(JSON.stringify({ text }))).toBe(text);
+    expect(parseIdealStory("```json\n" + JSON.stringify({ text: text.replace(". ", ".\n\n  ") }) + "\n```")).toBe(text);
+  });
+
+  it("형식이 어긋나거나 길이가 밖이면 버린다 — 화면에 올리지 않는다", () => {
+    expect(parseIdealStory("그냥 문장")).toBeNull();
+    expect(parseIdealStory(JSON.stringify({ story: text }))).toBeNull();
+    expect(parseIdealStory(JSON.stringify({ text: "짧다" }))).toBeNull();
+    expect(parseIdealStory(JSON.stringify({ text: text.repeat(4) }))).toBeNull();
   });
 });

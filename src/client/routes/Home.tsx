@@ -55,8 +55,8 @@ export default function Home({
   onSeat: () => void;
   /** 진행 방식을 다시 여는 길 (슬라이스 21). 등록 중에만 카드에 붙는다 */
   onHelp: () => void;
-  /** 설문에 답한다 (슬라이스 27). 서버가 돌려준 그 설문 하나로 화면이 바뀐다 */
-  onVote: (id: string, choice: PollChoice) => Promise<void>;
+  /** 설문에 답한다 (슬라이스 27). `null` 은 답을 거두는 것이다. 서버가 돌려준 그 설문 하나로 화면이 바뀐다 */
+  onVote: (id: string, choice: PollChoice | null) => Promise<void>;
 }) {
   const { phase, schedule } = state.event;
   const seat = state.seat;
@@ -191,22 +191,24 @@ export default function Home({
 
 /**
  * 운영자 설문 (슬라이스 27, ADR-88). **숫자가 없다** — 선택지 둘이 버튼이고, 고르면 그 버튼이 눌린 채로 남는다.
+ * 고른 버튼을 한 번 더 누르면 답이 빠진다 — 미응답으로 돌아간다 (ADR-88 후기).
  * 몇 명이 무엇을 골랐는지는 운영자가 정하려고 묻는 것이라 참가자 화면에는 없다.
  * 열린 설문이 위, 마감된 설문은 내 답만 남긴 채 아래로 내려간다.
  */
-function Polls({ state, onVote }: { state: ParticipantState; onVote: (id: string, choice: PollChoice) => Promise<void> }) {
+function Polls({ state, onVote }: { state: ParticipantState; onVote: (id: string, choice: PollChoice | null) => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
   /*
    * 고른 쪽을 **서버 답보다 먼저** 눌린 채로 그린다. 파티장 와이파이에서 답이 1초 넘게 걸리면
-   * 눌렀는데 아무 일이 없는 버튼이 된다. 답이 오면 서버 값이 이어받고, 거절되면 지워서 되돌린다
+   * 눌렀는데 아무 일이 없는 버튼이 된다. 답이 오면 서버 값이 이어받고, 거절되면 지워서 되돌린다.
+   * `choice: null` 은 **답을 거두는 중**이다 — `picked` 자체가 없는 것(서버 값을 그린다)과 다르다
    */
-  const [picked, setPicked] = useState<{ id: string; choice: PollChoice } | null>(null);
+  const [picked, setPicked] = useState<{ id: string; choice: PollChoice | null } | null>(null);
   const polls = state.announcements
     .filter((a) => a.poll)
     .sort((x, y) => Number(x.poll!.closed) - Number(y.poll!.closed));
   if (polls.length === 0) return null;
 
-  async function pick(id: string, choice: PollChoice) {
+  async function pick(id: string, choice: PollChoice | null) {
     setBusy(id);
     setPicked({ id, choice });
     try {
@@ -233,8 +235,15 @@ function Polls({ state, onVote }: { state: ParticipantState; onVote: (id: string
                 <div className="small dim">{poll.mine ? POLL.closedMine(poll[poll.mine]) : POLL.closed}</div>
               ) : (
                 <div className="choice">
+                  {/* 뒤집기는 여기서 한다. 서버에는 바라는 상태를 보낸다 — 고른 것을 누르면 `null` */}
                   {(["a", "b"] as const).map((c) => (
-                    <button key={c} type="button" aria-pressed={mine === c} disabled={busy === a.id} onClick={() => pick(a.id, c)}>
+                    <button
+                      key={c}
+                      type="button"
+                      aria-pressed={mine === c}
+                      disabled={busy === a.id}
+                      onClick={() => pick(a.id, mine === c ? null : c)}
+                    >
                       {poll[c]}
                     </button>
                   ))}

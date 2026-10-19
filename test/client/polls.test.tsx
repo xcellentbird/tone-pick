@@ -2,13 +2,14 @@
  * 슬라이스 27 — 설문 화면 (ADR-88)
  *
  *   운영자   설문 탭에서 카드를 누르면 답으로 걸러진 참가자 카드가 나온다 — 누가 무엇을 골랐는지
- *   참가자   홈의 설문 카드에는 **숫자가 없다.** 선택지 둘이 버튼이고, 고르면 눌린 채로 남는다
+ *   참가자   홈의 설문 카드에는 **숫자가 없다.** 선택지 둘이 버튼이고, 고르면 눌린 채로 남는다.
+ *            고른 것을 한 번 더 누르면 답이 빠진다 — 미응답이다 (ADR-88 후기)
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router";
 import { FAIL, HOST_UI, POLL } from "../../src/shared/copy.ts";
-import type { HostState, ParticipantState, PublicAnnouncement } from "../../src/shared/types.ts";
+import type { HostState, ParticipantState, PollChoice, PublicAnnouncement } from "../../src/shared/types.ts";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
 import { HOST_CONSOLE_ROUTES } from "../../src/client/router.tsx";
 import HostConsole from "../../src/client/routes/host/HostConsole.tsx";
@@ -141,7 +142,7 @@ describe("참가자 설문 카드", () => {
     note: { budget: { max: 0, used: 0 }, sent: {}, received: [], unread: 0 },
     announcements: [poll],
   });
-  const voted: Array<[string, string]> = [];
+  const voted: Array<[string, PollChoice | null]> = [];
   const source: ParticipantSource = {
     key: "test",
     load: async () => state(),
@@ -153,7 +154,7 @@ describe("참가자 설문 카드", () => {
     ackSeat: async () => {},
     vote: async (id, choice) => {
       voted.push([id, choice]);
-      return { ...poll, poll: { ...poll.poll!, mine: choice } };
+      return { ...poll, poll: { ...poll.poll!, ...(choice ? { mine: choice } : {}) } };
     },
     saveProfile: async (input) => ({ ...state().me, ...input }),
   };
@@ -185,7 +186,8 @@ describe("참가자 설문 카드", () => {
       ...source,
       vote: (id, choice) =>
         new Promise((resolve, reject) => {
-          settle = (ok) => (ok ? resolve({ ...poll, poll: { ...poll.poll!, mine: choice } }) : reject(new Error("closed")));
+          settle = (ok) =>
+            ok ? resolve({ ...poll, poll: { ...poll.poll!, ...(choice ? { mine: choice } : {}) } }) : reject(new Error("closed"));
         }),
     };
     render(
@@ -205,5 +207,50 @@ describe("참가자 설문 카드", () => {
     expect(a.getAttribute("aria-pressed")).toBe("true");
     await act(async () => settle(true));
     expect(a.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("★ 고른 버튼을 한 번 더 누르면 답이 빠진다 — 미응답으로 돌아가고, 다시 고를 수 있다", async () => {
+    /*
+     * 화면은 뒤집지 않고 **바라는 상태**를 보낸다 — 고른 것을 누르면 `null` (ADR-88 후기).
+     * 빠지는 것도 서버 답을 기다리지 않는다. 그 사이 운영자가 마감했으면 고른 채로 되돌아간다
+     */
+    let settle: (ok: boolean) => void = () => {};
+    const sent: Array<PollChoice | null> = [];
+    const answered: ParticipantSource = {
+      ...source,
+      load: async () => ({ ...state(), announcements: [{ ...poll, poll: { ...poll.poll!, mine: "a" } }] }),
+      vote: (_id, choice) => {
+        sent.push(choice);
+        return new Promise((resolve, reject) => {
+          settle = (ok) =>
+            ok ? resolve({ ...poll, poll: { ...poll.poll!, ...(choice ? { mine: choice } : {}) } }) : reject(new Error("closed"));
+        });
+      },
+    };
+    render(
+      <MemoryRouter>
+        <ParticipantView source={answered} tab="home" onTab={() => {}} onProfile={() => {}} onNote={() => {}} onEdit={() => {}} onSeat={() => {}} helpOpen={false} onHelp={() => {}} />
+      </MemoryRouter>,
+    );
+    await screen.findByText("2차 갈래요?");
+    const a = screen.getByRole("button", { name: "갈래요" });
+    const b = screen.getByRole("button", { name: "못 가요" });
+    expect(a.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(a);
+    expect(a.getAttribute("aria-pressed"), "서버 답이 오기 전에 빠져 보여야 한다").toBe("false");
+    expect(sent).toEqual([null]);
+    await act(async () => settle(false));
+    await waitFor(() => expect(a.getAttribute("aria-pressed"), "거절됐는데 빠진 채로 남았다").toBe("true"));
+
+    fireEvent.click(a);
+    await act(async () => settle(true));
+    expect(a.getAttribute("aria-pressed")).toBe("false");
+    expect(b.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(b);
+    await act(async () => settle(true));
+    expect(b.getAttribute("aria-pressed")).toBe("true");
+    expect(sent).toEqual([null, null, "b"]);
   });
 });

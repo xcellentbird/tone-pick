@@ -1,4 +1,24 @@
-# face.py 의 파이썬 의존성 — v1 을 만든 판으로 묶는다 (크롭은 OpenCV 의 보간 · webp 인코더를 탄다)
-# python3 -m venv .faces-work/venv && .faces-work/venv/bin/pip install -r scripts/faces/requirements.txt
+# face.py 의 파이썬 의존성 — 판까지 전부 적었다 (크롭은 OpenCV 의 보간 · webp 인코더를 타고, 벡터는 SFace · MediaPipe 를 탄다)
+# python3.12 -m venv .faces-work/venv && .faces-work/venv/bin/pip install --no-deps -r scripts/faces/requirements.txt
+# **`--no-deps` 로 받는다** — mediapipe 가 제 의존성으로 opencv-contrib-python 을 끌고 와 아래 OpenCV 와 겹친다(둘 다 cv2 다).
+# face.py 는 Tasks API 만 쓰고 그쪽은 cv2 를 부르지 않는다. 그래서 그 경고(`requires opencv-contrib-python`)는 무시한다
 opencv-python-headless==5.0.0.93
 numpy==2.5.3
+# 얼굴 메시 (v4 부터, ADR-132) — face.py mesh 만 읽는다
+mediapipe==1.0.1
+absl-py==2.5.0
+flatbuffers==25.12.19
+certifi==2026.7.22
+sounddevice==0.5.6
+cffi==2.1.1
+pycparser==3.0
+matplotlib==3.11.2
+contourpy==1.4.0
+cycler==0.12.1
+fonttools==4.66.1
+kiwisolver==1.5.1
+packaging==26.3
+pillow==12.3.0
+pyparsing==3.3.3
+python-dateutil==2.9.0.post0
+six==1.17.0
