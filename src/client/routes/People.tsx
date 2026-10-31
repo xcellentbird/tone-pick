@@ -124,7 +124,7 @@ export default function People({
 
   // ── 익명 쪽지 (슬라이스 36, ADR-98)
   const noteBudget = state.note.budget;
-  /** 이 회차에 익명 쪽지가 있고, 지금이 그 창인가. **매력 투표부터 발표 전까지다** (ADR-111) */
+  /** 이 회차에 익명 쪽지가 있고, 지금이 그 창인가. **매력 투표부터, 매칭 확인 뒤에도** (ADR-111 · ADR-140) */
   const noteOn = noteBudget.max > 0 && canNote(state.event.phase);
   const noteLeft = Math.max(0, noteBudget.max - noteBudget.used);
   /**
@@ -496,11 +496,10 @@ export default function People({
               </div>
               {/*
                 ✉️ 는 👉 **옆에 같은 크기로** 선다 (ADR-98 후기 3) — 이 사람에게 할 수 있는 일이 한 줄에 모인다.
-                프로필 투표부터 파티까지만 있다 (`canNote`, ADR-111). 잠긴 버튼을 미리 세우지 않는다 (ADR-96 의 방향).
+                프로필 투표부터 선다 (`canNote`, ADR-111). 잠긴 버튼을 미리 세우지 않는다 (ADR-96 의 방향).
+                **매칭 확인 뒤에도 남는다** (ADR-140) — 👉 만 사라진다. 두 창을 이 자리에서 다시 묶지 마라 (`!revealed`)
               */}
-              {noteOn && !revealed && (
-                <NoteControls count={sentHere} covered={covered} spent={noteLeft === 0} onOpen={openNote} />
-              )}
+              {noteOn && <NoteControls count={sentHere} covered={covered} spent={noteLeft === 0} onOpen={openNote} />}
               {!revealed && (
                 <PokeControls
                   count={state.poke.sentTo[profile.id] ?? 0}

@@ -599,14 +599,15 @@ function Loaded({
    * 파티 중에 0 과 1~5 사이를 오갈 때마다(굳지 않는다) 그 칸이 늘었다 줄었다 한다.
    *
    * **켜져 있나는 따로다** (`inboxLive`). 쓰는 창(`canNote`)과 함께 매력 투표에 켜지고, 발표 뒤에도 켜져 있다 —
-   * 온 쪽지는 끝까지 읽을 수 있어야 한다. 쪽지를 0장으로 둔 회차는 꺼진 채다.
+   * 온 쪽지는 끝까지 읽을 수 있어야 한다. 이제는 쓰는 창도 발표 뒤에 열려 있어서(ADR-140) 따로 적던 `done` 이
+   * `canNote` 안으로 들어갔다. 쪽지를 0장으로 둔 회차는 꺼진 채다.
    * **주고받은 것이 하나라도 있으면 언제든 켜진다** — 운영자가 0 으로 내린 회차가 곧 괴롭힘이 있었던 회차이고,
    * 거기서 이미 온 쪽지도 읽을 수 있어야 한다 (도움말 문답과 같은 조건). 단계를 뒤로 물린 회차도 같다.
    */
   const note = state.note;
   const hasNotes = note.received.length > 0 || Object.keys(note.sent).length > 0;
   const notesOn = (state.event.config.maxNotes ?? 0) > 0;
-  const inboxLive = hasNotes || (notesOn && (canNote(state.event.phase) || state.event.phase === "done"));
+  const inboxLive = hasNotes || (notesOn && canNote(state.event.phase));
   /** 꺼져 있을 때 누르면 말할 한 줄. 끈 회차는 단계가 와도 안 켜지므로 `언제부터` 를 말하면 거짓이다 */
   const inboxOff = inboxLive ? undefined : notesOn ? NOTE.inbox.notYet : NOTE.inbox.off;
   useEffect(() => {
