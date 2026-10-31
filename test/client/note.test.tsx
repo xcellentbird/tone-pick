@@ -16,7 +16,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
-import { NOTE, PEOPLE } from "../../src/shared/copy.ts";
+// `POKE` 는 이 파일의 콕 상태 재료 이름이다 — 콕 문구는 이름을 바꿔 들인다
+import { NOTE, PEOPLE, POKE as POKE_COPY } from "../../src/shared/copy.ts";
 import type { MyNoteState, MyPokeState, ParticipantState, Phase } from "../../src/shared/types.ts";
 import { ParticipantView } from "../../src/client/routes/Participant.tsx";
 import type { ParticipantSource } from "../../src/client/lib/participant.ts";
@@ -45,7 +46,14 @@ function stateOf(note: MyNoteState = EMPTY, over: { phase?: Phase; maxNotes?: nu
       name: "테스트 파티",
       code: "ABCDEF",
       phase,
-      fired: phase === "party" ? { reg: 1, prevote: 2, party: 3 } : phase === "prevote" ? { reg: 1, prevote: 2 } : { reg: 1 },
+      fired:
+        phase === "done"
+          ? { reg: 1, prevote: 2, party: 3, done: 4 }
+          : phase === "party"
+            ? { reg: 1, prevote: 2, party: 3 }
+            : phase === "prevote"
+              ? { reg: 1, prevote: 2 }
+              : { reg: 1 },
       schedule: { partyAt: Date.now() - 3600_000 },
       config: { maxPre: 3, maxParty: 2, maxNotes: over.maxNotes ?? 2 },
     },
@@ -60,7 +68,7 @@ function stateOf(note: MyNoteState = EMPTY, over: { phase?: Phase; maxNotes?: nu
       mbti: "ENFP",
       charms: ["하나", "둘", "셋"],
       createdAt: 1,
-      seenStage: phase === "party" ? "party" : "prevote",
+      seenStage: phase === "party" || phase === "done" ? "party" : "prevote",
     },
     roster: [{ id: "her", nickname: "그녀", age: 29, gender: "F", mbti: "ISFJ", charms: ["매력가", "매력나", "매력다"] }],
     poke: POKE,
@@ -237,6 +245,39 @@ describe("쓰는 입구 — 프로필 시트의 ✉️", () => {
     mount(sourceOf(stateOf(EMPTY, { phase: "reg" })), { profileId: "her" });
     await ready();
     expect(screen.queryByRole("button", { name: NOTE.writeLabel })).toBeNull();
+  });
+
+  it("★ 매칭 확인 뒤에도 선다 — 👉 는 사라져도 ✉️ 는 남고, 작성 시트가 열린다 (ADR-140)", async () => {
+    /*
+     * 파티가 끝난 뒤에도 쓴다. 콕은 매칭 확인과 함께 닫힌다 — 두 창은 묶지 않는다 (`canNote` · `canPoke`).
+     * 프로필 시트의 머리 줄에는 ✉️ 하나만 남는다.
+     */
+    const opened: boolean[] = [];
+    mount(sourceOf(stateOf(EMPTY, { phase: "done" })), { profileId: "her", onNote: (on) => opened.push(on) });
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: NOTE.writeLabel }));
+    expect(opened).toEqual([true]);
+    for (const round of ["pre", "party"] as const) {
+      expect(screen.queryByRole("button", { name: POKE_COPY.confirm.submit(round) }), round).toBeNull();
+    }
+    cleanup();
+
+    // 주소로 연 작성 시트가 프로필 시트로 갈아끼워지지 않는다 — 조건이 맞는 주소다
+    const closed: boolean[] = [];
+    mount(sourceOf(stateOf(EMPTY, { phase: "done" })), { profileId: "her", noteOpen: true, onNote: (on) => closed.push(on) });
+    expect(await screen.findByLabelText(NOTE.compose.label)).toBeTruthy();
+    expect(closed, "작성 시트가 닫혔다").toEqual([]);
+  });
+
+  it("★ 매칭 확인 카드에는 남은 장 수를 세우지 않는다 — 결과 옆에서 쪽지를 내밀지 않는다 (ADR-140)", async () => {
+    /*
+     * 쓰는 창은 열려 있어도 홈의 결과 카드는 결과만 말한다. 서로 닿지 않은 사람에게 `익명 쪽지 2장 남음` 이
+     * 결과 문장 바로 밑에 서면 *그럼 쪽지라도* 로 읽힌다 — ADR-98 이 `발표 뒤에만` 을 버린 이유(위로 편지)를
+     * 앱이 먼저 내미는 꼴이 된다. ✉️ 는 프로필 시트에 놓여 있고, 남은 장 수는 보내기 확인창이 말한다.
+     */
+    mount(sourceOf(stateOf(EMPTY, { phase: "done" })), { tab: "home" });
+    await ready();
+    for (const n of [1, 2]) expect(screen.queryByText(NOTE.left(n))).toBeNull();
   });
 
   it("★ 쓰던 글은 그 사람 것이다 — 다른 사람의 작성 시트로 따라가지 않는다", async () => {
@@ -571,6 +612,15 @@ describe("익명 쪽지함 — 쓰는 곳은 프로필 시트이고, 쪽지함�
     expect(inbox().getByText(NOTE.inbox.howTo)).toBeTruthy();
     fireEvent.click(inbox().getByRole("button", { name: NOTE.inbox.sent }));
     expect(inbox().getAllByText(NOTE.inbox.howTo)).toHaveLength(1);
+    expect(inbox().queryByText(NOTE.inbox.sentNone)).toBeNull();
+  });
+
+  it("★ 매칭 확인 뒤에도 쓰는 곳을 말한다 — 파티가 끝나도 쓸 수 있다 (ADR-140)", async () => {
+    // 한동안 발표가 이 줄을 지웠다 — 쓸 수 없는 때였다. 이제 쓸 수 있으니 `보낸 쪽지가 없어요` 가 아니다
+    mount(sourceOf(stateOf(EMPTY, { phase: "done" })), { tab: "home", notesOpen: true });
+    await screen.findByText(NOTE.inbox.title);
+    expect(inbox().getByText(NOTE.inbox.howTo)).toBeTruthy();
+    fireEvent.click(inbox().getByRole("button", { name: NOTE.inbox.sent }));
     expect(inbox().queryByText(NOTE.inbox.sentNone)).toBeNull();
   });
 

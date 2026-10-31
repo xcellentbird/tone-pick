@@ -1117,7 +1117,7 @@ export class EventDO extends DurableObject {
   async sendNote(fromId: string, toId: string, rawText: unknown, now: number): Promise<Result<MyNoteState>> {
     const meta = await this.touch(now);
     if (!meta) return fail("not_found");
-    // 매력 투표 시작부터 발표까지다 (ADR-111). 한동안 파티부터였다
+    // 매력 투표가 시작되면 열리고 매칭 확인 뒤에도 열려 있다 (ADR-111 · ADR-140). 한동안 파티부터, 발표까지였다
     if (!canNote(meta.phase)) return fail("closed");
 
     const max = meta.config.maxNotes ?? 0;

@@ -40,8 +40,8 @@ async function party(config: Partial<EventConfig> = { maxNotes: 2 }) {
 // ─────────────────────────────────────────── A. 보내기
 
 describe("보내기", () => {
-  it("★ 프로필 투표부터 보낸다 — 등록 중과 발표 뒤에는 409 closed (ADR-111)", async () => {
-    // 장 수를 넉넉히 둔다 — 발표 뒤의 409 가 장 수가 아니라 단계 때문인지 가려야 한다
+  it("★ 프로필 투표부터 보낸다 — 등록 중에는 409 closed, 매칭 확인 뒤에도 보낸다 (ADR-111 · ADR-140)", async () => {
+    // 장 수를 넉넉히 둔다 — 200 과 409 가 장 수가 아니라 단계 때문인지 가려야 한다
     const ev = await freshEvent({ maxNotes: 5 });
     const a = await join(ev, { gender: "M" });
     const b = await join(ev, { gender: "F" });
@@ -56,14 +56,16 @@ describe("보내기", () => {
     expect((await send(a.cookie, b.id)).status, "매력 투표 중").toBe(200);
     await setPhase(ev.id, "party");
     expect((await send(a.cookie, b.id)).status, "파티 중").toBe(200);
+    // 파티가 끝나도 닫지 않는다 (ADR-140) — 한동안 발표가 쓰는 창을 닫았다. 콕은 그대로 닫힌다
     await setPhase(ev.id, "done");
-    await closed("발표 뒤");
+    expect((await send(a.cookie, b.id)).status, "매칭 확인 뒤").toBe(200);
   });
 
-  it("★ 장 수는 회차에 한 벌이다 — 매력 투표에 쓴 장은 파티가 시작돼도 돌아오지 않는다 (ADR-111)", async () => {
+  it("★ 장 수는 회차에 한 벌이다 — 매력 투표에 쓴 장은 파티가 시작돼도, 매칭 확인이 시작돼도 돌아오지 않는다 (ADR-111 · ADR-140)", async () => {
     /*
      * 콕은 라운드마다 새로 받지만(`pre` · `party`) 익명 쪽지는 아니다. 한 사람이 쓸 수 있는 장 수가 곧
      * 한 사람에게 갈 수 있는 최대다 (ADR-98 후기 1) — 파티에서 다시 채우면 같은 사람에게 두 배가 간다.
+     * 매칭 확인 뒤에 창이 열려 있어도(ADR-140) 같다 — 거기서 채우면 *파티가 끝난 뒤의 몫* 이 하나 더 생긴다.
      */
     const ev = await freshEvent({ maxNotes: 2 });
     const a = await join(ev, { gender: "M" });
@@ -71,12 +73,14 @@ describe("보내기", () => {
     await setPhase(ev.id, "prevote");
     await send(a.cookie, b.id);
     await send(a.cookie, b.id);
-    await setPhase(ev.id, "party");
 
-    const res = await send(a.cookie, b.id);
-    expect(res.status).toBe(409);
-    expect((res.body as unknown as { error: string }).error).toBe("no_budget");
-    expect((await me(a.cookie, ev.code)).body.note.budget).toEqual({ max: 2, used: 2 });
+    for (const phase of ["party", "done"] as const) {
+      await setPhase(ev.id, phase);
+      const res = await send(a.cookie, b.id);
+      expect(res.status, phase).toBe(409);
+      expect((res.body as unknown as { error: string }).error, phase).toBe("no_budget");
+      expect((await me(a.cookie, ev.code)).body.note.budget, phase).toEqual({ max: 2, used: 2 });
+    }
   });
 
   it("★ 횟수는 회차 설정이 정한다 — 다 쓰면 409 no_budget", async () => {
@@ -246,22 +250,27 @@ describe("보낸 쪽", () => {
 // ─────────────────────────────────────────── C. 받는 쪽
 
 describe("받는 쪽", () => {
-  it("★ 발신자는 어느 응답에도 없다 — 발표 뒤에도, 서로 콕 찌른 쌍에게도", async () => {
+  it("★ 발신자는 어느 응답에도 없다 — 발표 뒤에도, 서로 콕 찌른 쌍에게도, 발표 뒤에 보낸 것도", async () => {
     const { ev, a, b } = await party({ maxNotes: 2, allowSameGender: false });
     await send(a.cookie, b.id, "오늘 재밌게 보내세요");
     // 서로 콕 찌른 쌍으로 만든다 — 발표 뒤에 실명이 열리는 관계다 (ADR-42)
     await api("/api/poke", { method: "POST", cookie: a.cookie, body: { toId: b.id } });
     await api("/api/poke", { method: "POST", cookie: b.cookie, body: { toId: a.id } });
     await setPhase(ev.id, "done");
+    // 매칭 확인 뒤에도 쓴다 (ADR-140) — 실명을 아는 사이가 보내도 쪽지에는 이름이 붙지 않는다
+    expect((await send(a.cookie, b.id, "즐거웠어요")).status).toBe(200);
 
     const state = (await me(b.cookie, ev.code)).body;
+    expect(state.note.received.map((n) => n.text)).toEqual(["즐거웠어요", "오늘 재밌게 보내세요"]);
     const raw = JSON.stringify(state.note.received);
     expect(raw).not.toContain(a.id);
     expect(raw).not.toContain("철수");
     expect(raw).not.toContain("fromId");
     // 명단에도 매칭에도 익명 쪽지가 없다
-    expect(JSON.stringify(state.roster)).not.toContain("오늘 재밌게 보내세요");
-    expect(JSON.stringify(state.poke.matches)).not.toContain("오늘 재밌게 보내세요");
+    for (const text of ["오늘 재밌게 보내세요", "즐거웠어요"]) {
+      expect(JSON.stringify(state.roster)).not.toContain(text);
+      expect(JSON.stringify(state.poke.matches)).not.toContain(text);
+    }
   });
 
   it("★ 시각이 없다 — 받은 콕과 같다", async () => {
@@ -350,6 +359,29 @@ describe("운영자", () => {
     // 닫혀도 이미 온 것은 남는다
     expect((await me(b.cookie, ev.code)).body.note.received).toHaveLength(3);
     expect((await send(a.cookie, b.id)).status).toBe(409);
+  });
+
+  it("★ 매칭 확인 뒤에도 0 으로 끈다 — 파티가 끝난 뒤에 남는 레버는 이것 하나다 (ADR-140)", async () => {
+    /*
+     * 파티가 끝나면 *같은 방에 있다* 가 사라진다 — 받는 사람은 집에서 혼자 읽고, 말할 운영자가 곁에 없다.
+     * 그래서 끄는 길이 발표 뒤에도 그대로 살아 있어야 한다. 장 수는 굳지 않는다 (ADR-35) — 발표도 굳히지 않는다.
+     */
+    const { ev, a, b } = await party({ maxNotes: 2 });
+    await setPhase(ev.id, "done");
+    expect((await send(a.cookie, b.id)).status, "매칭 확인 뒤에도 쓴다").toBe(200);
+
+    const off = await api<EventMeta>(`/api/host/events/${ev.id}`, {
+      method: "PUT",
+      cookie: master,
+      body: { name: ev.name, config: { ...ev.config, maxNotes: 0 } },
+    });
+    expect(off.status, JSON.stringify(off.body)).toBe(200);
+
+    const res = await send(a.cookie, b.id);
+    expect(res.status).toBe(409);
+    expect((res.body as unknown as { error: string }).error).toBe("closed");
+    // 꺼도 이미 온 것은 남는다 — 온 것은 온 것이다
+    expect((await me(b.cookie, ev.code)).body.note.received).toHaveLength(1);
   });
 
   it("★ 나간 사람이 보낸 장 수는 바닥이 아니다 — 운영자 화면이 세는 것과 같다", async () => {
