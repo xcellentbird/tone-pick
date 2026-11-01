@@ -74,11 +74,12 @@ participantRoutes.get("/events/by-id/:id", async (c) => {
  * 입장 (ADR-75). `{ phone }` 이면 **묻기**, `{ phone, pin }` 이면 **들어가기**.
  *
  *   미등록          → 초대 쿠키를 심고 `{ registered: false, ref }`. 등록 폼으로 간다
+ *                     **매칭 확인 뒤에는 409 `closed`** — 새 등록이 없다. 쿠키도 안 심는다 (ADR-141)
  *   등록 · 번호만    → `{ registered: true, pin: "required" | "set" }`. 쿠키 없음 — 다음에 펼 칸만 말한다
- *   등록 · 번호+PIN  → 참가자 쿠키를 심고 `{ registered: true, code, ref }`
+ *   등록 · 번호+PIN  → 참가자 쿠키를 심고 `{ registered: true, code, ref }`. **단계를 보지 않는다** — 끝난 파티에도 들어온다
  *
  * 판정은 회차 DO 가 한다 (`enter`). 순서가 계약이다 — 회차 → 접속지 → 명단 → 잠금 → PIN 대조.
- * 실패 문구는 **일부러 셋으로 가른다** (`enterMessage`).
+ * 실패 문구는 **일부러 셋으로 가른다** (`enterMessage`). 매칭 확인 뒤의 `closed` 가 넷째다.
  *
  * **쿠키에 번호를 담지 않는다.** 세션은 서명만 하고 암호화하지 않아서 페이로드가 개발자 도구에
  * 그대로 읽힌다. 초대 쿠키는 명단 행의 내부 식별자를 들고, 번호는 회차 DO 안에서만 푼다.
@@ -106,7 +107,7 @@ participantRoutes.post("/events/:id/enter", async (c) => {
     kind: "enter",
     outcome: res.ok
       ? "ok"
-      : res.error === "too_many" || res.error === "pin_wrong" || res.error === "pin_locked"
+      : res.error === "too_many" || res.error === "pin_wrong" || res.error === "pin_locked" || res.error === "closed"
         ? res.error
         : "not_invited",
   });

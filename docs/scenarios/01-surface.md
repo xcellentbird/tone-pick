@@ -120,9 +120,11 @@ DELETE /api/host/events/:id/invites/:phone                     → Invite[]
 - `invites` 는 `HostState` 에만 실린다. 참가자 응답에는 절대 없다
 
 - 회차가 없으면 `404 { error: "not_found", message: ENTRY.notFound }`
-- `phase: "prep"` → `canRegister: false`, `message: ENTRY.notOpenYetUnknown` (되돌린 회차에서만 본다).
+- `phase: "prep"` → `canRegister: false`, `canEnter: false`, `message: ENTRY.notOpenYetUnknown` (되돌린 회차에서만 본다).
   **시각은 싣지 않는다** (ADR-38) — `regOpenAt` 은 늘 지나간 시각이라 곧 열릴 것처럼 말하게 된다
-- `phase: "done"` → `canRegister: false`, `message: ENTRY.finished`
+- `phase: "done"` → `canRegister: false`, **`canEnter: true`**, `message: ENTRY.finished` — 새 등록만 닫히고,
+  등록한 사람은 번호 + PIN 번호로 다시 들어온다 (ADR-141)
+- 그 밖의 단계 → `canRegister: true`, `canEnter: true`
 - **응답에 입장 코드·PIN·참가자 개인정보·콕 기록이 없다** (S-C2). `PublicEvent` 타입 밖의 필드를 넣지 마라
 
 ---

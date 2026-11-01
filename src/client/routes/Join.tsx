@@ -141,7 +141,12 @@ export default function Join() {
               {found.data.message && <p className="joinNote pre">{found.data.message}</p>}
             </div>
 
-            {!found.data.canRegister ? (
+            {/*
+              **문은 등록과 따로다** (`canEnter`, ADR-141). 매칭 확인 뒤에는 등록만 닫히고 `들어가기` 는 남는다 —
+              세션은 처음 들어온 브라우저에만 있어서, 폰을 바꾼 사람이 자기 결과와 쪽지로 돌아오는 길이 이것뿐이다.
+              등록하지 않은 번호는 확인창이 그 자리에서 까닭을 말한다. **`canRegister` 로 다시 묶지 마라.**
+            */}
+            {!found.data.canEnter ? (
               <button className="btn ghost block joinGo" onClick={() => navigate("/")}>
                 {BTN.home}
               </button>
@@ -151,7 +156,7 @@ export default function Join() {
                 <button className="btn primary block joinGo" onClick={() => navigate(`/j/${id}/enter`)}>
                   {ENTRY.start}
                 </button>
-                <EnterDialog open={atEnter && found.data.canRegister} eventId={id} room={found.data} />
+                <EnterDialog open={atEnter && found.data.canEnter} eventId={id} room={found.data} />
               </>
             )}
           </>

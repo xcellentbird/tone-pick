@@ -1810,7 +1810,9 @@ describe("참가 링크", () => {
    * 배너는 어느 파티인지 한 번 보여주고 버튼 하나(`들어가기`)를 둔다 — 번호는 확인창에서 받는다.
    * 확인창은 걸음을 가르지 않는다: 11자리가 차면 서버에 묻고, 등록한 번호면 PIN 칸이 그 아래로 펼쳐진다.
    */
-  const ROOM = { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true };
+  const ROOM = { id: "e1", name: "테스트 파티", phase: "reg", canRegister: true, canEnter: true };
+  /** 매칭 확인이 시작된 회차 — 새 등록은 닫히고 문은 열려 있다 (ADR-141) */
+  const DONE = { ...ROOM, phase: "done", canRegister: false, canEnter: true, message: ENTRY.finished };
   const PHONE = "01012345678";
 
   function renderJoin(at = "/j/e1") {
@@ -1838,6 +1840,8 @@ describe("참가 링크", () => {
     me?: Reply | (() => Promise<Reply>);
     probe?: (phone: string) => Reply;
     enter?: (phone: string, pin: string) => Reply;
+    /** 배너가 읽는 회차. 기본은 등록 중인 `ROOM` */
+    room?: Record<string, unknown>;
   } = {}) {
     const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
     const json = (r: Reply) =>
@@ -1856,7 +1860,7 @@ describe("참가 링크", () => {
           const res = pin === undefined ? opts.probe?.(phone) : opts.enter?.(phone, pin);
           return json(res ?? { status: 500, body: { error: "unknown" } });
         }
-        return json({ status: 200, body: ROOM });
+        return json({ status: 200, body: opts.room ?? ROOM });
       }),
     );
     return calls;
@@ -1975,6 +1979,53 @@ describe("참가 링크", () => {
     await act(async () => answer({ status: 200, body: { registered: true, pin: "required" } }));
     expect(await screen.findByLabelText(ENTRY.pin)).toBeTruthy();
     expect(screen.queryByText(ENTRY.checking)).toBeNull();
+  });
+
+  it("★ 매칭 확인 뒤에도 들어가기가 남는다 — 등록한 번호는 PIN 번호를 거쳐 자기 화면으로 간다 (ADR-141)", async () => {
+    /*
+     * 한동안 끝난 파티의 배너는 `홈으로` 하나뿐이었다 — 등록이 닫히면서 문까지 함께 닫혀,
+     * 쿠키를 잃은 사람(폰을 바꿨다, 다른 브라우저로 열었다)은 자기 결과와 쪽지를 다시 볼 길이 없었다.
+     */
+    stubGate({
+      room: DONE,
+      probe: () => ({ status: 200, body: { registered: true, pin: "required" } }),
+      enter: () => ({ status: 200, body: { registered: true, code: "ABCDEF", ref: "12ab34cd" } }),
+    });
+    renderJoin();
+    await screen.findByText("테스트 파티");
+    // 배너는 끝났다고 말한다 — 몸글은 줄을 지켜 그린다(`.pre`)
+    expect(document.querySelector(".joinNote")?.textContent).toBe(ENTRY.finished);
+    expect(screen.queryByText(BTN.home)).toBeNull();
+
+    const phone = await openGate();
+    type(phone, PHONE);
+    const pin = await screen.findByLabelText(ENTRY.pin, {}, { timeout: 2000 });
+    type(pin, "2468");
+    expect(await screen.findByText("참가자 화면")).toBeTruthy();
+  });
+
+  it("★ 매칭 확인 뒤에 등록하지 않은 번호는 그 자리에서 까닭을 말한다 — 등록 폼으로 가지 않는다 (ADR-141)", async () => {
+    stubGate({
+      room: DONE,
+      probe: () => ({ status: 409, body: { error: "closed", message: ENTRY.notRegistered } }),
+    });
+    const router = renderJoin();
+    const phone = await openGate();
+
+    type(phone, PHONE);
+    expect(await screen.findByText(ENTRY.notRegistered, {}, { timeout: 2000 })).toBeTruthy();
+    expect(router.state.location.pathname).toBe("/j/e1/enter");
+    expect(screen.queryByText(SCREEN_TITLE.register)).toBeNull();
+    // 번호 칸은 그대로다 — 다른 번호로 등록했을 수 있다
+    expect((screen.getByLabelText(ENTRY.phone) as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it("★ 문이 닫힌 회차(준비 중)에는 들어가기가 없다 — 홈으로 가기 하나다", async () => {
+    stubGate({ room: { ...ROOM, phase: "prep", canRegister: false, canEnter: false, message: ENTRY.notOpenYetUnknown } });
+    renderJoin();
+    expect(await screen.findByText(ENTRY.notOpenYetUnknown)).toBeTruthy();
+    expect(screen.queryByText(ENTRY.start)).toBeNull();
+    expect(screen.getByText(BTN.home)).toBeTruthy();
   });
 
   it("★ 아직 등록 안 한 번호는 PIN 번호 없이 등록으로 간다 (S-B1)", async () => {
