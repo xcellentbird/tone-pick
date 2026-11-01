@@ -387,10 +387,15 @@ export class EventDO extends DurableObject {
      * 그때 다시 열리는 시각은 아무도 모른다.
      */
     if (meta.phase === "prep") {
-      return ok({ ...base, canRegister: false, message: ENTRY.notOpenYetUnknown });
+      return ok({ ...base, canRegister: false, canEnter: false, message: ENTRY.notOpenYetUnknown });
     }
-    if (meta.phase === "done") return ok({ ...base, canRegister: false, message: ENTRY.finished });
-    return ok({ ...base, canRegister: true });
+    /*
+     * **매칭 확인 뒤에는 등록만 닫힌다** (ADR-141). 등록한 사람은 번호 + PIN 번호로 다시 들어온다 —
+     * 한동안 문까지 함께 닫혀서, 쿠키를 잃은 사람은 자기 결과와 쪽지를 다시 볼 길이 없었다.
+     * 판정은 `enter` 가 한다: 등록하지 않은 번호는 거기서 `closed` 다.
+     */
+    if (meta.phase === "done") return ok({ ...base, canRegister: false, canEnter: true, message: ENTRY.finished });
+    return ok({ ...base, canRegister: true, canEnter: true });
   }
 
   /** 수동 진행. 되돌리기(뒤로 가는 전환)에서는 fired 를 건드리지 않는다 (ADR-2) */
@@ -672,6 +677,12 @@ export class EventDO extends DurableObject {
         strike();
         return fail("not_invited");
       }
+      /*
+       * **매칭 확인 뒤에는 새 등록이 없다** (ADR-141) — 문은 등록한 사람에게만 열려 있다.
+       * 초대 쿠키를 심지 않는다: 심으면 화면이 등록 폼으로 가고, 폼이 그제야 닫혔다고 답한다.
+       * 접속지 시도로 세지 않는다 — 명단에 있다는 답은 아래 초대 갈래와 같은 값이다
+       */
+      if (meta.phase === "done") return fail("closed");
       // 여기서는 아무것도 지우지 않는다 — 명단에 있다는 답은 누구나 받을 수 있다. 아는 번호 하나가 되감개가 된다
       return ok({ kind: "invited", token: inv.token });
     }

@@ -10,7 +10,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { ENTRY } from "../src/shared/copy.ts";
 import { ENTRY_TRIES, PIN as PIN_RULE } from "../src/shared/constants.ts";
 import type { HostState, ParticipantState, PublicEvent, RegisterInput, RegisterResult } from "../src/shared/types.ts";
-import { PIN, api, enter, freshEvent, invite, join, master, nextPhone, person, signInMaster } from "./helpers/party.ts";
+import { PIN, api, enter, freshEvent, invite, join, master, nextPhone, person, setPhase, signInMaster } from "./helpers/party.ts";
 
 beforeAll(signInMaster);
 
@@ -244,6 +244,44 @@ describe("A. 문", () => {
     const back = await enter(ev.id, me.phone, me.pin);
     expect(back.status, JSON.stringify(back.body)).toBe(200);
     expect(back.body.registered).toBe(true);
+  });
+
+  it("★ 매칭 확인 뒤에도 등록한 사람은 번호 + PIN 번호로 다시 들어온다 — 문은 새 등록만 닫는다 (ADR-141)", async () => {
+    /*
+     * 세션은 처음 들어온 브라우저에만 있다. 폰을 바꾸거나, 카톡 안에서 열던 링크를 다른 브라우저로 열면 쿠키가 없다 —
+     * 파티가 끝났다고 그 사람이 자기 결과와 쪽지를 다시 못 보면 안 된다 (쪽지는 매칭 확인 뒤에도 온다, ADR-140).
+     */
+    const ev = await freshEvent();
+    const me = await join(ev);
+    await setPhase(ev.id, "done");
+
+    const probe = await enter(ev.id, me.phone);
+    expect(probe.status, JSON.stringify(probe.body)).toBe(200);
+    expect(probe.body.pin).toBe("required");
+
+    const back = await enter(ev.id, me.phone, me.pin);
+    expect(back.status, JSON.stringify(back.body)).toBe(200);
+    expect(back.body.code).toBe(ev.code);
+    const state = await api<ParticipantState>(`/api/me?event=${ev.id}`, { cookie: back.cookie });
+    expect(state.status).toBe(200);
+    expect(state.body.me.id).toBe(me.id);
+    expect(state.body.event.phase).toBe("done");
+  });
+
+  it("★ 매칭 확인 뒤에 등록하지 않은 번호는 409 — 등록 폼으로 보내지 않고, 초대 쿠키도 심지 않는다 (ADR-141)", async () => {
+    const ev = await freshEvent();
+    const phone = nextPhone();
+    await invite(ev.id, phone);
+    await setPhase(ev.id, "done");
+
+    const res = await enter(ev.id, phone);
+    expect(res.status).toBe(409);
+    expect(res.cookie, "초대 쿠키가 심기면 화면이 등록 폼으로 간다").toBeNull();
+    expect((res.body as unknown as { message: string }).message).toBe(ENTRY.notRegistered);
+    // 명단에 없는 번호는 그대로 `초대된 번호가 아니에요` 다 — 넷째 문구가 셋을 뭉개지 않는다 (S-A8)
+    const stranger = await enter(ev.id, nextPhone());
+    expect(stranger.status).toBe(403);
+    expect((stranger.body as unknown as { message: string }).message).toBe(ENTRY.notInvited);
   });
 });
 

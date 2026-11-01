@@ -37,11 +37,14 @@ export function noteMessage(error: string, detail?: number): string | undefined 
 /**
  * 문 앞의 실패 문구 (ADR-75). **셋을 일부러 가른다** — 회차 없음 · 명단에 없음 · PIN 번호 틀림.
  * 뭉개면 번호를 잘못 친 사람이 PIN 번호를 계속 다시 쳐서 잠금에 걸린다.
+ * **매칭 확인 뒤에는 넷째가 선다** (ADR-141) — 명단에는 있는데 등록하지 않은 번호(`closed`).
+ * 문은 등록한 사람에게만 열려 있다. `초대된 번호가 아니에요` 로 뭉개면 명단을 의심하게 된다.
  * `detail` 은 PIN 번호가 틀렸을 때 남은 횟수다.
  */
 export function enterMessage(error: string, detail?: number): string | undefined {
   if (error === "not_found") return ENTRY.notFound;
   if (error === "not_invited") return ENTRY.notInvited;
+  if (error === "closed") return ENTRY.notRegistered;
   if (error === "too_many") return ENTRY.tooMany;
   if (error === "pin_wrong") return ENTRY.pinWrong(detail ?? 0);
   if (error === "pin_locked") return ENTRY.pinLocked;

@@ -54,6 +54,8 @@ export interface PublicEvent {
   phase: Phase;
   partyAt?: number;
   canRegister: boolean;
+  /** 문이 열려 있나 (ADR-141). 등록과 따로다 — 매칭 확인 뒤에는 등록만 닫히고 문은 열려 있다 */
+  canEnter: boolean;
   message?: string;
   nickHint?: string;
   // registered?: boolean  ← 지운다

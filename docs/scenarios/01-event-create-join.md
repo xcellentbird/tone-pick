@@ -248,6 +248,8 @@ Given  회차 phase 가 "done" 이다
 When   그 코드로 조회한다
 Then   등록 불가로 응답하고 메시지는 ENTRY.finished 다
 ```
+> **문은 열려 있다** (`canEnter: true`, ADR-141) — 닫히는 것은 새 등록뿐이고, 등록한 사람은 번호 + PIN 번호로 다시 들어온다.
+> 시험은 `test/01-event-create-join.test.ts` 의 S-C5 와 `test/15-pin-entry.test.ts` 가 본다 (시나리오 15 S-A11 · S-A12).
 
 ### S-C6 코드는 대소문자를 가리지 않는다 — **폐기** (코드 조회가 없다)
 ```
