@@ -20,8 +20,11 @@ import type { Env } from "./http.ts";
 
 /** 재는 것. 늘리기 전에 위의 경계를 다시 읽어라 */
 export type Metric =
-  /** 입장 시도의 끝. 명단 문제가 조용히 쌓이는 걸 여기서 본다 */
-  | { kind: "enter"; outcome: "ok" | "not_invited" | "too_many" | "pin_wrong" | "pin_locked" }
+  /**
+   * 입장 시도의 끝. 명단 문제가 조용히 쌓이는 걸 여기서 본다.
+   * `closed` 는 매칭 확인 뒤에 들어오려던, 명단에는 있고 등록하지 않은 번호다 (ADR-141) — 명단 문제가 아니라 따로 센다
+   */
+  | { kind: "enter"; outcome: "ok" | "not_invited" | "too_many" | "pin_wrong" | "pin_locked" | "closed" }
   /** 운세·미션이 규칙 문구로 떨어졌나. LLM 이 조용히 죽어도 화면은 멀쩡히 뜬다 */
   | { kind: "fortune"; outcome: "llm" | "fallback" }
   /** 이상형 찾기의 설명글(ADR-134)이 나왔나, 고른 얼굴의 낱말로 쓴 글로 떨어졌나. 운세와 같은 까닭으로 센다 — 글도 연예인도 담지 않는다 */

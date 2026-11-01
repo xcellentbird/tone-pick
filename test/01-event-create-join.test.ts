@@ -266,6 +266,7 @@ describe("B. 회차 생성", () => {
     // And   링크로 즉시 입장할 수 있다
     const pub = await api<PublicEvent>(await linkTo(res.body.id));
     expect(pub.body.canRegister).toBe(true);
+    expect(pub.body.canEnter).toBe(true);
   });
 
   it("S-B5 ★ 예약은 한 번만 울린다", async () => {
@@ -535,11 +536,13 @@ describe("C. 입장 코드", () => {
     const res = await api<PublicEvent>(await linkTo(ev.body.id));
     // Then  등록 불가이고, **시각은 말하지 않는다** (ADR-38 — regOpenAt 은 늘 지나간 시각이다)
     expect(res.body.canRegister).toBe(false);
+    // And   문도 닫혀 있다 — 매칭 확인 뒤와 달리 들어가서 볼 것이 아직 없다 (ADR-141)
+    expect(res.body.canEnter).toBe(false);
     expect(res.body.message).toBe(ENTRY.notOpenYetUnknown);
     expect(res.body.message).not.toMatch(/부터 등록이 열려요/);
   });
 
-  it("S-C5 종료된 회차는 닫혔다고 알려준다", async () => {
+  it("S-C5 ★ 종료된 회차는 등록이 닫혔다고 알려준다 — 문은 열려 있다 (ADR-141)", async () => {
     // Given 발표까지 끝난 회차가 있다
     const ev = await createEvent(master, { prevoteAt: Date.now() + HOUR });
     const done = await api(`/api/host/events/${ev.body.id}/phase`, {
@@ -553,6 +556,9 @@ describe("C. 입장 코드", () => {
     // Then  등록 불가이고 메시지는 ENTRY.finished 다
     expect(res.body.canRegister).toBe(false);
     expect(res.body.message).toBe(ENTRY.finished);
+    // And   등록한 사람이 다시 들어오는 문은 열려 있다 (ADR-141) — 한동안 등록과 함께 닫혀서,
+    //       쿠키를 잃은 사람은 자기 결과와 쪽지를 다시 볼 길이 없었다
+    expect(res.body.canEnter).toBe(true);
   });
 
 });
